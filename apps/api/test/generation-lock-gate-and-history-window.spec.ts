@@ -53,7 +53,9 @@ function buildFullMocks(overrides: { activePlanStartDate?: Date | null } = {}) {
       }),
     },
     fitnessTest: { findFirst: jest.fn().mockResolvedValue(null) },
-    weeklyAvailability: { findMany: jest.fn().mockResolvedValue([]) },
+    // Rotina cadastrada com um dia de treino (a geracao exige rotina: nao ha mais dias fixos de reserva). A revisao e' lida de weeklyRoutineState (null = legado, revisao 0).
+    weeklyAvailability: { findMany: jest.fn().mockResolvedValue([{ weekday: 1, modalities: ['corrida'], availableMin: 30, noTraining: false }]) },
+    weeklyRoutineState: { findUnique: jest.fn().mockResolvedValue(null) },
     onboardingInterview: {
       findUnique: jest.fn().mockResolvedValue({ completedAt: new Date('2026-08-01T00:00:00.000Z'), answers: {} }),
     },
@@ -195,7 +197,7 @@ describe('item 02 — trava de concorrencia no BANCO (generateWeek publico) + at
 
     expect(result).toEqual({ ok: true });
     expect(prisma.trainingPlanGenerationLock.create).toHaveBeenCalledWith({ data: { userId: 'u1' } });
-    expect(locked).toHaveBeenCalledWith('u1', undefined, undefined);
+    expect(locked).toHaveBeenCalledWith('u1', undefined);
     expect(prisma.trainingPlanGenerationLock.delete).toHaveBeenCalledWith({ where: { userId: 'u1' } });
   });
 
@@ -237,9 +239,8 @@ describe('item 02 — trava de concorrencia no BANCO (generateWeek publico) + at
 describe('item 02 — arquivar + criar + migrar sessoes vira UMA transacao atomica (nunca 3 writes soltos)', () => {
   it('generateWeekLocked chama archive/create/migrate dentro do MESMO this.prisma.$transaction, na ordem certa, e so notifica DEPOIS dela commitar', async () => {
     const { service, prisma } = buildFullMocks({ activePlanStartDate: new Date('2026-09-21T00:00:00.000Z') });
-    // Rotina SEM nenhuma modalidade — evita cair no fallback padrao hardcoded (que tem
-    // forca/corrida) e exigir uma RunSessionDecision/StrengthSessionDecision correspondente do
-    // "agente" mockado. O que importa neste teste e' o CICLO DE ESCRITA (archive->create->migrate
+    // Rotina SEM nenhuma modalidade — evita exigir uma RunSessionDecision/StrengthSessionDecision correspondente do
+    // "agente" mockado (nao existe mais fallback de dias fixos). O que importa neste teste e' o CICLO DE ESCRITA (archive->create->migrate
     // dentro da mesma transacao), nao o conteudo prescrito.
     (prisma.weeklyAvailability.findMany as jest.Mock).mockResolvedValue([{ weekday: 1, modalities: [], availableMin: 30, noTraining: false }]);
 
@@ -279,6 +280,10 @@ describe('item 02 — arquivar + criar + migrar sessoes vira UMA transacao atomi
       trainingPlan: { updateMany: txUpdateMany, create: txCreate, findUniqueOrThrow: jest.fn().mockResolvedValue(createdPlan) },
       trainingSession: { updateMany: txSessionUpdateMany },
       activityLog: { findMany: jest.fn().mockResolvedValue([]) }, // proveniencia dos agregados (rastreabilidade)
+      // a publicacao confere (com a trava de rotina) que a rotina nao mudou durante a geracao
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      weeklyRoutineState: { findUnique: jest.fn().mockResolvedValue(null) },
+      weeklyAvailability: { findMany: jest.fn().mockResolvedValue([{ weekday: 1, modalities: [], availableMin: 30, noTraining: false }]) },
     };
     const transactionSpy = jest.fn().mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(tx));
     (prisma as unknown as { $transaction: unknown }).$transaction = transactionSpy;

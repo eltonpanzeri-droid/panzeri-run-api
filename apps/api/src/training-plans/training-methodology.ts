@@ -459,3 +459,8 @@ export function hasSafetyConcern(answers: Record<string, unknown>) {
   return pain || injury.includes('limitacoes') || injury.includes('limitações');
 }
 
+
+// (26/10/2026) Chave de resposta que pertence a ROTINA (nunca a entrevista): usada para recusar a gravacao de respostas de rotina em /me/onboarding/answer.
+export function isRoutineAnswerKey(key: string): boolean {
+  return ROUTINE_STATIC_KEYS.has(key) || ROUTINE_PER_DAY_KEYS.has(key);
+}

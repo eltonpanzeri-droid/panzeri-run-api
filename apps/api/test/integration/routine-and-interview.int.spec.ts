@@ -62,21 +62,6 @@ describe('rotina, entrevista, objetivo e relatos (PostgreSQL real)', () => {
     expect(validation(UpdateAnamneseDto, { ...body, health: { ...body.health, activityLevel: 'ativa' } }).length).toBeGreaterThan(0);
   });
 
-  it('alterar so a rotina (PUT /me/availability): so a WeeklyAvailability muda; saude historica, programa entregue e sessoes ficam intactos e nada e regenerado', async () => {
-    const s = await student('rotina');
-    await prisma.healthProfile.create({ data: { userId: s.userId, averageSleep: 'Entre 6 e 7 horas', stressLevel: '7/10', anxietyLevel: '4/10' } });
-    await prisma.weeklyAvailability.create({ data: { userId: s.userId, weekday: 1, noTraining: false, modalities: ['corrida'], availableMin: 40, modalityDurations: { corrida: 40 } } });
-    const sessionsBefore = await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } });
-    const result = await me.updateAvailability(s.userId, { availability: [day(1), day(3, { modalities: ['forca'], modalityDurations: { forca: 50 }, availableMin: 50 })] } as never);
-    expect(result.routineChanged).toBe(true);
-    expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId }, orderBy: { weekday: 'asc' } })).map((d) => [d.weekday, d.modalities])).toEqual([[1, ['corrida']], [3, ['forca']]]);
-    const health = await prisma.healthProfile.findUniqueOrThrow({ where: { userId: s.userId } });
-    expect([health.averageSleep, health.stressLevel, health.anxietyLevel]).toEqual(['Entre 6 e 7 horas', '7/10', '4/10']);
-    expect(await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } })).toEqual(sessionsBefore); // treinos ja entregues: identicos
-    expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
-    expect(await prisma.trainingPlan.count({ where: { userId: s.userId, status: 'active' } })).toBeGreaterThanOrEqual(0);
-  });
-
   it('salvamento composto SEM rotina (perfil/saude/preferencias): a WeeklyAvailability atual nao e tocada', async () => {
     const s = await student('composto');
     await prisma.weeklyAvailability.create({ data: { userId: s.userId, weekday: 2, noTraining: false, modalities: ['forca'], availableMin: 60, modalityDurations: { forca: 60 } } });
@@ -87,52 +72,6 @@ describe('rotina, entrevista, objetivo e relatos (PostgreSQL real)', () => {
     } as never);
     expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId } })).map((d) => [d.weekday, d.modalities])).toEqual([[2, ['forca']]]);
     expect((await prisma.healthProfile.findUniqueOrThrow({ where: { userId: s.userId } })).stressLevel).toBe('7/10'); // valor historico preservado, sem conversao
-  });
-
-  it('tela da entrevista com rotina JA existente: as respostas antigas NAO a sobrescrevem; observacao sobre a rotina vai ao fluxo de relatos UMA vez, mesmo reenviada', async () => {
-    const s = await student('entrevista');
-    await prisma.weeklyAvailability.create({ data: { userId: s.userId, weekday: 5, noTraining: false, modalities: ['corrida'], availableMin: 40, modalityDurations: { corrida: 40 } } }); // rotina atual (ex.: editada pelo treinador)
-    await prisma.onboardingInterview.create({ data: { userId: s.userId, answers: routineAnswers({ routine_observation: 'Ja treino musculacao em outra academia' }), completedAt: new Date('2026-08-01T00:00:00Z') } });
-    const first = await me.completeRoutineFromInterview(s.userId, true);
-    expect(first).toMatchObject({ synced: false, preserved: true });
-    expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId } })).map((d) => d.weekday)).toEqual([5]); // nada de seg/qua/sab da entrevista antiga
-    const entries = await prisma.studentReportEntry.findMany({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } });
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({ originalText: 'Ja treino musculacao em outra academia', userId: s.userId });
-    expect(entries[0].occurredAt).toBeInstanceOf(Date);
-    await new Promise((resolve) => setTimeout(resolve, 100)); // a analise do Relator roda em segundo plano
-    expect(relator.analyze).toHaveBeenCalledTimes(1); // segue ao Relator existente
-    expect(profileEvents.filter((e) => e.code === 'STUDENT_OBSERVATION')).toHaveLength(1);
-    await me.completeRoutineFromInterview(s.userId, true); // mesma resposta reenviada sem alteracao
-    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(1);
-    expect(profileEvents.filter((e) => e.code === 'STUDENT_OBSERVATION')).toHaveLength(1);
-    // texto alterado => novo relato (historico preservado, nada apagado)
-    await prisma.onboardingInterview.update({ where: { userId: s.userId }, data: { answers: routineAnswers({ routine_observation: 'Mudei de emprego, treino so de manha' }) } });
-    await me.completeRoutineFromInterview(s.userId, true);
-    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2);
-  });
-
-  it('observacao ao editar a rotina por PUT /me/availability chega ao fluxo de relatos (Relator/Prontuario) uma vez; texto novo gera novo relato; sem texto, nada e registrado; rotina e programa intactos', async () => {
-    const s = await student('obs-edicao');
-    const sessionsBefore = await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } });
-    const body = { availability: [day(2)], observation: '  Faco musculacao em outra academia  ' };
-    expect(validation(UpdateAvailabilityDtoClass, body)).toHaveLength(0);
-    expect(validation(UpdateAvailabilityDtoClass, { ...body, observation: 'x'.repeat(2001) }).length).toBeGreaterThan(0);
-    await me.updateAvailability(s.userId, body as never);
-    await me.updateAvailability(s.userId, body as never); // mesma edicao reenviada
-    const entries = await prisma.studentReportEntry.findMany({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } });
-    expect(entries.map((e) => e.originalText)).toEqual(['Faco musculacao em outra academia']); // texto original (sem espacos extras), uma vez
-    expect(entries[0]).toMatchObject({ userId: s.userId, relatedLabel: 'Rotina semanal' });
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(relator.analyze).toHaveBeenCalledWith(expect.objectContaining({ originalText: 'Faco musculacao em outra academia', sourceType: 'onboarding_interview_routine_note' })); // segue ao Relator existente
-    expect(profileEvents.filter((e) => e.code === 'STUDENT_OBSERVATION')).toHaveLength(1);
-    await me.updateAvailability(s.userId, { availability: [day(2)], observation: 'Agora treino so de manha' } as never);
-    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2); // historico preservado
-    await me.updateAvailability(s.userId, { availability: [day(2)] } as never); // sem observacao
-    expect(await prisma.studentReportEntry.count({ where: { userId: s.userId, sourceType: 'onboarding_interview_routine_note' } })).toBe(2);
-    expect((await me.availability(s.userId)).map((d) => d.weekday)).toEqual([2]);
-    expect(await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } })).toEqual(sessionsBefore);
-    expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
   });
 
   it('reconclusao da entrevista NAO sobrescreve experiencia, modalidades, objetivo nem locais atualizados depois; a 1a conclusao projeta normalmente', async () => {
@@ -192,38 +131,6 @@ describe('rotina, entrevista, objetivo e relatos (PostgreSQL real)', () => {
     expect(await prisma.trainingPlan.findMany({ where: { userId: s.userId } })).toEqual(planBefore);
     expect(await prisma.trainingSession.findMany({ where: { userId: s.userId }, orderBy: { id: 'asc' } })).toEqual(sessionsBefore);
     expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
-  });
-
-  it('primeira rotina (sem WeeklyAvailability): continua sendo criada a partir das respostas da rotina', async () => {
-    const s = await student('primeira');
-    await prisma.onboardingInterview.create({ data: { userId: s.userId, answers: routineAnswers(), completedAt: new Date('2026-10-01T00:00:00Z') } });
-    const result = await me.completeRoutineFromInterview(s.userId, true);
-    expect(result).toMatchObject({ synced: true, days: 3 });
-    expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId, noTraining: false } })).map((d) => d.weekday).sort()).toEqual([1, 3, 6]);
-  });
-
-  it('reparo do treinador: previa por padrao (nada e gravado) e so substitui com dryRun=false', async () => {
-    const s = await student('reparo');
-    await prisma.weeklyAvailability.create({ data: { userId: s.userId, weekday: 5, noTraining: false, modalities: ['corrida'], availableMin: 40, modalityDurations: { corrida: 40 } } });
-    await prisma.onboardingInterview.create({ data: { userId: s.userId, answers: routineAnswers(), completedAt: new Date('2026-10-01T00:00:00Z') } });
-    const preview = await me.syncAvailabilityFromInterview(s.userId, false, true, { dryRun: true, force: true });
-    expect(preview).toMatchObject({ dryRun: true, changed: true });
-    expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId } })).map((d) => d.weekday)).toEqual([5]);
-    await me.syncAvailabilityFromInterview(s.userId, false, true, { dryRun: false, force: true });
-    expect((await prisma.weeklyAvailability.findMany({ where: { userId: s.userId, noTraining: false } })).map((d) => d.weekday).sort()).toEqual([1, 3, 6]);
-  });
-
-  it('treinador edita a rotina: o aluno ve a mesma WeeklyAvailability; as respostas da entrevista (historico) NAO sao reescritas; nada e regenerado alem da 1a semana', async () => {
-    const s = await student('treinador');
-    const interviewAnswers = routineAnswers();
-    await prisma.onboardingInterview.create({ data: { userId: s.userId, answers: interviewAnswers, completedAt: new Date('2026-10-01T00:00:00Z') } });
-    const coach = Object.create(CoachService.prototype) as CoachService & Record<string, unknown>;
-    Object.assign(coach, { prisma, trainingPlans, assertStudent: async () => undefined, logger: { warn: jest.fn() } });
-    await coach.updateStudentAvailability(s.userId, { availability: [day(4, { modalities: ['forca'], modalityDurations: { forca: 45 }, availableMin: 45 })], applyNow: true } as never);
-    expect((await me.availability(s.userId)).map((d) => [d.weekday, d.modalities])).toEqual([[4, ['forca']]]);
-    expect((await prisma.onboardingInterview.findUniqueOrThrow({ where: { userId: s.userId } })).answers).toEqual(interviewAnswers); // historico intacto
-    expect(trainingPlans.generateWeek).not.toHaveBeenCalled();
-    expect(trainingPlans.generateFirstWeekIfNeeded).toHaveBeenCalledTimes(1); // so' gera se ainda nao houver programa (gate interno)
   });
 
   it('refazer a entrevista (assinante com rotina e programa): nao regenera nem arquiva treinos; objetivo atual nao volta ao antigo; additional_info segue ao Relator uma vez', async () => {

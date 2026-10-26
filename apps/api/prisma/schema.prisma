@@ -98,6 +98,8 @@ model User {
   healthProfile         HealthProfile?
   preferences           UserPreferences?
   availability          WeeklyAvailability[]
+  routineState          WeeklyRoutineState?
+  routineChanges        WeeklyRoutineChange[]
   tests                 FitnessTest[]
   plans                 TrainingPlan[]
   workouts              WorkoutCompletion[]
@@ -403,6 +405,34 @@ model WeeklyAvailability {
   updatedAt         DateTime @updatedAt
 
   @@unique([userId, weekday])
+}
+
+// Estado e revisao da ROTINA (26/10/2026). A rotina vigente continua sendo WeeklyAvailability (uma linha por dia); esta tabela so' diz (1) se a rotina foi CADASTRADA
+// (uma semana inteira de descanso e' uma rotina valida: existe `configuredAt`, mesmo sem nenhum dia ativo) e (2) a REVISAO da semana, para barrar escrita obsoleta
+// (controle otimista). Nao guarda dias: nunca e' uma segunda fonte da rotina. Sem linha aqui, a rotina conta como cadastrada se houver linhas em WeeklyAvailability
+// (alunos legados, revisao 0) e como nunca cadastrada se nao houver nenhuma.
+model WeeklyRoutineState {
+  userId       String   @id
+  user         User     @relation(fields: [userId], references: [id])
+  revision     Int      @default(0)
+  configuredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Historico append-only das alteracoes da rotina (antes/depois minimizados: so' dias, modalidades e minutos; nenhum texto livre, nome ou conversa). Responde "quem
+// trocou a versao X pela Y": origem (student | coach | merge | ...), ator (id) e a revisao resultante. Nunca e' lido para reconstruir a rotina.
+model WeeklyRoutineChange {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  revision  Int
+  source    String
+  actorId   String?
+  before    Json
+  after     Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, revision])
 }
 
 model FitnessTest {

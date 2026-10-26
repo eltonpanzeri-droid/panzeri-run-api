@@ -29,7 +29,8 @@ import { formatStudentCode } from '../billing/telegram.service';
 import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-scheduler.service';
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
-import { validateAvailability } from '../me/availability.rules';
+import { RoutineService } from '../me/routine.service';
+import { readRoutineState } from '../common/routine-state';
 import { satisfactionLabel, cargaLabel, SATISFACTION_SCORE, CARGA_SCORE } from '../workout-completions/workout-completions.service';
 import { NotificationTriggersService } from '../messaging/notification-triggers.service';
 import { computeProspectLevel } from '../messaging/prospect-level';
@@ -70,6 +71,8 @@ export class CoachService {
     private readonly identityConfirmation?: IdentityConfirmationService,
     // Detalhe do treino do relogio no painel do dia (Fase 3 do calendario). Opcional so' para testes antigos; em producao e' sempre injetado.
     private readonly activityDetail?: ActivityDetailService,
+    // Comando unico de gravacao da rotina (26/10/2026). Ultimo parametro e opcional so' para testes antigos que constroem o servico por posicao; em producao e' sempre injetado.
+    private readonly routine?: RoutineService,
   ) {}
 
   // Passo 5 (continuacao) — lista leve de TODOS os alunos ativos (id/nome/codigo), sem paginacao —
@@ -873,11 +876,15 @@ export class CoachService {
       throw new BadRequestException('Esta conta ja tem uma entrevista concluida. Resolva manualmente antes de mesclar.');
     }
 
-    const [existingHealth, existingPreferences, existingAvailability] = await Promise.all([
+    const [existingHealth, existingPreferences, existingAvailability, targetRoutineState, sourceRoutineState] = await Promise.all([
       this.prisma.healthProfile.findUnique({ where: { userId: targetId } }),
       this.prisma.userPreferences.findUnique({ where: { userId: targetId } }),
       this.prisma.weeklyAvailability.findMany({ where: { userId: targetId }, select: { id: true } }),
+      this.prisma.weeklyRoutineState.findUnique({ where: { userId: targetId }, select: { revision: true } }),
+      this.prisma.weeklyRoutineState.findUnique({ where: { userId: source.id }, select: { revision: true } }),
     ]);
+    // A revisao da rotina nunca regride na mesclagem: um cliente que abriu a rotina antes continua recebendo 409.
+    const mergedRoutineRevision = (targetRoutineState?.revision ?? 0) + (sourceRoutineState?.revision ?? 0) + 1;
 
     await this.prisma.$transaction([
       ...(existingInterview ? [this.prisma.onboardingInterview.delete({ where: { userId: targetId } })] : []),
@@ -887,7 +894,12 @@ export class CoachService {
       this.prisma.onboardingInterview.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
       this.prisma.healthProfile.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
       this.prisma.userPreferences.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      // Rotina = linhas + estado/revisao: acompanham a origem (o destino descarta as suas linhas, como ja' fazia). O historico (append-only) de AMBAS fica com o destino e a
+      // revisao e' sempre maior que as duas anteriores.
+      this.prisma.weeklyRoutineState.deleteMany({ where: { userId: targetId } }),
       this.prisma.weeklyAvailability.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
+      this.prisma.weeklyRoutineState.updateMany({ where: { userId: source.id }, data: { userId: targetId, revision: mergedRoutineRevision } }),
+      this.prisma.weeklyRoutineChange.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
       this.prisma.fitnessTest.updateMany({ where: { userId: source.id }, data: { userId: targetId } }),
       this.prisma.user.update({ where: { id: source.id }, data: { accountStatus: 'archived', refreshTokenHash: null } }),
     ]);
@@ -899,7 +911,7 @@ export class CoachService {
 
   async regenerateStudentWeek(studentId: string, allowToday?: boolean) {
     await this.assertStudent(studentId);
-    await this.trainingPlans.generateWeek(studentId, undefined, { allowToday });
+    await this.trainingPlans.generateWeek(studentId, { allowToday });
     return { message: 'Nova semana de treinos gerada.' };
   }
 
@@ -913,13 +925,6 @@ export class CoachService {
     return this.trainingPlans.grantExtraGenerationAttempt(studentId);
   }
 
-  // Reparo EXPLICITO do treinador: reconstroi a rotina a partir das respostas HISTORICAS da entrevista. Previa por padrao (dryRun): so' grava com dryRun=false.
-  // Nunca roda sozinho: a rotina atual (WeeklyAvailability) so' e' substituida por decisao do treinador depois de ver a diferenca.
-  async syncStudentAvailability(studentId: string, dryRun = true) {
-    await this.assertStudent(studentId);
-    return this.meService.syncAvailabilityFromInterview(studentId, false, true, { dryRun, force: true });
-  }
-
   // Botao "Editar rotina" no painel — pedido explicito do treinador (03/08, caso da Roberta): ele
   // precisa poder corrigir a rotina de um aluno na hora, sem depender do proprio aluno acertar
   // isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so pro aluno; o
@@ -929,47 +934,18 @@ export class CoachService {
   // rotina nova) ou so deixar salvo pra valer na proxima geracao automatica de domingo, igual a
   // quando o proprio aluno pede a mudanca — default true, pra nao mudar o comportamento de quem
   // ja usava esse botao esperando efeito imediato.
-  async updateStudentAvailability(studentId: string, dto: UpdateStudentAvailabilityDto) {
+  async updateStudentAvailability(studentId: string, dto: UpdateStudentAvailabilityDto, actorId?: string) {
     await this.assertStudent(studentId);
-    validateAvailability(dto.availability);
     const applyNow = dto.applyNow ?? true;
-
-    // BUG REAL 04/08: esse metodo so gravava WeeklyAvailability, nunca a copia que a entrevista
-    // guarda (${dia}_run_time etc.). Como a tela "Rotina de treinos" do aluno LE dessa copia da
-    // entrevista pra decidir o que salvar (buildInterviewAvailability), qualquer coisa que
-    // reabrisse aquela tela — ou o proprio aluno so confirmando sem mudar nada — sobrescrevia
-    // silenciosamente a correcao manual do treinador com os dados antigos da entrevista. Mesmo
-    // sync que updateAvailability ja fazia, agora replicado aqui.
-    // (10/2026) As respostas da entrevista sao HISTORICO: editar a rotina NAO as reescreve (antes, a copia {dia}_run_time etc. era regravada aqui). O painel e os
-    // agentes leem a rotina atual de WeeklyAvailability.
-    await this.prisma.$transaction([
-      this.prisma.weeklyAvailability.deleteMany({ where: { userId: studentId } }),
-      ...dto.availability.map((day) =>
-        this.prisma.weeklyAvailability.create({
-          data: {
-            userId: studentId,
-            weekday: day.weekday,
-            noTraining: day.noTraining,
-            modalities: day.noTraining ? [] : day.modalities,
-            availableMin: day.noTraining ? 0 : day.availableMin,
-            modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
-          },
-        }),
-      ),
-    ]);
-
-    // Mesmo gate de pagamento das outras rotas de rotina — nunca gera pra quem ainda nao pagou,
-    // mesmo que o ajuste tenha sido feito pelo treinador.
-    const student = await this.prisma.user.findUnique({ where: { id: studentId }, select: { name: true, studentCode: true, subscriptionStatus: true } });
-    // (10/2026) REGRA ABSOLUTA: salvar rotina nunca regenera nem substitui treinos ja entregues. applyNow so' gera a PRIMEIRA semana (quem ainda nao tem programa);
-    // para quem ja tem programa, a rotina vale na proxima geracao (o treinador pode usar "Refazer nova semana" de forma explicita e separada).
-    if (applyNow && student && hasSubscriptionAccess(student.subscriptionStatus)) {
-      void this.trainingPlans.generateFirstWeekIfNeeded(studentId).catch((error) => {
-        this.logger.warn(`generateFirstWeekIfNeeded apos updateStudentAvailability (treinador) falhou para ${studentId} (nao bloqueante): ${(error as Error).message}`);
-      });
+    // (26/10/2026) Comando UNICO de rotina (RoutineService): mesma validacao, revisao e historico do aluno. Com a rotina ja' cadastrada a revisao carregada no painel e' obrigatoria:
+    // escrever sobre uma versao mais nova recebe 409 (nunca sobrescreve). As respostas da entrevista sao HISTORICO e nunca sao lidas nem reescritas aqui.
+    const current = await readRoutineState(this.prisma, studentId);
+    if (current.configured && dto.expectedRevision == null) {
+      throw new BadRequestException({ code: 'routine_revision_required', message: 'Recarregue o aluno no painel antes de salvar a rotina (versao da rotina ausente).' });
     }
-
-    return this.prisma.weeklyAvailability.findMany({ where: { userId: studentId }, orderBy: { weekday: 'asc' } });
+    // applyNow so' gera a PRIMEIRA semana (quem ainda nao tem programa), e so' para quem tem acesso; nunca regenera nem substitui treinos ja' entregues.
+    if (!this.routine) throw new Error('RoutineService nao disponivel.');
+    return this.routine.replaceWeek(studentId, dto.availability, { expectedRevision: dto.expectedRevision ?? null, source: 'coach', actorId: actorId ?? null, skipFirstGeneration: !applyNow });
   }
 
   async runDatabaseBackup() {
@@ -1650,6 +1626,7 @@ export class CoachService {
     // disparada pelo aluno ou antes de recarregar a pagina. Trava mais velha que o teto de uma geracao (10 min) e' tratada como morta.
     const generationLock = await this.prisma.trainingPlanGenerationLock.findUnique({ where: { userId: studentId } }).catch(() => null);
     const generationInProgress = Boolean(generationLock && Date.now() - generationLock.startedAt.getTime() < 10 * 60 * 1000);
+    const routineState = await readRoutineState(this.prisma, studentId);
     const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -1759,6 +1736,7 @@ export class CoachService {
         otherModalities: student.preferences?.otherModalities ?? [],
         trainingLocations: student.preferences?.trainingLocations ?? [],
       },
+      routine: { configured: routineState.configured, revision: routineState.revision, allRest: routineState.allRest },
       availability: student.availability.map((day: any) => ({
         weekday: day.weekday,
         noTraining: day.noTraining,

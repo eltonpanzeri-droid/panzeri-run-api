@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsOptional, Min, ValidateNested } from 'class-validator';
 import { AvailabilityDayDto } from '../../me/dto/update-availability.dto';
 
 export class UpdateStudentAvailabilityDto {
@@ -14,4 +14,10 @@ export class UpdateStudentAvailabilityDto {
   @IsOptional()
   @IsBoolean()
   applyNow?: boolean;
+
+  // (26/10/2026) Revisao da rotina carregada no painel. Obrigatoria quando a rotina ja' esta cadastrada (senao 400): protege contra sobrescrever uma alteracao mais recente.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  expectedRevision?: number;
 }

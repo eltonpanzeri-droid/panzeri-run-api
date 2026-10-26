@@ -7,6 +7,7 @@ import { LEGAL_VERSION } from '../legal/legal-content';
 import * as bcrypt from 'bcryptjs';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { readRoutineState } from '../common/routine-state';
 import { LoginDto } from './dto/login.dto';
 import { AcquisitionAttributionDto, RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
@@ -132,7 +133,7 @@ export class AuthService {
   }
 
   async me(userId: string) {
-    return this.prisma.user.findUniqueOrThrow({
+    const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: {
         ...this.publicUserSelect(),
@@ -148,6 +149,9 @@ export class AuthService {
         },
       },
     });
+    // (26/10/2026) Estado da rotina (cadastrada?, revisao, pausa): o app decide se pede o formulario da rotina por AQUI, nunca por "existe algum dia ativo".
+    const routine = await readRoutineState(this.prisma, userId);
+    return { ...user, routine: { configured: routine.configured, revision: routine.revision, allRest: routine.allRest } };
   }
 
   async startPasswordReset(email: string) {

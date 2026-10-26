@@ -29,7 +29,8 @@ function buildService(extraAnswers: Record<string, unknown> = {}) {
   const prisma = {
     onboardingInterview: { findUnique: jest.fn().mockResolvedValue({ answers }) },
     user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', name: 'Aluna Teste', studentCode: 1, subscriptionStatus: 'pending' }) },
-    weeklyAvailability: { findFirst: jest.fn().mockResolvedValue(null) },
+    weeklyAvailability: { findMany: jest.fn().mockResolvedValue([]) },
+    weeklyRoutineState: { findUnique: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn().mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback(tx)),
   };
   const trainingPlans = { generateFirstWeekIfNeeded: jest.fn().mockResolvedValue(undefined) };

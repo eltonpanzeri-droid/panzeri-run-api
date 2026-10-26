@@ -183,6 +183,8 @@ interface RoutineDay {
   label: string;
   modalities: string[];
   minutesByModality: Record<string, string>;
+  // Modalidades salvas que o editor nao oferece (ex.: "bike", legada): mantidas como estao ate o aluno marcar o dia como "Sem treinos". Nunca viram corrida.
+  extras?: Record<string, number>;
 }
 
 interface AuthSession {
@@ -655,6 +657,8 @@ interface SavedAvailabilityDay {
 }
 
 interface MeResponse {
+  // Estado da rotina (26/10/2026): cadastrada? revisao? semana toda de pausa? Vem do servidor; "ter algum dia ativo" NAO e' sinonimo de rotina cadastrada.
+  routine?: { configured: boolean; revision: number; allRest: boolean };
   email?: string;
   name?: string;
   sex?: string | null;
@@ -1191,33 +1195,6 @@ const weekInterviewDays = [
   ['friday', 'Sexta-feira'], ['saturday', 'Sabado'], ['sunday', 'Domingo'],
 ];
 
-// Bug real reportado 16/08 — a pergunta "routine_confirmation" so mostrava um texto fixo
-// pedindo pra "conferir a rotina que voce acabou de montar", sem NUNCA mostrar a rotina de
-// verdade. Esta funcao monta o resumo dia a dia a partir das mesmas respostas que ja foram
-// dadas, pra renderizar de fato antes do aluno confirmar (ver uso em GuidedInterview).
-function summarizeRoutineAnswers(answers: InterviewAnswers): string[] {
-  const timeLabel = (value: unknown) => interviewTimeOptions.find((item) => item.value === value)?.label ?? null;
-  return weekInterviewDays.map(([key, label]) => {
-    const parts: string[] = [];
-    const runTimeValue = answers[`${key}_run_time`];
-    if (runTimeValue && runTimeValue !== 'none') {
-      const available = answers[`${key}_run_available_time`];
-      parts.push(`Corrida (${timeLabel(runTimeValue)}${available ? `, ${available}` : ''})`);
-    }
-    const fortalecimentoValue = answers[`${key}_fortalecimento_time`];
-    if (fortalecimentoValue && fortalecimentoValue !== 'none') {
-      const available = answers[`${key}_fortalecimento_available_time`];
-      parts.push(`Fortalecimento para corredores (${timeLabel(fortalecimentoValue)}${available ? `, ${available}` : ''})`);
-    }
-    const musculacaoValue = answers[`${key}_musculacao_time`];
-    if (musculacaoValue && musculacaoValue !== 'none') {
-      const available = answers[`${key}_musculacao_available_time`];
-      parts.push(`Musculacao (${timeLabel(musculacaoValue)}${available ? `, ${available}` : ''})`);
-    }
-    return `${label}: ${parts.length ? parts.join(' + ') : 'Sem treinos'}`;
-  });
-}
-
 const interviewQuestions: InterviewQuestion[] = [
   { key: 'welcome_intro', module: 'Boas-vindas', type: 'notice', prompt: 'Ola! Que alegria ter voce na comunidade Panzeri Run.\n\nPara comecar sua jornada, precisamos te conhecer de verdade. Esse questionario e um dos momentos mais importantes daqui pra frente, e nele que entendemos seus objetivos, sua rotina real, suas dificuldades e o que voce ja e capaz de fazer hoje.\n\nQuanto mais precisa for sua resposta, mais personalizado e seguro vai ser o seu treino. Estamos lidando com a sua saude, e queremos acertar isso com voce desde o primeiro passo.' },
   // 18/08: condition adicionada pra pular essa pergunta quando ja foi respondida nas 5 perguntas
@@ -1321,32 +1298,6 @@ const interviewQuestions: InterviewQuestion[] = [
     optional: true,
     help: 'Use uma fita metrica, sem apertar a pele, mantendo-a paralela ao chao e sem prender a respiracao. Registre em centimetros. Se preferir nao medir agora, pode deixar em branco e continuar.',
   })),
-  { key: 'routine_intro', module: 'Rotina semanal', type: 'notice', prompt: 'Agora e a hora de montar sua rotina semanal de treinos.\n\nPrimeiro, escolha quais modalidades voce quer que a gente monte pra voce. Depois, dia por dia, voce diz quanto tempo tem disponivel e o horario que costuma treinar cada uma.\n\nAntes de comecar, algumas recomendacoes importantes:\n\n1. Escolha o que voce realmente consegue cumprir. Adesao vale mais do que ambicao. E melhor marcar poucos dias e treinar todos eles do que marcar a semana inteira e nao dar conta. Fique tranquilo, voce pode ajustar sua rotina depois, uma vez por mes.\n\n2. Se for treinar mais de uma modalidade no mesmo dia, cuidado para nao empilhar tempo demais de uma vez. Pense no tempo total somado daquele dia, nao so em cada modalidade separada.\n\n3. No dia do seu treino mais longo de corrida, o longao da semana, de preferencia para deixar esse dia mais livre, sem outros compromissos e sem outra modalidade junto.\n\n4. Ja treina forca ou musculacao com outro profissional? Escolha "Somente corrida" abaixo e conte pra gente no campo de observacao mais adiante. Assim seu treino de corrida sai certo e nao te entregamos um treino de forca que voce nao vai seguir.' },
-  {
-    key: 'routine_modality_choice',
-    module: 'Rotina semanal',
-    prompt: 'Quais modalidades voce quer que a gente monte pra voce?',
-    type: 'dropdown_single' as const,
-    // skipDisabled: sem isso, nao sabemos quais modalidades prescrever — campo obrigatorio real.
-    skipDisabled: true,
-    options: [
-      option('Somente corrida', 'corrida'),
-      option('Corrida + Fortalecimento para corredores', 'corrida_fortalecimento'),
-      option('Corrida + Musculacao', 'corrida_musculacao'),
-      option('Corrida + Fortalecimento para corredores + Musculacao', 'corrida_fortalecimento_musculacao'),
-    ],
-  },
-  { key: 'routine_modality_confirmation', module: 'Rotina semanal', type: 'notice', prompt: 'Confirma que quer que a gente prescreva treinos so das modalidades que voce acabou de escolher?\n\nAs proximas perguntas vao ser so sobre elas. Se quiser mudar, toque em Voltar.' },
-  ...weekInterviewDays.flatMap(([key, label]) => [
-    { key: `${key}_run_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem disponivel para corrida?`, type: 'single' as const, options: interviewTimeOptions },
-    { key: `${key}_fortalecimento_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para fortalecimento para corredores?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.routine_modality_choice === 'corrida_fortalecimento' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao' },
-    { key: `${key}_musculacao_time`, module: 'Rotina semanal', prompt: `${label}: quanto tempo voce tem para musculacao?`, type: 'single' as const, options: interviewTimeOptions, condition: (a: InterviewAnswers) => a.routine_modality_choice === 'corrida_musculacao' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao' },
-    { key: `${key}_run_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para corrida?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => a[`${key}_run_time`] !== undefined && a[`${key}_run_time`] !== 'none' },
-    { key: `${key}_fortalecimento_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para fortalecimento para corredores?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => (a.routine_modality_choice === 'corrida_fortalecimento' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao') && a[`${key}_fortalecimento_time`] !== undefined && a[`${key}_fortalecimento_time`] !== 'none' },
-    { key: `${key}_musculacao_available_time`, module: 'Rotina semanal', prompt: `${label}: qual horario costuma estar disponivel para musculacao?`, type: 'dropdown_single' as const, options: interviewAvailableTimeOptions, condition: (a: InterviewAnswers) => (a.routine_modality_choice === 'corrida_musculacao' || a.routine_modality_choice === 'corrida_fortalecimento_musculacao') && a[`${key}_musculacao_time`] !== undefined && a[`${key}_musculacao_time`] !== 'none' },
-  ]),
-  { key: 'routine_observation', module: 'Rotina semanal', type: 'text', optional: true, prompt: 'Quer nos contar algo importante sobre a sua rotina de treinos?', help: 'Este campo e so sobre a sua rotina de treinos. Por exemplo: voce ja treina musculacao ou forca em outro lugar, seus dias e horarios mudam toda semana, voce viaja com frequencia, ou qualquer outra informacao que ajude a gente a entender melhor como montar sua rotina. Se nao tiver nada a acrescentar, pode deixar em branco.' },
-  { key: 'routine_confirmation', module: 'Rotina semanal', type: 'notice', prompt: 'Confira a rotina que voce acabou de montar.\n\nTem certeza que e assim que voce vai treinar? Se quiser ajustar algo, toque em Voltar antes de continuar.' },
   { key: 'sleep_hours', module: 'Habitos', prompt: 'Em media, quantas horas voce dorme?', type: 'single', options: ['Menos de 5 horas', 'Entre 5 e 6 horas', 'Entre 6 e 7 horas', 'Entre 7 e 8 horas', 'Mais de 8 horas'].map((v) => option(v)) },
   { key: 'smoking', module: 'Habitos', prompt: 'Voce fuma?', type: 'dropdown_single', options: [option('Nao'), option('Sim')] },
   { key: 'alcohol_frequency', module: 'Habitos', prompt: 'Com que frequencia voce consome bebida alcoolica?', type: 'dropdown_single', options: ['Nunca', 'Raramente', 'Semanalmente', 'Algumas vezes por semana', 'Quase todos os dias'].map((v) => option(v)) },
@@ -1383,12 +1334,9 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'additional_info', module: 'Informacoes adicionais', prompt: 'Escreva no campo abaixo todas as informacoes sobre voce que acredite ser relevante sabermos e que ainda nao perguntamos nessa entrevista.', type: 'text', optional: true },
 ];
 
-// A rotina (dias/modalidades/tempo/horario) saiu da entrevista inicial e virou uma tela propria,
-// disponivel so depois do pagamento confirmado (menu "Rotina de treinos") — pedido explicito do
-// treinador 03/08: evita gastar chamada de IA com prospecto que nunca chega a assinar, e reforca
-// a rotina como uma etapa dedicada, nao mais uma entre dezenas de perguntas da entrevista.
-const mainInterviewQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module !== 'Rotina semanal');
-const routineQuestions: InterviewQuestion[] = interviewQuestions.filter((q) => q.module === 'Rotina semanal');
+// (26/10/2026) A rotina NAO faz mais parte da entrevista: tem formulario, API e persistencia proprios (menu "Rotina de treinos", PUT /me/availability). A entrevista
+// coleta so' informacoes sobre o aluno e termina sem depender de nenhuma resposta de rotina.
+const mainInterviewQuestions: InterviewQuestion[] = interviewQuestions;
 
 // 18/08 (Bloco 2 da reformulacao de onboarding) — as "5 perguntas rapidas" que agora rodam ANTES
 // do pagamento, no lugar da entrevista completa (que passou a rodar so depois de pagar). Chave
@@ -1578,7 +1526,8 @@ function AppInner() {
   const [routineSetupMode, setRoutineSetupMode] = useState(false);
 
   const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
-  const hasSavedRoutine = (savedMe?.availability ?? savedMe?.weeklyAvailability ?? []).some((day) => !day.noTraining);
+  // Rotina cadastrada = o servidor diz que sim (uma semana inteira de pausa TAMBEM e' uma rotina cadastrada). So' cai no formato antigo se a API ainda nao devolve o estado.
+  const routineConfigured = savedMe?.routine ? savedMe.routine.configured : (savedMe?.availability ?? savedMe?.weeklyAvailability ?? []).length > 0;
 
   // A tela Semana usa anamneseRoutine (carregado uma vez por sessao) como estado inicial da
   // rotina. Se a entrevista/reavaliacao for concluida no meio da sessao e essa copia local nao
@@ -1812,10 +1761,13 @@ function AppInner() {
       // completedAt vazio, a aluna tambem nunca configurou rotina nenhuma (`availability` vazio) —
       // ja ter rotina real e' sinal forte de que essa aluna ja foi onboarded de verdade, mesmo que
       // aquele campo administrativo nunca tenha sido marcado.
-      const hasRoutineConfigured = Boolean((me?.availability?.length ?? 0) > 0 || (me?.weeklyAvailability?.length ?? 0) > 0);
+      // (26/10/2026) "Rotina cadastrada" vem do SERVIDOR (uma semana toda de pausa tambem conta). So' cai no formato antigo se a API ainda nao devolve o estado.
+      const hasRoutineConfigured = me?.routine ? me.routine.configured : Boolean((me?.availability?.length ?? 0) > 0 || (me?.weeklyAvailability?.length ?? 0) > 0);
       const paid = me?.subscriptionStatus !== undefined && me.subscriptionStatus !== 'pending';
       if (paid) {
         if (interview && !interview.completedAt && !hasRoutineConfigured) setActiveTab('interview');
+        // Entrevista concluida e rotina ainda nao cadastrada: o aluno e levado ao formulario proprio da rotina (nunca se recupera nada da entrevista).
+        else if (interview?.completedAt && !hasRoutineConfigured) setActiveTab('routine');
       } else if (interview && !interview.quickIntakeCompletedAt) {
         setActiveTab('quickIntake');
       } else if (interview?.quickIntakeCompletedAt) {
@@ -1922,12 +1874,14 @@ function AppInner() {
                 // telas de conclusao em sequencia (entrevista concluida → rotina registrada → semana).
                 onComplete={() => {
                   setRestartInterviewFromStart(false);
-                  void refreshRoutineFromServer();
-                  const hasRoutine = Boolean(
-                    (savedMe?.weeklyAvailability?.length ?? 0) > 0 ||
-                    (savedMe?.availability?.length ?? 0) > 0,
-                  );
-                  setActiveTab(hasRoutine ? 'week' : 'routine');
+                  // (26/10/2026) Entrevista e rotina sao processos independentes: ao terminar a entrevista, se o SERVIDOR diz que ainda nao ha rotina cadastrada, o aluno vai ao
+                  // formulario proprio da rotina (o mesmo do menu "Rotina de treinos"); caso contrario, segue para o treino.
+                  void (async () => {
+                    const me = await loadSavedMe(accessToken);
+                    if (me) setSavedMe(me);
+                    const configured = me?.routine ? me.routine.configured : (me?.availability?.length ?? 0) > 0;
+                    setActiveTab(configured ? 'week' : 'routine');
+                  })();
                 }}
                 questions={mainInterviewQuestions}
                 restartFromStart={restartInterviewFromStart}
@@ -1943,42 +1897,22 @@ function AppInner() {
                 mode="quickIntake"
               />
             )}
-            {/* 09/09: aba 'routine' — mostra visão geral primeiro; entrevista só ao clicar no botão */}
-            {activeTab === 'routine' && !routineSetupMode && (
+            {activeTab === 'routine' && routineConfigured && !routineSetupMode && (
               <RoutineOverviewScreen
                 availability={savedMe?.availability ?? savedMe?.weeklyAvailability ?? []}
-                onSetup={() => { void refreshRoutineFromServer().finally(() => setRoutineSetupMode(true)); }}
+                onSetup={() => setRoutineSetupMode(true)}
                 onBack={() => setActiveTab('week')}
               />
             )}
-            {/* (10/2026) Rotina ja' salva: a alteracao parte da rotina ATUAL (WeeklyAvailability) e e' salva por PUT /me/availability — as respostas antigas da entrevista nunca a restauram. */}
-            {activeTab === 'routine' && routineSetupMode && hasSavedRoutine && (
+            {/* (26/10/2026) UM unico formulario de rotina: primeiro cadastro e edicao. Le a rotina direto da API (nunca de uma copia local ou da entrevista), confere a revisao ao salvar e atualiza a tela com o que foi gravado. */}
+            {activeTab === 'routine' && (routineConfigured ? routineSetupMode : true) && (
               <RoutineEditScreen
                 accessToken={accessToken}
-                routineDays={anamneseRoutine}
-                onRoutineChange={setAnamneseRoutine}
-                onSaved={() => { void refreshRoutineFromServer(); }}
-                onBack={() => setRoutineSetupMode(false)}
+                firstTime={!routineConfigured}
+                // Primeiro cadastro: depois de gravar, o aluno segue para o treino da semana (onde o primeiro programa aparece sendo preparado). Edicao: continua no formulario com o que foi gravado.
+                onSaved={(wasFirstTime) => { void refreshRoutineFromServer(); if (wasFirstTime) { setRoutineSetupMode(false); setActiveTab('week'); } }}
+                onBack={() => { setRoutineSetupMode(false); if (!routineConfigured) setActiveTab('week'); }}
               />
-            )}
-            {activeTab === 'routine' && routineSetupMode && !hasSavedRoutine && (
-              <View style={{ flex: 1 }}>
-                {/* Link sempre visível para sair da entrevista de rotina e voltar à visão geral */}
-                <Pressable
-                  style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 }}
-                  onPress={() => setRoutineSetupMode(false)}
-                >
-                  <Text style={{ color: PRColors.ocean, fontSize: 14, fontWeight: '700' }}>← Voltar</Text>
-                </Pressable>
-                <GuidedInterview
-                  accessToken={accessToken}
-                  userName={userName}
-                  onLater={() => setRoutineSetupMode(false)}
-                  onComplete={() => { void refreshRoutineFromServer(); setRoutineSetupMode(false); setActiveTab('week'); }}
-                  questions={routineQuestions}
-                  mode="routine"
-                />
-              </View>
             )}
             {activeTab === 'reassessment' && (
               <GuidedInterview
@@ -2028,7 +1962,6 @@ function AppInner() {
                 deepLink={weekDeepLink}
                 onDeepLinkHandled={() => setWeekDeepLink(null)}
                 accessToken={accessToken}
-                baseRoutineDays={anamneseRoutine}
                 metrics={metrics}
                 initialWeekOffset={weekTabOffset}
                 onOpenInterview={() => setActiveTab('interview')}
@@ -2082,8 +2015,7 @@ function AppInner() {
                   savedMe={savedMe}
                   onSavedMeChange={setSavedMe}
                   onNameChange={setUserName}
-                  routineDays={anamneseRoutine}
-                  onRoutineChange={setAnamneseRoutine}
+                  onOpenRoutine={() => setActiveTab('routine')}
                 />
                 {/* BLOCO 3 (04/10/2026): Perfil concentra o contexto esportivo atual — ciclo
                     menstrual incluido quando aplicavel. Mesma tela/endpoint de sempre ('ciclo'),
@@ -3003,7 +2935,7 @@ function MultiDropdown({ options, value, onChange, placeholder = 'Selecione uma 
   );
 }
 
-function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'routine' | 'quickIntake' | 'fixModule'; restartFromStart?: boolean }) {
+function GuidedInterview({ accessToken, userName, onLater, onComplete, questions = interviewQuestions, mode = 'onboarding', restartFromStart = false }: { accessToken: string; userName: string; onLater: () => void; onComplete: () => void; questions?: InterviewQuestion[]; mode?: 'onboarding' | 'reassessment' | 'quickIntake' | 'fixModule'; restartFromStart?: boolean }) {
   const [answers, setAnswers] = useState<InterviewAnswers>({});
   const [step, setStep] = useState(0);
   const [started, setStarted] = useState(false);
@@ -3019,32 +2951,15 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   // API falha, a pessoa ficava travada pra sempre no meio da entrevista, perto do fim. Agora tem
   // uma saida manual.
   const [cepManualEntry, setCepManualEntry] = useState(false);
-  // So relevante pra mode="routine": diz se essa confirmacao gerou o treino AGORA (primeira vez,
-  // sem plano nenhum ainda) ou se so vale a partir da geracao automatica de domingo (aluno que ja
-  // tem plano mudando a rotina) — pedido explicito do treinador 03/08.
-  const [routineFirstTime, setRoutineFirstTime] = useState(false);
-  // Ref com as respostas no momento do carregamento (modo "routine"). Usado para detectar se o
-  // aluno realmente alterou algo antes de concluir — sem isso, apenas navegar pelas perguntas sem
-  // mudar nada disparava Telegram falso "solicitou alteracao de rotina" porque a WA e as respostas
-  // da entrevista podiam estar dessincronizadas desde a ORDEM EXECUTIVA 09/09 (back-sync removido).
-  // Incidente real: Lucelane 13/09/2026.
-  const initialAnswersRef = useRef<InterviewAnswers>({});
-
-  // "routine" reaproveita o mesmo registro de entrevista (mesma answers, mesmo load/save) — so o
-  // endpoint final muda: complete-routine so converte as respostas de rotina em disponibilidade e
-  // dispara a geracao, sem re-validar os campos obrigatorios da entrevista inteira.
-  // "quickIntake" (18/08, Bloco 2) reaproveita o MESMO registro/load/save da entrevista principal
-  // (mesma tabela, mesmas answers) — so o endpoint de conclusao muda, pra gravar
-  // quickIntakeCompletedAt em vez de completedAt.
+  // "quickIntake" (18/08, Bloco 2) reaproveita o MESMO registro/load/save da entrevista principal (mesma tabela, mesmas answers) — so o endpoint de conclusao muda, pra gravar
+  // quickIntakeCompletedAt em vez de completedAt. (26/10/2026: nao existe mais o modo "routine": a rotina tem formulario, API e persistencia proprios.)
   const loadUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment` : `${API_URL}/me/onboarding`;
   const answerUrl = mode === 'reassessment' ? `${API_URL}/me/reassessment/answer` : `${API_URL}/me/onboarding/answer`;
   const completeUrl = mode === 'reassessment'
     ? `${API_URL}/me/reassessment/complete`
-    : mode === 'routine'
-      ? `${API_URL}/me/onboarding/complete-routine`
-      : mode === 'quickIntake'
-        ? `${API_URL}/me/onboarding/complete-quick-intake`
-        : `${API_URL}/me/onboarding/complete`;
+    : mode === 'quickIntake'
+      ? `${API_URL}/me/onboarding/complete-quick-intake`
+      : `${API_URL}/me/onboarding/complete`;
 
   const visibleQuestions = useMemo(() => questions.filter((question) => {
     if (!question.condition) return true;
@@ -3094,12 +3009,6 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         // 09/09: correcao por modulo — sempre comeca do zero (passo 0), nunca herda o completedAt
         // da entrevista original (que estaria true pra alunos ativos) e ja pula a intro screen
         // (started=true), pois o aluno ja conhece o fluxo e sabe o que quer corrigir.
-        setFinished(false);
-        setStep(0);
-        setStarted(true);
-      } else if (mode === 'routine') {
-        // Registra as respostas do momento do carregamento para detectar mudancas reais depois.
-        initialAnswersRef.current = { ...loadedAnswers };
         setFinished(false);
         setStep(0);
         setStarted(true);
@@ -3180,22 +3089,9 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     setSaving(true);
     let response: Response;
     try {
-      // Para mode="routine": informa ao servidor se o aluno realmente alterou alguma resposta.
-      // O servidor usa isso para decidir se dispara o Telegram "solicitou alteracao de rotina".
-      // Sem isso, navegar pelas perguntas sem mudar nada ja disparava o Telegram (incidente real
-      // Lucelane 13/09) porque WA e interview podiam estar dessincronizadas (ORDEM EXECUTIVA 09/09).
-      const routineBody = mode === 'routine'
-        ? JSON.stringify({
-            changesWereMade: JSON.stringify(answers) !== JSON.stringify(initialAnswersRef.current),
-          })
-        : undefined;
       response = await fetchWithRetry(completeUrl, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          ...(routineBody ? { 'Content-Type': 'application/json' } : {}),
-        },
-        ...(routineBody ? { body: routineBody } : {}),
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
     } catch {
       setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
@@ -3220,22 +3116,6 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           setStatus(message);
         }
         return;
-      }
-      if (mode === 'routine') {
-        const data = await response.json().catch(() => ({} as { firstTime?: boolean; aborted?: boolean }));
-        // 08/09 (trava de seguranca no backend, caso Thais): se a rotina calculada da entrevista
-        // veio vazia mas a aluna ja tinha uma rotina real configurada, o servidor NAO apaga nada e
-        // devolve aborted:true. Nesse caso nao mostramos a tela de "concluido" como se tivesse
-        // dado certo — a rotina anterior continua valendo, mas ela precisa saber que essa
-        // atualizacao especifica nao foi aplicada.
-        if (data?.aborted) {
-          setStatus('Nao consegui atualizar sua rotina agora porque as respostas ficaram incompletas. Sua rotina anterior continua ativa. Revise as respostas de rotina acima e tente novamente, ou fale com seu treinador.');
-          return;
-        }
-        setRoutineFirstTime(Boolean(data?.firstTime));
-        // Rastreamento de funil (22/09): aluno confirmou a rotina semanal (dias/horarios de treino).
-        // Fora do guard de "aborted" acima de proposito — so' chega aqui quando a rotina foi salva de verdade.
-        trackFunnel('routine_configured');
       }
       if (mode === 'onboarding') trackFunnel('interview_completed');
       setFinished(true);
@@ -3381,7 +3261,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     }
   }
 
-  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : mode === 'routine' ? 'Abrindo sua rotina de treinos...' : 'Abrindo sua entrevista...'}</Text></View>;
+  if (loading) return <View style={styles.section}><Text style={styles.statusMessage}>{mode === 'reassessment' ? 'Abrindo sua reavaliacao...' : 'Abrindo sua entrevista...'}</Text></View>;
   if (finished && mode === 'quickIntake') return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Perguntas concluidas</Text>
@@ -3396,25 +3276,16 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   );
   if (finished) return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'routine' ? 'Rotina registrada' : mode === 'fixModule' ? 'Respostas atualizadas' : 'Entrevista concluida'}</Text>
-      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'routine' ? (routineFirstTime ? 'Estamos montando seu treino' : 'Rotina salva') : mode === 'fixModule' ? 'Tudo certo' : 'Vamos montar seu programa'}</Text>
+      <Text style={styles.sectionLabel}>{mode === 'reassessment' ? 'Reavaliacao concluida' : mode === 'fixModule' ? 'Respostas atualizadas' : 'Entrevista concluida'}</Text>
+      <Text style={styles.titleSmall}>{mode === 'reassessment' ? 'Obrigado por atualizar seus dados' : mode === 'fixModule' ? 'Tudo certo' : 'Proximo passo: sua rotina de treinos'}</Text>
       <Text style={styles.copyTight}>
         {mode === 'reassessment'
           ? 'Suas respostas foram salvas. Seu treinador vai revisar sua evolucao e ajustar seu treino conforme necessario.'
-          : mode === 'routine'
-            ? (routineFirstTime
-                ? 'Sua rotina foi salva. Seu treino ja esta sendo montado com base nela e pode levar ate 10 minutos pra aparecer na tela de treino da semana.'
-                // Correcao real 16/08: essa mensagem prometia "vale a partir da geracao automatica
-                // de domingo", mas esse processo automatico de domingo foi removido do sistema ha
-                // um tempo (geracao virou sempre sob demanda) — a promessa antiga nunca mais se
-                // cumpria, deixando o aluno com uma rotina nova salva mas nenhum treino atualizado
-                // e nenhuma pista do que fazer a respeito.
-                : 'Sua rotina foi salva e sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.')
             : mode === 'fixModule'
               ? 'Suas respostas foram salvas. Essas informacoes serao usadas na proxima geracao de treino.'
-              : 'Parabens por completar sua entrevista! Seus dados foram salvos e serao usados para montar seu programa de treinos personalizado.'}
+              : 'Parabens por completar sua entrevista! Seus dados foram salvos. O proximo passo e cadastrar a sua rotina de treinos (os dias e o tempo que voce tem disponivel): o seu programa e montado com base nela.'}
       </Text>
-      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'fixModule' ? 'Voltar' : 'Ver meu treino'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
+      <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{mode === 'reassessment' ? 'Voltar ao treino' : mode === 'fixModule' ? 'Voltar' : 'Continuar'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
       {mode === 'onboarding' ? <Pressable style={styles.secondaryButton} onPress={reviewInterview} disabled={saving}><Text style={styles.secondaryButtonText}>Revisar minhas respostas</Text></Pressable> : null}
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -3461,13 +3332,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       <View style={styles.interviewTop}><Text style={styles.sectionLabel}>{question?.module}</Text><Text style={styles.interviewCounter}>Pergunta {step + 1}</Text></View>
       <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${progress}%` }]} /></View>
       {previousAck ? <View style={styles.quickIntakeAckBox}><Text style={styles.quickIntakeAckText}>{previousAck}</Text></View> : null}
-      {mode === 'routine' && step === 0 ? <Text style={styles.copyTight}>Isso encaixa o treino na sua semana de verdade, nao numa rotina padrao de segunda a domingo. Conte pra gente os dias e horarios que voce realmente tem disponivel. O treino se adapta a sua vida, nao o contrario.</Text> : null}
       <Text style={styles.interviewQuestion}>{question?.prompt.replace('{{objective}}', String(answers.__objective_current || 'o objetivo que voce informou antes'))}{question && !question.optional && question.type !== 'notice' ? <Text style={styles.requiredMark}> *</Text> : null}</Text>
-      {question?.key === 'routine_confirmation' ? (
-        <View style={styles.section}>
-          {summarizeRoutineAnswers(answers).map((line) => <Text key={line} style={styles.copyTight}>{line}</Text>)}
-        </View>
-      ) : null}
       {question?.help ? <Pressable style={styles.helpButton} onPress={() => setHelpOpen(!helpOpen)}><Ionicons name="information-circle-outline" size={18} color={PRColors.ocean} /><Text style={styles.helpButtonText}>Entenda</Text></Pressable> : null}
       {helpOpen ? <Text style={styles.formHint}>{question?.help}</Text> : null}
 
@@ -4242,7 +4107,7 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, baseRoutineDays, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; baseRoutineDays: RoutineDay[]; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
+function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
@@ -7344,36 +7209,85 @@ function RoutineOverviewScreen({
   );
 }
 
-function RoutineEditScreen({ accessToken, routineDays, onRoutineChange, onSaved, onBack }: { accessToken: string; routineDays: RoutineDay[]; onRoutineChange: (routineDays: RoutineDay[]) => void; onSaved: () => void; onBack: () => void }) {
+function emptyRoutineDays(): RoutineDay[] {
+  // Primeiro cadastro: NENHUM dia vem preenchido (nada de rotina sugerida/inventada) — o aluno escolhe os dias e o tempo que realmente tem.
+  return defaultRoutineDays.map((day) => ({ ...day, modalities: ['Sem treinos'], minutesByModality: {}, extras: undefined }));
+}
+
+// (26/10/2026) FORMULARIO UNICO DA ROTINA: usado no primeiro cadastro (depois da entrevista) e na edicao pelo menu. Le a rotina direto da API, confere a revisao ao salvar
+// (409 = alterada em outra tela/pelo treinador), mostra de volta o que foi efetivamente gravado e nunca confirma sucesso quando a gravacao nao foi confirmada.
+function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { accessToken: string; firstTime: boolean; onSaved: (wasFirstTime: boolean) => void; onBack: () => void }) {
+  const [days, setDays] = React.useState<RoutineDay[] | null>(null);
+  const [revision, setRevision] = React.useState(0);
+  const [loadError, setLoadError] = React.useState('');
+  const [attempt, setAttempt] = React.useState(0);
   const [saving, setSaving] = React.useState(false);
   const [status, setStatus] = React.useState('');
+  const [statusOk, setStatusOk] = React.useState(false);
   const [observation, setObservation] = React.useState('');
 
+  React.useEffect(() => {
+    let cancelled = false;
+    setDays(null);
+    setLoadError('');
+    void loadRoutineSnapshot(accessToken).then((snapshot) => {
+      if (cancelled) return;
+      if (!snapshot) { setLoadError('Nao consegui carregar a sua rotina agora. Verifique a internet e tente de novo.'); return; }
+      setRevision(snapshot.revision);
+      setDays(snapshot.configured ? routineFromSavedAvailability(snapshot.availability) : emptyRoutineDays());
+    });
+    return () => { cancelled = true; };
+  }, [accessToken, attempt]);
+
   async function save() {
+    if (!days) return;
     setSaving(true);
     setStatus('');
-    const result = await saveRoutineAvailability(accessToken, routineDays, observation);
+    const result = await saveRoutineAvailability(accessToken, days, observation, revision);
+    if (result.snapshot) { setRevision(result.snapshot.revision); setDays(routineFromSavedAvailability(result.snapshot.availability)); }
     setStatus(result.message);
-    if (result.ok) { setObservation(''); onSaved(); }
+    setStatusOk(result.ok);
+    if (result.ok) {
+      setObservation('');
+      if (result.saved && firstTime) trackFunnel('routine_configured');
+      onSaved(firstTime);
+    }
     setSaving(false);
   }
 
+  if (loadError) {
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Rotina semanal</Text>
+        <Text style={styles.statusMessage}>{loadError}</Text>
+        <Pressable style={[styles.primaryButton, { marginTop: 12 }]} onPress={() => setAttempt((value) => value + 1)}><Text style={styles.primaryButtonText}>Tentar de novo</Text></Pressable>
+        <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={onBack}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable>
+      </View>
+    );
+  }
+  if (!days) return <View style={styles.section}><Text style={styles.statusMessage}>Abrindo sua rotina de treinos...</Text></View>;
+
+  const allRest = days.every((day) => day.modalities.includes('Sem treinos') || (day.modalities.length === 0 && !day.extras));
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Rotina semanal</Text>
+      <Text style={styles.sectionLabel}>{firstTime ? 'Sua rotina de treinos' : 'Rotina semanal'}</Text>
+      {firstTime ? <Text style={styles.titleSmall}>Quais dias e quanto tempo voce tem para treinar?</Text> : null}
       <Text style={[styles.reportText, { marginBottom: 12 }]}>
-        Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use "Relatar observacao".
+        {firstTime
+          ? 'Esta e a ultima etapa antes do seu primeiro programa: ele e montado com base nos dias e no tempo que voce informar aqui. Escolha o que voce realmente consegue cumprir — voce pode mudar a rotina depois, quando quiser, em "Rotina de treinos" no menu.'
+          : 'Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use o campo de observacao abaixo.'}
       </Text>
-      <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
+      <RoutineEditor routineDays={days} onChange={setDays} />
+      {allRest ? <Text style={[styles.formHint, { marginTop: 8 }]}>Todos os dias estao como "Sem treinos": isso e uma pausa. Nenhum programa e gerado ate voce incluir dias de treino.</Text> : null}
       <Text style={[styles.inputLabel, { marginTop: 12 }]}>Quer contar algo sobre a sua rotina? (opcional)</Text>
-      <TextInput style={styles.input} value={observation} onChangeText={setObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Ex.: trabalho em turnos, treino musculacao em outra academia..." />
+      <TextInput style={styles.input} value={observation} onChangeText={setObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Ex.: trabalho em turnos, treino musculacao em outra academia" />
       <Pressable style={[styles.primaryButton, saving && styles.disabledButton, { marginTop: 12 }]} disabled={saving} onPress={save}>
-        <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Salvar rotina'}</Text>
+        <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : firstTime ? 'Salvar rotina e montar meu programa' : 'Salvar rotina'}</Text>
       </Pressable>
       <Pressable style={[styles.secondaryButton, { marginTop: 12 }]} onPress={onBack}>
         <Text style={styles.secondaryButtonText}>Voltar</Text>
       </Pressable>
-      {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+      {status ? <Text style={[styles.statusMessage, !statusOk && { color: '#b42318' }]}>{status}</Text> : null}
     </View>
   );
 }
@@ -9392,8 +9306,7 @@ function Anamnese({
   savedMe,
   onSavedMeChange,
   onNameChange,
-  routineDays,
-  onRoutineChange,
+  onOpenRoutine,
 }: {
   accessToken: string;
   userEmail: string;
@@ -9401,8 +9314,7 @@ function Anamnese({
   savedMe: MeResponse | null;
   onSavedMeChange: (me: MeResponse | null) => void;
   onNameChange: (name: string) => void;
-  routineDays: RoutineDay[];
-  onRoutineChange: (routineDays: RoutineDay[]) => void;
+  onOpenRoutine: () => void;
 }) {
   const [name, setName] = useState(userName);
   const [birthDate, setBirthDate] = useState('');
@@ -9420,20 +9332,6 @@ function Anamnese({
   const [mainGoal, setMainGoal] = useState('');
   const [status, setStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [routineSaving, setRoutineSaving] = useState(false);
-  const [routineStatus, setRoutineStatus] = useState('');
-  const [routineObservation, setRoutineObservation] = useState('');
-
-  // A rotina tem salvamento proprio (PUT /me/availability): nao reenvia nem revalida saude/perfil/preferencias.
-  async function saveRoutineOnly() {
-    setRoutineSaving(true);
-    setRoutineStatus('');
-    const result = await saveRoutineAvailability(accessToken, routineDays, routineObservation);
-    setRoutineStatus(result.message);
-    if (result.ok) { setRoutineObservation(''); onSavedMeChange(await loadSavedMe(accessToken)); }
-    setRoutineSaving(false);
-  }
-
   useEffect(() => {
     if (!savedMe) {
       return;
@@ -9686,17 +9584,11 @@ function Anamnese({
       </View>
 
       <View style={styles.formSection}>
-        <Text style={styles.formSectionTitle}>Dias e disponibilidade</Text>
-        <Text style={styles.formHint}>
-          Para criar sua rotina de treinos, precisamos saber com maxima exatidao como voce vai organizar sua rotina de treinos. Voce deve em primeiro lugar pensar qual a rotina que voce realmente vai conseguir fazer. Queremos saber quais modalidades voce quer que criemos um treino para voce e o tempo que vai se comprometer a executar cada um deles, bem como os dias que os fara. Sera voce quem nos dira isso e nos criaremos os treinos de acordo com o que voce colocar na resposta. Se voce marcar mais de uma modalidade no mesmo dia, isso significa que fara as duas naquele dia — nao e uma escolha entre elas, e um compromisso com as duas.{'\n\n'}
-          Entendemos que na pratica, nem sempre o aluno consegue fazer todos os treinos que sao propostos. Nos ajustaremos os treinos de acordo com o que voce realmente estiver conseguindo fazer. Alem disso, voce pode fazer uma alteracao por mes na sua rotina. Para imprevistos pontuais (viagem, fase mais corrida, ou outro motivo de ausencia), sem precisar mudar a rotina toda, use o menu "Observacoes" para avisar seu treinador.
-        </Text>
-        <RoutineEditor routineDays={routineDays} onChange={onRoutineChange} />
-        <TextInput style={[styles.input, { marginTop: 12 }]} value={routineObservation} onChangeText={setRoutineObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Observação sobre a rotina (opcional) — ex.: faço musculação em outra academia" />
-        <Pressable style={[styles.secondaryOutlineButton, { marginTop: 12 }, (isSaving || routineSaving) && styles.disabledButton]} disabled={isSaving || routineSaving} onPress={saveRoutineOnly}>
-          <Text style={styles.secondaryOutlineButtonText}>{routineSaving ? 'Salvando rotina...' : 'Salvar rotina'}</Text>
+        <Text style={styles.formSectionTitle}>Rotina de treinos</Text>
+        <Text style={styles.formHint}>Seus dias e o tempo disponivel para treinar ficam em "Rotina de treinos": um formulario proprio, separado da entrevista e deste perfil.</Text>
+        <Pressable style={[styles.secondaryOutlineButton, { marginTop: 8 }]} onPress={onOpenRoutine}>
+          <Text style={styles.secondaryOutlineButtonText}>Abrir Rotina de treinos</Text>
         </Pressable>
-        {routineStatus ? <Text style={styles.statusMessage}>{routineStatus}</Text> : null}
       </View>
 
       <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveProfile}>
@@ -12813,7 +12705,8 @@ function RoutineEditor({
 
   function toggleDayModality(day: RoutineDay, option: string) {
     if (option === 'Sem treinos') {
-      updateDay(day.weekday, { modalities: ['Sem treinos'], minutesByModality: {} });
+      // escolha explicita do aluno: dia de descanso (atividades antigas desse dia deixam de existir)
+      updateDay(day.weekday, { modalities: ['Sem treinos'], minutesByModality: {}, extras: undefined });
       return;
     }
 
@@ -12849,6 +12742,7 @@ function RoutineEditor({
             selected={day.modalities}
             onToggle={(value) => toggleDayModality(day, value)}
           />
+          {day.extras ? <Text style={styles.formHint}>{`Atividade ja cadastrada neste dia e mantida: ${Object.entries(day.extras).map(([id, minutes]) => `${id} (${minutes} min)`).join(', ')}.`}</Text> : null}
           {!day.modalities.includes('Sem treinos') && (
             <View style={styles.modalityTimeList}>
               {day.modalities.map((modality) => (
@@ -13397,39 +13291,92 @@ function paceInputToSeconds(value: string) {
 
 // Salva SOMENTE a rotina (PUT /me/availability). So' confirma depois que a API respondeu ok; o texto diz exatamente o que acontece: a rotina vale na proxima
 // geracao (liberada aos domingos a partir das 12h) e nunca altera treinos ja entregues.
-async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[], observation = ''): Promise<{ ok: boolean; message: string }> {
+interface RoutineSnapshot {
+  configured: boolean;
+  revision: number;
+  allRest: boolean;
+  availability: SavedAvailabilityDay[];
+}
+
+// Rotina vigente lida DIRETO da API (nunca da entrevista nem de uma copia local): cadastrada?, revisao e os sete dias.
+async function loadRoutineSnapshot(accessToken: string): Promise<RoutineSnapshot | null> {
+  try {
+    const response = await fetch(`${API_URL}/me/routine`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Partial<RoutineSnapshot>;
+    if (typeof data.configured !== 'boolean' || typeof data.revision !== 'number' || !Array.isArray(data.availability)) return null;
+    return { configured: data.configured, revision: data.revision, allRest: Boolean(data.allRest), availability: data.availability };
+  } catch {
+    return null;
+  }
+}
+
+function routineSignatureOf(days: Array<{ weekday: number; noTraining: boolean; modalities: string[]; availableMin?: number | null; modalityDurations?: Record<string, number> | null }>) {
+  return JSON.stringify(
+    days
+      .map((day) => ({
+        weekday: day.weekday,
+        noTraining: day.noTraining,
+        modalities: day.noTraining ? [] : [...day.modalities].sort(),
+        availableMin: day.noTraining ? 0 : day.availableMin ?? 0,
+        modalityDurations: day.noTraining ? [] : Object.entries(day.modalityDurations ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => a.weekday - b.weekday),
+  );
+}
+
+// Grava a semana INTEIRA com a revisao carregada. So' devolve ok:true quando o servidor confirmou (saved/unchanged) E a rotina gravada corresponde ao que foi enviado;
+// em qualquer outro caso devolve a rotina que esta de fato gravada (snapshot) para a tela mostrar.
+async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[], observation: string, expectedRevision: number): Promise<{ ok: boolean; saved: boolean; message: string; snapshot?: RoutineSnapshot }> {
+  const sent = routineToAvailability(routineDays);
   try {
     const response = await fetch(`${API_URL}/me/availability`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ availability: routineToAvailability(routineDays), ...(observation.trim() ? { observation: observation.trim() } : {}) }),
+      body: JSON.stringify({ availability: sent, expectedRevision, ...(observation.trim() ? { observation: observation.trim() } : {}) }),
     });
+    if (response.status === 409) {
+      const body = (await response.json().catch(() => null)) as { revision?: number; availability?: SavedAvailabilityDay[] } | null;
+      const snapshot = body && typeof body.revision === 'number' && Array.isArray(body.availability)
+        ? { configured: true, revision: body.revision, allRest: body.availability.every((day) => day.noTraining), availability: body.availability }
+        : undefined;
+      return { ok: false, saved: false, snapshot, message: 'A rotina foi alterada em outra tela ou pelo seu treinador depois que voce abriu esta. Mostrei a rotina atual: revise e salve de novo se ainda quiser mudar. NADA foi sobrescrito.' };
+    }
     if (!response.ok) {
       const apiMessage = await readApiError(response);
-      return { ok: false, message: response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar a rotina: ${apiMessage}` };
+      return { ok: false, saved: false, message: response.status === 401 ? 'Sua sessao expirou. Saia e entre novamente.' : `Nao consegui salvar a rotina: ${apiMessage}` };
     }
-    const data = (await response.json()) as { routineChanged?: boolean; firstTime?: boolean };
-    if (data.firstTime) return { ok: true, message: 'Rotina salva. Seu primeiro programa esta sendo preparado.' };
-    if (data.routineChanged === false) return { ok: true, message: 'Rotina conferida: nenhuma alteracao em relacao a que ja estava salva.' };
-    return { ok: true, message: 'Rotina salva. Ela sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.' };
+    const data = (await response.json().catch(() => null)) as { status?: string; revision?: number; availability?: SavedAvailabilityDay[]; firstTime?: boolean; generationStarted?: boolean } | null;
+    if (!data || (data.status !== 'saved' && data.status !== 'unchanged') || typeof data.revision !== 'number' || !Array.isArray(data.availability)) {
+      return { ok: false, saved: false, message: 'O servidor nao confirmou a gravacao. Sua rotina NAO foi dada como salva: recarregue a tela e confira.' };
+    }
+    const snapshot: RoutineSnapshot = { configured: true, revision: data.revision, allRest: data.availability.every((day) => day.noTraining), availability: data.availability };
+    if (routineSignatureOf(data.availability) !== routineSignatureOf(sent)) {
+      return { ok: false, saved: false, snapshot, message: 'A rotina gravada ficou diferente da que voce enviou. Mostrei a que esta gravada: confira os dias antes de seguir.' };
+    }
+    if (data.status === 'unchanged') return { ok: true, saved: false, snapshot, message: 'Rotina conferida: nenhuma alteracao em relacao a que ja estava salva.' };
+    if (snapshot.allRest) return { ok: true, saved: true, snapshot, message: 'Rotina salva: todos os dias estao sem treino (pausa). Nenhum programa sera gerado ate voce incluir dias de treino.' };
+    if (data.generationStarted) return { ok: true, saved: true, snapshot, message: 'Rotina salva. Seu primeiro programa esta sendo preparado.' };
+    if (data.firstTime) return { ok: true, saved: true, snapshot, message: 'Rotina salva. Seu primeiro programa sera montado assim que a entrevista estiver concluida e o acesso estiver liberado.' };
+    return { ok: true, saved: true, snapshot, message: 'Rotina salva. Ela sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.' };
   } catch {
-    return { ok: false, message: 'Nao consegui conectar com a API agora. A rotina NAO foi salva.' };
+    return { ok: false, saved: false, message: 'Nao consegui conectar com a API agora. A rotina NAO foi salva.' };
   }
 }
 
 function routineToAvailability(routineDays: RoutineDay[]) {
-  return routineDays.map((day) => ({
-    weekday: day.weekday,
-    noTraining: day.modalities.includes('Sem treinos'),
-    modalities: day.modalities.includes('Sem treinos') ? [] : day.modalities.map(normalizeModality),
-    modalityDurations: day.modalities.reduce<Record<string, number>>((acc, modality) => {
-      acc[normalizeModality(modality)] = Number(day.minutesByModality[modality]) || 30;
-      return acc;
-    }, {}),
-    availableMin: day.modalities.includes('Sem treinos')
-      ? 0
-      : Math.max(...day.modalities.map((modality) => Number(day.minutesByModality[modality]) || 30)),
-  }));
+  return routineDays.map((day) => {
+    const extras = day.extras ?? {};
+    const extraIds = Object.keys(extras);
+    const known = day.modalities.filter((modality) => modality !== 'Sem treinos');
+    if (day.modalities.includes('Sem treinos') || (known.length === 0 && extraIds.length === 0)) {
+      return { weekday: day.weekday, noTraining: true, modalities: [] as string[], modalityDurations: {} as Record<string, number>, availableMin: 0 };
+    }
+    const modalityDurations: Record<string, number> = {};
+    for (const modality of known) modalityDurations[normalizeModality(modality)] = Number(day.minutesByModality[modality]) || 30;
+    for (const id of extraIds) modalityDurations[id] = extras[id];
+    return { weekday: day.weekday, noTraining: false, modalities: [...new Set([...known.map(normalizeModality), ...extraIds])], modalityDurations, availableMin: Math.max(...Object.values(modalityDurations)) };
+  });
 }
 
 function normalizeModality(modality: string) {
@@ -13536,31 +13483,31 @@ function localDateKey() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 }
 
+const EDITOR_SAVED_MODALITIES = ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'];
+
 function routineFromSavedAvailability(availability: SavedAvailabilityDay[]) {
   if (!availability.length) {
     return [];
   }
 
   return defaultRoutineDays.map((defaultDay) => {
-      const savedDay = availability.find((day) => day.weekday === defaultDay.weekday);
-      if (!savedDay || savedDay.noTraining || !savedDay.modalities.length) {
-        return { ...defaultDay, modalities: ['Sem treinos'], minutesByModality: {} };
-      }
+    const savedDay = availability.find((day) => day.weekday === defaultDay.weekday);
+    if (!savedDay || savedDay.noTraining || !savedDay.modalities.length) {
+      return { ...defaultDay, modalities: ['Sem treinos'], minutesByModality: {}, extras: undefined };
+    }
 
-      const modalities = savedDay.modalities.map(labelFromSavedModality);
-      const minutesByModality = modalities.reduce<Record<string, string>>((acc, modalityLabel, index) => {
-        const savedModality = savedDay.modalities[index];
-        const duration = savedDay.modalityDurations?.[savedModality] ?? savedDay.availableMin ?? 45;
-        acc[modalityLabel] = String(duration);
-        return acc;
-      }, {});
+    const durationOf = (modality: string) => savedDay.modalityDurations?.[modality] ?? savedDay.availableMin ?? 45;
+    const known = savedDay.modalities.filter((modality) => EDITOR_SAVED_MODALITIES.includes(modality));
+    const extraIds = savedDay.modalities.filter((modality) => !EDITOR_SAVED_MODALITIES.includes(modality));
+    const modalities = known.map(labelFromSavedModality);
+    const minutesByModality = known.reduce<Record<string, string>>((acc, modality) => {
+      acc[labelFromSavedModality(modality)] = String(durationOf(modality));
+      return acc;
+    }, {});
+    const extras = extraIds.length ? Object.fromEntries(extraIds.map((id) => [id, durationOf(id)])) : undefined;
 
-      return {
-        ...defaultDay,
-        modalities,
-        minutesByModality,
-      };
-    });
+    return { ...defaultDay, modalities, minutesByModality, extras };
+  });
 }
 
 function labelFromSavedModality(modality: string) {
@@ -13573,9 +13520,6 @@ function labelFromSavedModality(modality: string) {
   if (modality === 'esteira') {
     return 'Corrida na esteira';
   }
-  // 'bike' nao existe mais como opcao de rotina (o treinador decidiu nao montar treinos de bike,
-  // 2026-07-31) — um aluno com esse dia salvo de antes cai aqui e o editor mostra como corrida na
-  // rua, opcao mais proxima, em vez de uma label que nao existe mais na lista de opcoes.
   return 'Corrida na rua';
 }
 

@@ -23,7 +23,8 @@ function buildService(overrides: {
   const prisma = {
     trainingPlan: { findFirst: jest.fn().mockResolvedValue(existingPlan) },
     onboardingInterview: { findUnique: jest.fn().mockResolvedValue(interviewCompletedAt ? { completedAt: interviewCompletedAt } : null) },
-    weeklyAvailability: { findMany: jest.fn().mockResolvedValue(Array.from({ length: availabilityCount }, (_, i) => ({ id: `a${i}` }))) },
+    weeklyAvailability: { findMany: jest.fn().mockResolvedValue(Array.from({ length: availabilityCount }, (_, i) => ({ id: `a${i}`, weekday: i, noTraining: false, modalities: ['corrida'], availableMin: 40, modalityDurations: {} }))) },
+    weeklyRoutineState: { findUnique: jest.fn().mockResolvedValue(null) },
     user: { findUnique: jest.fn().mockResolvedValue({ subscriptionStatus }) },
     funnelEvent: { create: funnelEventCreate },
   };

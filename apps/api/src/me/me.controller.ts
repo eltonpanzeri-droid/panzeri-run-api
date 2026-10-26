@@ -1,12 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, GoneException, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
-import { UpdateAvailabilityDto } from './dto/update-availability.dto';
+import { PatchAvailabilityDaysDto, UpdateAvailabilityDto } from './dto/update-availability.dto';
 import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
 import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { MeService } from './me.service';
+import { RoutineService } from './routine.service';
+import { isRoutineAnswerKey } from '../training-plans/training-methodology';
 import { ProfilePhotoService } from '../profile-photo/profile-photo.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +22,8 @@ export class MeController {
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly prisma: PrismaService,
     private readonly profilePhoto: ProfilePhotoService,
+    // Comando unico de gravacao da rotina (26/10/2026). Ultimo e opcional so' para testes antigos que constroem o controlador por posicao; em producao e' sempre injetado.
+    private readonly routine?: RoutineService,
   ) {}
 
   // Foto de perfil (21/10/2026): o aluno gerencia SOMENTE a propria (id sempre do token, nunca da URL).
@@ -67,9 +71,28 @@ export class MeController {
     return this.meService.updatePreferences(user.sub, dto);
   }
 
+  // (26/10/2026) Unico caminho do aluno para gravar a rotina: substituicao INTEGRAL da semana (os 7 dias), com revisao esperada. 409 = a rotina mudou; recarregue.
   @Put('availability')
-  updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
-    return this.meService.updateAvailability(user.sub, dto);
+  async updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
+    const result = await this.routineService().replaceWeek(user.sub, dto.availability, { expectedRevision: dto.expectedRevision, source: 'student', actorId: user.sub, observation: dto.observation });
+    return result;
+  }
+
+  // Alteracao PARCIAL de dias (os demais permanecem). Revisao obrigatoria.
+  @Patch('availability/days')
+  patchAvailabilityDays(@CurrentUser() user: CurrentUserPayload, @Body() dto: PatchAvailabilityDaysDto) {
+    return this.routineService().patchDays(user.sub, dto.days, { expectedRevision: dto.expectedRevision, source: 'student', actorId: user.sub, observation: dto.observation });
+  }
+
+  // Estado da rotina lido direto da fonte operacional: cadastrada?, revisao, semana de pausa? e os sete dias. O formulario de rotina (primeiro cadastro e edicao) le DAQUI.
+  @Get('routine')
+  routineState(@CurrentUser() user: CurrentUserPayload) {
+    return this.routineService().status(user.sub);
+  }
+
+  private routineService(): RoutineService {
+    if (!this.routine) throw new Error('RoutineService nao disponivel.');
+    return this.routine;
   }
 
   @Put('anamnese')
@@ -92,7 +115,17 @@ export class MeController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() dto: { key: string; value: unknown; currentStep: number },
   ) {
+    // (26/10/2026) Apps nativos antigos ainda enviam respostas de rotina aqui: com a compatibilidade ligada elas viram rascunho da sessao (nunca fonte da rotina);
+    // desligada, o servico recusa com 400 como no fluxo novo.
+    if (this.routine && typeof dto?.key === 'string' && isRoutineAnswerKey(dto.key)) {
+      return this.saveLegacyRoutineAnswer(user.sub, dto);
+    }
     return this.meService.saveOnboardingAnswer(user.sub, dto);
+  }
+
+  private async saveLegacyRoutineAnswer(userId: string, dto: { key: string; value: unknown; currentStep: number }) {
+    const accepted = await this.routineService().stageLegacyAnswer(userId, dto);
+    return accepted ? { staged: true } : this.meService.saveOnboardingAnswer(userId, dto);
   }
 
   @Post('onboarding/complete-quick-intake')
@@ -117,20 +150,13 @@ export class MeController {
     return this.meService.notifyFixAnswers(user.sub);
   }
 
-  // Chamado pela tela "Rotina de treinos" (pos-pagamento) ao confirmar a rotina — respostas em si
-  // ja foram salvas incrementalmente por PUT onboarding/answer (mesma entrevista, modulo "Rotina
-  // semanal"); este POST so converte essas respostas em disponibilidade real e dispara a geracao.
+  // (26/10/2026) Rotina nao e' mais convertida a partir da entrevista. Apps antigos (primeiro cadastro) continuam funcionando por compatibilidade temporaria: o rascunho da
+  // sessao e' gravado pelo comando unico da rotina, so' se o aluno ainda nao tem rotina. Com LEGACY_ROUTINE_COMPAT=off responde 410.
   @Post('onboarding/complete-routine')
-  completeRoutine(
-    @CurrentUser() user: CurrentUserPayload,
-    @Body() body?: { changesWereMade?: boolean },
-  ) {
-    // changesWereMade: enviado pelo app quando o aluno conclui o modo "routine" da GuidedInterview.
-    // true  → aluno realmente alterou alguma resposta → Telegram "solicitou alteracao" pode disparar.
-    // false → aluno apenas navegou pelas perguntas sem mudar nada → Telegram nao dispara.
-    // Omitido (undefined) → chamadas anteriores sem o campo → comportamento conservador: assume true
-    // para nao silenciar Telegrams legítimos de versoes antigas do app.
-    return this.meService.completeRoutineFromInterview(user.sub, body?.changesWereMade);
+  async completeRoutine(@CurrentUser() user: CurrentUserPayload) {
+    const result = await this.routineService().completeLegacyRoutine(user.sub);
+    if (result === null) throw new GoneException({ code: 'routine_not_interview', message: 'A rotina de treinos agora e cadastrada pelo proprio formulario da rotina. Atualize o aplicativo.' });
+    return result;
   }
 
   @Post('exercise-responsibility')

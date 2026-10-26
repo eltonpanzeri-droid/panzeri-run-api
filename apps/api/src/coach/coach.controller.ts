@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, GoneException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { AccountDeletionService } from '../account-deletion/account-deletion.service';
 import { AuthGuard } from '@nestjs/passport';
@@ -310,14 +310,15 @@ export class CoachController {
     return this.coachService.allowExtraGenerationAttempt(studentId);
   }
 
+  // (26/10/2026) REMOVIDO: o reparo que reconstruia a rotina a partir da entrevista historica nao existe mais. A rotina so' muda pelo comando unico (PATCH abaixo).
   @Post('students/:studentId/sync-availability')
-  syncStudentAvailability(@Param('studentId') studentId: string, @Body() body: { dryRun?: boolean } | undefined) {
-    return this.coachService.syncStudentAvailability(studentId, body?.dryRun !== false);
+  syncStudentAvailability() {
+    throw new GoneException({ code: 'routine_not_interview', message: 'A rotina nao e mais reconstruida a partir da entrevista. Edite a rotina diretamente no painel do aluno.' });
   }
 
   @Patch('students/:studentId/availability')
-  updateStudentAvailability(@Param('studentId') studentId: string, @Body() dto: UpdateStudentAvailabilityDto) {
-    return this.coachService.updateStudentAvailability(studentId, dto);
+  updateStudentAvailability(@CurrentUser() actor: CurrentUserPayload, @Param('studentId') studentId: string, @Body() dto: UpdateStudentAvailabilityDto) {
+    return this.coachService.updateStudentAvailability(studentId, dto, actor.sub);
   }
 
   @Post('students/:studentId/billing/checkout-link')

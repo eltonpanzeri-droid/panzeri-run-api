@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, InternalServerErrorException, Logger, 
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertRoutineUnchanged, readRoutineState, ROUTINE_ALL_REST_CODE, ROUTINE_REQUIRED_CODE } from '../common/routine-state';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
@@ -79,14 +80,6 @@ interface RunBlock extends Partial<RunStep> {
   label: string;
   repeatCount?: number;
   steps?: RunStep[];
-}
-
-interface WeeklyAvailabilityInput {
-  weekday: number;
-  noTraining: boolean;
-  modalities: string[];
-  availableMin?: number | null;
-  modalityDurations?: Record<string, number>;
 }
 
 const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab'];
@@ -484,15 +477,12 @@ export class TrainingPlansService {
   // vez que alguem abre uma tela, nao precisa de nenhum cron rodando sozinho por tras.
   async checkPlanFreshness(userId: string): Promise<{ needsUpdate: boolean; reason: string | null }> {
     const weekStart = startOfWeek(new Date());
-    const [plan, availability, latestTest, onboarding] = await Promise.all([
+    const [plan, routine, latestTest, onboarding] = await Promise.all([
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.weeklyAvailability.findMany({
-        where: { userId, noTraining: false },
-        orderBy: { weekday: 'asc' },
-      }),
+      readRoutineState(this.prisma, userId),
       this.prisma.fitnessTest.findFirst({
         where: { userId, testType: '3km' },
         orderBy: { createdAt: 'desc' },
@@ -532,7 +522,9 @@ export class TrainingPlansService {
       return { needsUpdate: true, reason: 'Programa ativo nao e da semana atual.' };
     }
     if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no programa.' };
-    if (!planMatchesAvailability(plan.inputSnapshot, availability)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
+    // (26/10/2026) Sem rotina cadastrada ou em pausa nao ha o que regenerar. Com rotina: compara a REVISAO usada na geracao (ou, em planos antigos sem revisao, a agenda).
+    if (!routine.configured || routine.allRest) return { needsUpdate: false, reason: null };
+    if (!planMatchesRoutine(plan.inputSnapshot, routine.revision, routine.activeDays)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
     return { needsUpdate: false, reason: null };
   }
 
@@ -625,10 +617,10 @@ export class TrainingPlansService {
   // rotina: mudar nao chama IA nenhuma, entao pode ser ilimitado — so a ULTIMA versao salva antes
   // de domingo e usada.
   async generateFirstWeekIfNeeded(userId: string): Promise<void> {
-    const [existingPlan, interview, availability, user] = await Promise.all([
+    const [existingPlan, interview, routine, user] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true } }),
-      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false }, select: { id: true } }),
+      readRoutineState(this.prisma, userId),
       this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
     ]);
     if (existingPlan || !interview?.completedAt) return;
@@ -638,9 +630,22 @@ export class TrainingPlansService {
     // acabou de ser confirmado mas o aluno ainda nao passou por essa tela, nao ha rotina nenhuma
     // pra gerar em cima ainda. Quando ele completar a tela de rotina, este mesmo metodo (chamado
     // de novo dali) e quem dispara a geracao de verdade.
-    if (!availability.length) return;
+    // (26/10/2026) Primeira prescricao exige, de forma independente: entrevista concluida + rotina EFETIVAMENTE cadastrada (com ao menos um dia de treino) + acesso. Uma semana
+    // inteira de descanso e' uma rotina valida, mas nao ha o que prescrever; nada e' inventado nem recuperado da entrevista.
+    if (routine.activeDays.length === 0) return;
 
-    await this.generateWeek(userId);
+    // A geracao leva minutos: se a rotina for editada durante ela, a publicacao e' recusada (routine_changed_during_generation) e a gravacao nova nao consegue iniciar outra
+    // (ja' ha uma em andamento). Por isso refazemos UMA vez aqui, lendo a rotina atual — sem isso o aluno ficaria sem programa e ninguem tentaria de novo.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await this.generateWeek(userId);
+        break;
+      } catch (error) {
+        const code = (error as { response?: { code?: string } }).response?.code;
+        if (attempt >= 2 || code !== 'routine_changed_during_generation') throw error;
+        this.logger.log(`Primeira geracao de ${userId}: a rotina mudou durante a geracao; refazendo uma vez com a rotina atual.`);
+      }
+    }
     // Rastreamento de funil (22/09, pedido do Leo/Intelligence): fecha o funil pos-pagamento. Disparado
     // aqui (servidor) e nao pelo cliente porque este metodo e' o unico gate real de "primeira semana" —
     // roda em varios gatilhos diferentes (pagamento confirmado, rotina configurada, anamnese) e so'
@@ -662,12 +667,11 @@ export class TrainingPlansService {
   // corpo gigante da funcao.
   async generateWeek(
     userId: string,
-    weeklyOverride?: WeeklyAvailabilityInput[],
     options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
   ) {
     await this.acquireGenerationLock(userId);
     try {
-      const generated = await this.withAiScope(userId, () => this.generateWeekLocked(userId, weeklyOverride, options));
+      const generated = await this.withAiScope(userId, () => this.generateWeekLocked(userId, options));
       requestZeppWorkoutSync(userId, 'plan_generated'); // depois de gravar; disparo-e-esquece (so' age para quem autorizou o envio ao relogio)
       return generated;
     } finally {
@@ -696,7 +700,6 @@ export class TrainingPlansService {
 
   private async generateWeekLocked(
     userId: string,
-    weeklyOverride?: WeeklyAvailabilityInput[],
     options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
   ) {
     // Rastreabilidade obrigatoria: antes de qualquer leitura, condensacao ou chamada de IA desta geracao.
@@ -752,7 +755,7 @@ export class TrainingPlansService {
     // semana-ALVO da geracao (weekStart, so' calculada mais abaixo depois do rollover de domingo),
     // nunca da semana do relogio no momento da chamada. Movido pra logo apos weekStart existir
     // (ver comentario la). Ver PRONTUARIO.md pra causa raiz completa.
-    const [user, latestTest, availability, onboarding, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSessionRaw] = await Promise.all([
+    const [user, latestTest, routineAtStart, onboarding, activePlanBeforeAdjustment, activeDirectives, painSafety, targetRaces, latestReassessment, activeObservations, longestRunSessionRaw] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
         include: {
@@ -764,10 +767,7 @@ export class TrainingPlansService {
         where: { userId, testType: '3km' },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.weeklyAvailability.findMany({
-        where: { userId, noTraining: false },
-        orderBy: { weekday: 'asc' },
-      }),
+      readRoutineState(this.prisma, userId),
       this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { completedAt: true, answers: true } }),
       this.prisma.trainingPlan.findFirst({
         where: { userId, status: 'active' },
@@ -863,6 +863,16 @@ export class TrainingPlansService {
 
     if (!onboarding?.completedAt) return onboardingRequiredPlan(hasSubscriptionAccess(user.subscriptionStatus));
 
+    // (26/10/2026) A rotina e' um requisito INDEPENDENTE da entrevista: sem rotina cadastrada nao ha prescricao (nada de dias fixos de reserva, nada recuperado da entrevista),
+    // e uma rotina de pausa (os 7 dias sem treino) tambem nao gera treino — e' uma decisao do aluno, nao uma lacuna a preencher.
+    if (!routineAtStart.configured) {
+      throw new BadRequestException({ code: ROUTINE_REQUIRED_CODE, message: 'A rotina de treinos ainda nao foi cadastrada. Cadastre a rotina para gerar o programa.' });
+    }
+    if (routineAtStart.activeDays.length === 0) {
+      throw new BadRequestException({ code: ROUTINE_ALL_REST_CODE, message: 'A rotina atual esta sem dias de treino (pausa). Ajuste a rotina para gerar o programa.' });
+    }
+    const availability = routineAtStart.activeDays;
+
     // stripRoutineKeysFromAnswers: remove chaves {dia}_run_time, routine_modality_choice etc.
     // antes de montar o MethodologyInput — a IA recebe rotina exclusivamente via
     // diasDisponiveisParaCorrida/Forca (WA). ORDEM EXECUTIVA Dr. Vanzao, 09/09/2026.
@@ -871,18 +881,8 @@ export class TrainingPlansService {
     const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
 
     const initialWeekStart = startOfWeek(referenceDate);
-    const adjustedAvailability = weeklyOverride?.filter((day) => !day.noTraining) ?? [];
-    const rawAvailableDays =
-      adjustedAvailability.length > 0
-        ? adjustedAvailability
-        : availability.length > 0
-        ? availability
-        : [
-            { weekday: 1, modalities: ['forca'], availableMin: 45 },
-            { weekday: 2, modalities: ['corrida'], availableMin: 35 },
-            { weekday: 4, modalities: ['corrida'], availableMin: 40 },
-            { weekday: 6, modalities: ['corrida'], availableMin: 55 },
-          ];
+    // (26/10/2026) A UNICA base da geracao e' a rotina vigente (WeeklyAvailability). Sem override enviado pelo cliente e sem dias fixos de reserva.
+    const rawAvailableDays = availability;
     // Dor intensa relatada recentemente (tier remove_running): a corrida sai da semana mesmo
     // que o aluno tenha escolhido treinar so corrida — seguranca sobrepoe preferencia de
     // modalidade nesse caso. Aplicado AQUI, antes de montar o contexto da IA, para que tanto a
@@ -1481,6 +1481,9 @@ export class TrainingPlansService {
     // Chamadas de rede (Telegram/notificacoes) NUNCA entram aqui dentro — regra do projeto — foram
     // movidas pra depois da transacao commitar (ver bloco logo abaixo).
     const plan = await this.prisma.$transaction(async (tx) => {
+      // (26/10/2026) A geracao leva minutos: antes de publicar, a MESMA trava das gravacoes de rotina e uma releitura da revisao garantem que o programa nao e' publicado sobre
+      // uma rotina que mudou no meio. Se mudou, nada e' publicado (a aluna/o treinador geram de novo com a rotina atual).
+      await assertRoutineUnchanged(tx, userId, routineAtStart);
       if (archiveCurrentActive) {
         await tx.trainingPlan.updateMany({
           where: { userId, status: 'active' },
@@ -1527,7 +1530,8 @@ export class TrainingPlansService {
               studentDirectives: activeDirectives.map(formatDirectiveForAgent),
               decisionDateTime: saoPauloDateTime(new Date()),
             },
-            weeklyOverrideUsed: adjustedAvailability.length > 0,
+            // Revisao da rotina usada nesta geracao: a verificacao de atualizacao compara com ela (nunca com um override).
+            routineRevision: routineAtStart.revision,
             availabilityDays: availableDays.map((day) => ({
               weekday: day.weekday,
               modalities: day.modalities,
@@ -1756,7 +1760,7 @@ export class TrainingPlansService {
     // dados. Pulando aqui, a primeira geracao fica sempre por conta exclusiva do gatilho dela.
     if (!anyPlanEver) return;
 
-    await this.generateWeek(userId, undefined, {
+    await this.generateWeek(userId, {
       referenceDate: addDays(new Date(), 7),
     });
   }
@@ -1783,7 +1787,7 @@ export class TrainingPlansService {
   }
 
   private async doGenerateCurrentWeekOnDemand(userId: string, includeToday?: boolean): Promise<{ generated: boolean; reason: string }> {
-    const [anyPlanEver, user, availability] = await Promise.all([
+    const [anyPlanEver, user, routine] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.user.findUnique({
         where: { id: userId },
@@ -1798,13 +1802,15 @@ export class TrainingPlansService {
           generationExhaustedAlertSent: true,
         },
       }),
-      this.prisma.weeklyAvailability.findMany({ where: { userId, noTraining: false } }),
+      readRoutineState(this.prisma, userId),
     ]);
+    const availability = routine.activeDays;
     // Aluna sem nenhum plano ainda: fluxo separado (generateFirstWeekIfNeeded, disparado ao
     // concluir a entrevista/rotina) — este botao so existe pra quem ja tem historico.
     if (!anyPlanEver) return { generated: false, reason: 'sem_plano_anterior' };
     if (!user || !hasSubscriptionAccess(user.subscriptionStatus)) return { generated: false, reason: 'sem_acesso_pagamento' };
-    if (!availability.length) return { generated: false, reason: 'sem_rotina_cadastrada' };
+    if (!routine.configured) return { generated: false, reason: 'sem_rotina_cadastrada' };
+    if (!availability.length) return { generated: false, reason: 'rotina_sem_dias_disponiveis' };
 
     const { weekday, hour } = saoPauloWeekdayAndHour(new Date());
     if (weekday === 0 && hour < WEEKLY_RELEASE_HOUR) {
@@ -1878,7 +1884,7 @@ export class TrainingPlansService {
       ? addDays(todayInSaoPaulo(), 1).toISOString().slice(0, 10)
       : null;
     try {
-      await this.generateWeek(userId, undefined, { allowToday, generateFrom });
+      await this.generateWeek(userId, { allowToday, generateFrom });
     } catch (error) {
       // generateWeek() ja alerta o treinador por Telegram a CADA falha individual (ver o throw la
       // dentro) — aqui so cuidamos do alerta ADICIONAL "esgotou as tentativas", um sinal diferente
@@ -2069,6 +2075,24 @@ export class TrainingPlansService {
         message: 'Este e o treino de hoje — o aluno pode ja estar vendo ou ate ja ter comecado esse treino. Confirme novamente se quiser mesmo alterar o treino de hoje.',
         code: 'today_session_locked',
       });
+    }
+
+    // (26/10/2026) Refazer o CONTEUDO de um treino mantem o dia e a duracao da sessao; nao adapta a programacao a uma rotina nova. Se a rotina mudou e este dia/modalidade
+    // nao esta mais disponivel (e nenhuma diretriz ativa autoriza explicitamente), regenerar so' perpetuaria o dia antigo: o caminho certo e' "Refazer nova semana".
+    // Treinos que o proprio aluno/dispositivo/treinador criou fora da prescricao (origin diferente de 'agent') nao dependem da rotina.
+    if (session.origin === 'agent' || session.origin == null) {
+      const routineForSession = await readRoutineState(this.prisma, userId);
+      if (routineForSession.configured) {
+        if (!sessionStillInRoutine(routineForSession.activeDays, session)) {
+          const authorizing = await this.prisma.studentDirective.count({ where: { userId, active: true, OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] } });
+          if (authorizing === 0) {
+            throw new BadRequestException({
+              code: 'session_outside_routine',
+              message: 'Este treino esta em um dia (ou modalidade) que nao faz mais parte da rotina atual do aluno. Refazer o treino so refaz o conteudo e manteria o dia antigo; use "Refazer nova semana de treinos" para adaptar a programacao a rotina nova.',
+            });
+          }
+        }
+      }
     }
 
     // Rastreabilidade obrigatoria: verificada antes de qualquer leitura cara ou chamada de IA.
@@ -3369,6 +3393,12 @@ export function shouldMigrateTodaySessionsToNewPlan(params: { hasActivePlan: boo
  * dentro do que é possível; esta função é o que garante a possibilidade em si, de forma
  * determinística — nunca depende só do prompt lembrar da regra.
  */
+// A sessao prescrita ainda cabe na rotina vigente? Mesmo dia da semana e modalidade disponivel (qualquer modalidade de corrida vale para sessao de corrida).
+export function sessionStillInRoutine(activeDays: Array<{ weekday: number; modalities: string[] }>, session: { weekday: number; modality: string }): boolean {
+  const runLike = isRunningModality(session.modality);
+  return activeDays.some((day) => day.weekday === session.weekday && (runLike ? day.modalities.some((modality) => isRunningModality(modality)) : day.modalities.includes(session.modality)));
+}
+
 export function isModalityAllowedOnWeekday(
   availableDays: Array<{ weekday: number; modalities: string[] }>,
   weekday: number,
@@ -3493,11 +3523,12 @@ function normalizeModalityDurations(value: unknown) {
   }, {});
 }
 
-function planMatchesAvailability(inputSnapshot: unknown, availability: Array<{ weekday: number; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>) {
-  if (snapshotUsedWeeklyOverride(inputSnapshot)) {
-    return true;
-  }
+export function planMatchesRoutine(inputSnapshot: unknown, revision: number, availability: Array<{ weekday: number; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>) {
+  // Plano gerado com revisao registrada: vale a comparacao de revisao (qualquer gravacao posterior da rotina a incrementa).
+  const snapshotRevision = inputSnapshot && typeof inputSnapshot === 'object' ? (inputSnapshot as { routineRevision?: unknown }).routineRevision : undefined;
+  if (typeof snapshotRevision === 'number') return snapshotRevision === revision;
 
+  // Plano antigo (sem revisao): compara a agenda. NAO existe mais excecao para planos gerados com override de cliente — o override deixou de existir.
   const snapshotAvailability = readSnapshotAvailability(inputSnapshot);
   if (!snapshotAvailability) {
     return false;
@@ -3525,10 +3556,6 @@ function planMatchesLatestTest(inputSnapshot: unknown, latestTestId: string | nu
 
   const snapshotTestId = (inputSnapshot as { latestTestId?: unknown }).latestTestId;
   return (typeof snapshotTestId === 'string' ? snapshotTestId : null) === latestTestId;
-}
-
-function snapshotUsedWeeklyOverride(inputSnapshot: unknown) {
-  return Boolean(inputSnapshot && typeof inputSnapshot === 'object' && (inputSnapshot as { weeklyOverrideUsed?: unknown }).weeklyOverrideUsed);
 }
 
 function readSnapshotAvailability(inputSnapshot: unknown) {

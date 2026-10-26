@@ -62,7 +62,7 @@ describe('todo envio a fornecedor externo de IA passa pela fila unica, que decla
 describe('os pontos de entrada que montam contexto para agentes rodam dentro do escopo de IA', () => {
   it('Prescritor (geracao da semana e regeneracao de um dia), reavaliacao e Gerente Tecnico abrem o escopo', () => {
     const plans = read('training-plans/training-plans.service.ts');
-    expect(plans).toContain('this.withAiScope(userId, () => this.generateWeekLocked(userId, weeklyOverride, options))');
+    expect(plans).toContain('this.withAiScope(userId, () => this.generateWeekLocked(userId, options))');
     expect(plans).toContain('this.withAiScope(userId, () => this.regenerateSessionInner(userId, sessionId, options))');
     expect(read('reassessment/reassessment.service.ts')).toContain('runWithAiScope(aiScope, fn)');
     expect(read('technical-manager/technical-manager-agent.service.ts')).toContain('runWithAiScope(scope, converse)');

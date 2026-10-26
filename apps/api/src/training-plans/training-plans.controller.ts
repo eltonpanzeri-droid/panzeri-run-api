@@ -15,8 +15,9 @@ export class TrainingPlansController {
   ) {}
 
   @Post('week')
-  generateWeek(@CurrentUser() user: CurrentUserPayload, @Body() dto: { availability?: WeeklyAvailabilityInput[] }) {
-    return this.trainingPlansService.generateWeek(user.sub, dto.availability);
+  // (26/10/2026) O corpo (disponibilidade enviada pelo cliente) e' IGNORADO: a geracao usa somente a rotina vigente gravada pelo comando unico de rotina.
+  generateWeek(@CurrentUser() user: CurrentUserPayload, @Body() _dto?: { availability?: WeeklyAvailabilityInput[] }) {
+    return this.trainingPlansService.generateWeek(user.sub);
   }
 
   @Get('current')

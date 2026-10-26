@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { validateAvailability } from './availability.rules';
-import { UpdateAvailabilityDto, AvailabilityDayDto } from './dto/update-availability.dto';
+import { isRoutineAnswerKey } from '../training-plans/training-methodology';
+import { readRoutineState } from '../common/routine-state';
 import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
 import { UpdateHealthDto } from './dto/update-health.dto';
 import { UpdatePreferencesDto } from './dto/update-preferences.dto';
@@ -46,6 +46,7 @@ export class MeService {
     });
   }
 
+  // Lista simples dos dias (contrato antigo, lida por clientes existentes). O estado com revisao e' GET /me/routine.
   availability(userId: string) {
     return this.prisma.weeklyAvailability.findMany({
       where: { userId },
@@ -75,6 +76,10 @@ export class MeService {
   async saveOnboardingAnswer(userId: string, dto: { key: string; value: unknown; currentStep: number }) {
     if (!/^[a-z0-9_]+$/i.test(dto.key) || dto.currentStep < 0) {
       throw new BadRequestException('Resposta de entrevista invalida.');
+    }
+    // (26/10/2026) Entrevista e rotina sao processos independentes: respostas de rotina nao sao mais gravadas na entrevista (a rotina so' muda por PUT /me/availability).
+    if (isRoutineAnswerKey(dto.key)) {
+      throw new BadRequestException({ code: 'routine_not_interview', message: 'A rotina de treinos nao faz mais parte da entrevista. Atualize o aplicativo e use "Rotina de treinos".' });
     }
     const current = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(current?.answers);
@@ -401,14 +406,6 @@ export class MeService {
       `✅ Aluno concluiu a entrevista inicial no Panzeri Run\n\nAluno: ${studentForTelegram?.name ?? stringValue(answers.personal_name) ?? 'desconhecido'} (Cod. ${formatStudentCode(studentForTelegram?.studentCode)})\nObjetivo: ${stringValue(answers.objective)}\nExperiência com corrida: ${stringValue(answers.running_experience)}`,
     ).catch(() => undefined);
 
-    // Campo novo (2026-07-31): observacao livre especificamente sobre a rotina, preenchida
-    // durante a propria entrevista (ex: "ja treino musculacao em outro lugar"). Grava no
-    // prontuario UMA vez aqui (zero custo de IA, e so texto) — o agente de resumo do prontuario
-    // e quem eventualmente "paga" pra condensar isso, nao esta chamada. Depois disso o agente de
-    // prescricao semanal ja recebe essa informacao pronta no resumo, sem reprocessar de novo.
-    const routineObservation = stringValue(answers.routine_observation).trim();
-    if (routineObservation) await this.forwardRoutineObservation(userId, routineObservation, completedAt, 'entrevista inicial');
-
     // Linha do Tempo de Relatos (28/09/2026) — texto livre REAL dentro da entrevista (nunca os
     // resumos compostos gravados em HealthProfile, que ja misturam varias respostas numa frase
     // so e deixariam de ser o "texto original" do aluno).
@@ -460,168 +457,25 @@ export class MeService {
     // e assinante confirmado e esta reabrindo/refazendo a entrevista (ex: corrigindo algo) — nesse
     // caso gera na hora como sempre, porque ele ja pagou e o gatilho de pagamento nao vai disparar
     // de novo (subscriptionStatus ja estava active antes desta chamada).
-    const [payingUser, existingAvailability] = await Promise.all([
+    const [payingUser, routine] = await Promise.all([
       this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionStatus: true } }),
-      // 08/09 (bug real — caso Daniele, testadora): completeOnboarding fecha a entrevista
-      // PRINCIPAL, que nao inclui o modulo de rotina. Para alunos novos, WeeklyAvailability
-      // ainda nao existe neste ponto — a rotina real so e salva quando o aluno conclui a
-      // tela "Rotina de treinos" (completeRoutineFromInterview). Se gerarmos aqui sem rotina,
-      // generateWeek cai no fallback padrao (forca seg, corrida ter/qui/sab) e cria um plano
-      // errado. Quando completeRoutineFromInterview roda depois, a rotina real e salva, mas
-      // generateFirstWeekIfNeeded nao regera pois um plano ja existe — resultado: aluno fica
-      // com sessoes totalmente erradas. EXCECAO: aluno JA assinante refazendo a entrevista
-      // (ex: corrigindo algo) DEVE gerar agora, porque ele ja tem rotina configurada e o
-      // gatilho de pagamento nao vai disparar de novo. Gate: so gerar se ja houver pelo
-      // menos um dia de treino cadastrado em WeeklyAvailability.
-      this.prisma.weeklyAvailability.findFirst({ where: { userId, noTraining: false } }),
+      readRoutineState(this.prisma, userId),
     ]);
     if (payingUser && hasSubscriptionAccess(payingUser.subscriptionStatus)) {
-      if (existingAvailability) {
-        // Aluno existente refazendo a entrevista: ja tem rotina → gera agora.
-        // (10/2026) REGRA ABSOLUTA: refazer a entrevista nao pode regenerar nem arquivar treinos ja entregues. generateFirstWeekIfNeeded so gera quando
-        // ainda NAO existe nenhum programa; quem ja tem programa recebe a nova semana pelo fluxo normal de geracao.
-        // NUNCA arquivamos manualmente antes de chamar generateWeek — ja foi um bug real.
-        // NAO AWAIT: pode levar 30s+.
+      if (routine.activeDays.length > 0) {
+        // Aluno que ja' tem rotina cadastrada (refazendo a entrevista): gera a primeira semana se ainda nao existir programa. Nunca arquiva nem regenera treinos ja' entregues.
         void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
           this.logger.warn(`generateFirstWeekIfNeeded apos completeOnboarding falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
         });
       } else {
-        // Aluno novo: rotina ainda nao foi configurada — completeRoutineFromInterview vai
-        // salvar a disponibilidade real e chamar generateFirstWeekIfNeeded na sequencia.
-        // Gerar aqui usaria o fallback padrao e produziria treinos errados.
-        this.logger.log(`Entrevista concluida para ${userId} (assinante sem rotina ainda) — aguardando completeRoutineFromInterview para gerar o programa com a rotina real.`);
+        // Sem rotina cadastrada: o aplicativo leva o aluno ao formulario proprio da rotina. A primeira prescricao so' acontece depois dela (entrevista + rotina + acesso).
+        this.logger.log(`Entrevista concluida para ${userId} — rotina ${routine.configured ? 'cadastrada sem dias de treino' : 'ainda nao cadastrada'}; aguardando a rotina para a primeira prescricao.`);
       }
     } else {
       this.logger.log(`Entrevista concluida para ${userId} — geracao da primeira semana adiada ate a confirmacao do pagamento.`);
     }
 
-    return { completed: true, completedAt, next: 'three_km_test' };
-  }
-
-  // As respostas de rotina da entrevista (${dia}_run_time etc.) so viram registros de
-  // WeeklyAvailability atraves DESTE metodo — chamado pela tela "Rotina de treinos" do aluno
-  // (completeRoutineFromInterview) ou pelo botao de reparo do treinador no painel
-  // ("Sincronizar disponibilidade da entrevista"). (08/09: completeOnboarding, que fecha a
-  // entrevista PRINCIPAL, NAO mexe mais em WeeklyAvailability — ver comentario la e
-  // PRONTUARIO.md 08/09, caso Thais.) Se o aluno reabre a entrevista para revisar/atualizar
-  // essas respostas mas nao chega a concluir de novo (ou outra tela de rotina sobrescreve
-  // depois), a disponibilidade real usada para gerar o treino fica desatualizada em relacao ao
-  // que a entrevista diz. Este metodo recalcula WeeklyAvailability a partir do que ja esta
-  // salvo em OnboardingInterview.answers, sem exigir que o aluno refaca a entrevista.
-  // notifyAsStudentRequest so e true quando quem chamou foi o proprio aluno (tela "Rotina de
-  // treinos", via completeRoutineFromInterview) — o botao de reparo do treinador no painel
-  // ("Sincronizar disponibilidade da entrevista") reaproveita este mesmo metodo mas NAO deve
-  // mandar um Telegram dizendo "aluno solicitou", porque quem disparou foi o proprio treinador.
-  async syncAvailabilityFromInterview(userId: string, notifyAsStudentRequest = false, changesWereMade = true, options: { force?: boolean; dryRun?: boolean } = {}) {
-    const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
-    if (!interview) {
-      throw new BadRequestException('Aluno ainda nao respondeu a entrevista.');
-    }
-    const answers = asAnswerObject(interview.answers);
-    const availability = buildInterviewAvailability(answers);
-
-    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
-    const routineChanged = availabilityChanged(currentAvailability, availability);
-    // Sem isso, um caso real como o da Thairine (04/08 — "salvou mas nao chegou Telegram") vira
-    // adivinhacao: nao da pra saber se routineChanged deu false porque nada mudou de verdade, ou
-    // se e um bug de comparacao. Loga sempre, nao so quando algo falha.
-    this.logger.log(`syncAvailabilityFromInterview para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina nova (da entrevista): ${JSON.stringify(availability)}`);
-
-    // 08/09 (bug real — caso Thais): trava de seguranca contra apagar uma rotina real (com pelo
-    // menos um dia de treino configurado) e substituir por uma rotina totalmente vazia calculada
-    // da entrevista. Isso so pode acontecer se as respostas de rotina na entrevista estiverem
-    // incompletas/ausentes no momento da chamada (ex.: entrevista reaberta numa reavaliacao sem
-    // o modulo de rotina ter sido refeito) — nunca e' isso que o aluno realmente quer. Preferimos
-    // abortar e avisar a apagar silenciosamente uma rotina que ja funcionava.
-    // (10/2026) WeeklyAvailability e' a UNICA fonte operacional da rotina. Quando o ALUNO conclui a tela da entrevista mas ja' existe rotina com treinos
-    // (feita antes, editada no Perfil ou pelo treinador), as respostas HISTORICAS da entrevista nao a sobrescrevem: a rotina atual e' preservada. A edicao
-    // posterior da rotina usa PUT /me/availability. O reparo explicito do treinador (notifyAsStudentRequest=false) continua possivel, com previa (dryRun).
-    if (notifyAsStudentRequest && !options.force && currentAvailability.some((day) => !day.noTraining)) {
-      this.logger.log(`syncAvailabilityFromInterview PRESERVOU a rotina atual de ${userId}: ja existe rotina configurada; as respostas antigas da entrevista nao a sobrescrevem.`);
-      return { synced: false, preserved: true, reason: 'existing_routine_preserved', days: currentAvailability.filter((day) => !day.noTraining).length, firstTime: false };
-    }
-    if (options.dryRun) {
-      return {
-        dryRun: true,
-        changed: routineChanged,
-        currentDays: currentAvailability.filter((day) => !day.noTraining).map((day) => ({ weekday: day.weekday, modalities: day.modalities, modalityDurations: day.modalityDurations })),
-        interviewDays: availability.filter((day) => !day.noTraining).map((day) => ({ weekday: day.weekday, modalities: day.modalities, modalityDurations: day.modalityDurations })),
-      };
-    }
-    const currentHasTraining = currentAvailability.some((day) => !day.noTraining);
-    const newHasTraining = availability.some((day) => !day.noTraining);
-    if (currentHasTraining && !newHasTraining) {
-      this.logger.warn(`syncAvailabilityFromInterview ABORTADO para ${userId}: a rotina calculada da entrevista veio totalmente vazia, mas ja existia uma rotina real configurada. Nada foi alterado no banco — revise as respostas do modulo "Rotina semanal" na entrevista deste aluno antes de tentar sincronizar de novo.`);
-      return {
-        synced: false,
-        aborted: true,
-        days: currentAvailability.filter((day) => !day.noTraining).length,
-        firstTime: false,
-      };
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
-      ...availability.map((day) => this.prisma.weeklyAvailability.create({ data: { userId, ...day } })),
-      ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
-    ]);
-
-    // generateFirstWeekIfNeeded age como o proprio gate aqui: so gera de verdade se for a
-    // PRIMEIRA vez (nenhum TrainingPlan ainda) e o pagamento ja estiver confirmado — pra quem ja
-    // tem plano ativo, essa chamada nao faz nada agora, a rotina nova so entra em vigor na
-    // proxima geracao automatica de domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
-    const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
-    if (routineChanged) {
-      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
-        this.logger.warn(`generateFirstWeekIfNeeded apos syncAvailabilityFromInterview falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
-      if (notifyAsStudentRequest && changesWereMade) {
-        // changesWereMade=false: aluno apenas navegou pela tela de rotina sem alterar nenhuma
-        // resposta — nao dispara Telegram "solicitou alteracao". Incidente real: Lucelane 13/09/2026.
-        // changesWereMade=true (default): comportamento original conservador; garante que versoes
-        // antigas do app (sem o campo) continuem notificando o treinador normalmente.
-        const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
-        void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
-      }
-    }
-
-    // firstTime informa pro chamador (tela Rotina do aluno) se isso vai gerar o treino agora
-    // (primeira vez) ou se so vale a partir de domingo (mudanca de quem ja tem plano) — pra
-    // mostrar a mensagem certa sem adivinhar.
-    return { synced: true, days: availability.filter((day) => !day.noTraining).length, firstTime: !existingPlanBefore };
-  }
-
-  // Chamado pela tela "Rotina de treinos" do proprio aluno (pos-pagamento) ao confirmar a rotina
-  // montada na entrevista — mesmo mecanismo de gate do sync acima (usado pelo botao de reparo do
-  // treinador no painel): so gera na hora se for a primeira vez, senao so fica salva pra entrar
-  // em vigor na proxima geracao de domingo.
-  async completeRoutineFromInterview(userId: string, changesWereMade?: boolean) {
-    // changesWereMade undefined → app antigo sem o campo → assume true (conservador: nao silencia).
-    const result = await this.syncAvailabilityFromInterview(userId, true, changesWereMade ?? true);
-    // (10/2026) "Alguma observacao sobre sua rotina?" e' um canal de comunicacao do aluno: o texto vai ao mecanismo de relatos (Relator -> Prontuario) ao concluir
-    // a rotina, mesmo quando a agenda atual foi preservada. Idempotente (o mesmo texto nao e' registrado duas vezes).
-    const interview = await this.prisma.onboardingInterview.findUnique({ where: { userId }, select: { answers: true } });
-    const note = stringValue(asAnswerObject(interview?.answers).routine_observation).trim();
-    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'tela de rotina');
-    return result;
-  }
-
-  // Encaminha um texto livre do aluno sobre a rotina ao mecanismo ja' existente de relatos (Relator -> Prontuario). O texto original, o autor (userId) e a data
-  // ficam em StudentReportEntry; o evento do Prontuario so' e' gravado quando o relato e' NOVO (sem duplicar quando a mesma resposta e' reenviada).
-  private async forwardRoutineObservation(userId: string, text: string, occurredAt: Date, origin: string) {
-    const recorded = await this.reportTimeline.record({
-      userId,
-      sourceType: STUDENT_REPORT_SOURCE_TYPES.ONBOARDING_INTERVIEW_ROUTINE_NOTE,
-      promptQuestion: 'Alguma observacao sobre sua rotina?',
-      relatedLabel: 'Rotina semanal',
-      originalText: text,
-      occurredAt,
-      dedupe: true,
-    });
-    if (!recorded) return;
-    void this.studentProfile.recordEvent(userId, ProfileEventCode.STUDENT_OBSERVATION, `Observacao do aluno sobre a rotina (${origin}): ${text}`).catch((error) => {
-      this.logger.warn(`recordEvent(STUDENT_OBSERVATION, rotina) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-    });
+    return { completed: true, completedAt, next: 'three_km_test', routineConfigured: routine.configured };
   }
 
   // 10/09: chamado pelo app quando o aluno conclui a correcao de respostas via fixModule
@@ -688,70 +542,11 @@ export class MeService {
     });
   }
 
-  async updateAvailability(userId: string, dto: UpdateAvailabilityDto) {
-    validateAvailability(dto.availability);
-
-    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
-    const routineChanged = availabilityChanged(currentAvailability, dto.availability);
-    this.logger.log(`updateAvailability para ${userId}: routineChanged=${routineChanged}. Rotina anterior: ${JSON.stringify(currentAvailability.map((d) => ({ weekday: d.weekday, noTraining: d.noTraining, modalities: d.modalities, modalityDurations: d.modalityDurations })))}. Rotina enviada: ${JSON.stringify(dto.availability)}`);
-
-    // ORDEM EXECUTIVA 09/09/2026 (Dr. Vanzao): WeeklyAvailability e a fonte canonica da rotina
-    // operacional. A sincronizacao reversa WA→answers foi eliminada: nao ha mais back-sync das
-    // chaves {dia}_run_time para o JSON de entrevista quando o aluno muda a rotina aqui.
-    // A IA recebe a rotina via diasDisponiveisParaCorrida/Forca (derivados da WA) e as chaves de
-    // rotina em answers sao filtradas por stripRoutineKeysFromAnswers antes do MethodologyInput.
-    // Rollback: git revert + restaurar o Promise.all com onboarding e as linhas de sync abaixo.
-    await this.prisma.$transaction([
-      this.prisma.weeklyAvailability.deleteMany({ where: { userId } }),
-      ...dto.availability.map((day) =>
-        this.prisma.weeklyAvailability.create({
-          data: {
-            userId,
-            weekday: day.weekday,
-            noTraining: day.noTraining,
-            modalities: day.noTraining ? [] : day.modalities,
-            availableMin: day.noTraining ? 0 : day.availableMin,
-            modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
-          },
-        }),
-      ),
-      ...(routineChanged ? [this.prisma.user.update({ where: { id: userId }, data: { lastRoutineChangeAt: new Date() } })] : []),
-    ]);
-
-    const updated = await this.prisma.weeklyAvailability.findMany({
-      where: { userId },
-      orderBy: { weekday: 'asc' },
-    });
-
-    // Ordem explicita do treinador (03/08): uma mudanca de rotina de quem JA TEM plano ativo
-    // nunca gera na hora — so entra em vigor na proxima geracao automatica de domingo (a semana
-    // atual continua rodando exatamente como estava). generateFirstWeekIfNeeded e o proprio gate:
-    // so gera de verdade se for realmente a primeira vez (sem TrainingPlan ainda) e o pagamento
-    // ja estiver confirmado; para quem ja tem plano, essa chamada nao faz nada. Como mudar rotina
-    // nunca mais chama IA fora do dia de geracao normal, nao existe mais limite de frequencia —
-    // o aluno pode ajustar quantas vezes quiser, vale sempre a ultima versao salva antes de
-    // domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
-    let firstTime = false;
-    if (routineChanged) {
-      const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
-      firstTime = !existingPlanBefore;
-      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
-        this.logger.warn(`generateFirstWeekIfNeeded apos updateAvailability falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
-      const student = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
-      void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(student?.name, student?.studentCode, !existingPlanBefore)).catch(() => undefined);
-    }
-
-    // Observacao textual junto da edicao: mesmo fluxo geral de relatos (idempotente), mesmo quando a rotina nao mudou.
-    const note = (dto.observation ?? '').trim();
-    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'edicao da rotina');
-
-    return { availability: updated, routineChanged, firstTime };
-  }
+  // A rotina NAO e' gravada aqui: PUT /me/availability (RoutineService) e' o unico caminho do aluno; PUT /me/anamnese so' trata perfil, saude e preferencias.
 
   async updateAnamnese(userId: string, dto: UpdateAnamneseDto) {
-    const incomingAvailability = dto.availability?.availability;
-    if (incomingAvailability) validateAvailability(incomingAvailability);
+    // (26/10/2026) A anamnese NUNCA grava a rotina: se um cliente antigo ainda enviar `availability`, o campo e' ignorado (a rotina so' muda por PUT /me/availability).
+    if (dto.availability?.availability) this.logger.warn(`PUT /me/anamnese recebeu disponibilidade de ${userId}: ignorada (a rotina so' muda por PUT /me/availability).`);
 
     const normalizedEmail = dto.profile.email.trim().toLowerCase();
     const emailOwner = await this.prisma.user.findUnique({
@@ -761,11 +556,6 @@ export class MeService {
     if (emailOwner && emailOwner.id !== userId) {
       throw new BadRequestException('Este e-mail ja pertence a outra conta.');
     }
-
-    const currentAvailability = await this.prisma.weeklyAvailability.findMany({ where: { userId } });
-    const routineChanged = incomingAvailability ? availabilityChanged(currentAvailability, incomingAvailability) : false;
-    // ORDEM EXECUTIVA 09/09/2026: sincronizacao reversa WA→answers eliminada.
-    // Ver comentario equivalente em updateAvailability para justificativa completa e rollback.
 
     // (24/10) Versoes antigas do app mandavam sex='prefiro_nao_informar' fixo neste endpoint, apagando "Feminino" e escondendo o ciclo menstrual. Este endpoint nao edita sexo:
     // o placeholder nunca sobrescreve um valor ja' informado (a edicao de verdade e' PUT /me/profile).
@@ -783,7 +573,6 @@ export class MeService {
           heightCm: dto.profile.heightCm,
           weightKg: dto.profile.weightKg,
           address: dto.profile.address,
-          ...(routineChanged ? { lastRoutineChangeAt: new Date() } : {}),
         },
       });
 
@@ -798,23 +587,6 @@ export class MeService {
         create: { userId, ...dto.preferences },
         update: dto.preferences,
       });
-
-      // Sem `availability` no corpo, a rotina atual NAO e' tocada (a rotina e' salva por PUT /me/availability).
-      if (incomingAvailability) {
-        await tx.weeklyAvailability.deleteMany({ where: { userId } });
-        for (const day of incomingAvailability) {
-          await tx.weeklyAvailability.create({
-            data: {
-              userId,
-              weekday: day.weekday,
-              noTraining: day.noTraining,
-              modalities: day.noTraining ? [] : day.modalities,
-              availableMin: day.noTraining ? 0 : day.availableMin,
-              modalityDurations: day.noTraining ? undefined : day.modalityDurations ?? {},
-            },
-          });
-        }
-      }
 
       return tx.user.findUniqueOrThrow({
         where: { id: userId },
@@ -842,73 +614,8 @@ export class MeService {
       });
     });
 
-    // Mesmo mecanismo de gate de updateAvailability: generateFirstWeekIfNeeded so gera de
-    // verdade se for a primeira vez; pra quem ja tem plano, a rotina nova so entra em vigor na
-    // proxima geracao automatica de domingo. NAO AWAIT: pode levar 30s+ na primeira vez.
-    if (routineChanged) {
-      const existingPlanBefore = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
-      void this.trainingPlans.generateFirstWeekIfNeeded(userId).catch((error) => {
-        this.logger.warn(`generateFirstWeekIfNeeded apos updateAnamnese falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
-      });
-      void this.telegram.notifyCoach(buildRoutineChangeTelegramMessage(result.name, result.studentCode, !existingPlanBefore)).catch(() => undefined);
-    }
-
-    // routineChanged vai junto pra tela de anamnese (perfil/saude/preferencias/rotina, tudo num
-    // unico salvamento) saber se deve mostrar a mensagem especifica de "rotina registrada e
-    // treino recriado" ou so a confirmacao generica de perfil salvo — nem toda edicao de
-    // anamnese mexe na rotina (ex: so atualizar peso ou e-mail).
-    const note = (dto.availability?.observation ?? '').trim();
-    if (note) await this.forwardRoutineObservation(userId, note, new Date(), 'edicao da rotina');
-
-    return { ...result, routineChanged };
+    return { ...result, routineChanged: false };
   }
-}
-
-// Texto pedido explicitamente pelo treinador (04/08) — usado em toda rota onde o proprio aluno
-// confirma uma mudanca de rotina (updateAvailability, updateAnamnese, tela "Rotina de treinos").
-// Quando ja existe plano ativo, deixa claro que nada muda ate domingo e que da pra antecipar
-// clicando "Refazer nova semana de treinos" no painel — esse botao ja le a rotina mais recente
-// salva no banco, entao antecipar de verdade funciona sem nenhuma mudanca adicional.
-function buildRoutineChangeTelegramMessage(studentName: string | undefined, studentCode: number | null | undefined, firstTime: boolean): string {
-  const name = studentName ?? 'desconhecido';
-  const code = formatStudentCode(studentCode);
-  if (firstTime) {
-    return `🔁 Aluno "${name}" (Cod. ${code}) montou a rotina de treinos no Panzeri Run\n\nO primeiro treino esta sendo gerado automaticamente.`;
-  }
-  // 06/09: corrigido — o cron de domingo foi removido; a mensagem anterior mentia que a rotina
-  // "valeria automaticamente no domingo", fazendo o treinador esperar algo que nunca acontecia.
-  return `🔁 Aluno "${name}" (Cod. ${code}) solicitou alteracao de rotina no Panzeri Run\n\n⚠️ NAO ha mais geracao automatica de domingo. Para aplicar a rotina nova nesta semana, use "Refazer nova semana de treinos" no painel do aluno.`;
-}
-
-function normalizeModalityDurationsForCompare(value: unknown): Record<string, number> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
-    .sort(([left], [right]) => left.localeCompare(right));
-  return Object.fromEntries(entries);
-}
-
-function availabilityDaySignature(day: { weekday: number; noTraining: boolean; modalities: string[]; availableMin?: number | null; modalityDurations?: unknown }) {
-  return {
-    weekday: day.weekday,
-    noTraining: day.noTraining,
-    modalities: day.noTraining ? [] : [...day.modalities].sort(),
-    availableMin: day.noTraining ? 0 : day.availableMin ?? 0,
-    modalityDurations: day.noTraining ? {} : normalizeModalityDurationsForCompare(day.modalityDurations),
-  };
-}
-
-// Compara a rotina salva com a que o aluno acabou de enviar — so conta como mudanca de verdade
-// (e consome a janela de 30 dias / dispara regeneracao) se algo realmente diferente. Sem isso,
-// updateAnamnese (que reune perfil/saude/preferencias/rotina num unico salvamento) bloquearia ou
-// regeneraria o treino toda vez que o aluno so quisesse atualizar o peso ou o e-mail, por exemplo.
-function availabilityChanged(
-  current: Array<{ weekday: number; noTraining: boolean; modalities: string[]; availableMin: number | null; modalityDurations: unknown }>,
-  incoming: AvailabilityDayDto[],
-) {
-  const currentSignature = JSON.stringify(current.map(availabilityDaySignature).sort((left, right) => left.weekday - right.weekday));
-  const incomingSignature = JSON.stringify(incoming.map(availabilityDaySignature).sort((left, right) => left.weekday - right.weekday));
-  return currentSignature !== incomingSignature;
 }
 
 export function asAnswerObject(value: unknown): Record<string, Prisma.InputJsonValue> {
@@ -1039,162 +746,6 @@ function interviewInjurySummary(answers: Record<string, Prisma.InputJsonValue>) 
     stringValue(answers.medical_recommendation),
   ].filter(Boolean);
   return parts.join('. ');
-}
-
-const INTERVIEW_WEEK_DAYS = [
-  { key: 'monday', weekday: 1 },
-  { key: 'tuesday', weekday: 2 },
-  { key: 'wednesday', weekday: 3 },
-  { key: 'thursday', weekday: 4 },
-  { key: 'friday', weekday: 5 },
-  { key: 'saturday', weekday: 6 },
-  { key: 'sunday', weekday: 0 },
-];
-
-// BUG REAL 04/08 (caso da Thairine): a tela "Rotina de treinos" so pergunta ${dia}_fortalecimento_time
-// e ${dia}_musculacao_time quando a modalidade correspondente esta escolhida em
-// routine_modality_choice — quando o aluno tira uma modalidade que tinha antes, a pergunta daquele
-// dia simplesmente para de ser exibida, mas a resposta ANTIGA continua salva em answers (nunca e
-// apagada, porque a pergunta nunca e revisitada). Sem isso, buildInterviewAvailability lia esse
-// valor velho como se ainda fosse valido, entao "tirar musculacao" nunca tinha efeito nenhum. Zera
-// explicitamente qualquer modalidade que nao esteja mais na escolha atual antes de calcular a
-// disponibilidade. So mexe quando routine_modality_choice existe (entrevistas antigas, de antes
-// dessa pergunta existir, ficam como estavam).
-function sanitizeAnswersForModalityChoice(answers: Record<string, Prisma.InputJsonValue>): Record<string, Prisma.InputJsonValue> {
-  const choice = answers.routine_modality_choice;
-  if (typeof choice !== 'string') return answers;
-  const includesFortalecimento = choice === 'corrida_fortalecimento' || choice === 'corrida_fortalecimento_musculacao';
-  const includesMusculacao = choice === 'corrida_musculacao' || choice === 'corrida_fortalecimento_musculacao';
-  const sanitized = { ...answers };
-  for (const { key } of INTERVIEW_WEEK_DAYS) {
-    if (!includesFortalecimento) {
-      sanitized[`${key}_fortalecimento_time`] = 'none';
-      delete sanitized[`${key}_fortalecimento_available_time`];
-    }
-    if (!includesMusculacao) {
-      sanitized[`${key}_musculacao_time`] = 'none';
-      delete sanitized[`${key}_musculacao_available_time`];
-    }
-  }
-  return sanitized;
-}
-
-function buildInterviewAvailability(rawAnswers: Record<string, Prisma.InputJsonValue>) {
-  const answers = sanitizeAnswersForModalityChoice(rawAnswers);
-  const days = INTERVIEW_WEEK_DAYS;
-  return days.map(({ key, weekday }) => {
-    const runMinutes = interviewMinutes(answers[`${key}_run_time`]);
-    const fortalecimentoMinutes = interviewMinutes(answers[`${key}_fortalecimento_time`]);
-    const musculacaoMinutes = interviewMinutes(answers[`${key}_musculacao_time`]);
-    const modalities: string[] = [];
-    const modalityDurations: Record<string, number> = {};
-    if (runMinutes > 0) {
-      modalities.push('corrida');
-      modalityDurations.corrida = runMinutes;
-    }
-    if (fortalecimentoMinutes > 0) {
-      modalities.push('fortalecimento_corredores');
-      modalityDurations.fortalecimento_corredores = fortalecimentoMinutes;
-    }
-    if (musculacaoMinutes > 0) {
-      modalities.push('forca');
-      modalityDurations.forca = musculacaoMinutes;
-    }
-    return {
-      weekday,
-      noTraining: modalities.length === 0,
-      modalities,
-      availableMin: Math.max(runMinutes, fortalecimentoMinutes, musculacaoMinutes, 0),
-      modalityDurations,
-    };
-  });
-}
-
-function interviewMinutes(value: unknown) {
-  const options: Record<string, number> = {
-    none: 0,
-    up_to_30: 30,
-    from_30_to_45: 45,
-    from_45_to_60: 60,
-    from_60_to_90: 90,
-    // over_90 e legado (opcao removida do dropdown do app, mas respostas antigas ja salvas no
-    // banco ainda usam esse valor) — mantido com o mesmo numero de sempre pra nao mudar o teto de
-    // duracao de ninguem que respondeu antes desta mudanca. Alunos preenchendo a entrevista agora
-    // caem numa das tres faixas mais finas abaixo, pensadas pra cobrir longao de meia/maratona sem
-    // depender de uma diretriz manual do treinador so pra liberar mais tempo (pedido do treinador
-    // 2026-08-04, apos o caso da preparacao de maratona da Thairine).
-    over_90: 105,
-    from_90_to_150: 120,
-    from_150_to_240: 195,
-    over_240: 270,
-  };
-  return options[String(value)] ?? 0;
-}
-
-const WEEKDAY_TO_INTERVIEW_KEY: Record<number, string> = {
-  0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday', 4: 'thursday', 5: 'friday', 6: 'saturday',
-};
-
-function minutesToInterviewBucket(minutes: number) {
-  if (minutes <= 0) return 'none';
-  if (minutes <= 30) return 'up_to_30';
-  if (minutes <= 45) return 'from_30_to_45';
-  if (minutes <= 60) return 'from_45_to_60';
-  if (minutes <= 90) return 'from_60_to_90';
-  if (minutes <= 150) return 'from_90_to_150';
-  if (minutes <= 240) return 'from_150_to_240';
-  return 'over_240';
-}
-
-// Direcao inversa de buildInterviewAvailability. Sempre que a rotina real (WeeklyAvailability)
-// muda por updateAvailability/updateAnamnese (nao pela entrevista em si), as respostas antigas
-// da entrevista sobre dias/duracao (${dia}_run_time, ${dia}_musculacao_time,
-// ${dia}_fortalecimento_time) ficavam presas na resposta original pra sempre. Essas respostas
-// SAO lidas em dois lugares que nao usam WeeklyAvailability: a linha "Horario" da tabela de
-// rotina no painel admin (apps/admin/app/page.tsx) e o contexto respostasEntrevista que os
-// agentes de IA (prescricao, gerente tecnico) recebem — sem sincronizar de volta aqui, o painel
-// mostrava um horario desatualizado e a IA podia receber uma descricao de rotina que contradizia
-// a disponibilidade real usada pra montar o treino daquela mesma semana.
-export function syncInterviewAnswersFromAvailability(
-  currentAnswers: Record<string, Prisma.InputJsonValue>,
-  availability: Array<{ weekday: number; noTraining: boolean; modalities: string[]; modalityDurations?: Record<string, number> | null }>,
-): Record<string, Prisma.InputJsonValue> {
-  const updated = { ...currentAnswers };
-  for (const day of availability) {
-    const dayKey = WEEKDAY_TO_INTERVIEW_KEY[day.weekday];
-    if (!dayKey) continue;
-    const durations = day.noTraining ? {} : day.modalityDurations ?? {};
-    updated[`${dayKey}_run_time`] = minutesToInterviewBucket(durations.corrida ?? 0);
-    updated[`${dayKey}_fortalecimento_time`] = minutesToInterviewBucket(durations.fortalecimento_corredores ?? 0);
-    updated[`${dayKey}_musculacao_time`] = minutesToInterviewBucket(durations.forca ?? 0);
-  }
-
-  // 06/09: sincroniza tambem o routine_modality_choice — campo lido diretamente pelo agente de IA
-  // como descricao da modalidade escolhida. Sem essa sincronizacao, o agente via o valor da
-  // entrevista original (ex: 'corrida_musculacao') mesmo depois do aluno trocar para fortalecimento,
-  // gerando treinos com musculacao que o aluno nao queria mais.
-  const allModalities = new Set<string>();
-  for (const day of availability) {
-    if (!day.noTraining) {
-      for (const m of day.modalities) allModalities.add(m);
-    }
-  }
-  const hasCorrida = allModalities.has('corrida');
-  const hasFortalecimento = allModalities.has('fortalecimento_corredores');
-  const hasForca = allModalities.has('forca');
-  if (hasCorrida || hasFortalecimento || hasForca) {
-    if (hasCorrida && hasFortalecimento && hasForca) {
-      updated['routine_modality_choice'] = 'corrida_fortalecimento_musculacao';
-    } else if (hasCorrida && hasFortalecimento) {
-      updated['routine_modality_choice'] = 'corrida_fortalecimento';
-    } else if (hasCorrida && hasForca) {
-      updated['routine_modality_choice'] = 'corrida_musculacao';
-    } else {
-      updated['routine_modality_choice'] = 'corrida';
-    }
-  }
-
-  return updated;
 }
 
 function decimalValue(value: unknown) {

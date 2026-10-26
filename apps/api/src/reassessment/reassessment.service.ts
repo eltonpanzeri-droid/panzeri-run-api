@@ -5,7 +5,7 @@ import { BadRequestException, Injectable, NotFoundException, Optional } from '@n
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionAgentService } from './evolution-agent.service';
-import { sanitizeInterviewAnswers } from '../training-plans/training-methodology';
+import { isRoutineAnswerKey, sanitizeInterviewAnswers } from '../training-plans/training-methodology';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
@@ -73,6 +73,10 @@ export class ReassessmentService {
   async saveAnswer(userId: string, dto: { key: string; value: unknown; currentStep: number }) {
     if (!/^[a-z0-9_]+$/i.test(dto.key) || dto.currentStep < 0) {
       throw new BadRequestException('Resposta de reavaliacao invalida.');
+    }
+    // (26/10/2026) A rotina nao faz parte da reavaliacao (nem da entrevista): nenhuma chave de rotina e' guardada aqui.
+    if (isRoutineAnswerKey(dto.key)) {
+      throw new BadRequestException({ code: 'routine_not_interview', message: 'A rotina de treinos nao faz parte da reavaliacao. Use "Rotina de treinos".' });
     }
     const draft = await this.prisma.reassessment.findFirst({ where: { userId, completedAt: null }, orderBy: { createdAt: 'desc' } });
     const answers = asAnswerObject(draft?.answers);

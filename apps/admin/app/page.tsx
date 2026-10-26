@@ -217,6 +217,8 @@ interface StudentDetail {
     otherModalities: string[];
     trainingLocations: string[];
   };
+  // Estado da rotina (26/10/2026): cadastrada? revisao (para barrar escrita obsoleta) e semana toda de pausa?
+  routine?: { configured: boolean; revision: number; allRest: boolean };
   availability?: Array<{
     weekday: number;
     noTraining: boolean;
@@ -3481,42 +3483,6 @@ function StudentPanel({
     }
   }
 
-  async function syncAvailability() {
-    if (!student) return;
-    onStatus('Comparando a rotina atual com as respostas antigas da entrevista...');
-    try {
-      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-      // 1) Previa (nada e' gravado): mostra a diferenca entre a rotina ATUAL e a reconstruida a partir da entrevista (historico).
-      const previewResponse = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, { method: 'POST', headers, body: JSON.stringify({ dryRun: true }) });
-      if (!previewResponse.ok) {
-        onStatus('Nao consegui comparar a disponibilidade.');
-        return;
-      }
-      const preview = (await previewResponse.json()) as { changed?: boolean; currentDays?: unknown[]; interviewDays?: unknown[] };
-      if (preview.changed === false) {
-        onStatus('A rotina atual ja e igual a da entrevista: nada a reparar.');
-        return;
-      }
-      const confirmed = window.confirm(
-        `ATENCAO: isto SUBSTITUI a rotina atual do aluno (${preview.currentDays?.length ?? 0} dia(s) com treino) pela das respostas antigas da entrevista (${preview.interviewDays?.length ?? 0} dia(s)). Treinos ja entregues nao sao alterados. Continuar?`,
-      );
-      if (!confirmed) {
-        onStatus('Reparo cancelado: a rotina atual foi mantida.');
-        return;
-      }
-      const response = await fetch(`${API_URL}/coach/students/${student.id}/sync-availability`, { method: 'POST', headers, body: JSON.stringify({ dryRun: false }) });
-      if (!response.ok) {
-        onStatus('Nao consegui sincronizar a disponibilidade.');
-        return;
-      }
-      const data = (await response.json()) as { synced: boolean; days: number };
-      await onRefresh();
-      onStatus(`Disponibilidade reparada: ${data.days} dia(s) com treino a partir da entrevista.`);
-    } catch {
-      onStatus('Nao consegui conectar com a API.');
-    }
-  }
-
   async function recoverSessions() {
     if (!student) return;
     onStatus('Verificando treinos presos em programas antigos...');
@@ -4285,7 +4251,7 @@ function StudentPanel({
           <div><p className="eyebrow">Rotina semanal</p><h3>Dias e horarios de treino</h3></div>
         </div>
         <RoutineAvailabilityTable answers={student.interview?.answers ?? {}} availability={student.availability ?? []} />
-        <ManualRoutineEditor studentId={student.id} token={token} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
+        <ManualRoutineEditor studentId={student.id} token={token} routine={student.routine} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
       </section>
       </>
       ) : null}
@@ -4313,7 +4279,6 @@ function StudentPanel({
             <span>{student.plan?.name ?? 'Sem programa ativo'}{student.plan ? ` · Prescricao nº ${student.plan.planCode}` : ''}</span>
             <button className="secondaryButton" type="button" onClick={regenerateWeek}><RefreshCw size={16} />Refazer nova semana de treinos</button>
             <button className="secondaryButton" type="button" onClick={recoverSessions}><RefreshCw size={16} />Recuperar treinos presos em programa antigo</button>
-            <button className="secondaryButton" type="button" onClick={syncAvailability}><RefreshCw size={16} />Sincronizar disponibilidade da entrevista</button>
             {student.generationBlocked ? (
               <button className="secondaryButton" type="button" onClick={allowExtraGenerationAttempt}><RefreshCw size={16} />Liberar mais uma tentativa de geracao</button>
             ) : null}
@@ -8666,7 +8631,7 @@ function manualRoutineDaysFromAvailability(availability: NonNullable<StudentDeta
 // Botao "Editar rotina" no painel do treinador — pedido explicito 03/08 (caso da Roberta): o
 // treinador precisa poder corrigir a rotina de um aluno na hora, sem depender do proprio aluno
 // acertar isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so do aluno).
-function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved }: { studentId: string; token: string; availability: NonNullable<StudentDetail['availability']>; onStatus: (message: string) => void; onSaved: () => Promise<void> | void }) {
+function ManualRoutineEditor({ studentId, token, routine, availability, onStatus, onSaved }: { studentId: string; token: string; routine?: NonNullable<StudentDetail['routine']>; availability: NonNullable<StudentDetail['availability']>; onStatus: (message: string) => void; onSaved: () => Promise<void> | void }) {
   const [editing, setEditing] = useState(false);
   const [days, setDays] = useState<ManualRoutineDay[]>(() => manualRoutineDaysFromAvailability(availability));
   const [saving, setSaving] = useState(false);
@@ -8711,10 +8676,18 @@ function ManualRoutineEditor({ studentId, token, availability, onStatus, onSaved
       const response = await fetch(`${API_URL}/coach/students/${studentId}/availability`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availability: payload, applyNow }),
+        // A revisao carregada com o aluno: se a rotina mudou depois (aluno, outra aba, outro treinador), o servidor recusa com 409 em vez de sobrescrever.
+        body: JSON.stringify({ availability: payload, applyNow, ...(routine ? { expectedRevision: routine.revision } : {}) }),
       });
       if (!response.ok) {
-        onStatus('Nao consegui salvar a rotina.');
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        if (response.status === 409) {
+          await onSaved();
+          setEditing(false);
+          onStatus('A rotina deste aluno foi alterada por outra pessoa ou em outra tela depois que voce abriu o painel. Recarreguei a rotina atual: revise e edite de novo. NADA foi sobrescrito.');
+          return;
+        }
+        onStatus(typeof body?.message === 'string' ? `Nao consegui salvar a rotina: ${body.message}` : 'Nao consegui salvar a rotina.');
         return;
       }
       await onSaved();

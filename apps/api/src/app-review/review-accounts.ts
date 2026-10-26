@@ -248,6 +248,8 @@ async function wipeOwnedData(tx: Prisma.TransactionClient, userId: string): Prom
   await tx.trainingPlan.deleteMany({ where: { userId } });
   await tx.targetRace.deleteMany({ where: { userId } });
   await tx.fitnessTest.deleteMany({ where: { userId } });
+  await tx.weeklyRoutineChange.deleteMany({ where: { userId } });
+  await tx.weeklyRoutineState.deleteMany({ where: { userId } });
   await tx.weeklyAvailability.deleteMany({ where: { userId } });
   await tx.healthProfile.deleteMany({ where: { userId } });
   await tx.userPreferences.deleteMany({ where: { userId } });

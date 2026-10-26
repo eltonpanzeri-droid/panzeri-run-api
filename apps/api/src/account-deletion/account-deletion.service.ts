@@ -31,7 +31,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
   'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'wearableMetricRecord', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
   'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'loginLinkToken', 'userNotification',
-  'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'fitnessTest', 'targetRace', 'painReport',
+  'messageLog', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'weeklyRoutineChange', 'weeklyRoutineState', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoeEvent', 'shoePhoto', 'shoe', 'userDevice', 'userProfilePhoto', 'stravaConnection',
   'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerConnection', 'providerOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, REASONING_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
+import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from '../src/training-plans/panzeri-developmental-directive';
 import {
   buildAgentInputRecord, buildEvidenceIndex, buildSessionDecisions, buildWeekDecision, describeSessionForTrace, EvidenceItem, MAX_AGENT_INPUT_CHARS,
   parseRetentionMonths, recordAgentCall, redactEvidenceForProvider, retentionCutoff, sha256,
@@ -20,12 +21,14 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
     // 21/10/2026 (regra do treinador, aprovada por Elton): a metodologia passou a mandar SEMPRE pausa ativa extremamente leve (nunca passiva), para o treino poder ir ao relogio.
     // Muda o texto de conhecimento de metodologia (prompts stable e strength); o prompt da corrida por sessao nao muda.
     // 23/10/2026 (Etapa 1, texto aprovado por Elton): dois itens novos sobre dados de aparelho de varias fontes e sono dividido (so no prompt da semana). Hash anterior: 1d4f7543...b4498e4.
-    stable: '365deae30870dc037a9c3821a635e92a9680569deb99840bd2d1420d3ebe0535',
+    // 25/10/2026 (diretriz desenvolvimentista, texto do Elton): a regua de dor da metodologia ficou SUBORDINADA a secao de dor da diretriz (unico trecho alterado no texto da metodologia, prompts stable e strength);
+    // o bloco PANZERI_DEVELOPMENTAL_DIRECTIVE e' removivel (so no prompt semanal). Hash anterior do stable: 365deae3...0535.
+    stable: 'a66975900e40b32c7bbe137304565464f039d713167481b89f459c2c4aaffa5b',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
     run: '857b1ae58a7ce8d54cf4b4dfd71a48b1eed5ff1ea33048a8ed67204ccc41d762',
-    strength: 'f1ed5573d1dbc273789f9c7dcfdc3971447868ed4b02efb3275b46669de67351',
+    strength: 'c895e9a1c636c475cbf5656c7e55dfe820d77dfdaf043e0dd6dc5f9b63723711', // 25/10/2026: mesma subordinacao da regua de dor (hash anterior: f1ed5573...7351)
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;
 
@@ -34,7 +37,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
     // 1.2b: REASONING_INSTRUCTION (3 prompts) | 2.1: EXECUTION_REPORT_INSTRUCTION (so no prompt da semana) | 15/10/2026: LINK_CORRECTION_INSTRUCTION (3 prompts,
     // precedencia da informacao corrigida sobre interpretacao historica). Removidos os blocos, voltam ao original.
-    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '');
+    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '');
     const stable = service.buildSystemPromptStable();
     const run = service.buildRunSessionSystemPrompt();
     const strength = service.buildSingleStrengthSystemPrompt();
