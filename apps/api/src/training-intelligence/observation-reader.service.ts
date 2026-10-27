@@ -534,10 +534,11 @@ export class ObservationReaderService {
 
   private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const rows = await this.prisma.activityLog.findMany({
-      where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative'] }, ...aiActivityWhere() },
+      // 'ambiguous' (aguardando a resposta do aluno) tambem: as medidas objetivas (ritmo, cadencia, potencia, elevacao) nao dependem de a atividade ser prescrita ou extra.
+      where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative', 'ambiguous'] }, ...aiActivityWhere() },
       orderBy: { startedAt: 'asc' },
     });
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids }, ...aiActivityWhere() } }));
+    const picks = await pickCanonicalPerEvent(rows.filter((row) => row.executionClassification !== 'ambiguous' || row.physicalIdentityStatus === 'unique' || row.physicalIdentityStatus === 'matched'), (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids }, ...aiActivityWhere() } }));
     const logs = picks.map((pick) => pick.row).filter((log) => canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     const observations: Observation[] = [];
     for (const log of logs) {

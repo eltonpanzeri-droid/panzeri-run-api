@@ -11,6 +11,11 @@ const row = (id: string, date: string, rpe: number | null, minutes: number | nul
   id, date, modality: 'corrida', title: `Treino ${id}`, status: 'done', durationMin: minutes, perceivedEffort: rpe, isExtra: false, ...over,
 });
 
+// Corte do fuso no passado: estes testes exercitam a regra de Sao Paulo (sem configuracao a regra antiga, UTC, vale; ver local-date-unification.spec.ts).
+const SAVED_CUTOVER = process.env.LOCAL_DATE_CUTOVER_AT;
+beforeAll(() => { process.env.LOCAL_DATE_CUTOVER_AT = '2000-01-01T00:00:00Z'; });
+afterAll(() => { if (SAVED_CUTOVER === undefined) delete process.env.LOCAL_DATE_CUTOVER_AT; else process.env.LOCAL_DATE_CUTOVER_AT = SAVED_CUTOVER; });
+
 describe('o que entra e o que fica de fora', () => {
   it('carga da sessao = esforco percebido x minutos; ajustado entra marcado; nao feito nao entra em nenhuma lista', () => {
     const { sessions, excluded } = classifySessions([row('a', '2026-10-01', 7, 45), row('b', '2026-10-02', 5, 60, { status: 'adjusted' }), row('c', '2026-10-03', 8, 30, { status: 'missed' })]);

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ActivityLog, Prisma } from '@prisma/client';
+import { activityLocalDate, activityLocalDayStart } from '../common/local-date';
 import { PrismaService } from '../prisma/prisma.service';
 import type { PhysicalIdentityResult } from './physical-activity-identity.service';
 import { canonicalModality } from './canonical-modality';
@@ -213,6 +214,9 @@ export interface ReconciliationActivitySummary {
   cadenceAvg: number | null;
 }
 
+// Prefixo do linkId da opcao "nenhum destes — foi um treino extra" (resposta NAO) enviada junto dos candidatos reais; aplicativos antigos a enviam ao mesmo endpoint de confirmacao.
+export const EXTRA_ANSWER_LINK_PREFIX = 'extra:';
+
 export interface ReconciliationCandidateOption {
   linkId: string;
   trainingSessionId: string;
@@ -265,12 +269,10 @@ function toActivitySummary(activity: {
 
 // start-time-utc-offset da Polar (e equivalente de outros provedores) segue a convencao
 // "realUTC = localAsUtc - offsetMinutes" (ver parseStartedAt em polar-activity-ingestion.service.ts)
-// — logo local = realUTC + offsetMinutes. Sem offset conhecido, usamos o dia UTC puro (nunca
-// adivinhamos fuso do aluno).
+// — logo local = realUTC + offsetMinutes. Sem offset informado, America/Sao_Paulo (lote 4, 26/10/2026; antes: UTC puro). REGRA UNICA em common/local-date.ts, compartilhada
+// com a Evolucao, o relatorio semanal, o calendario, a carga e os tenis. Vinculos ja' existentes NAO sao refeitos: so' classificacoes novas usam o dia SP.
 export function localCalendarDate(startedAt: Date, utcOffsetMinutes: number | null): string {
-  const offset = utcOffsetMinutes ?? 0;
-  const local = new Date(startedAt.getTime() + offset * 60_000);
-  return local.toISOString().slice(0, 10);
+  return activityLocalDate(startedAt, utcOffsetMinutes);
 }
 
 // Campos de WorkoutCompletion que a sessao sintetica (atividade extra materializada) ja' tem por si so'. Qualquer OUTRO campo preenchido e'
@@ -284,7 +286,7 @@ function completionHasStudentContent(completion: Record<string, unknown>): boole
 export const STUDENT_LINK_MAX_DAYS = 6;
 
 function startOfLocalDay(startedAt: Date, utcOffsetMinutes: number | null): Date {
-  return new Date(`${localCalendarDate(startedAt, utcOffsetMinutes)}T00:00:00.000Z`);
+  return activityLocalDayStart(startedAt, utcOffsetMinutes);
 }
 
 // Janela de busca das observacoes que podem formar um par ambiguo (mesma da avaliacao de identidade, so' performance).
@@ -617,8 +619,8 @@ export class SessionExecutionLinkService {
       include: { executionLinks: { where: { status: 'active' } }, completion: { select: { status: true } } },
     });
     // Sessao sintetica de atividade alternativa (origin 'device_extra') nunca e' uma prescricao: nao concorre como candidata. Tampouco
-    // concorre uma sessao que o ALUNO marcou explicitamente como 'nao feito': o registro dele prevalece sobre a evidencia objetiva para
-    // aquela prescricao; o evento fisico continua existindo e, sem outra sessao compativel, e' atividade adicional (alternative).
+    // concorre automaticamente uma sessao que o ALUNO marcou explicitamente como 'nao feito': o registro dele nao e' alterado nem o vinculo presumido; havendo uma
+    // atividade compativel do dia, ela vira candidata PENDENTE de confirmacao do aluno (abaixo); se ele disser que nao e' esse treino, e' atividade adicional (alternative).
     const prescribable = sameDaySessions.filter((s) => s.origin !== 'device_extra' && s.completion?.status !== 'missed');
     // Compativel em modalidade E ainda sem vinculo ATIVO de OUTRA atividade (uma sessao ja' cumprida por outra atividade nao concorre de
     // novo). 'candidate' nao conta como "ja' vinculada" — so' 'active' representa execucao confirmada.
@@ -631,6 +633,12 @@ export class SessionExecutionLinkService {
       // (10/2026) Outra atividade ja' cumpre aquela prescricao: esta e' atividade ADICIONAL (extra), nunca associada por palpite. O aluno pode
       // corrigir ("Vincular a treino prescrito").
       if (modalityCompatible.length > 0) return { kind: 'alternative' };
+      // (26/10/2026, decisao de Elton) Treino prescrito marcado 'nao feito' pelo aluno e depois chega uma atividade compativel do mesmo dia: o sistema NAO presume o vinculo nem
+      // a descarta como extra — PERGUNTA ao aluno (mesmo fluxo dos candidatos pendentes). A marcacao anterior so' muda se ele responder SIM (confirmCandidate).
+      const missedCandidates = sameDaySessions.filter((s) => s.origin !== 'device_extra' && s.completion?.status === 'missed' && modalitiesCompatible(s.modality, activity.sport) && s.executionLinks.every((link) => memberIds.has(link.activityLogId)));
+      if (missedCandidates.length > 0) {
+        return { kind: 'ambiguous', matchMethod: 'student_marked_not_done', candidates: missedCandidates.map((session) => ({ session, evidence: buildEvidence(session, activity) })) };
+      }
       return this.planWeakForce(activity, prescribable, memberIds);
     }
 
@@ -969,16 +977,37 @@ export class SessionExecutionLinkService {
     if (candidate.status !== 'candidate') throw new BadRequestException('Este vinculo nao e um candidato pendente.');
 
     const since = new Date();
-    const link = await this.linkManually({
-      trainingSessionId: candidate.trainingSessionId,
-      activityLogId: candidate.activityLogId,
-      origin,
-      matchMethod: candidate.matchMethod ?? undefined,
-      evidence: (candidate.evidence as EvidenceItem[] | null) ?? undefined,
-      note: note ?? candidate.note,
+    // Vinculo e atualizacao da marcacao na MESMA transacao (com a trava do aluno): ou acontecem os dois, ou nenhum.
+    const { link, flipped } = await this.withUserLock(candidate.userId, async (service) => {
+      if (origin === 'student') {
+        // Duas atividades candidatas ao mesmo treino: a segunda confirmacao nao cria um segundo vinculo ativo; o aluno pode responder NAO a ela (vira extra).
+        const activity = await service.prisma.activityLog.findUnique({ where: { id: candidate.activityLogId } });
+        const memberIds = activity ? (await service.eventOf(activity)).members.map((m) => m.id) : [candidate.activityLogId];
+        const occupied = await service.prisma.sessionExecutionLink.count({ where: { trainingSessionId: candidate.trainingSessionId, status: 'active', activityLogId: { notIn: memberIds } } });
+        if (occupied > 0) throw new BadRequestException('Este treino ja esta vinculado a outra atividade. Se esta atividade foi um treino extra, responda que nao foi este treino.');
+      }
+      const created = await service.linkManually({
+        trainingSessionId: candidate.trainingSessionId,
+        activityLogId: candidate.activityLogId,
+        origin,
+        matchMethod: candidate.matchMethod ?? undefined,
+        evidence: (candidate.evidence as EvidenceItem[] | null) ?? undefined,
+        note: note ?? candidate.note,
+      });
+      // Resposta SIM do aluno a um treino que ele tinha marcado 'nao feito': a marcacao anterior passa a 'realizado' (so' o status; o resto do feedback e' preservado).
+      const done = origin === 'student' ? await service.markDoneAfterStudentConfirmation(candidate.trainingSessionId) : false;
+      return { link: created, flipped: done };
     });
-    await this.recomputeAfterCorrection(candidate.userId, since, { origin: origin === 'automatic' ? 'system' : origin, actorId: origin === 'student' ? candidate.userId : null, kind: 'link_correction' });
+    await this.recomputeAfterCorrection(candidate.userId, since, { origin: origin === 'automatic' ? 'system' : origin, actorId: origin === 'student' ? candidate.userId : null, kind: 'link_correction', completionsChanged: flipped });
     return link;
+  }
+
+  // 'nao feito' -> 'realizado' quando o aluno confirma que a atividade corresponde ao treino. Devolve se mudou algo. Nunca cria feedback: so' atualiza o status de um que ja' existe.
+  private async markDoneAfterStudentConfirmation(trainingSessionId: string): Promise<boolean> {
+    const completion = await this.prisma.workoutCompletion.findUnique({ where: { sessionId: trainingSessionId }, select: { id: true, status: true } });
+    if (!completion || completion.status !== 'missed') return false;
+    await this.prisma.workoutCompletion.update({ where: { id: completion.id }, data: { status: 'done' } });
+    return true;
   }
 
   // Wrapper exposto via HTTP (controller) pro ALUNO confirmar uma candidata. Checa posse ANTES de
@@ -986,6 +1015,24 @@ export class SessionExecutionLinkService {
   // confiava no chamador); exposto ao aluno, precisa impedir que ele confirme um linkId de outro
   // usuario so' adivinhando o id. NotFoundException tanto pra' "nao existe" quanto pra' "nao e'
   // seu" — nunca revela a um aluno que um linkId de outra pessoa existe.
+  // Resposta do aluno a uma pergunta pendente, pelo MESMO endpoint de confirmacao: um linkId real = SIM; "extra:<atividade>" = NAO (compatibilidade com apps antigos, que so'
+  // conhecem esse endpoint). NAO: a atividade fica registrada como extra e o treino segue como esta. Idempotente; nunca desfaz um vinculo ATIVO (o aluno usa "Desfazer vinculo").
+  async answerPendingActivityAsStudent(userId: string, linkId: string, note?: string | null) {
+    if (!linkId.startsWith(EXTRA_ANSWER_LINK_PREFIX)) return this.confirmCandidateAsStudent(userId, linkId, note);
+    const activityLogId = linkId.slice(EXTRA_ANSWER_LINK_PREFIX.length);
+    const activity = await this.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+    if (!activity || activity.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
+    const { members } = await this.eventOf(activity);
+    const memberIds = members.map((m) => m.id);
+    if ((await this.prisma.sessionExecutionLink.count({ where: { activityLogId: { in: memberIds }, status: 'active' } })) > 0) {
+      throw new BadRequestException('Esta atividade ja foi vinculada a um treino prescrito. Para desfazer, use "Desfazer vinculo".');
+    }
+    if (activity.executionClassification === 'alternative' && activity.executionClassifiedBy === 'student') {
+      return { activityLogId, classification: 'alternative' as const, revokedLinkIds: [] as string[] }; // ja respondido (toque duplo / outro aparelho)
+    }
+    return this.unlinkActivityAsStudent(userId, activityLogId, note ?? null);
+  }
+
   async confirmCandidateAsStudent(userId: string, linkId: string, note?: string | null) {
     const candidate = await this.prisma.sessionExecutionLink.findUnique({ where: { id: linkId } });
     if (!candidate || candidate.userId !== userId) {
@@ -1289,9 +1336,10 @@ export class SessionExecutionLinkService {
       throw new BadRequestException('A modalidade desta atividade nao corresponde a este treino prescrito; ela continua registrada como atividade extra.');
     }
     const since = new Date();
-    const result = await this.withUserLock(userId, (service) => service.linkActivityToSessionLocked(activityLogId, trainingSessionId));
+    // Vinculo e atualizacao da marcacao ('nao feito' -> 'realizado', se for o caso) na MESMA transacao.
+    const { flipped, ...result } = await this.withUserLock(userId, async (service) => ({ ...(await service.linkActivityToSessionLocked(activityLogId, trainingSessionId)), flipped: await service.markDoneAfterStudentConfirmation(trainingSessionId) }));
     // Atividade que ja tinha treino extra registrado: o registro de feedback dessa sessao foi movido ou removido (contagens de medalhas podem mudar).
-    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', completionsChanged: result.syntheticRemoved });
+    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', completionsChanged: result.syntheticRemoved || flipped });
     return result;
   }
 
@@ -1364,7 +1412,13 @@ export class SessionExecutionLinkService {
     const result = await this.withUserLock(userId, async (service) => {
       const { canonical, members } = await service.eventOf(activity);
       const links = await service.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: members.map((m) => m.id) }, status: 'active' } });
-      if (links.length === 0) throw new BadRequestException('Esta atividade nao esta vinculada a um treino prescrito.');
+      if (links.length === 0) {
+        // Resposta NAO a uma pergunta pendente (candidatos): o treino segue como esta (ex.: 'nao feito') e a atividade fica registrada como extra, por decisao do aluno.
+        const pending = await service.prisma.sessionExecutionLink.count({ where: { activityLogId: { in: members.map((m) => m.id) }, status: 'candidate' } });
+        if (pending === 0) throw new BadRequestException('Esta atividade nao esta vinculada a um treino prescrito.');
+        await service.markExtra({ activityLogId: canonical.id, origin: 'student', note: note ?? 'student_not_this_workout' });
+        return { activityLogId: canonical.id, classification: 'alternative' as const, revokedLinkIds: [] as string[] };
+      }
       for (const link of links) await service.markExtra({ activityLogId: link.activityLogId, origin: 'student', note: note ?? 'student_unlinked' });
       if (!links.some((l) => l.activityLogId === canonical.id)) await service.markExtra({ activityLogId: canonical.id, origin: 'student', note: note ?? 'student_unlinked' });
       return { activityLogId: canonical.id, classification: 'alternative' as const, revokedLinkIds: links.map((l) => l.id) };

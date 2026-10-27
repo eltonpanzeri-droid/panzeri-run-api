@@ -43,7 +43,7 @@ function build(opts: { links?: Row[]; linkQueryThrows?: boolean; extraRows?: Row
       ]),
     },
   };
-  const executionAnalysis = { prepareWeeklyReport: jest.fn(async () => ({ indicators: { marker: 'fresh-week-indicators' } })) };
+  const executionAnalysis = { prepareWeeklyReport: jest.fn(async () => ({ indicators: { marker: 'full-week-indicators' }, aiIndicators: { marker: 'fresh-week-indicators' } })) };
   const service = new TrainingAnalystService(prisma as never, executionAnalysis as never, {} as never);
   jest.spyOn((service as any).logger, 'error').mockImplementation(() => undefined);
   jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
@@ -170,7 +170,7 @@ describe('recalculo para leitura (recomputeForRead)', () => {
     expect(executionAnalysis.prepareWeeklyReport).toHaveBeenCalledWith(USER, { startDate: new Date('2026-10-05T00:00:00Z'), planId: 'plan-0', sessionIds: ['s-run'] });
     expect(buildForGeneration).toHaveBeenCalledWith(
       USER, new Date('2026-10-12T00:00:00Z'),
-      { startDate: new Date('2026-10-05T00:00:00Z'), sessionIds: ['s-run'], indicators: { marker: 'fresh-week-indicators' } },
+      { startDate: new Date('2026-10-05T00:00:00Z'), sessionIds: ['s-run'], indicators: { marker: 'fresh-week-indicators' }, totals: null },
       { persist: false },
     );
   });

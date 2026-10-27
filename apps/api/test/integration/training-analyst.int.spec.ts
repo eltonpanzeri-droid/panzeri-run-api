@@ -230,7 +230,7 @@ describe('Analista de Treinos (PostgreSQL 17 real, dados sinteticos)', () => {
     expect(evidence.evolucao.achados.map((a) => a.codigo)).toContain('intensidade_acima_da_faixa_recorrente');
     expect(evidence.semana.achados.map((a) => a.codigo)).toContain('atividades_sem_prescricao');
     const week = (await prisma.trainingAnalysis.findFirstOrThrow({ where: { userId: bia.userId, scope: 'week' } })).contract as unknown as AnalysisContract;
-    expect(week.findings.find((f) => f.code === 'atividades_sem_prescricao')!.statement).toMatch(/1 atividade\(s\) por iniciativa do aluno/);
+    expect(week.findings.find((f) => f.code === 'atividades_sem_prescricao')!.statement).toMatch(/1 atividade\(s\) extra\(s\) na semana, sem sessão prescrita correspondente.*corrida em 2026-10-08 \(9 km, 47 min, esforço percebido 7\/10\)/);
     expect(JSON.stringify(evidence)).not.toMatch(/prescrev|aumentar|reduzir|próxima semana/i);
   });
 

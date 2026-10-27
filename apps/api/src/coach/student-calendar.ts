@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import { activityLocalDate } from '../common/local-date';
 import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
 import { HistoryPlanLike, selectHistoryWeeks } from '../training-plans/student-information-context';
 import { mapHistorySession } from './history-session';
@@ -185,7 +186,7 @@ export function buildStudentCalendar<Summary>(input: {
     .map((row): CalendarActivity => ({
       id: row.id,
       provider: row.provider,
-      dateIso: new Date(row.startedAt.getTime() + (row.utcOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 10),
+      dateIso: activityLocalDate(row.startedAt, row.utcOffsetMinutes),
       modality: canonicalModality(row.sport) ?? row.sport ?? 'outra',
       durationMin: row.durationSec != null ? row.durationSec / 60 : null,
       distanceKm: row.distanceMeters != null ? row.distanceMeters / 1000 : null,

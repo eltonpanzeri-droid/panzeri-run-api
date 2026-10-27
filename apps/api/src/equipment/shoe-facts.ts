@@ -1,3 +1,4 @@
+import { activityLocalDate as sharedActivityLocalDate } from '../common/local-date';
 import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { modalityGroup } from '../coach/training-load';
@@ -37,7 +38,7 @@ export interface ShoeUsageFact {
 
 const spDay = (value: Date) => value.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 export function activityLocalDay(startedAt: Date, utcOffsetMinutes: number | null): string {
-  return utcOffsetMinutes != null ? new Date(startedAt.getTime() + utcOffsetMinutes * 60_000).toISOString().slice(0, 10) : spDay(startedAt);
+  return sharedActivityLocalDate(startedAt, utcOffsetMinutes);
 }
 
 export interface ShoeFactsOptions {

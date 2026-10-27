@@ -1,3 +1,4 @@
+import { activityLocalDate } from '../common/local-date';
 import { aiActivityWhere } from '../ai-governance/ai-scope';
 import { neutralizeSessionsForAi } from '../ai-governance/ai-session-filter';
 import { Injectable } from '@nestjs/common';
@@ -31,9 +32,9 @@ function getTodayBR(): ISODate {
 
 // getWeekStart: regra unica de semana em common/weekly-volume.ts (segunda a domingo; km pertence a' semana do dia local da execucao).
 
-/** Dia local do atleta de um instante UTC, pelo offset do provedor (mesma convencao do motor de reconciliacao) */
+/** Dia local do atleta de um instante UTC: offset do provedor quando informado; sem ele, America/Sao_Paulo (regra unica em common/local-date.ts, lote 4). */
 function localIsoDate(startedAt: Date, utcOffsetMinutes: number | null): ISODate {
-  return new Date(startedAt.getTime() + (utcOffsetMinutes ?? 0) * 60_000).toISOString().slice(0, 10);
+  return activityLocalDate(startedAt, utcOffsetMinutes);
 }
 
 /** Retorna 'YYYY-MM' de uma data 'YYYY-MM-DD' */
@@ -150,14 +151,17 @@ export class EvolutionMetricService {
     const rows = await this.prisma.activityLog.findMany({
       where: {
         userId,
-        executionClassification: { in: ['corresponding', 'alternative'] },
+        // 'ambiguous' = atividade valida que aguarda a resposta do aluno: entra no VOLUME realizado (uma vez); nao conta como extra nem como cumprimento ate' a resposta.
+        executionClassification: { in: ['corresponding', 'alternative', 'ambiguous'] },
         startedAt: { gte: TRAINING_INTELLIGENCE_DATA_CUTOFF },
         ...aiActivityWhere(),
       },
       select,
     });
     // Mesmo filtro no carregamento da canonica: se a canonica do evento e' de provedor bloqueado, a observacao elegivel lida passa a representar o evento.
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...aiActivityWhere() }, select }));
+    // identidade fisica ambigua (possivel duplicidade) continua fora: so' a pendente de confirmacao com identidade resolvida entra.
+    const resolvedRows = rows.filter((row) => row.executionClassification !== 'ambiguous' || row.physicalIdentityStatus === 'unique' || row.physicalIdentityStatus === 'matched');
+    const picks = await pickCanonicalPerEvent(resolvedRows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...aiActivityWhere() }, select }));
     // (10/2026) Volume em KM e' km de CORRIDA: sem modalidade pedida, so' corrida/esteira entram (bike, natacao, caminhada etc. continuam registradas
     // como atividades extras, mas nunca viram km de corrida). Com modalidade pedida, vale aquela modalidade (corrida inclui esteira).
     const wantedRaw = sport ? (canonicalModality(sport) ?? sport) : null;

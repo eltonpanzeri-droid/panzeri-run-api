@@ -141,6 +141,8 @@ describe('analise de execucao: persistencia, relatorios e nova semana (PostgreSQ
       const pkg = await prisma.prescriptionEvidencePackage.findFirstOrThrow({ where: { planId: plan.id, kind: 'weekly' } });
       const prompt = JSON.parse((pkg.agentInput as unknown as { calls: Array<{ userPrompt: string }> }).calls[0].userPrompt);
       expect(prompt.relatorioDeExecucaoDaSemanaAnterior.sessoes.realizadas).toBe(2);
+      // lote 3: o texto enviado a IA traz o treino realizado em tres blocos (cumprimento x extras x total), no mesmo relatorio
+      expect(prompt.relatorioDeExecucaoDaSemanaAnterior.treinoRealizadoDaSemana).toMatchObject({ prescricao: { sessoesPrevistas: 2, sessoesCumpridas: 2 }, extras: { atividades: 0 }, totalRealizado: { atividades: 2 } });
       const item = (pkg.evidence as unknown as EvidenceItem[]).find((e) => e.ref === 'weekly_execution_report')!;
       expect(item).toMatchObject({ kind: 'weekly_execution_report', providers: ['polar'] });
       expect(pkg.sourceProviders).toEqual(expect.arrayContaining(['polar']));

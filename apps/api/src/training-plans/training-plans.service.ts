@@ -49,7 +49,7 @@ import { ReassessmentService } from '../reassessment/reassessment.service';
 import { buildCompactAgentContext, limitCompactAgentContext } from '../training-intelligence/compact-agent-context';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
-import { SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
+import { EXTRA_ANSWER_LINK_PREFIX, SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
 import { ShoesService } from '../shoes/shoes.service';
 import { describeSessionShape, formatDirectiveForAgent, formatRecordedSession } from './agent-context-format';
 
@@ -1006,7 +1006,7 @@ export class TrainingPlansService {
     if (this.analyst) {
       try {
         analystDraft = await this.analyst.buildForGeneration(userId, weekStart, previousWeekPlan
-          ? { startDate: previousWeekStart, sessionIds: previousWeekPlan.sessions.filter((session) => !['device_extra', 'student_extra'].includes(session.origin ?? '') && ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'].includes(session.modality)).map((session) => session.id), indicators: weeklyExecution?.indicators ?? null }
+          ? { startDate: previousWeekStart, sessionIds: previousWeekPlan.sessions.filter((session) => !['device_extra', 'student_extra'].includes(session.origin ?? '') && ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'].includes(session.modality)).map((session) => session.id), indicators: weeklyExecution?.aiIndicators ?? null, totals: weeklyExecution?.aiTotals ?? null }
           : null);
       } catch (error) {
         contextGaps.push({ source: 'analise_de_treinos', severity: 'informativo', reason: describeError(error), effect: 'A analise tecnica dos treinos NAO pode ser calculada; decida pelo historicoSemanal e pelos relatorios.' });
@@ -1583,7 +1583,7 @@ export class TrainingPlansService {
         },
         provenance,
       );
-      const executionProvenance = { ...executionProvenanceBase, weeklyExecutionReport: weeklyExecution?.indicators.sources.providers ?? [], trainingAnalysis: analystDraft?.providers ?? [] };
+      const executionProvenance = { ...executionProvenanceBase, weeklyExecutionReport: weeklyExecution?.promptProviders ?? [], trainingAnalysis: analystDraft?.providers ?? [] };
       const previousWeek = historyWeeks[0] ? { startDate: historyWeeks[0].startDate, sessions: historyWeeks[0].sessions.map(toTrace) } : null;
       await this.trace.persistWeekly(tx, {
         userId, planId: createdPlan.id, weekStart, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
@@ -3166,13 +3166,17 @@ export class TrainingPlansService {
         startedAt: activityLog.startedAt,
         distanceKm: activityLog.distanceMeters != null ? activityLog.distanceMeters / 1000 : null,
         durationMin: activityLog.durationSec != null ? activityLog.durationSec / 60 : null,
-        candidates: candidates.map((c) => ({
-          linkId: c.linkId,
-          trainingSessionId: c.trainingSessionId,
-          sessionTitle: c.sessionTitle,
-          sessionModality: c.sessionModality,
-          sessionDate: c.sessionDate,
-        })),
+        candidates: [
+          ...candidates.map((c) => ({
+            linkId: c.linkId,
+            trainingSessionId: c.trainingSessionId,
+            sessionTitle: c.sessionTitle,
+            sessionModality: c.sessionModality,
+            sessionDate: c.sessionDate,
+          })),
+          // Resposta NAO como ultima opcao do MESMO cartao: o app antigo a mostra como "Foi este: nenhum destes — foi um treino extra" e a envia ao mesmo endpoint de confirmacao.
+          { linkId: `${EXTRA_ANSWER_LINK_PREFIX}${activityLog.id}`, trainingSessionId: '', sessionTitle: 'nenhum destes — foi um treino extra', sessionModality: 'extra', sessionDate: activityLog.isoDate },
+        ],
       })),
     };
   }

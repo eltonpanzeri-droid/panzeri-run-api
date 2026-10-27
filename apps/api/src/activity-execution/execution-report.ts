@@ -1,6 +1,7 @@
 import {
   EXECUTION_ANALYSIS_VERSION, mergeTimeInBand, RunExecutionAnalysis, Scenario, SegmentRole, SessionAnalysis, StrengthExecutionAnalysis, TimeInBand,
 } from './execution-analysis';
+import type { TotalsExtraEvent, WeeklyRealizedTotals } from './weekly-realized-totals';
 
 // RELATORIOS (Etapa 2.1): texto do aluno montado DIRETAMENTE dos indicadores calculados em execution-analysis.ts — nenhuma chamada de IA e nenhum
 // segundo motor de calculo. O semanal agrega os MESMOS indicadores (somando SEGUNDOS, nunca medias de percentuais) e o texto so' apresenta.
@@ -103,6 +104,8 @@ export interface WeeklyExecutionIndicators {
   } | null;
   completeness: { sessionsWithoutData: number; summaryOnly: number; manualOnly: number; notes: string[] };
   sources: { sessionIds: string[]; activityLogIds: string[]; providers: string[] };
+  // Totais da semana (26/10/2026, lote 2): prescricao x extras x total realizado. OPCIONAL: relatorios emitidos antes nao tem este bloco e continuam sendo lidos como sempre foram.
+  totals?: WeeklyRealizedTotals;
 }
 
 const add = <T>(a: number | null, b: T | null | undefined, pick: (x: T) => number | null) => { const v = b == null ? null : pick(b); return v == null ? a : (a ?? 0) + v; };
@@ -171,10 +174,56 @@ export function buildWeeklyExecutionIndicators(weekStartDate: string, sessions: 
 
 const MODALITY_LABEL: Record<string, string> = { corrida: 'corrida', esteira: 'corrida', forca: 'musculação', fortalecimento_corredores: 'fortalecimento' };
 
+// Rotulos das atividades por modalidade na apresentacao dos extras e do total: [singular, plural].
+const ACTIVITY_LABEL: Record<string, [string, string]> = {
+  corrida: ['corrida', 'corridas'], esteira: ['corrida na esteira', 'corridas na esteira'], forca: ['treino de musculação', 'treinos de musculação'],
+  fortalecimento_corredores: ['fortalecimento', 'fortalecimentos'], bike: ['pedalada', 'pedaladas'], natacao: ['natação', 'natações'], caminhada: ['caminhada', 'caminhadas'],
+  funcional: ['treino funcional', 'treinos funcionais'], outra: ['outra atividade', 'outras atividades'],
+};
+const labelOf = (modality: string, count: number) => (ACTIVITY_LABEL[modality] ?? [modality, modality])[count === 1 ? 0 : 1];
+const WEEKDAY_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const fmtDay = (isoDay: string) => `${WEEKDAY_SHORT[new Date(`${isoDay}T12:00:00Z`).getUTCDay()]} ${isoDay.slice(8, 10)}/${isoDay.slice(5, 7)}`;
+const fmtMinutes = (minutes: number) => { const total = Math.round(minutes); return total < 60 ? `${total} min` : `${Math.floor(total / 60)}h${String(total % 60).padStart(2, '0')}`; };
+const countList = (byModality: Record<string, { events: number }>) => Object.entries(byModality).filter(([, v]) => v.events > 0).map(([m, v]) => `${v.events} ${labelOf(m, v.events)}`).join(', ');
+
+// Extras e total realizado (so' quando a semana teve atividade extra; sem extras o relatorio fica exatamente como era). Apenas apresenta os numeros medidos.
+function renderTotalsLines(totals: WeeklyRealizedTotals | undefined): string[] {
+  if (!totals || (totals.extras.events.length === 0 && totals.pendingConfirmation.events.length === 0)) return [];
+  // Apresentacao dos extras nunca derruba o relatorio da prescricao: qualquer falha de formatacao vira 'sem linhas de extras'.
+  try {
+    return buildTotalsLines(totals);
+  } catch {
+    return [];
+  }
+}
+
+function buildTotalsLines(totals: WeeklyRealizedTotals): string[] {
+  const lines: string[] = [];
+  const n = totals.extras.events.length;
+  if (n > 0) lines.push(`Além dos treinos previstos, você fez ${n} atividade${n === 1 ? '' : 's'} extra${n === 1 ? '' : 's'}: ${countList(totals.extras.byModality)}.`);
+  const runExtras = totals.extras.events.filter((event: TotalsExtraEvent) => event.modality === 'corrida' || event.modality === 'esteira');
+  for (const event of runExtras) {
+    const parts = [event.distanceKm != null ? `${fmtKm(event.distanceKm)} km` : null, event.durationMin != null ? `em ${fmtMinutes(event.durationMin)}` : null].filter(Boolean);
+    lines.push(`${event.modality === 'esteira' ? 'Corrida extra na esteira' : 'Corrida extra'} em ${fmtDay(event.date)}${parts.length > 0 ? `: ${parts.join(' ')}` : ''}.`);
+  }
+  const pending = totals.pendingConfirmation.events;
+  if (pending.length > 0) {
+    const list = pending.map((event) => { const parts = [event.distanceKm != null ? `${fmtKm(event.distanceKm)} km` : null, event.durationMin != null ? `em ${fmtMinutes(event.durationMin)}` : null].filter(Boolean); return `${labelOf(event.modality, 1)} em ${fmtDay(event.date)}${parts.length > 0 ? ` (${parts.join(' ')})` : ''}`; }).join('; ');
+    lines.push(`${pending.length} atividade${pending.length === 1 ? '' : 's'} ainda ${pending.length === 1 ? 'está' : 'estão'} sem classificação definitiva (treino${pending.length === 1 ? '' : 's'} previsto${pending.length === 1 ? '' : 's'} ou extra${pending.length === 1 ? '' : 's'}; responda se o aplicativo perguntar) e já conta${pending.length === 1 ? '' : 'm'} no total da semana: ${list}.`);
+  }
+  const run = totals.total.run;
+  const others = Object.entries(totals.total.byModality).filter(([m, v]) => m !== 'corrida' && m !== 'esteira' && v.events > 0);
+  const runPart = run.events > 0 ? `corrida: ${run.events}${run.km != null ? ` (${fmtKm(run.km)} km${run.minutes > 0 ? ` em ${fmtMinutes(run.minutes)}` : ''})` : ''}` : null;
+  const otherPart = others.length > 0 ? others.map(([m, v]) => `${labelOf(m, v.events)}: ${v.events}`).join(', ') : null;
+  lines.push(`Total da semana, somando treinos previstos e extras${pending.length > 0 ? ' e atividades a confirmar' : ''}: ${totals.total.events} atividade${totals.total.events === 1 ? '' : 's'}${[runPart, otherPart].filter(Boolean).length > 0 ? ` — ${[runPart, otherPart].filter(Boolean).join('; ')}` : ''}.`);
+  for (const note of totals.completeness.notes) lines.push(note);
+  return lines;
+}
+
 export function renderWeeklyReport(ind: WeeklyExecutionIndicators): string[] {
   const lines: string[] = [];
   const o = ind.overview;
-  if (o.prescribed === 0) return ['Não havia treinos prescritos na semana anterior.'];
+  if (o.prescribed === 0) return ['Não havia treinos prescritos na semana anterior.', ...renderTotalsLines(ind.totals)];
   const parts = Object.entries(o.byModality).filter(([, v]) => v.performed > 0).map(([m, v]) => `${v.performed} de ${MODALITY_LABEL[m] ?? m}`);
   lines.push(o.performed === o.prescribed
     ? `Você realizou os ${o.prescribed} treinos previstos${parts.length > 0 ? `: ${parts.join(' e ')}` : ''}.`
@@ -201,5 +250,6 @@ export function renderWeeklyReport(ind: WeeklyExecutionIndicators): string[] {
     }
   }
   for (const note of ind.completeness.notes) lines.push(note);
+  lines.push(...renderTotalsLines(ind.totals));
   return lines;
 }

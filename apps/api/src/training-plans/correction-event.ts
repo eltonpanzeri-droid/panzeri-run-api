@@ -1,3 +1,4 @@
+import { activityLocalDate } from '../common/local-date';
 import type { CorrectionContext, LinkChange } from '../activity-execution/correction-hooks';
 
 // Evento corretivo do Prontuario (EXECUTION_LINK_CORRECTED, 15/10/2026). Texto DETERMINISTICO (gravado por codigo, sem IA) que acrescenta ao historico o que mudou,
@@ -16,6 +17,7 @@ const MAX_REFS = 25;
 const BR = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 const formatMoment = (date: Date) => BR.format(date).replace(',', '');
 const formatDay = (date: Date) => date.toISOString().slice(0, 10).split('-').reverse().join('/');
+const formatLocalDay = (isoDay: string) => isoDay.split('-').reverse().join('/');
 
 const MODALITY_LABEL: Record<string, string> = { corrida: 'corrida', esteira: 'corrida', forca: 'musculação', fortalecimento_corredores: 'fortalecimento para corredores' };
 const modalityLabel = (modality: string | null) => (modality ? MODALITY_LABEL[modality] ?? modality : 'atividade');
@@ -24,8 +26,7 @@ const short = (id: string) => id.slice(0, 8);
 function activityDescription(change: { activityLogId: string }, data: CorrectionEventData): string {
   const a = data.activities.get(change.activityLogId);
   if (!a) return `atividade ${short(change.activityLogId)}`;
-  const local = new Date(a.startedAt.getTime() + (a.utcOffsetMinutes ?? 0) * 60_000);
-  const parts = [formatDay(local), modalityLabel(a.sport)];
+  const parts = [formatLocalDay(activityLocalDate(a.startedAt, a.utcOffsetMinutes)), modalityLabel(a.sport)];
   if (a.distanceMeters != null) parts.push(`${(a.distanceMeters / 1000).toFixed(1).replace('.', ',')} km`);
   if (a.durationSec != null) { const minutes = Math.round(a.durationSec / 60); parts.push(minutes >= 60 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}min` : `${minutes}min`); }
   return `a atividade de ${parts.join(', ')}`;

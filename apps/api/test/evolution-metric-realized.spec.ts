@@ -123,14 +123,28 @@ describe('EvolutionMetricService — realidade objetiva no longitudinal (03/10/2
     expect(series.weeks[0].kmPercorridos).toBeNull();
   });
 
-  it('a consulta de realizado so pega atividades corresponding/alternative — ambiguous e null nunca entram por palpite', async () => {
+  it('a consulta de realizado pega corresponding/alternative e a ambiguous PENDENTE (identidade resolvida, aguardando a resposta do aluno) — null e identidade ambigua nunca entram por palpite', async () => {
     const prisma = {
       trainingSession: { findMany: jest.fn().mockResolvedValue([]) },
       activityLog: { findMany: jest.fn().mockResolvedValue([]) },
     };
     await new EvolutionMetricService(prisma as never).getSeries('aluno-1');
     const where = prisma.activityLog.findMany.mock.calls[0][0].where;
-    expect(where.executionClassification).toEqual({ in: ['corresponding', 'alternative'] });
+    expect(where.executionClassification).toEqual({ in: ['corresponding', 'alternative', 'ambiguous'] });
+  });
+
+  it('atividade pendente de confirmacao (ambiguous, identidade resolvida) entra no VOLUME uma vez, nao como extra; identidade ambigua continua fora', async () => {
+    const service = build(
+      [],
+      [
+        activity({ id: 'pendente', executionClassification: 'ambiguous', physicalIdentityStatus: 'unique', distanceMeters: 12000 }),
+        activity({ id: 'identidade-ambigua', executionClassification: 'ambiguous', physicalIdentityStatus: 'ambiguous', distanceMeters: 9000, startedAt: new Date('2026-08-04T10:00:00Z') }),
+      ],
+    );
+    const week = (await service.getSeries('aluno-1')).weeks[0];
+    expect(week.kmPercorridos).toBe(12);
+    expect(week.kmExtras).toBeNull();
+    expect(week.sessoesFeitas).toBe(0);
   });
 
   it('extra do aluno (student_extra) segue contando km legado como extra, fora de aderencia', async () => {

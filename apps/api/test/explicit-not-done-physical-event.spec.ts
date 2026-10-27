@@ -4,10 +4,11 @@ import { EvolutionMetricService } from '../src/evolution/evolution-metric.servic
 import { ObservationReaderService } from '../src/training-intelligence/observation-reader.service';
 import { WeeklyCheckInService } from '../src/training-plans/weekly-checkin.service';
 
-// 3C.2 (correcao de semantica) — WorkoutCompletion 'missed' EXPLICITO + PhysicalEvent compativel:
-//  - a TrainingSession permanece nao realizada (nao conta como feita; conta como nao feita);
-//  - o PhysicalEvent continua sendo exercicio realizado e, para aderencia, e' atividade ADICIONAL (alternative), nunca o cumprimento daquela
-//    prescricao; suas metricas objetivas seguem validas; Polar + Apple continuam sendo uma atividade so';
+// 3C.2 (semantica ATUALIZADA em 26/10/2026, decisao de Elton) — WorkoutCompletion 'missed' EXPLICITO + PhysicalEvent compativel:
+//  - a TrainingSession permanece 'nao feita' ate' o aluno responder; o sistema NAO presume o vinculo nem descarta a atividade: PERGUNTA (candidato pendente, 'ambiguous');
+//  - SIM do aluno: vincula e a marcacao passa a 'realizado' (coberto em test/integration/not-done-then-activity.int.spec.ts);
+//  - NAO do aluno: o treino segue 'nao feito' e o PhysicalEvent vira atividade ADICIONAL (alternative), nunca o cumprimento daquela prescricao; suas metricas objetivas
+//    seguem validas; Polar + Apple continuam sendo uma atividade so';
 //  - sem 'nao feito' explicito, o evento reconciliado comprova a execucao mesmo sem feedback.
 function fixture() {
   let seq = 0;
@@ -114,25 +115,35 @@ describe('3C.2 — "nao feito" explicito x PhysicalEvent compativel (3B)', () =>
     session.completion = { status: 'missed' }; // o aluno registra 'nao feito'
     const results = await f.service.reconcileEventsOfSession(session.id);
     expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ outcome: 'alternative', classification: 'alternative', canonicalActivityLogId: polar.id, changed: true });
+    // o vinculo AUTOMATICO nao e' mantido contra o registro do aluno, mas a atividade tambem NAO vira extra sozinha: fica como pergunta pendente
+    expect(results[0]).toMatchObject({ outcome: 'candidates', classification: 'ambiguous', canonicalActivityLogId: polar.id, changed: true });
     expect(f.activeLinks()).toHaveLength(0);
+    expect([...f.links.values()].filter((l) => l.status === 'candidate').map((l) => l.trainingSessionId)).toEqual([session.id]);
+    expect(session.completion).toEqual({ status: 'missed' }); // a marcacao anterior NAO foi alterada
     const revoked = [...f.links.values()].filter((l) => l.status === 'revoked');
     expect(revoked).toHaveLength(1); // historico preservado, nunca apagado
     expect(revoked[0]).toMatchObject({ trainingSessionId: session.id, activityLogId: polar.id, note: 'explicit_not_done_by_student' });
-    expect(f.activityLogs.get(polar.id)).toMatchObject({ executionClassification: 'alternative', distanceMeters: 10000, cadenceAvg: 170 });
+    expect(f.activityLogs.get(polar.id)).toMatchObject({ executionClassification: 'ambiguous', distanceMeters: 10000, cadenceAvg: 170 });
     expect(f.activityLogs.get(apple.id).executionClassification).toBeNull(); // Polar + Apple seguem sendo UMA atividade
     expect(f.activeLinks()).toHaveLength(0);
 
-    // idempotente
-    expect((await f.service.reconcileEvent(polar.id))).toMatchObject({ outcome: 'unchanged', changed: false, classification: 'alternative' });
+    // o aluno responde NAO: a atividade fica registrada como extra, por decisao dele; o treino continua 'nao feito'
+    await f.service.markExtra({ activityLogId: polar.id, origin: 'student', note: 'student_not_this_workout' });
+    expect(f.activityLogs.get(polar.id)).toMatchObject({ executionClassification: 'alternative', executionClassifiedBy: 'student' });
+    expect([...f.links.values()].filter((l) => l.status === 'candidate')).toHaveLength(0);
+    expect(session.completion).toEqual({ status: 'missed' });
+    // idempotente (a decisao humana prevalece)
+    expect((await f.service.reconcileEvent(polar.id))).toMatchObject({ changed: false, classification: 'alternative' });
   });
 
-  it('sem vinculo previo: sessao com "nao feito" explicito nao e candidata; o evento fica como adicional', async () => {
+  it('sem vinculo previo: atividade que chega DEPOIS do "nao feito" explicito nao e vinculada nem descartada: vira pergunta pendente ao aluno', async () => {
     const f = fixture();
     const { polar } = f.polarAppleEvent();
-    f.addSession({ completion: { status: 'missed' } });
-    expect(await f.service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'alternative', classification: 'alternative' });
+    const session = f.addSession({ completion: { status: 'missed' } });
+    expect(await f.service.reconcileEvent(polar.id)).toMatchObject({ outcome: 'candidates', classification: 'ambiguous' });
     expect(f.activeLinks()).toHaveLength(0);
+    expect([...f.links.values()].filter((l) => l.status === 'candidate').map((l) => [l.trainingSessionId, l.matchMethod])).toEqual([[session.id, 'student_marked_not_done']]);
+    expect(session.completion).toEqual({ status: 'missed' });
   });
 
   it('com outra sessao compativel do mesmo dia (nao marcada), o evento vincula a ela e a "nao feita" permanece sem execucao', async () => {
@@ -177,6 +188,8 @@ describe('3C.2 — consumidores apos o "nao feito" explicito', () => {
     await f.service.reconcileEvent(polar.id);
     session.completion = { status: 'missed' };
     await f.service.reconcileEventsOfSession(session.id);
+    // o aluno responde NAO a pergunta pendente: a atividade fica como extra (o treino segue 'nao feito')
+    await f.service.markExtra({ activityLogId: polar.id, origin: 'student', note: 'student_not_this_workout' });
     return { f, polar, session };
   }
 

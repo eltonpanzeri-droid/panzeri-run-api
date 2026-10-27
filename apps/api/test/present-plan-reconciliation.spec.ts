@@ -272,8 +272,10 @@ describe('TrainingPlansService.presentPlan — Prescrito x Realizado', () => {
     const result = service['presentPlan'](plan, true, true, reconciliation);
 
     expect(result.pendingActivities).toHaveLength(1);
-    expect(result.pendingActivities[0].candidates).toHaveLength(2);
+    // 2 candidatos reais + a opcao "nenhum destes — foi um treino extra" (resposta NAO) no MESMO cartao: apps antigos a exibem como mais um botao e a enviam ao mesmo endpoint de confirmacao
+    expect(result.pendingActivities[0].candidates).toHaveLength(3);
     expect(result.pendingActivities[0].candidates[0]).toMatchObject({ linkId: 'link-1', sessionTitle: 'Corrida X' });
+    expect(result.pendingActivities[0].candidates[2]).toMatchObject({ linkId: 'extra:activity-4', sessionTitle: 'nenhum destes — foi um treino extra', sessionDate: '2026-10-04' });
   });
 
   it('sessao com completion real traz executionBehavior de volta (bug corrigido 02/10/2026 — campo faltava na resposta)', () => {

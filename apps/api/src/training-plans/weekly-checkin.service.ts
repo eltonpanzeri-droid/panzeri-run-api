@@ -1,3 +1,4 @@
+import { activityLocalDate } from '../common/local-date';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -293,10 +294,14 @@ export class WeeklyCheckInService {
     const weekEnd = new Date(planStart.getTime() + 7 * 24 * 60 * 60 * 1000);
     const dayAfterToday = new Date(today.getTime() + 24 * 60 * 60 * 1000);
     const rangeEnd = weekEnd.getTime() < dayAfterToday.getTime() ? weekEnd : dayAfterToday;
+    // Janela UTC com folga de 1 dia nas pontas; o dia LOCAL (regra unica, common/local-date.ts) decide o que pertence a' semana — a mesma regra dos totais semanais.
+    const dayMs = 24 * 60 * 60 * 1000;
+    const firstDay = planStart.toISOString().slice(0, 10);
+    const lastDay = new Date(rangeEnd.getTime() - 1).toISOString().slice(0, 10);
     // ai-scope: nao-ia (contagem do check-in que o PROPRIO aluno confirma na tela; a IA recebe o check-in confirmado pelo aluno, ver comentario de limitacao no relatorio do Lote 1)
-    const rows = await this.prisma.activityLog.findMany({
-      where: { userId, executionClassification: 'alternative', startedAt: { gte: planStart, lt: rangeEnd } },
-    });
+    const rows = (await this.prisma.activityLog.findMany({
+      where: { userId, executionClassification: 'alternative', startedAt: { gte: new Date(planStart.getTime() - dayMs), lt: new Date(rangeEnd.getTime() + dayMs) } },
+    })).filter((row) => { const day = activityLocalDate(row.startedAt, row.utcOffsetMinutes); return day >= firstDay && day <= lastDay; });
     // ai-scope: nao-ia (idem acima)
     const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
     return picks.length;

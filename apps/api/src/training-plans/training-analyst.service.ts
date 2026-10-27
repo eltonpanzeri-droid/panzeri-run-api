@@ -1,3 +1,4 @@
+import { activityLocalDate } from '../common/local-date';
 import { aiActivityWhere, isProviderBlockedForAi } from '../ai-governance/ai-scope';
 import { createHash } from 'crypto';
 import { Injectable, Logger } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { canonicalModality } from '../activity-execution/canonical-modality';
 import { AnalysisCorrectionRecord, LinkCorrection, findCorrectionsAffecting, findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { WeeklyExecutionIndicators } from '../activity-execution/execution-report';
+import type { WeeklyRealizedTotals } from '../activity-execution/weekly-realized-totals';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { getVariableDefinition } from '../training-intelligence/variable-registry';
 import {
@@ -38,6 +40,16 @@ export interface AnalystDraft {
 }
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
+
+// Atividades extras de modalidades que NAO sao corrida/esteira, a partir dos totais da semana (visao de IA): so' contagem e minutos reais por modalidade.
+// As corridas extras vao ao contrato pelos proprios totais (detalhe de cada atividade), nao por aqui.
+function othersFromTotals(realized: WeeklyRealizedTotals): { items: Array<{ modality: string; count: number; minutes: number }>; providers: string[]; activityLogIds: string[] } {
+  const items = Object.entries(realized.extras.byModality)
+    .filter(([modality]) => modality !== 'corrida' && modality !== 'esteira')
+    .map(([modality, v]) => ({ modality, count: v.events, minutes: v.minutes }))
+    .sort((a, b) => (a.modality < b.modality ? -1 : 1));
+  return { items, providers: [], activityLogIds: [] };
+}
 
 @Injectable()
 export class TrainingAnalystService {
@@ -135,7 +147,11 @@ export class TrainingAnalystService {
   private async loadOtherActivities(userId: string, from: Date, to: Date): Promise<{ items: Array<{ modality: string; count: number; minutes: number }>; providers: string[]; activityLogIds: string[] }> {
     const providers = new Set<string>();
     const activityLogIds: string[] = [];
-    const rows = await this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: from, lt: to }, ...aiActivityWhere() } });
+    // Janela UTC com folga de 1 dia; o dia LOCAL (regra unica) decide a semana.
+    const firstDay = day(from);
+    const lastDay = day(new Date(to.getTime() - 1));
+    const rows = (await this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: new Date(from.getTime() - 86_400_000), lt: new Date(to.getTime() + 86_400_000) }, ...aiActivityWhere() } }))
+      .filter((row) => { const local = activityLocalDate(row.startedAt, row.utcOffsetMinutes); return local >= firstDay && local <= lastDay; });
     const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids }, ...aiActivityWhere() } }));
     const byModality = new Map<string, { count: number; minutes: number }>();
     for (const { row } of picks) {
@@ -164,7 +180,7 @@ export class TrainingAnalystService {
   }
 
   // Analise do conjunto para a geracao semanal. `previousWeek` = semana imediatamente anterior ao programa que vai ser gerado.
-  async buildForGeneration(userId: string, weekStart: Date, previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null } | null, options: { persist?: boolean } = {}): Promise<AnalystDraft | null> {
+  async buildForGeneration(userId: string, weekStart: Date, previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null; totals?: WeeklyRealizedTotals | null } | null, options: { persist?: boolean } = {}): Promise<AnalystDraft | null> {
     const asOf = day(new Date(weekStart.getTime() - 86_400_000));
     const since = new Date(weekStart.getTime() - WINDOW_DAYS * 86_400_000);
     const prevStart = previousWeek?.startDate ?? new Date(weekStart.getTime() - 7 * 86_400_000);
@@ -184,16 +200,18 @@ export class TrainingAnalystService {
       row: r, prescription: prescriptions.get(r.sessionId) ?? null, feedback: feedbacks.get(r.sessionId) ?? null,
       history: rows.filter((h) => h.scheduledDate < r.scheduledDate && h.sessionId !== r.sessionId),
     }));
-    const others = await this.loadOtherActivities(userId, prevStart, weekStart);
+    // Com os totais da semana (visao de IA) as atividades extras vem de UMA fonte — inclusive corridas extras que existem so' em ActivityLog; sem eles, caminho anterior.
+    const realized = previousWeek?.totals ?? null;
+    const others = realized ? othersFromTotals(realized) : await this.loadOtherActivities(userId, prevStart, weekStart);
     const otherActivities = others.items;
     const weekFeedback = new Map(weekRows.filter((r) => feedbacks.has(r.sessionId)).map((r) => [r.sessionId, feedbacks.get(r.sessionId) as FeedbackInput]));
-    const week = weekRows.length > 0 || previousWeek?.indicators || others.items.length > 0
-      ? analyzeWeekInContext({ weekStart: day(prevStart), otherActivities, indicators: previousWeek?.indicators ?? null, rows: weekRows, previousWeeks: summarizePreviousWeeks(rows, feedbacks, day(prevStart)), trends: trends.filter((t) => RECOVERY_VARIABLES.includes(t.variableId)), feedbackBySession: weekFeedback })
+    const week = weekRows.length > 0 || previousWeek?.indicators || others.items.length > 0 || (realized && realized.total.events > 0)
+      ? analyzeWeekInContext({ weekStart: day(prevStart), otherActivities, realized, indicators: previousWeek?.indicators ?? null, rows: weekRows, previousWeeks: summarizePreviousWeeks(rows, feedbacks, day(prevStart)), trends: trends.filter((t) => RECOVERY_VARIABLES.includes(t.variableId)), feedbackBySession: weekFeedback })
       : null;
     // Os achados sobre outras modalidades derivam de dados de dispositivo: entram na proveniencia (exclusao de dados de provedor).
-    if (week && others.items.length > 0) {
-      week.evidence.providers = [...new Set([...week.evidence.providers, ...others.providers])].sort();
-      week.evidence.activityLogIds = [...new Set([...week.evidence.activityLogIds, ...others.activityLogIds])];
+    if (week && (others.items.length > 0 || realized)) {
+      week.evidence.providers = [...new Set([...week.evidence.providers, ...others.providers, ...(realized?.total.providers ?? [])])].sort();
+      week.evidence.activityLogIds = [...new Set([...week.evidence.activityLogIds, ...others.activityLogIds, ...(realized?.total.activityLogIds ?? [])])];
     }
     const longitudinal = analyzeLongitudinal({ asOf, rows, trends: trends.filter((t) => LONGITUDINAL_VARIABLES.includes(t.variableId)), rpeBySession });
 
@@ -309,7 +327,7 @@ export class TrainingAnalystService {
     if (!plan || plan.userId !== userId) return null;
     const weekStart = new Date(plan.startDate);
     const report = await this.prisma.weeklyExecutionReport.findFirst({ where: { userId, deliveredWithPlanId: planId }, orderBy: { createdAt: 'desc' }, select: { analyzedPlanId: true, weekStartDate: true } });
-    let previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null } | null = null;
+    let previousWeek: { startDate: Date; sessionIds: string[]; indicators: WeeklyExecutionIndicators | null; totals?: WeeklyRealizedTotals | null } | null = null;
     if (report?.analyzedPlanId) {
       const previous = await this.prisma.trainingSession.findMany({ where: { planId: report.analyzedPlanId, userId }, select: { id: true, origin: true, modality: true } });
       const sessionIds = previous.filter((s) => !['device_extra', 'student_extra'].includes(s.origin ?? '') && ANALYZED.includes(s.modality)).map((s) => s.id);
@@ -317,7 +335,7 @@ export class TrainingAnalystService {
         this.logger.warn(`Relatorio da semana anterior (leitura) indisponivel: ${error instanceof Error ? error.message : String(error)}`);
         return null;
       });
-      previousWeek = { startDate: report.weekStartDate, sessionIds, indicators: prepared?.indicators ?? null };
+      previousWeek = { startDate: report.weekStartDate, sessionIds, indicators: prepared?.aiIndicators ?? null, totals: prepared?.aiTotals ?? null };
     }
     return this.buildForGeneration(userId, weekStart, previousWeek, { persist: false });
   }

@@ -1,5 +1,6 @@
 import type { RunExecutionAnalysis, RunSignature, SessionAnalysis } from '../activity-execution/execution-analysis';
 import type { WeeklyExecutionIndicators } from '../activity-execution/execution-report';
+import type { WeeklyRealizedTotals } from '../activity-execution/weekly-realized-totals';
 
 // ANALISTA DE TREINOS (Etapa 2.2) — camada DETERMINISTICA que transforma os indicadores da Etapa 2.1, o historico (janelas 21/60/200 do motor
 // matematico) e os relatos do aluno em achados estruturados e reutilizaveis. Nao prescreve, nao escolhe progressao, nao altera planejamento e NAO chama IA:
@@ -349,9 +350,11 @@ export interface WeekInput {
   // Atividades de OUTRAS modalidades (nao corrida/esteira) registradas pelos dispositivos na semana e sem prescricao correspondente: carga fisica adicional.
   // So' contagem e minutos reais por modalidade — nunca convertidos em km de corrida nem em carga fisiologica estimada.
   otherActivities?: Array<{ modality: string; count: number; minutes: number }>;
+  // Totais da semana na VISAO DE IA (prescricao x extras x total realizado), quando disponiveis: fonte unica das atividades extras e do total, inclusive extras que existem so' em ActivityLog.
+  realized?: WeeklyRealizedTotals | null;
 }
 
-const OTHER_MODALITY_LABEL: Record<string, string> = { forca: 'musculação', funcional: 'treino funcional/misto', bike: 'ciclismo', natacao: 'natação', caminhada: 'caminhada', outra: 'outra modalidade' };
+const OTHER_MODALITY_LABEL: Record<string, string> = { corrida: 'corrida', esteira: 'corrida na esteira', fortalecimento_corredores: 'fortalecimento', forca: 'musculação', funcional: 'treino funcional/misto', bike: 'ciclismo', natacao: 'natação', caminhada: 'caminhada', outra: 'outra modalidade' };
 
 export interface WeekSummaryData { realizedKm: number | null; fastVolumeKm: number | null; frequencyPct: number | null; rpeAvg: number | null; hrInBand: number | null }
 
@@ -372,7 +375,7 @@ export function analyzeWeekInContext(input: WeekInput): AnalysisContract {
   const c = emptyContract('week', { start: input.weekStart, end }, end, input.rows, [21, 60, 200]);
   const ind = input.indicators; const cur = weekSummaryOf(input);
   const refs = { weekStart: input.weekStart };
-  if (!ind && input.rows.length === 0 && !(input.otherActivities?.length)) { c.gaps.push(finding({ id: `week:${input.weekStart}:empty`, code: 'semana_sem_dados', source: 'gap', statement: 'Sem treinos analisáveis na semana.', refs })); return c; }
+  if (!ind && input.rows.length === 0 && !(input.otherActivities?.length) && !(input.realized && input.realized.total.events > 0)) { c.gaps.push(finding({ id: `week:${input.weekStart}:empty`, code: 'semana_sem_dados', source: 'gap', statement: 'Sem treinos analisáveis na semana.', refs })); return c; }
 
   if (ind) {
     c.facts.push(finding({ id: `week:${input.weekStart}:adherence`, code: 'frequencia_e_adesao', source: 'measured', statement: `Realizou ${ind.overview.performed} de ${ind.overview.prescribed} treinos previstos (${ind.overview.frequencyPct ?? '?'}%); ${ind.overview.noRecord} sem registro.`, data: { performed: ind.overview.performed, prescribed: ind.overview.prescribed, noRecord: ind.overview.noRecord }, refs }));
@@ -384,14 +387,37 @@ export function analyzeWeekInContext(input: WeekInput): AnalysisContract {
     }
     if (ind.strength) c.facts.push(finding({ id: `week:${input.weekStart}:strength`, code: 'musculacao', source: 'measured', statement: `Musculação: ${ind.strength.performed}/${ind.strength.prescribed}; durações ${ind.strength.durationClasses.proxima} próximas, ${ind.strength.durationClasses.mais_curta} mais curtas, ${ind.strength.durationClasses.mais_longa} mais longas.`, data: { performed: ind.strength.performed, effortAvg: ind.strength.effortAvg }, refs }));
   }
+  if (input.realized && input.realized.total.events > 0) {
+    const r = input.realized;
+    const runPart = r.total.run.events > 0 ? `; corrida: ${r.total.run.events} atividade(s), ${km(r.total.run.km)} km, ${num(r.total.run.minutes, 0)} min` : '';
+    c.facts.push(finding({ id: `week:${input.weekStart}:realized-total`, code: 'total_realizado_da_semana', source: 'measured', statement: `Total realizado na semana (treinos previstos + atividades extras, cada evento físico contado uma vez): ${r.total.events} atividade(s)${runPart}. O cumprimento da prescrição (${r.prescription.performedSessions} de ${r.prescription.prescribedSessions} sessões) é medido só sobre as sessões prescritas e é uma informação diferente do volume total realizado.`, data: { events: r.total.events, runEvents: r.total.run.events, runKm: r.total.run.km, runMinutes: r.total.run.minutes, extraEvents: r.extras.events.length }, refs }));
+    if (r.pendingConfirmation.events.length > 0) {
+      c.facts.push(finding({ id: `week:${input.weekStart}:pending-confirmation`, code: 'atividades_aguardando_confirmacao', source: 'measured', statement: `${r.pendingConfirmation.events.length} atividade(s) realizada(s) ainda sem classificação definitiva (aguardam a decisão do aluno ou do treinador sobre pertencer a um treino previsto ou ser extra); já contam no total realizado e na exposição ao treinamento, mas NÃO devem ser tratadas como cumprimento da prescrição nem como extra até a resposta.`, data: { count: r.pendingConfirmation.events.length, runCount: r.pendingConfirmation.events.filter((e) => e.modality === 'corrida' || e.modality === 'esteira').length }, refs }));
+    }
+    const p = r.prescription.provenance;
+    if (p.automaticLink + p.humanConfirmedLink + p.manualRecord + p.classifiedWithoutLoadedSession > 0) {
+      c.facts.push(finding({ id: `week:${input.weekStart}:link-origin`, code: 'origem_do_cumprimento', source: 'technical', statement: `Origem do cumprimento da prescrição: ${p.automaticLink} por vínculo automático do sistema (associação por dia e modalidade; não comprova intensidade, estrutura nem objetivo do treino), ${p.humanConfirmedLink} confirmado(s) pelo aluno ou pelo treinador e ${p.manualRecord} por registro manual sem atividade do aparelho${p.classifiedWithoutLoadedSession > 0 ? `; ${p.classifiedWithoutLoadedSession} atividade(s) classificada(s) como correspondente(s) a um treino que não está nesta seleção da semana` : ''}.`, data: { automaticLink: p.automaticLink, humanConfirmedLink: p.humanConfirmedLink, manualRecord: p.manualRecord, classifiedWithoutLoadedSession: p.classifiedWithoutLoadedSession }, refs }));
+    }
+  }
   // fatos do relógio por estímulo
   const intervalSessions = input.rows.filter((r) => { const run = runOf(r); return run && stimulusClass(run) === 'intervalado'; });
   if (cur.fastVolumeKm != null) c.facts.push(finding({ id: `week:${input.weekStart}:fast-volume`, code: 'volume_rapido_da_semana', source: 'measured', statement: `Volume em esforços rápidos reconhecidos: ${km(cur.fastVolumeKm)} km em ${intervalSessions.length} sessão(ões) com alternâncias.`, data: { fastVolumeKm: cur.fastVolumeKm, sessions: intervalSessions.length }, refs }));
-  if (input.otherActivities && input.otherActivities.length > 0) {
+  if (input.otherActivities && input.otherActivities.length > 0 && !input.realized) {
     const text = input.otherActivities.map((o) => `${OTHER_MODALITY_LABEL[o.modality] ?? o.modality}: ${o.count} atividade(s), ${num(o.minutes, 0)} min`).join('; ');
     c.findings.push(finding({ id: `week:${input.weekStart}:other-modalities`, code: 'atividades_de_outras_modalidades', source: 'measured', kind: 'padrao', statement: `Atividades de outras modalidades registradas pelos dispositivos na semana, sem treino prescrito correspondente (carga física adicional; sem equivalência em km de corrida): ${text}.`, support: 'alta', horizon: 'pontual', basis: [], refs }));
   }
-  const extras = input.rows.filter((r) => r.isExtra);
+  if (input.realized && input.realized.extras.events.length > 0) {
+    // Fonte unica das extras: totais da semana (inclui as que existem so' em ActivityLog, sem sessao no calendario). Preserva as medidas disponiveis de cada atividade.
+    const events = input.realized.extras.events;
+    const runExtras = events.filter((e) => e.modality === 'corrida' || e.modality === 'esteira');
+    const detail = events.map((e) => {
+      const bits = [e.distanceKm != null ? `${km(e.distanceKm)} km` : null, e.durationMin != null ? `${num(e.durationMin, 0)} min` : null, e.measures.avgHeartRateBpm != null ? `FC média ${e.measures.avgHeartRateBpm} bpm` : null, e.measures.maxHeartRateBpm != null ? `FC máxima ${e.measures.maxHeartRateBpm} bpm` : null, e.measures.powerAvgWatts != null ? `potência média ${e.measures.powerAvgWatts} W` : null, e.perceivedEffort != null ? `esforço percebido ${e.perceivedEffort}/10` : null].filter(Boolean);
+      return `${OTHER_MODALITY_LABEL[e.modality] ?? e.modality} em ${e.date}${bits.length ? ` (${bits.join(', ')})` : ''}`;
+    }).join('; ');
+    const runKmExtra = Math.round(runExtras.reduce((s, e) => s + (e.distanceKm ?? 0), 0) * 10) / 10;
+    c.findings.push(finding({ id: `week:${input.weekStart}:extras`, code: 'atividades_sem_prescricao', source: 'measured', kind: 'padrao', statement: `${events.length} atividade(s) extra(s) na semana, sem sessão prescrita correspondente — exposição adicional ao treinamento que não determina, isoladamente, fadiga, recuperação nem necessidade de alterar a carga: ${detail}.`, data: { count: events.length, runCount: runExtras.length, runKm: runKmExtra }, support: 'media', horizon: 'pontual', refs }));
+  }
+  const extras = input.realized ? [] : input.rows.filter((r) => r.isExtra);
   if (extras.length > 0) {
     const extraKm = extras.reduce((s, r) => s + (runOf(r)?.totals.realizedKm ?? 0), 0);
     c.findings.push(finding({ id: `week:${input.weekStart}:extras`, code: 'atividades_sem_prescricao', source: 'technical', kind: 'padrao', statement: `${extras.length} atividade(s) por iniciativa do aluno na semana (${km(Math.round(extraKm * 10) / 10)} km), sem sessão prescrita correspondente.`, data: { count: extras.length, km: Math.round(extraKm * 10) / 10 }, support: 'media', horizon: 'pontual', refs }));

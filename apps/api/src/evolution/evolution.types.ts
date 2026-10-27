@@ -263,7 +263,7 @@ export interface RawSessionData {
 export interface RawRealizedActivity {
   id: string;
   isoDate: ISODate;
-  classification: 'corresponding' | 'alternative';
+  classification: 'corresponding' | 'alternative' | 'ambiguous';
   distanceKm: number | null;
 }
 

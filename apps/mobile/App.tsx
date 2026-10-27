@@ -11359,7 +11359,7 @@ function PendingActivityCard({ activity, accessToken, onConfirmed, highlighted }
               onPress={() => confirm(candidate.linkId)}
             >
               <Text style={styles.secondaryOutlineButtonText}>
-                {confirming === candidate.linkId ? 'Confirmando...' : `Foi este: ${candidate.sessionTitle}`}
+                {confirming === candidate.linkId ? 'Confirmando...' : candidate.linkId.startsWith('extra:') ? 'Nao, foi um treino extra' : `Foi este: ${candidate.sessionTitle}`}
               </Text>
             </Pressable>
           ))}

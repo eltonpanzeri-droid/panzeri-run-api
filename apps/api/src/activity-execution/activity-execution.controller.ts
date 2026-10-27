@@ -41,7 +41,7 @@ export class ActivityExecutionController {
 
   @Post(':linkId/confirm')
   confirm(@CurrentUser() user: CurrentUserPayload, @Param('linkId') linkId: string, @Body('note') note?: string) {
-    return this.sessionExecutionLinkService.confirmCandidateAsStudent(user.sub, linkId, note ?? null);
+    return this.sessionExecutionLinkService.answerPendingActivityAsStudent(user.sub, linkId, note ?? null);
   }
 
   // Correcao pelo aluno (10/2026): "Vincular a treino prescrito" (tambem corrige um vinculo existente) e "Desfazer vinculo".

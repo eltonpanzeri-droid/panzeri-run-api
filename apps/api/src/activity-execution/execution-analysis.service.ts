@@ -10,6 +10,8 @@ import { findStaleAnalysisRowIds } from './analysis-validity';
 import {
   analyzeRunExecution, analyzeStrengthExecution, EXECUTION_ANALYSIS_VERSION, NotDoneAnalysis, SessionAnalysis,
 } from './execution-analysis';
+import { loadWeeklyRealizedTotals } from './weekly-realized-totals.loader';
+import { promptTotalsOf, WeeklyRealizedTotals } from './weekly-realized-totals';
 import { buildWeeklyExecutionIndicators, renderSessionReport, renderWeeklyReport, WeeklyExecutionIndicators, WeeklySessionInput } from './execution-report';
 
 // Persistencia e consolidacao da analise de execucao (Etapa 2.1). So' LE atividade, vinculo e serie; grava apenas INDICADORES derivados (nunca duplica a
@@ -25,9 +27,15 @@ export interface WeeklyReportDraft {
   weekStartDate: Date;
   analyzedPlanId: string;
   indicators: WeeklyExecutionIndicators;
+  // Os MESMOS indicadores na visao de IA (sem dados de provedores bloqueados); sem bloqueio e' o proprio `indicators`. E' o que o Analista de Treinos recebe.
+  aiIndicators: WeeklyExecutionIndicators;
   textLines: string[];
   // Versao compacta, so' com numeros, enviada ao Prescritor (sem o texto do aluno).
   promptIndicators: Record<string, unknown>;
+  // Totais da semana na VISAO DE IA (sem dados de provedores bloqueados). NAO e' gravado: serve ao Prescritor (dentro de promptIndicators) e ao Analista de Treinos.
+  aiTotals: WeeklyRealizedTotals | null;
+  // Provedores de que o que foi ao PROMPT derivou (visao de IA). indicators.sources continua COMPLETO (exclusao de dados de provedor); este e' o registro de egresso.
+  promptProviders: string[];
 }
 
 @Injectable()
@@ -134,20 +142,56 @@ export class ExecutionAnalysisService {
       const row = await this.prisma.trainingSession.findUnique({ where: { id: sessionId }, select: { modality: true, scheduledDate: true } });
       inputs.push({ sessionId, scheduledDate: (row?.scheduledDate ?? week.startDate).toISOString().slice(0, 10), modality: row?.modality ?? 'corrida', kind: result.kind, analysis: result.analysis, activityLogId: result.activityLogId, provider: result.provider });
     }
-    if (inputs.length === 0) return null;
+    // Totais da semana (prescricao x extras x total realizado). Falha aqui nunca derruba o relatorio: sem totais, ele sai como sempre saiu.
+    const totals = await loadWeeklyRealizedTotals(this.prisma, userId, week.startDate, week.sessionIds).catch((error) => {
+      this.logger.warn(`Totais realizados da semana indisponiveis: ${error instanceof Error ? error.message : error}`);
+      return null;
+    });
+    if (inputs.length === 0 && !(totals && totals.total.events > 0)) return null;
     const weekStartDate = week.startDate.toISOString().slice(0, 10);
     const indicators = buildWeeklyExecutionIndicators(weekStartDate, inputs);
+    if (totals) {
+      indicators.totals = totals;
+      // as fontes das atividades extras entram nas fontes do relatorio: a exclusao de dados de um provedor passa a invalidar tambem o que veio dele
+      indicators.sources = {
+        ...indicators.sources,
+        activityLogIds: [...new Set([...indicators.sources.activityLogIds, ...totals.total.activityLogIds])],
+        providers: [...new Set([...indicators.sources.providers, ...totals.total.providers])].sort(),
+      };
+    }
     // Relatorio persistido/mostrado a pessoas = completo. O que vai ao Prescritor (promptIndicators) = visao para IA (sem provedores bloqueados), quando ha' algum.
     let promptIndicators = this.toPromptIndicators(indicators);
+    let aiProviders: string[] = [];
+    let aiIndicators: WeeklyExecutionIndicators = indicators;
     if (aiBlockedProviders().length > 0) {
       const aiInputs: WeeklySessionInput[] = [];
       for (const input of inputs) {
         const neutral = await this.analyzeSession(userId, input.sessionId, { forAi: true }).catch(() => null);
         if (neutral) aiInputs.push({ ...input, kind: neutral.kind, analysis: neutral.analysis, activityLogId: neutral.activityLogId, provider: neutral.provider });
       }
-      promptIndicators = this.toPromptIndicators(buildWeeklyExecutionIndicators(weekStartDate, aiInputs));
+      aiIndicators = buildWeeklyExecutionIndicators(weekStartDate, aiInputs);
+      promptIndicators = this.toPromptIndicators(aiIndicators);
+      aiProviders = [...new Set(aiInputs.map((input) => input.provider).filter((p): p is string => !!p))];
     }
-    return { weekStartDate: week.startDate, analyzedPlanId: week.planId, indicators, textLines: renderWeeklyReport(indicators), promptIndicators };
+    // Visao de IA dos totais: com provedor bloqueado no escopo, recalculada sem os dados dele; sem bloqueio, e' o proprio resultado completo.
+    let aiTotals: WeeklyRealizedTotals | null = totals;
+    if (totals && aiBlockedProviders().length > 0) {
+      aiTotals = await loadWeeklyRealizedTotals(this.prisma, userId, week.startDate, week.sessionIds, { forAi: true }).catch((error) => {
+        this.logger.warn(`Totais realizados (visao de IA) indisponiveis: ${error instanceof Error ? error.message : error}`);
+        return null;
+      });
+    }
+    if (aiTotals) {
+      try {
+        promptIndicators = { ...promptIndicators, treinoRealizadoDaSemana: promptTotalsOf(aiTotals) };
+      } catch (error) {
+        this.logger.warn(`Bloco treinoRealizadoDaSemana indisponivel para a IA: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    const promptProviders = aiBlockedProviders().length === 0
+      ? indicators.sources.providers
+      : [...new Set([...aiProviders, ...(aiTotals?.total.providers ?? [])])].sort();
+    return { weekStartDate: week.startDate, analyzedPlanId: week.planId, indicators, aiIndicators, textLines: renderWeeklyReport(indicators), promptIndicators, aiTotals, promptProviders };
   }
 
   // Forma compacta enviada ao Prescritor: so' numeros e contagens (sem ids de fonte nem texto do aluno).

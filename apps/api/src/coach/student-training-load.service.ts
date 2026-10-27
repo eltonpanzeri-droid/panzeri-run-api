@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { activityLocalDate as sharedActivityLocalDate } from '../common/local-date';
 import { PrismaService } from '../prisma/prisma.service';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { parseDay, validatePeriod } from './health-recovery';
@@ -32,7 +33,7 @@ interface ActivityRow {
 
 // Dia LOCAL da atividade: instante UTC + o deslocamento informado pela fonte; sem deslocamento, o horario de Sao Paulo (nunca se presume outro fuso).
 export function activityLocalDate(startedAt: Date, utcOffsetMinutes: number | null): string {
-  return utcOffsetMinutes != null ? isoDay(new Date(startedAt.getTime() + utcOffsetMinutes * 60_000)) : spDay(startedAt);
+  return sharedActivityLocalDate(startedAt, utcOffsetMinutes);
 }
 const dayDiff = (a: string, b: string) => Math.round((new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000);
 
