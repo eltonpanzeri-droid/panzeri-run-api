@@ -1,0 +1,10 @@
+{
+  "root": "C:\\Users\\elton\\OneDrive\\Documentos\\GitHub\\panzeri-run-api",
+  "command": "Jest --config jest.config.ts --runInBand --no-cache --runTestsByPath src/me/availability.rules.spec.ts test/availability.rules.spec.ts",
+  "cwd": "C:\\Users\\elton\\OneDrive\\Documentos\\GitHub\\panzeri-run-api\\apps\\api",
+  "suitesPassed": 2,
+  "testsPassed": 5,
+  "testsFailed": 0,
+  "scope": "Validacao unitaria existente; sem banco, IA ou HTTP",
+  "recordedAt": "2026-10-26T14:31:28.402Z"
+}

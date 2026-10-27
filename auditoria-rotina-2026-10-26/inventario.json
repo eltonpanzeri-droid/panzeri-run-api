@@ -1,0 +1,5909 @@
+{
+  "generatedAt": "2026-10-26T14:28:21.221Z",
+  "root": "C:\\Users\\elton\\OneDrive\\Documentos\\GitHub\\panzeri-run-api",
+  "note": "Somente checkout canonico. Candidatos lexicais nao provam uso em producao. Dependencias, segredos, binarios e auditoria excluidos.",
+  "rows": [
+    {
+      "path": "AJUSTE_ROTINA_ENTREVISTA_E_RELATOS.md",
+      "category": "documentacao",
+      "hits": 32,
+      "lines": [
+        1,
+        3,
+        5,
+        6,
+        8,
+        10,
+        13,
+        17
+      ],
+      "sha256": "c64ddc75f1be8b1105fb5cccb47c2817987997289150f2f8ef0871568714c1bf",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/.next-build/_next/static/chunks/app/page-98dfd9b1917fd4e9.js",
+      "category": "artefato compilado",
+      "hits": 90,
+      "lines": [
+        1
+      ],
+      "sha256": "731b588572ecd54a71c26a4dc440cc31f3f353b3849b1cfb7b3234a63b1631d4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/observatory.tsx",
+      "category": "fonte admin",
+      "hits": 2,
+      "lines": [
+        474,
+        501
+      ],
+      "sha256": "1f68af0a3432e4e73ea78762eac225e9010f49309a125ed7adbc2269b153a817",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/page.tsx",
+      "category": "fonte admin",
+      "hits": 147,
+      "lines": [
+        220,
+        1316,
+        1661,
+        1663,
+        3160,
+        3484,
+        3486,
+        3489,
+        3490,
+        3492,
+        3497,
+        3501,
+        3504,
+        3507,
+        3509,
+        3514,
+        3710,
+        4113,
+        4255,
+        4281,
+        4285,
+        4287,
+        4288,
+        4306,
+        4316,
+        4356,
+        4357,
+        4359,
+        4426,
+        6527,
+        6694,
+        6697,
+        7571,
+        7580,
+        7588,
+        7589,
+        7600,
+        7601,
+        7603,
+        7609,
+        7689,
+        7690,
+        7695,
+        7697,
+        8265,
+        8323,
+        8581,
+        8585,
+        8589,
+        8591,
+        8599,
+        8600,
+        8604,
+        8611,
+        8612,
+        8619,
+        8625,
+        8626,
+        8637,
+        8643,
+        8650,
+        8651,
+        8652,
+        8653,
+        8666,
+        8667,
+        8669,
+        8671,
+        8675,
+        8702,
+        8711,
+        8714,
+        8717,
+        8722,
+        8723,
+        8733,
+        8737,
+        8739,
+        8741,
+        8742,
+        8745,
+        8767,
+        8768,
+        8846,
+        8851,
+        8864,
+        8874,
+        8880,
+        8881,
+        8882,
+        8889,
+        8891,
+        8899,
+        8907,
+        8937,
+        8953,
+        8971,
+        8975,
+        9008,
+        9113
+      ],
+      "sha256": "a4e77496b236d632f6ed054006e3e62b5e663eb73027e7ab76b8218170591134",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/student-calendar.tsx",
+      "category": "fonte admin",
+      "hits": 3,
+      "lines": [
+        34,
+        157
+      ],
+      "sha256": "a1ca62e61ef20ea95cd43eb7611875d35aadf29b1188a125b8fb13c1dc1db9e0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/student-health-recovery.tsx",
+      "category": "fonte admin",
+      "hits": 3,
+      "lines": [
+        235,
+        287
+      ],
+      "sha256": "73f8fb5bc2ea4a3a9a416ff6731d48df9ebcd83dbf33666ab1b3cb23ffb26847",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/student-training-load.tsx",
+      "category": "fonte admin",
+      "hits": 1,
+      "lines": [
+        69
+      ],
+      "sha256": "dcef4c1984e8602ea76a23dbb642463b2ebfb2f6e844174499e0cfda0d9aefc5",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/ti/data.ts",
+      "category": "fonte admin",
+      "hits": 8,
+      "lines": [
+        31,
+        32,
+        38,
+        39,
+        49
+      ],
+      "sha256": "50dcb20b4db2f3c2c69d8db9f6d88f588cde71da605c7b574bd3c2014f93dfd4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/admin/app/zepp-test-panel.tsx",
+      "category": "fonte admin",
+      "hits": 8,
+      "lines": [
+        25,
+        162,
+        164,
+        175,
+        275
+      ],
+      "sha256": "d74be63288816181cdc92b65d4f7ed28a79babecb5213f46d4970c4691928c74",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/account-deletion/account-deletion.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        5
+      ],
+      "sha256": "400451019a16ebdbb4c60eee3ec75397d1358caf4274535e171dda0f79da0931",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/account-deletion/account-deletion.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        77,
+        213
+      ],
+      "sha256": "fbb48831ed074906ec60fdfa78923eb8a7367c5b086dd014f395980711b6d43c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/activity-execution.controller.d.ts",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        158,
+        229
+      ],
+      "sha256": "b6126b91297f620e94f5136a3d3314445f3a8654e10c129446555c1dc008a1bc",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/execution-analysis.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        464,
+        465
+      ],
+      "sha256": "00f1107afbc312b0a68abfd1ec4592d9c07a4e91383e5464075844d92f1313ab",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/execution-analysis.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        133
+      ],
+      "sha256": "1009c536d76131a9ec1942fe89f5e80b66b91c3edf2f90a3d84d2135145adfdb",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/execution-report.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        63,
+        88
+      ],
+      "sha256": "e692d9fdaf7bba5f1c78f1f57b93a840d8539af351c812bba1a25d4e5f70432a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/physical-activity-identity.js",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        10,
+        122,
+        127
+      ],
+      "sha256": "049272598c61cfbb7950242f33163ca3efb856ad0a679517bb92a3bd167eaaf0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/physical-activity-identity.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        216
+      ],
+      "sha256": "9786ef4facf50b1e47ae94be95fb4f822a7b42cd5c9522b7b6742aba83a8170b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/physical-identity-decisions.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        5,
+        10
+      ],
+      "sha256": "6f0d6161d9f5ee4e2ad53109b3f91d13fa775ebd02c22ab7929222fb66b22516",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/activity-execution/session-execution-link.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        288,
+        359,
+        478,
+        549
+      ],
+      "sha256": "8be3718ef59923d9adddd21f16faa8fb777e92f737f683b194d5241e3d096431",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/app.controller.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        54
+      ],
+      "sha256": "2ad20d237b7b4b73023bbaa6273121508c93c26fe0a6ddc8737926dd66c65298",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/auth/auth.controller.d.ts",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        29,
+        135,
+        151
+      ],
+      "sha256": "72e4b38ae2d56e23b53e66510b94b6ccada08305a37bca22175e22f24350cdc1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/auth/auth.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        31,
+        83,
+        99
+      ],
+      "sha256": "64b7ab2242c8001f78c0541dc3d8fc029455870dba2df2a4304463af8b5f8f53",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/auth/auth.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        177,
+        338
+      ],
+      "sha256": "3029f408f6dfd4416871a7f2ce59f01fa10868fcfe93987e9ec920c53f77abfa",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/backup/backup.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        57
+      ],
+      "sha256": "3a2af085324a74e596119fcd605089af7206ac4f787381bcdfcc069d6f33b242",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/billing/billing-sync-scheduler.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        38
+      ],
+      "sha256": "602a9906ee642d0f439f702d97650ad825cc5c17a4631903552a287748c21874",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/billing/billing.service.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        171,
+        173,
+        886,
+        1050,
+        1263
+      ],
+      "sha256": "ef022e1922f4bb789cf19e03b35f16b3368741119b1b27433a7b12e73dcdced6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/coach/coach.controller.d.ts",
+      "category": "artefato compilado",
+      "hits": 9,
+      "lines": [
+        14,
+        477,
+        555,
+        579,
+        596,
+        651,
+        733
+      ],
+      "sha256": "bc136d5b42f9ca15132615dbfc8412da3814439e3f7ccc0c253498ea71768fb0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/coach/coach.controller.js",
+      "category": "artefato compilado",
+      "hits": 13,
+      "lines": [
+        34,
+        214,
+        215,
+        217,
+        218,
+        291,
+        614,
+        620,
+        622,
+        626,
+        628
+      ],
+      "sha256": "ce05fb34704e1b536b7dc845a7e9e1687a5a8d3f86bf5c39aeb470fc969a2910",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/coach/coach.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 9,
+      "lines": [
+        16,
+        429,
+        451,
+        504,
+        537,
+        561,
+        763
+      ],
+      "sha256": "4d4aa92b54e161075c2bc87244a9e5dd57ad63527d5a99b72fae54d04b036a27",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/coach/coach.service.js",
+      "category": "artefato compilado",
+      "hits": 57,
+      "lines": [
+        65,
+        274,
+        484,
+        815,
+        818,
+        824,
+        828,
+        833,
+        849,
+        850,
+        851,
+        853,
+        855,
+        856,
+        858,
+        861,
+        864,
+        866,
+        868,
+        869,
+        870,
+        873,
+        874,
+        875,
+        877,
+        878,
+        889,
+        892,
+        893,
+        896,
+        899,
+        976,
+        1359,
+        1372,
+        1471,
+        1562,
+        1591,
+        2083,
+        2096,
+        2101,
+        2111,
+        2115,
+        2164,
+        2266
+      ],
+      "sha256": "000d8bb9de704370b913568fc59008b6c7010c7a0a933be8238893d17376b917",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/dist/coach/dto/update-student-availability.dto.d.ts",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        1,
+        2,
+        3
+      ],
+      "sha256": "a4ca833e85cfe146055fde37ee821171a0a0787205aca56770accdb6170d46de",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/coach/dto/update-student-availability.dto.js",
+      "category": "artefato compilado",
+      "hits": 15,
+      "lines": [
+        12,
+        15,
+        16,
+        17,
+        18,
+        19,
+        23,
+        27,
+        29,
+        34,
+        35
+      ],
+      "sha256": "00c01db631d01bb536c2716be5efcd5d299ec4f9b2c798660ab81927efcbd20f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/common/ai-queue.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        15,
+        25
+      ],
+      "sha256": "e5a57063ead7f6079d836a0157b4608828e4ae0af007282a7dba8b08288895d5",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/context-events/context-event-types.d.ts",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        2,
+        10
+      ],
+      "sha256": "ecd65d7ce7dce3baae2144f4f2071707e1e3c0130f379f39b29907654ada94fe",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/context-events/context-event-types.js",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        12,
+        27,
+        32
+      ],
+      "sha256": "a9e6d8d3385b88159e257f6b591ca11059e8190ecf74d6325a2293fa3ccc6d4d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/funnel/funnel.service.js",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        41,
+        44
+      ],
+      "sha256": "4bc4fa0252b32f2d63d15a4b56e9a18b0ecd0561b56ec49a7f39e13f0a60c92e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/health-connect/health-connect-normalizer.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        11,
+        73
+      ],
+      "sha256": "580e1e04c75abd890df7b5324843f8fa5dc31f84e501ee81679073f6d71ed275",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/integrations/integrations-catalog.d.ts",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        1,
+        8
+      ],
+      "sha256": "b95336f99ef04f39c0cd853fa4bd0ba79b9b95da3a9764154554db439b6c78dd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/integrations/integrations-catalog.js",
+      "category": "artefato compilado",
+      "hits": 20,
+      "lines": [
+        3,
+        5,
+        19,
+        28,
+        37,
+        47,
+        55,
+        63,
+        71,
+        80,
+        90,
+        93,
+        94,
+        96,
+        97,
+        98,
+        101,
+        104
+      ],
+      "sha256": "98721a262328756705f85dde399faef0ed789b64e08827df381beb3d44ea9e75",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/landing/data.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        190,
+        194,
+        202,
+        206,
+        210
+      ],
+      "sha256": "070835bda2d1d64c878e5a4106bb94598e76bb95206b0b7afdde0db56e1e5bd8",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/landing-page.js",
+      "category": "artefato compilado",
+      "hits": 31,
+      "lines": [
+        13,
+        19,
+        23,
+        24,
+        27,
+        29,
+        33,
+        38,
+        53,
+        63,
+        74,
+        79,
+        80,
+        83,
+        87,
+        91,
+        94,
+        124,
+        127,
+        134,
+        137
+      ],
+      "sha256": "4b759c94dd14b84eefae493083f9e75f890bceaf3d76f98f23fd3de765a00416",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/legal/legal-content.js",
+      "category": "artefato compilado",
+      "hits": 16,
+      "lines": [
+        21,
+        29,
+        30,
+        40,
+        43,
+        65,
+        90,
+        111,
+        112,
+        144,
+        190
+      ],
+      "sha256": "978ea2db80cdf5700b1fb90753a2002e9946d27bff270fc437d6b40c3f979f94",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/leo/leo.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        3
+      ],
+      "sha256": "b579f29b82e892996e29d41fa3fa79756230ae3c4bc71fe5a82060ec74e62f4d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/leo/leo.service.js",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        31,
+        35,
+        56
+      ],
+      "sha256": "eb43aff7d59cc04779ec2f671c52030e034f9bdd7b9e149deccf103e5b873acb",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/availability.rules.d.ts",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        1,
+        2
+      ],
+      "sha256": "124d899ef5d598eb9909d3f4fa09c67d62d9a6469ce2a300dc60322a647ba972",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/availability.rules.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        3,
+        5,
+        12,
+        20
+      ],
+      "sha256": "a8558349547afd049ea1f1d8e425ea59c47b7f4a043101b16c51009ed7b648e6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/dto/update-anamnese.dto.d.ts",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        1,
+        9
+      ],
+      "sha256": "897573dd9bff9f9b16f65c516742b7e27c47fad81a1e3a26dd8e4ba6b9e02bdb",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/dto/update-anamnese.dto.js",
+      "category": "artefato compilado",
+      "hits": 11,
+      "lines": [
+        15,
+        23,
+        24,
+        45,
+        46,
+        47
+      ],
+      "sha256": "fdf30bdd767cd92a18c630a4df0fa676ccd094cd3b8f1dffe1900a8f06c5af6b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/dto/update-availability.dto.d.ts",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        1,
+        8,
+        9
+      ],
+      "sha256": "1c6244dc8e7c7027c1bae74bec01769e4bd185e54b88d5386886034fa782edca",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/dto/update-availability.dto.js",
+      "category": "artefato compilado",
+      "hits": 21,
+      "lines": [
+        12,
+        15,
+        22,
+        26,
+        30,
+        34,
+        39,
+        44,
+        45,
+        46,
+        47,
+        51,
+        55,
+        57,
+        63,
+        64
+      ],
+      "sha256": "c7224ca1864b4de4398862e7f19f73ce569963286f56951bfed2710b3d9eab83",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/me.controller.d.ts",
+      "category": "artefato compilado",
+      "hits": 11,
+      "lines": [
+        2,
+        109,
+        150,
+        151,
+        162,
+        166,
+        207,
+        233,
+        305
+      ],
+      "sha256": "84acb0d6dbc312f809b9288d779c5747d34d1aee8ab78cdf2492f3a8e3213afe",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/me.controller.js",
+      "category": "artefato compilado",
+      "hits": 21,
+      "lines": [
+        19,
+        59,
+        60,
+        65,
+        66,
+        88,
+        89,
+        90,
+        91,
+        92,
+        97,
+        137,
+        141,
+        143,
+        153,
+        158,
+        203,
+        209
+      ],
+      "sha256": "a69d21ef9bdf948f4d49632e0bce3409135ee1801dfd79adbf28d5193cb819d1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/me.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 15,
+      "lines": [
+        3,
+        23,
+        94,
+        150,
+        203,
+        237,
+        278,
+        279,
+        290,
+        294,
+        335,
+        363
+      ],
+      "sha256": "7fa2712778fb8a6a0397cb1ff1c5a33f7542ad98dfc493a173b3f7914db8d9d1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/me/me.service.js",
+      "category": "artefato compilado",
+      "hits": 257,
+      "lines": [
+        15,
+        19,
+        27,
+        29,
+        31,
+        34,
+        35,
+        58,
+        59,
+        370,
+        371,
+        372,
+        373,
+        374,
+        375,
+        376,
+        377,
+        379,
+        380,
+        381,
+        402,
+        407,
+        408,
+        409,
+        460,
+        463,
+        464,
+        465,
+        467,
+        470,
+        472,
+        473,
+        476,
+        477,
+        487,
+        488,
+        490,
+        498,
+        499,
+        500,
+        501,
+        502,
+        504,
+        505,
+        506,
+        508,
+        509,
+        510,
+        512,
+        518,
+        519,
+        520,
+        522,
+        524,
+        525,
+        526,
+        527,
+        529,
+        530,
+        531,
+        532,
+        533,
+        534,
+        535,
+        536,
+        541,
+        542,
+        543,
+        546,
+        547,
+        549,
+        553,
+        558,
+        559,
+        560,
+        564,
+        567,
+        569,
+        572,
+        577,
+        580,
+        583,
+        585,
+        589,
+        591,
+        592,
+        593,
+        595,
+        597,
+        600,
+        602,
+        605,
+        606,
+        607,
+        614,
+        615,
+        675,
+        676,
+        677,
+        678,
+        679,
+        680,
+        682,
+        683,
+        684,
+        687,
+        688,
+        698,
+        700,
+        704,
+        708,
+        709,
+        713,
+        717,
+        720,
+        722,
+        725,
+        726,
+        729,
+        730,
+        731,
+        740,
+        741,
+        743,
+        755,
+        768,
+        769,
+        770,
+        771,
+        772,
+        800,
+        809,
+        810,
+        812,
+        817,
+        819,
+        820,
+        822,
+        823,
+        825,
+        826,
+        839,
+        841,
+        843,
+        847,
+        849,
+        851,
+        861,
+        870,
+        872,
+        874,
+        875,
+        876,
+        1012,
+        1014,
+        1016,
+        1019,
+        1022,
+        1040,
+        1110,
+        1111,
+        1114,
+        1115,
+        1117,
+        1118,
+        1119,
+        1121,
+        1130,
+        1135,
+        1146,
+        1149,
+        1152,
+        1155
+      ],
+      "sha256": "c97020e457f0bb990a7f54f2fbb7eed4e2e64c134d60d18e32feb96d29d98934",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/dist/medals/medal-catalog.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        14
+      ],
+      "sha256": "3a233fdb9a15220958be4a7b1fb9453596e6c9e3a6cc5fe6d01e4d661215602e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/menstrual-cycle/menstrual-cycle.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        20
+      ],
+      "sha256": "770f00e819b996b1d64638a66011cdb357e5712f4b7fd4bebe458c58409ac4ad",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/messaging/messaging.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        100
+      ],
+      "sha256": "1b8e20b23a98993607ccb2c07e0328d8f31d32d342ff1e9ed1744a1bff6477c0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/messaging/notification-triggers.service.js",
+      "category": "artefato compilado",
+      "hits": 7,
+      "lines": [
+        43,
+        45,
+        144,
+        146,
+        147,
+        148
+      ],
+      "sha256": "5123484f867462739e024dfa3e6e071a7323fe663ed7e53a9642772ff2086214",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/messaging/prospect-nurture.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        78
+      ],
+      "sha256": "2ba5b23956a89bc8c2445ff0a87dafa9a3c638bf642a0fb95d8c1a4711101acf",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/notifications/notifications.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        176
+      ],
+      "sha256": "94498de49eb71b105f7c03e6e5be208c1fc91b02aacf59789491c5db483006e9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/pain-reports/pain-reports.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        98
+      ],
+      "sha256": "524efadd8d92559f8a2a3b5c70ed47d234c190fda3f1dc0f9723b1e9b17f5ea1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/polar/polar-activity-normalizer.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        35
+      ],
+      "sha256": "944b4eb3b5614b4ea60dafea940c77b2dcd42a99201de0b94904a7dab94c3eae",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reassessment/evolution-agent.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        122,
+        124
+      ],
+      "sha256": "cfc715cab7ad385134295d27ab2eb647ef2825566fef230b17b7db8d99db9268",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reassessment/reassessment-trajectory.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        42
+      ],
+      "sha256": "a09594b5fd1275eac8cf2598e16aa1429ed89b8949ff920a710a84975e6bb93d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reassessment/reassessment.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        305
+      ],
+      "sha256": "3dd26f90f8101c16aec98336089399e04cf160e55965c3850a31b4e326aa624e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reporter/report-timeline.constants.d.ts",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        10
+      ],
+      "sha256": "010dc30dff88c45779ebc91ab835032e82784ee0c02995d4654ec08598dafe0e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reporter/report-timeline.constants.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        16
+      ],
+      "sha256": "47616e1ffaaf8f13f9e587b0432ddf34cce2575cf01e8fde3ed374ffd5ffc830",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/reporter/student-reporter-agent.service.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        35,
+        103,
+        106,
+        112
+      ],
+      "sha256": "29fec3b9a6635c8579d9aaf682f126fc8179df99847b1750d7cb69a00318686e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/target-races/target-races.service.js",
+      "category": "artefato compilado",
+      "hits": 7,
+      "lines": [
+        176,
+        178,
+        190,
+        193,
+        194,
+        195
+      ],
+      "sha256": "6432009b2253a8812a2fcefe36dde8fa8091035b33128397580544517c2252df",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/technical-manager/technical-manager-agent.service.js",
+      "category": "artefato compilado",
+      "hits": 9,
+      "lines": [
+        271,
+        281,
+        292,
+        293,
+        294,
+        338
+      ],
+      "sha256": "e152ccf4d7990ff17c59f8c61e93e817ca16c381e2abafca94545b56ace3bd84",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/athlete-state-snapshot.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        6,
+        20,
+        74,
+        186
+      ],
+      "sha256": "ab5609f0633e7936ff5f43423ee5dc5e958a4588697d949c6457553458f1d881",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/athlete-state-snapshot.service.js",
+      "category": "artefato compilado",
+      "hits": 33,
+      "lines": [
+        83,
+        161,
+        204,
+        205,
+        221,
+        230,
+        245,
+        253,
+        269,
+        275,
+        301,
+        303,
+        322,
+        344,
+        394,
+        395,
+        436,
+        450,
+        460,
+        466,
+        471,
+        475,
+        477
+      ],
+      "sha256": "11d9d81106c13516c4649a6e97208f66999d6ea315f1a3eb1a82c1aa85540ac7",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/compact-agent-context.d.ts",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        1,
+        109,
+        121
+      ],
+      "sha256": "da91b61b324593ff1834803e9361079ba102870402fbbc9dc3f6184e2a875906",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/compact-agent-context.js",
+      "category": "artefato compilado",
+      "hits": 8,
+      "lines": [
+        141,
+        156,
+        175,
+        189
+      ],
+      "sha256": "f695a3483caf2444b06b7a65f705dff6ada02b7c9b79c36b9592eb0eabcfa965",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/observation-reader.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        256
+      ],
+      "sha256": "810701ecc535f9b6400771a2c120f187122ff617ee880a0632c62ebf0f192ed6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/variable-registry.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        65
+      ],
+      "sha256": "53eefb6d3d4e3ba106f6b5a7040261f43f9f46fb324fd6fefe67d7012cb6ceb9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-intelligence/variable-registry.js",
+      "category": "artefato compilado",
+      "hits": 12,
+      "lines": [
+        70,
+        77,
+        106,
+        218,
+        220,
+        225,
+        545,
+        546,
+        549,
+        556,
+        559,
+        864
+      ],
+      "sha256": "803af0e52320b9df5a8af98190d97118cb3bbc76bc5268fc467ca4ddeb94f244",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/dto/submit-weekly-checkin.dto.d.ts",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        19,
+        26
+      ],
+      "sha256": "19406e2699b68e5589bd760ccc6207ceba106922eb56929515dd220e2a241b9f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/dto/submit-weekly-checkin.dto.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        60,
+        83,
+        85,
+        206,
+        253
+      ],
+      "sha256": "fca461bea8fbb74d90be9a92b87af8c88bdc58484f28674790639f1d4ce4ae6a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/panzeri-methodology-knowledge.js",
+      "category": "artefato compilado",
+      "hits": 11,
+      "lines": [
+        29,
+        76,
+        115,
+        117,
+        163,
+        168,
+        197,
+        198,
+        217,
+        241,
+        273
+      ],
+      "sha256": "2b36cbad90e1c87e94d02fefce5bac05fd60f993f522a7d4eddaad14a3c0ecf7",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-agent.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        290
+      ],
+      "sha256": "dd9f0221105c96000820b48ba04305029a2c92ae6a517cbc86c06a07a23bef99",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-agent.service.js",
+      "category": "artefato compilado",
+      "hits": 62,
+      "lines": [
+        151,
+        203,
+        216,
+        235,
+        247,
+        310,
+        379,
+        380,
+        408,
+        476,
+        495,
+        496,
+        515,
+        519,
+        525,
+        527,
+        528,
+        535,
+        541,
+        543,
+        550,
+        556,
+        574,
+        576,
+        578,
+        596,
+        599,
+        600,
+        602,
+        616,
+        617,
+        661,
+        664,
+        665,
+        707,
+        709,
+        717,
+        748,
+        749,
+        806,
+        818,
+        821,
+        847,
+        860,
+        892,
+        895,
+        896,
+        960,
+        965
+      ],
+      "sha256": "44e3eef08950d94bc3d0f9404d82216b7c026f546d45d77ad0424e123bce6408",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-trace.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        311
+      ],
+      "sha256": "7458e8f7441df6e321e28321eb564e5aa1655f6cf8fe2d403ea504dbdbecbb3a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-trace.js",
+      "category": "artefato compilado",
+      "hits": 9,
+      "lines": [
+        74,
+        76,
+        315,
+        722
+      ],
+      "sha256": "0914948e95e9413996aa6a6c69f7311039ce187e624757eb8f587c5f06ab8ab2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-trace.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        29
+      ],
+      "sha256": "7db7bd65542b7efc478369b087147e713e3f135504ef4daa574e48f4116e5465",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/prescription-trace.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        89
+      ],
+      "sha256": "4c6366ee2cff09045695dcb6302552525aabd79a0a69570d5ec1a704fb22d7ec",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/student-information-context.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        52
+      ],
+      "sha256": "87eb76654892d26e63f0782636da77df6b80aab71d593edab0f74c97edaaf877",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-analyst.js",
+      "category": "artefato compilado",
+      "hits": 3,
+      "lines": [
+        13,
+        330,
+        337
+      ],
+      "sha256": "7a7fdd714170403483fe880d6365b1c54d79f66dd59c1185ae2b49fc56254977",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-methodology.d.ts",
+      "category": "artefato compilado",
+      "hits": 22,
+      "lines": [
+        4,
+        7,
+        8,
+        9,
+        13,
+        19,
+        20,
+        21,
+        42,
+        106,
+        113,
+        178,
+        179,
+        182,
+        186
+      ],
+      "sha256": "afed6ee7b58169946d381a1ea693065c7798f968556518f4cb40acb2d6be7b9b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-methodology.js",
+      "category": "artefato compilado",
+      "hits": 34,
+      "lines": [
+        5,
+        44,
+        45,
+        46,
+        47,
+        51,
+        55,
+        56,
+        57,
+        59,
+        61,
+        62,
+        66,
+        69,
+        70,
+        71,
+        75,
+        81,
+        84,
+        91,
+        99,
+        105,
+        106,
+        113,
+        114
+      ],
+      "sha256": "fa41a6871122ae51fc2f5c8904eaeb7f40ff260be591c5d3ade4c5af2b4eab2f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-plans.controller.d.ts",
+      "category": "artefato compilado",
+      "hits": 12,
+      "lines": [
+        10,
+        65,
+        258,
+        409,
+        419,
+        447,
+        454,
+        480,
+        487,
+        548,
+        729
+      ],
+      "sha256": "eeba4f1b5d5f7c4fdb7f54cd9c1774218f75c77dd872335d108793956657fd7f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-plans.controller.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        30
+      ],
+      "sha256": "77a4b2fe6545b2e5064ca6a9a81fdccfee7982a9729fff2be0d7bdebe3e5359f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-plans.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 11,
+      "lines": [
+        19,
+        110,
+        313,
+        455,
+        515,
+        691,
+        718,
+        783,
+        815,
+        816
+      ],
+      "sha256": "9beba88f02f58ad486b27eb8ac0526889de75232df8e706c414657a303d54b06",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/training-plans.service.js",
+      "category": "artefato compilado",
+      "hits": 133,
+      "lines": [
+        226,
+        274,
+        276,
+        327,
+        384,
+        388,
+        393,
+        398,
+        431,
+        440,
+        441,
+        508,
+        521,
+        523,
+        525,
+        526,
+        527,
+        530,
+        533,
+        540,
+        541,
+        542,
+        543,
+        545,
+        550,
+        625,
+        643,
+        655,
+        698,
+        714,
+        720,
+        740,
+        741,
+        742,
+        743,
+        747,
+        748,
+        749,
+        750,
+        751,
+        765,
+        775,
+        777,
+        779,
+        810,
+        813,
+        814,
+        930,
+        952,
+        954,
+        1047,
+        1054,
+        1056,
+        1058,
+        1061,
+        1084,
+        1089,
+        1090,
+        1095,
+        1096,
+        1111,
+        1133,
+        1143,
+        1175,
+        1178,
+        1192,
+        1194,
+        1205,
+        1209,
+        1212,
+        1213,
+        1215,
+        1217,
+        1220,
+        1248,
+        1249,
+        1376,
+        1377,
+        1456,
+        1549,
+        1594,
+        1625,
+        1640,
+        1643,
+        1648,
+        1649,
+        1652,
+        1656,
+        1750,
+        1768,
+        1907,
+        1908,
+        1929,
+        2020,
+        2715,
+        2989,
+        3019,
+        3020,
+        3038,
+        3041,
+        3051,
+        3083,
+        3125,
+        3129,
+        3130,
+        3133,
+        3154,
+        3155,
+        3158,
+        3159,
+        3162,
+        3178,
+        3179
+      ],
+      "sha256": "2bfe7bdc6273877a6ba5a31779f664ba90f60468768c62c7d06af09be4177ef2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/weekly-checkin.service.d.ts",
+      "category": "artefato compilado",
+      "hits": 6,
+      "lines": [
+        21,
+        31,
+        60,
+        67,
+        93,
+        100
+      ],
+      "sha256": "adfdaa0b18cd397a8d511230d7a67f9fdad0e89bbeeeb83471fdb1ce9b5a8239",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/weekly-checkin.service.js",
+      "category": "artefato compilado",
+      "hits": 18,
+      "lines": [
+        21,
+        56,
+        57,
+        60,
+        61,
+        63,
+        69,
+        71,
+        78,
+        115,
+        118,
+        152,
+        158,
+        179
+      ],
+      "sha256": "e6ff0282588d3cb24958aed7303c4f965ce8aecba8aee5a4825dd96b34de3b2c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/training-plans/weekly-plan-scheduler.service.js",
+      "category": "artefato compilado",
+      "hits": 6,
+      "lines": [
+        33,
+        37,
+        39,
+        43,
+        74
+      ],
+      "sha256": "9a2629855662d954f641da0b4efb6a66d911ac0bcc9f480514924615c7a1780c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/wahoo/wahoo-activity-ingestion.service.js",
+      "category": "artefato compilado",
+      "hits": 2,
+      "lines": [
+        28,
+        90
+      ],
+      "sha256": "5535c27dd1bc64ff88e31dd5fa3166bb3a1fd7665ed25e6b4ae4ea13060f8362",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/wahoo/wahoo-sync-fallback-scheduler.service.js",
+      "category": "artefato compilado",
+      "hits": 5,
+      "lines": [
+        18,
+        48,
+        78,
+        83
+      ],
+      "sha256": "564494b85ba229cdf74328f3ed9b5c07c8ab3f0a631fd7db7c90bebccaaa9c4a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/wahoo/wahoo-webhook.service.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        62
+      ],
+      "sha256": "33f62eb8bc176a6e0c054b481484e5d1da305b30b615c8a0924427d756033a8a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/wahoo/wahoo.controller.js",
+      "category": "artefato compilado",
+      "hits": 1,
+      "lines": [
+        46
+      ],
+      "sha256": "f1a2ebe26ec2f9f1c8fa9a6c354eea38cb0807d9caaec25fd6c8e6836257f565",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/workout-completions/dto/upsert-workout-completion.dto.js",
+      "category": "artefato compilado",
+      "hits": 4,
+      "lines": [
+        31,
+        74,
+        86,
+        88
+      ],
+      "sha256": "6423cc85078205bdaee18a08ba7c10f3ef94e1107c9a85e2cd94b8ad3640b80a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/dist/workout-completions/workout-completions.service.js",
+      "category": "artefato compilado",
+      "hits": 15,
+      "lines": [
+        295,
+        298,
+        300,
+        327,
+        329,
+        331,
+        387,
+        390,
+        439,
+        440,
+        448,
+        596,
+        765,
+        771,
+        852
+      ],
+      "sha256": "2bea8e219e5bab1d9a716fe097ca13012c43e9fa8373c1ff39d7d273d20fc3b6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260618220000_initial_schema/migration.sql",
+      "category": "migration",
+      "hits": 6,
+      "lines": [
+        54,
+        64,
+        217,
+        226
+      ],
+      "sha256": "5f30525b05db00e6c6579f0ece11826cb4bbf3ecff29bad5ec9764c32075ead9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260622183000_weekly_modality_durations/migration.sql",
+      "category": "migration",
+      "hits": 1,
+      "lines": [
+        1
+      ],
+      "sha256": "bc37ffd5113346e9d5c45fcffcd215d9d18091ce0b0d3952d566b3ccec39e3b6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260728040000_add_last_routine_change_at/migration.sql",
+      "category": "migration",
+      "hits": 1,
+      "lines": [
+        2
+      ],
+      "sha256": "25592119e2ad134dc05fcd0d2b6c993073b418b74d1f4b73532389637f894030",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260803180000_add_routine_mismatch_note/migration.sql",
+      "category": "migration",
+      "hits": 1,
+      "lines": [
+        2
+      ],
+      "sha256": "c9e65f11fe934443e3d0e38defa9b43b56b7b385745c8328edbf4957618de819",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260911190000_add_weekly_checkin_v2/migration.sql",
+      "category": "migration",
+      "hits": 1,
+      "lines": [
+        22
+      ],
+      "sha256": "d188059dc18e238e732f273d33af1656cdb1c52d57f1d38fa3cf564ce001b850",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/migrations/20260924180000_add_weekly_checkin_v3_fields/migration.sql",
+      "category": "migration",
+      "hits": 1,
+      "lines": [
+        5
+      ],
+      "sha256": "3cf1b0b8ba49c8def8219fe0855db4f747a3ff07d61d3600ccc0fc3234b2096c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/prisma/schema.prisma",
+      "category": "outro candidato",
+      "hits": 25,
+      "lines": [
+        71,
+        100,
+        393,
+        493,
+        496,
+        498,
+        679,
+        692,
+        785,
+        802,
+        807,
+        835,
+        847,
+        856,
+        1001,
+        1024,
+        1025,
+        1026,
+        1031,
+        1091,
+        1755,
+        1756,
+        1762,
+        2111
+      ],
+      "sha256": "12821d090261b6cc94f44458b783a775d7aea6bca0701648c4173db8fcb42c53",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/account-deletion/account-deletion.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        34,
+        176
+      ],
+      "sha256": "105756272e30b67de0531f1dbc1cfeeabdd09c87a7deacca3c28039c03cc8a25",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/execution-analysis.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        157
+      ],
+      "sha256": "c4c358cfacdbd19f903d53a0fe19687bb4ca432a8586402390ce03d54eda42d2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/execution-analysis.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        529,
+        530
+      ],
+      "sha256": "549003ff5c1727bf2181feb8e2caaa970bf0aaac64bf4c25a41462aee16c4b3d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/execution-report.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        57,
+        74
+      ],
+      "sha256": "30d48f738a158ae71afa066702c8d3b2330c5af44120feecd514c3ec272e5ba6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/physical-activity-identity.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        227
+      ],
+      "sha256": "3eb3f5a55dbbde902d7c89ef49b87503663b4b7a975ecf14fd0f689879a2e88e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/physical-activity-identity.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        9,
+        150,
+        154
+      ],
+      "sha256": "ba21bf1252c3374ab0de460a0604bea4957ee2dd6dc366e8da96572c283e76ff",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/physical-identity-decisions.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        4,
+        9,
+        34
+      ],
+      "sha256": "5dfb4d2f3bd9c2fc12c5cccbcda980bf84cf159700a0243576204b94e5110db9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/physical-identity-pending.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        129
+      ],
+      "sha256": "23f67c22026b575adbb972cedefa5a5934bca66b4101bea7051ff065cb05c4cc",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/activity-execution/session-execution-link.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        203
+      ],
+      "sha256": "042674890acb3b09c4adee0f0306ff6281de179202843e59e62225822e3e7983",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/app-review/review-accounts.ts",
+      "category": "fonte API",
+      "hits": 6,
+      "lines": [
+        101,
+        131,
+        213,
+        218,
+        219,
+        251
+      ],
+      "sha256": "1cef8018154a476dd796ad507eb64d6ef0fec02714bf6fc37d12a22351283053",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/src/app.controller.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        51
+      ],
+      "sha256": "4726902e06090acfd27f99a930856bc7ee14c3790874f0a4a3414131d700407f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/auth/auth.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        141,
+        323
+      ],
+      "sha256": "1f78e2742167a1e21a2c05dfc5917071fc9ce61a105585427c3ef7fcbed1df20",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/backup/backup.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        59
+      ],
+      "sha256": "47f152bc9b378b9e09b9cb6c1bdccb7e440b624557596df533a7c17f4715a0ae",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/billing/apple-store-status.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        26
+      ],
+      "sha256": "ce2d16c672b90170ad2080110abe8334b14c898a324bba0f2f1a23747948e4a6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/billing/billing-sync-scheduler.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        28
+      ],
+      "sha256": "360344959188283205c60679fa9a075d3d18db33de62c0282e87c685499f9479",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/billing/billing.service.ts",
+      "category": "fonte API",
+      "hits": 11,
+      "lines": [
+        281,
+        283,
+        311,
+        893,
+        1005,
+        1031,
+        1211,
+        1295,
+        1326,
+        1443,
+        1667
+      ],
+      "sha256": "d156651cdb4faab269f92e669a0ebf332a8b2e2f2cd7eeec9e02d8e68cab4564",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/coach.controller.ts",
+      "category": "fonte API",
+      "hits": 10,
+      "lines": [
+        22,
+        313,
+        314,
+        315,
+        318,
+        319,
+        320,
+        476
+      ],
+      "sha256": "6c2be822b9d904354e27f71dae4d4f93946a44a60656678953adfa59e2c91b05",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/coach.service.ts",
+      "category": "fonte API",
+      "hits": 58,
+      "lines": [
+        31,
+        32,
+        298,
+        512,
+        876,
+        879,
+        886,
+        890,
+        896,
+        916,
+        917,
+        918,
+        920,
+        923,
+        924,
+        926,
+        929,
+        932,
+        934,
+        937,
+        938,
+        939,
+        942,
+        943,
+        944,
+        946,
+        947,
+        948,
+        961,
+        964,
+        965,
+        968,
+        972,
+        1059,
+        1519,
+        1642,
+        1659,
+        1762,
+        1851,
+        2401,
+        2414,
+        2419,
+        2429,
+        2433,
+        2483,
+        2608
+      ],
+      "sha256": "408470a1d47615f476c6a5edf104779c270ef3fa19f61df248151587b91f8aa3",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/src/coach/dto/update-student-availability.dto.ts",
+      "category": "fonte API",
+      "hits": 8,
+      "lines": [
+        3,
+        5,
+        8,
+        9,
+        11,
+        12
+      ],
+      "sha256": "ed1cbf52bde0e6a2f78f909c54e8dc13e48bca6730c449e1a97793678f5ae1dd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/health-recovery.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        25,
+        56,
+        122
+      ],
+      "sha256": "45a1e593721aadd9bbf2b622cb8cefe4980bc6c60312906107d3e97caa9113d6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/history-session.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        18
+      ],
+      "sha256": "b5dad38eb66b2a27b13c4fc006e22125736b5db7612350ae0c035ac74649f50b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/student-health-recovery.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        30,
+        31
+      ],
+      "sha256": "ca16bf096ba716d30dfab5614e5e15b00e08d090f752c0eb7b47fa4c414c0346",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/student-integrations.service.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        281,
+        285,
+        286
+      ],
+      "sha256": "c5ca23b05feb435437480361386852a0ae51c1d03ee82f82c01a09942e75580e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/coach/student-training-load.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        33
+      ],
+      "sha256": "67840a7fd1af8789014d8cd534cefb5a827094da6ccde6ff4eb5fe01f2c64188",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/common/ai-queue.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        7,
+        18
+      ],
+      "sha256": "65c1498fae15e8ab7240fb8ffc562fbf47c5400cb537cd0f45e775014993d067",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/common/weekly-volume.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        5
+      ],
+      "sha256": "45013e62f2e46951112ac16798917a18530757679ee3f3afe34ce1dc00cc85e5",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/context-events/context-event-types.ts",
+      "category": "fonte API",
+      "hits": 4,
+      "lines": [
+        11,
+        34,
+        41
+      ],
+      "sha256": "4bc9968b6b7757f076c1511534266128ef18ab9b82be15acc4b53f8b6930fe22",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/funnel/funnel.service.ts",
+      "category": "fonte API",
+      "hits": 4,
+      "lines": [
+        30,
+        33
+      ],
+      "sha256": "4b436fe6114f9b713740aa718b12a64f78022f24ff8a2199c99b39e07aed70cc",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/health-connect/health-connect-consent.ts",
+      "category": "fonte API",
+      "hits": 14,
+      "lines": [
+        22,
+        23,
+        48,
+        49,
+        51,
+        53,
+        54,
+        82,
+        83
+      ],
+      "sha256": "9cb610ecec6945fa35c773c03029c5b07a8b48b385f6e732d851105e60856d16",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/health-connect/health-connect-health-records.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        143
+      ],
+      "sha256": "ce25cfaf2131236072785c3166bccb19c92362dc9e768cadc78a7eb5b5fd61f4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/health-connect/health-connect-normalizer.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        10,
+        93
+      ],
+      "sha256": "e8c95dea7767cb9b62ae12cbe7af06017c087437ce6ee9e678de0090fd6d6d34",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/integrations/integrations-catalog.ts",
+      "category": "fonte API",
+      "hits": 25,
+      "lines": [
+        2,
+        4,
+        10,
+        19,
+        36,
+        45,
+        54,
+        64,
+        73,
+        81,
+        89,
+        98,
+        109,
+        133,
+        136,
+        137,
+        139,
+        140,
+        141,
+        144,
+        147
+      ],
+      "sha256": "bedca8b05bb39f31e2c692b72ffe4464da2bd1fbbb540c4562888b562ae75093",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/landing/data.ts",
+      "category": "fonte API",
+      "hits": 5,
+      "lines": [
+        187,
+        191,
+        199,
+        203,
+        207
+      ],
+      "sha256": "fdf2e52c03782a76ef75d0745c3dba6b4845f35b9babad966c0f67e9b8a63b71",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/landing-page.ts",
+      "category": "fonte API",
+      "hits": 31,
+      "lines": [
+        15,
+        25,
+        29,
+        30,
+        33,
+        35,
+        44,
+        49,
+        64,
+        77,
+        88,
+        96,
+        97,
+        101,
+        105,
+        109,
+        114,
+        147,
+        151,
+        158,
+        161
+      ],
+      "sha256": "f4e3f6668c1682c9ea7c5c8bc0833a4a1cf414351e684fc14d96bf613bb3d90a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/legacy-consent/legacy-consent.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        39
+      ],
+      "sha256": "f07c736735b8ffc73282fd89577034a891655a321bfff408dce89dfcc8e6661f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/legal/legal-content.ts",
+      "category": "fonte API",
+      "hits": 29,
+      "lines": [
+        27,
+        34,
+        38,
+        39,
+        54,
+        61,
+        64,
+        74,
+        81,
+        109,
+        137,
+        158,
+        159,
+        196,
+        243,
+        244
+      ],
+      "sha256": "077c574cf95431933e6f24907c6a1ad5ea30a8dad4003e608f7241e4e280a820",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/leo/leo.service.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        21,
+        25,
+        52
+      ],
+      "sha256": "6b81e17e434f73b26a03cf5baae44d6e392a8bd4ceba4fa62fc07faf9ee007a8",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/availability.rules.spec.ts",
+      "category": "teste/mock",
+      "hits": 6,
+      "lines": [
+        2,
+        4,
+        6,
+        13,
+        19
+      ],
+      "sha256": "4d46da37c05f673750a3e6334e5f24ff20d03836e434e9ede960a3f8b650e7a4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/availability.rules.ts",
+      "category": "fonte API",
+      "hits": 5,
+      "lines": [
+        2,
+        4,
+        13
+      ],
+      "sha256": "56a2aacf06407fefaf998fa3e8571a3a63865db4bb4c06f989d5d9ab998b0435",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/dto/update-anamnese.dto.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        31,
+        32
+      ],
+      "sha256": "ae531c526f44fb5a613aff0a7a7c377b63e229b13a82a3b97d0d2b98e03484bd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/dto/update-anamnese.dto.ts",
+      "category": "fonte API",
+      "hits": 8,
+      "lines": [
+        3,
+        21,
+        24,
+        25
+      ],
+      "sha256": "41a707a05a18e194e4aa1ba4610520657edd1d0ae79530cf993ba87c81a85c8e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/dto/update-availability.dto.ts",
+      "category": "fonte API",
+      "hits": 7,
+      "lines": [
+        4,
+        23,
+        26,
+        27,
+        29
+      ],
+      "sha256": "5267c097fed422d0feaad13d34ebbcd6b97d43f9bb7ab92eedd308e5689fbc20",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/me.controller.ts",
+      "category": "fonte API",
+      "hits": 17,
+      "lines": [
+        4,
+        70,
+        71,
+        72,
+        80,
+        81,
+        82,
+        120,
+        121,
+        122,
+        123,
+        124,
+        128,
+        133
+      ],
+      "sha256": "7b425ede3220e606f7b3eea57774a6e2cc03773609b13a4c2908cdc0e7017942",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/me/me.service.ts",
+      "category": "fonte API",
+      "hits": 258,
+      "lines": [
+        4,
+        5,
+        18,
+        20,
+        22,
+        25,
+        26,
+        49,
+        50,
+        364,
+        365,
+        366,
+        367,
+        368,
+        369,
+        370,
+        371,
+        373,
+        374,
+        375,
+        404,
+        409,
+        410,
+        463,
+        466,
+        467,
+        468,
+        470,
+        473,
+        475,
+        476,
+        479,
+        480,
+        489,
+        490,
+        492,
+        501,
+        502,
+        503,
+        504,
+        505,
+        507,
+        508,
+        509,
+        511,
+        512,
+        513,
+        515,
+        521,
+        523,
+        524,
+        526,
+        528,
+        530,
+        531,
+        532,
+        534,
+        535,
+        536,
+        537,
+        538,
+        539,
+        540,
+        541,
+        546,
+        547,
+        548,
+        551,
+        552,
+        554,
+        558,
+        564,
+        565,
+        566,
+        571,
+        574,
+        576,
+        579,
+        584,
+        588,
+        591,
+        594,
+        598,
+        600,
+        601,
+        602,
+        604,
+        605,
+        609,
+        611,
+        614,
+        615,
+        616,
+        622,
+        623,
+        691,
+        692,
+        694,
+        695,
+        696,
+        698,
+        700,
+        701,
+        702,
+        705,
+        706,
+        707,
+        718,
+        721,
+        726,
+        730,
+        731,
+        735,
+        739,
+        742,
+        745,
+        747,
+        749,
+        753,
+        754,
+        765,
+        766,
+        768,
+        786,
+        802,
+        803,
+        804,
+        805,
+        806,
+        835,
+        845,
+        846,
+        848,
+        853,
+        856,
+        857,
+        859,
+        860,
+        861,
+        863,
+        868,
+        870,
+        872,
+        876,
+        878,
+        880,
+        891,
+        901,
+        903,
+        905,
+        907,
+        909,
+        910,
+        1054,
+        1056,
+        1058,
+        1061,
+        1064,
+        1082,
+        1149,
+        1150,
+        1153,
+        1154,
+        1156,
+        1157,
+        1158,
+        1160,
+        1163,
+        1172,
+        1177,
+        1187,
+        1189,
+        1191,
+        1193
+      ],
+      "sha256": "884e7d079322560950e340edda5d007061b22fcb08712a9bc00799cef6882671",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/src/medals/medal-award-persistence.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        30
+      ],
+      "sha256": "a4d0ff195fc2230b744b8c00f7cb7ca8f5c102b3e3aa785bc477fb103f54857f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/medals/medal-catalog.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        13
+      ],
+      "sha256": "1095a0029dcfdc5afff9bd5b9196f5bd4c980a02292000fdbf95ef075455b6d2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/menstrual-cycle/menstrual-cycle.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        23
+      ],
+      "sha256": "0e361d21d08c114eff2469179425db57ec4aebe8d8b12a687e8181d8d36b9333",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/messaging/messaging.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        94
+      ],
+      "sha256": "21b9108af79a89c26ecb4c915e0039b3bc863b7b9fffa1c2cf3b110d49c2c1b8",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/messaging/notification-triggers.service.ts",
+      "category": "fonte API",
+      "hits": 8,
+      "lines": [
+        32,
+        34,
+        145,
+        148,
+        150,
+        151,
+        152
+      ],
+      "sha256": "31ea5555196ccc82f4f715893e8863eafc43c695cb1e982c472171781d6a8cbe",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/messaging/prospect-nurture.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        72
+      ],
+      "sha256": "bb0b8d064bc7a0fe40b89d7ec1e0da5748429d7bce16064a5574d7f6c4fab0c4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/notifications/notifications.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        178
+      ],
+      "sha256": "66a7c4a93533e4e47c7d0bc3a0bcf6370304e6bcd63d2fbf3ac54a962c7dc0d4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/pain-reports/pain-reports.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        101
+      ],
+      "sha256": "401d5485af2ff9b9e392b16c5faca627890d7e5487f31970450d36e9d3863d2e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/polar/polar-activity-normalizer.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        72
+      ],
+      "sha256": "02ee632acae94c0521f44ffea81e1e390e009c680262a2fe50252a36f9a40733",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/polar/polar-health-consent.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        24
+      ],
+      "sha256": "db759c576688ffaf49c4d27ba570969cb9dcdd023ad78b3f00305b63c10195a9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/polar/polar-health-ingestion.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        107,
+        136
+      ],
+      "sha256": "5fa956db3c4f0c6b272be4e549fd2ef0be0c174743b57539b0e9adda8cb78ff2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/polar/polar-sync-fallback-scheduler.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        61
+      ],
+      "sha256": "5d071d2881d29d8f2febdafd8ed72e2b2292d99c80627ff56be84c9eba15be71",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/provider-hub/provider-connection.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        128,
+        396
+      ],
+      "sha256": "9d7a391e1b44afb283ff47ad780060fbeca9bf04aa0c73ca86992ff5fa684a0a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/provider-hub/provider-connector.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        8,
+        143
+      ],
+      "sha256": "aaa369cd667a68affa79bad0f91eefa6b1e91595a953520a0e29bfbfb0e0e1f4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/provider-hub/provider-consent.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        45,
+        114
+      ],
+      "sha256": "5db6ad0cf91a356ac3b90add02e376174060fa3bb997ef38c390a813ef9ec55a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/provider-hub/provider-inbound-event.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        8
+      ],
+      "sha256": "64f2174187e209940be8fe11cecd5320d0cbac7f85a602d91beda4c18ec532dd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/reassessment/evolution-agent.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        143,
+        145
+      ],
+      "sha256": "59666e4c198738de4e1033ff04b790487707f830e8a2a7c80d27ca1bf6491eaa",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/reassessment/reassessment-trajectory.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        75
+      ],
+      "sha256": "b38f582548a66e1a588f2fe728a1f503197997f4e1d98eda7802d08ba2a7bfaa",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/reassessment/reassessment.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        334
+      ],
+      "sha256": "780dd76ad5f91200c253a0ae44abf4dd9e100959b9dc07be4fbb3b0c458060a3",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/reporter/report-timeline.constants.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        13
+      ],
+      "sha256": "b749738dc53502dc0aa4ba02557e480843836067f77561f5ab46830c4e99da00",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/reporter/student-reporter-agent.service.ts",
+      "category": "fonte API",
+      "hits": 5,
+      "lines": [
+        20,
+        117,
+        120,
+        126
+      ],
+      "sha256": "c7c8cb2f4fed3ceb6197ee4b284d1faf09fc66b8aee064b36013c7ea48cb6685",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/target-races/target-races.service.ts",
+      "category": "fonte API",
+      "hits": 7,
+      "lines": [
+        174,
+        176,
+        189,
+        192,
+        193,
+        194
+      ],
+      "sha256": "5b8cc5bf60cfc17af965e3eab744636cabae88996d657ab1cf5065a2b52486e6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/technical-manager/technical-manager-agent.service.ts",
+      "category": "fonte API",
+      "hits": 10,
+      "lines": [
+        10,
+        294,
+        304,
+        316,
+        317,
+        318,
+        364
+      ],
+      "sha256": "14a8b4c23b19e4b3b315bafa3d474fc45781ddb71e691ce8784f6126d0e5bd34",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-intelligence/athlete-state-snapshot.service.ts",
+      "category": "fonte API",
+      "hits": 45,
+      "lines": [
+        33,
+        53,
+        110,
+        266,
+        367,
+        423,
+        425,
+        435,
+        446,
+        455,
+        472,
+        482,
+        499,
+        507,
+        536,
+        539,
+        558,
+        583,
+        641,
+        643,
+        689,
+        706,
+        716,
+        722,
+        727,
+        731,
+        733
+      ],
+      "sha256": "7313a563e8e9d090c3f3d3385f6949a582b5bcd8d8ac8762e0810631f6bb734f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-intelligence/compact-agent-context.ts",
+      "category": "fonte API",
+      "hits": 13,
+      "lines": [
+        54,
+        156,
+        169,
+        322,
+        339,
+        359,
+        373
+      ],
+      "sha256": "6d6382a2e85302db165d336c6459e63daf79130e3fbd66eb9c411b3a2149e3de",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-intelligence/observation-reader.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        332
+      ],
+      "sha256": "cbaab6567e2a3fe73f705c42f9efe1e6b833c02594c86313b13ba3c306db4333",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-intelligence/paired-evidence.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        29
+      ],
+      "sha256": "58821d0864987e8e3b814791679648cd566248aec8cb94e01d6f0efd56279f61",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-intelligence/variable-registry.ts",
+      "category": "fonte API",
+      "hits": 14,
+      "lines": [
+        129,
+        202,
+        209,
+        238,
+        352,
+        354,
+        359,
+        687,
+        688,
+        691,
+        698,
+        702,
+        1058,
+        1112
+      ],
+      "sha256": "71cd7af09a13f03526f2911a6343ece69bba4af7baba4e4518324ca22c7bf9a7",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/dto/submit-weekly-checkin.dto.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        129,
+        180,
+        184
+      ],
+      "sha256": "0f919acf89cc95f059c719ac31c60dd17758c984868d015de665892e1ad875bd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/panzeri-developmental-directive.ts",
+      "category": "fonte API",
+      "hits": 25,
+      "lines": [
+        12,
+        27,
+        28,
+        34,
+        40,
+        43,
+        45,
+        60,
+        62,
+        63,
+        71,
+        78,
+        79,
+        82,
+        85,
+        99,
+        100,
+        101,
+        107,
+        124,
+        129
+      ],
+      "sha256": "bcef16de18cb457fda8737e0e0cc7df3c442d0297251f85e708446f5ff4d16f5",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/panzeri-methodology-knowledge.ts",
+      "category": "fonte API",
+      "hits": 11,
+      "lines": [
+        26,
+        74,
+        113,
+        115,
+        161,
+        166,
+        195,
+        196,
+        217,
+        241,
+        273
+      ],
+      "sha256": "04f7d8cc65855d63453de7b77127af973967e394dbda3c0775115841fc7a892b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/prescription-agent.service.ts",
+      "category": "fonte API",
+      "hits": 68,
+      "lines": [
+        155,
+        210,
+        265,
+        289,
+        291,
+        305,
+        371,
+        451,
+        452,
+        482,
+        553,
+        575,
+        576,
+        602,
+        603,
+        605,
+        606,
+        610,
+        614,
+        618,
+        624,
+        626,
+        627,
+        636,
+        642,
+        644,
+        651,
+        657,
+        677,
+        680,
+        683,
+        704,
+        707,
+        708,
+        710,
+        728,
+        729,
+        779,
+        782,
+        783,
+        829,
+        831,
+        839,
+        871,
+        872,
+        931,
+        943,
+        946,
+        972,
+        985,
+        1017,
+        1020,
+        1021,
+        1089,
+        1094
+      ],
+      "sha256": "a480e494778c172d2b89ae3a76ace963fb8e918ad1537c07a1e6e664a3f85940",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/prescription-trace.service.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        35,
+        131
+      ],
+      "sha256": "c1d229076547086f036144d635fc036fbd701cd5c403e8f83e7f70ebae2fad17",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/prescription-trace.ts",
+      "category": "fonte API",
+      "hits": 10,
+      "lines": [
+        144,
+        146,
+        450,
+        892,
+        904
+      ],
+      "sha256": "d78b79920bd870fa1374bbbe7c677e9d42d815a1ad56f2c398a5af063486b439",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/student-information-context.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        115
+      ],
+      "sha256": "93692623014c04d4e47ab3864c8a2fb98ab194483dca549c7b8f0fe26dbe2de7",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/training-analyst.ts",
+      "category": "fonte API",
+      "hits": 3,
+      "lines": [
+        5,
+        378,
+        383
+      ],
+      "sha256": "7ceab47f1ebfe2a8b2333becafc6ed2354b8bb0ba8754da3170a193c39ab75b9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/training-methodology.ts",
+      "category": "fonte API",
+      "hits": 48,
+      "lines": [
+        36,
+        37,
+        38,
+        39,
+        45,
+        50,
+        51,
+        52,
+        55,
+        57,
+        58,
+        63,
+        66,
+        67,
+        68,
+        72,
+        78,
+        81,
+        89,
+        97,
+        104,
+        141,
+        154,
+        209,
+        245,
+        255,
+        344,
+        366,
+        370,
+        371,
+        373,
+        376,
+        377,
+        382,
+        383,
+        391,
+        392
+      ],
+      "sha256": "9ca3b111579289fe11e92bc345fc3dad2e6d394a02f9f0b2d74e6a462c41708f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/training-plans.controller.ts",
+      "category": "fonte API",
+      "hits": 4,
+      "lines": [
+        18,
+        19,
+        122
+      ],
+      "sha256": "0e4d14e761030098aa51dd3996e1133dd6c72b37d03f03c2d6b93afbf147f2d6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/training-plans.service.ts",
+      "category": "fonte API",
+      "hits": 139,
+      "lines": [
+        22,
+        84,
+        313,
+        363,
+        365,
+        417,
+        478,
+        482,
+        487,
+        492,
+        527,
+        535,
+        605,
+        619,
+        621,
+        623,
+        624,
+        625,
+        628,
+        631,
+        636,
+        637,
+        638,
+        639,
+        641,
+        646,
+        665,
+        699,
+        734,
+        755,
+        767,
+        822,
+        838,
+        844,
+        866,
+        867,
+        868,
+        869,
+        874,
+        876,
+        877,
+        878,
+        879,
+        893,
+        904,
+        906,
+        908,
+        941,
+        944,
+        945,
+        1070,
+        1092,
+        1094,
+        1191,
+        1199,
+        1201,
+        1203,
+        1206,
+        1231,
+        1236,
+        1238,
+        1245,
+        1246,
+        1263,
+        1284,
+        1294,
+        1328,
+        1331,
+        1345,
+        1347,
+        1357,
+        1361,
+        1364,
+        1365,
+        1367,
+        1369,
+        1372,
+        1400,
+        1401,
+        1530,
+        1531,
+        1613,
+        1705,
+        1753,
+        1786,
+        1801,
+        1804,
+        1807,
+        1811,
+        1816,
+        1926,
+        1945,
+        2103,
+        2104,
+        2128,
+        2223,
+        2974,
+        3045,
+        3328,
+        3367,
+        3368,
+        3393,
+        3396,
+        3409,
+        3450,
+        3496,
+        3501,
+        3502,
+        3506,
+        3534,
+        3535,
+        3539,
+        3540,
+        3544,
+        3561,
+        3562
+      ],
+      "sha256": "341c0a914bc31faf1af82dda4c7cd0a30430f198d53d26e28fd1992b21bb2eab",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/weekly-checkin.service.ts",
+      "category": "fonte API",
+      "hits": 18,
+      "lines": [
+        11,
+        56,
+        58,
+        61,
+        62,
+        64,
+        70,
+        72,
+        80,
+        119,
+        122,
+        157,
+        163,
+        183
+      ],
+      "sha256": "7a3b9085b81fcd0b8a9cfa10904248f67620ca6cd1e231ec7d69d2d2ad62b1e9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/training-plans/weekly-plan-scheduler.service.ts",
+      "category": "fonte API",
+      "hits": 6,
+      "lines": [
+        22,
+        27,
+        29,
+        33,
+        67
+      ],
+      "sha256": "dff0b7c37f9bdd933dc99dd9f4807cbf4ccafdd7ef83e2d6c59c9d80287c49cb",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/wahoo/wahoo-activity-ingestion.service.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        21,
+        82
+      ],
+      "sha256": "eef745ad3a2194d23b8a4a6f6c56517926db5eaa0bf83c63accdb667c19b65e6",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/wahoo/wahoo-sync-fallback-scheduler.service.ts",
+      "category": "fonte API",
+      "hits": 5,
+      "lines": [
+        6,
+        39,
+        65,
+        69
+      ],
+      "sha256": "9d6d9921ef2932226de3938d98e0842f3c415ef97c92494107471cf41021f262",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/wahoo/wahoo-webhook.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        46
+      ],
+      "sha256": "35595b9a14e7376f9ac6052dbf9a7adbb7a54d335501c29e19db5c43cf55c767",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/wahoo/wahoo.controller.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        49
+      ],
+      "sha256": "c9f260154ce99cf6a84b34ad8432abfe9b19724332da6293b93292e68cda0681",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/workout-completions/dto/upsert-workout-completion.dto.ts",
+      "category": "fonte API",
+      "hits": 4,
+      "lines": [
+        21,
+        135,
+        168,
+        173
+      ],
+      "sha256": "c2f0ffc8c2954fbd0ccb655c4086aa492da5dbbd5d0234295ada64bb38fa7650",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/workout-completions/workout-completions.service.ts",
+      "category": "fonte API",
+      "hits": 15,
+      "lines": [
+        286,
+        289,
+        291,
+        315,
+        316,
+        317,
+        358,
+        361,
+        413,
+        414,
+        422,
+        573,
+        750,
+        756,
+        843
+      ],
+      "sha256": "b43bba55bf83ec88bd7bde924b6bac35d25579a6e4395576bacf71cb133fdc8c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-activity-ingestion.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        123
+      ],
+      "sha256": "89fe0db866bf0c3438d7738393ca6a89581c7330dc24a68ce601c0dc0e4a7090",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-backfill.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        174
+      ],
+      "sha256": "8f8400ec01921c9e7bb890d3ea48c00b339064e4cf4f2516b8cd41799f676bde",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-consent.ts",
+      "category": "fonte API",
+      "hits": 11,
+      "lines": [
+        30,
+        66,
+        72,
+        89,
+        96,
+        102,
+        151,
+        152
+      ],
+      "sha256": "f88b70d0aed2810d3fc7a75366bc4f0a8823c7ae8f5bcb03f3205eb4a9181cb8",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-fit-consent.ts",
+      "category": "fonte API",
+      "hits": 2,
+      "lines": [
+        4,
+        6
+      ],
+      "sha256": "127c368098a69b3324170d90786a514c7dcab0f6d364664e27e70ce4f0baf499",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-fit.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        93
+      ],
+      "sha256": "0be8614f6023fc04e03dd6af1f2b9872b8fcac665e212bc1b1f9a186ddda3f39",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-webhook.controller.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        13
+      ],
+      "sha256": "b0a92b05c4918f1ab742f405cb0c85e72194edf26fef0f0228a0ae6f9e124b05",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-workout-profile.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        25
+      ],
+      "sha256": "609b13138e31ca6b7bf6cae537de2d374bf64e66234c320064212ed2e5665548",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-workout-publisher.service.ts",
+      "category": "fonte API",
+      "hits": 1,
+      "lines": [
+        53
+      ],
+      "sha256": "20404be3e876c89537117d93bc8d8d253a76e6f751d065cbbcff821f900ab5a3",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp-workout-scheduler.service.ts",
+      "category": "fonte API",
+      "hits": 4,
+      "lines": [
+        14,
+        16,
+        35,
+        54
+      ],
+      "sha256": "56d193fc0b6e453b6276da69f3f71ee4bba489a78eff98c0887b6e2814f4f595",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/src/zepp/zepp.controller.ts",
+      "category": "fonte API",
+      "hits": 5,
+      "lines": [
+        48,
+        50,
+        73,
+        90
+      ],
+      "sha256": "7c06ba4175c59a851abef15be246b7bc69405cbb2cdd0ceaf42fa75256eb1cb2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/account-deletion.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        41
+      ],
+      "sha256": "8509c2f66fb88d96a153fa5732ebddf0e75028c1fc77306f9a8fa9bd448fae54",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/activity-modality-map.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        50
+      ],
+      "sha256": "6c5a0582fd62b7860a11311ab843533dd93d2697849885d68c62a1642346dabe",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/ai-failure-reason.spec.ts",
+      "category": "teste/mock",
+      "hits": 4,
+      "lines": [
+        13,
+        17,
+        20,
+        26
+      ],
+      "sha256": "ac576206b336cbced8d496beebb6da25865911f0aa8ca15f41efdab0fccd03c1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/alternative-activity-feedback.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        18
+      ],
+      "sha256": "3fb72d860ad91c172e86c6746ecad72f832495b7f593518a45ff8daa114da71f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/apple-health-ingestion.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        44
+      ],
+      "sha256": "af5b6f35a86bd5fe2933bd036b915fcb97f91d48d2e514f23e789b7b25c43375",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/apple-store-status.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        169
+      ],
+      "sha256": "fa59c2b8307d9ec7d4c0086b57277d065b7ee074670d857aeaa86e64cb36599c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/apple-watch-delivery.spec.ts",
+      "category": "teste/mock",
+      "hits": 8,
+      "lines": [
+        8,
+        410,
+        413,
+        417,
+        419,
+        422,
+        424,
+        426
+      ],
+      "sha256": "cb4ac0fb4086ea71b24aee4fbadb1fe55cf622628e1730a34e78456e48c12524",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/athlete-state-snapshot.spec.ts",
+      "category": "teste/mock",
+      "hits": 11,
+      "lines": [
+        133,
+        134,
+        135,
+        179,
+        181,
+        183,
+        292,
+        301,
+        317,
+        324,
+        330
+      ],
+      "sha256": "d6ddce3f1e0e81c4d814230f3687ce6e50305d217532fd62436c9f61674031db",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/availability.rules.spec.ts",
+      "category": "teste/mock",
+      "hits": 5,
+      "lines": [
+        2,
+        4,
+        7,
+        20
+      ],
+      "sha256": "341017f1332adf8e82a45563cb9b4c35bc5cfff9456073368a5f90c229e2069e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/canonical-objective-consumption.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        171
+      ],
+      "sha256": "bc771e8769aced03219044cbb4f68462aa84c283868c5ab785678cacc16ec46d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/canonical-plan-consumption.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        157,
+        252
+      ],
+      "sha256": "15d640460f704887af8f503d4e4053aa82ecf4324a31d18168b2f623732a8202",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/compact-agent-context.spec.ts",
+      "category": "teste/mock",
+      "hits": 33,
+      "lines": [
+        49,
+        55,
+        61,
+        62,
+        63,
+        65,
+        70,
+        85,
+        93,
+        104,
+        105,
+        114,
+        127,
+        139,
+        149,
+        150,
+        177,
+        178,
+        207,
+        208,
+        215,
+        231,
+        236,
+        246,
+        262,
+        275,
+        287,
+        299,
+        315,
+        323,
+        334,
+        345
+      ],
+      "sha256": "3120f6b9a8bf39383a5d20ce10457a1028aa4ecd4f5927ad2a79a12a31e9e7ef",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/compact-context-cap.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        4
+      ],
+      "sha256": "37ac26b260f4b8f03e8ccc7aa6339816a29c2f93b421563954f695007d8ea47e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/day-regeneration-after-link-correction.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        239,
+        257
+      ],
+      "sha256": "67fa3855b5e19d99d4c8cb005c6e05f24d0a045445d9b41e9dd7e9b0e2ada957",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/execution-analysis.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        271
+      ],
+      "sha256": "91f769775e635c504014bc41da8e4357230e85857f00046a6cfb9b446fad9b80",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/execution-behavior.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        15
+      ],
+      "sha256": "169bc2127086f4111e392aa49e4924822f3d2809404ac3841dc7e950947b114e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/execution-provenance.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        147
+      ],
+      "sha256": "1905f2c7e803cc054a4103aef6988d0a409687f19bed046b4f8a0920413b8c73",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/explicit-not-done-physical-event.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        190
+      ],
+      "sha256": "9a4313245868cf3899fd99cc400d7d30ecb68817717bf07acb4eadbb37695b0a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/first-plan-generated-event.spec.ts",
+      "category": "teste/mock",
+      "hits": 7,
+      "lines": [
+        5,
+        12,
+        18,
+        26,
+        71,
+        72
+      ],
+      "sha256": "981a9f4ccf1a670c2187b40a3005305f0585919fe94c3859ffa2d3ef7ac22fbf",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/generation-lock-gate-and-history-window.spec.ts",
+      "category": "teste/mock",
+      "hits": 4,
+      "lines": [
+        56,
+        149,
+        240,
+        244
+      ],
+      "sha256": "6bab538fe644299e377a419b234fd49312981b6dcbf6cd313b7c390716f5a275",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/health-connect-health-sync.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        190
+      ],
+      "sha256": "6f2fe8aca1fdf0abe85f84cc5e7f07906ed03472032684efd3c9a33600eaac98",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/health-connect-sync.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        46
+      ],
+      "sha256": "bdbd7fa9fb4b96b7bf4ce46e4228a661f57621e1f46ca590a593902b29efab9a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/health-recovery.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        58,
+        101
+      ],
+      "sha256": "ad2ce9741d60a330385c9f3a7412edef209dc27dc3645b9c31cc93fc9b6388b8",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/helpers/synthetic-fit.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        4
+      ],
+      "sha256": "809085783694290633e86f533f063037696826710cb832f60b2adbbff7005b14",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/identity-confirmation.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        141,
+        174,
+        433
+      ],
+      "sha256": "814beccddae9bc049407ec670e4bda0f727cbfb4a265c6a81220e7f6bc219e02",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/integrated-sources.spec.ts",
+      "category": "teste/mock",
+      "hits": 11,
+      "lines": [
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41
+      ],
+      "sha256": "c1aaeb2a06d2e32594ea5ab04426918639d13bff12ddf6c2aab557f10cd72bcd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/integration/execution-analysis.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 5,
+      "lines": [
+        24,
+        25,
+        75,
+        136,
+        217
+      ],
+      "sha256": "79d7ad2bdd285c0421b5f363d5132eafcbee88ea8307a80da398aed1996f2634",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integration/fixtures/realistic-athlete-context.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        44,
+        45,
+        46
+      ],
+      "sha256": "f1b9f0d9254fd6fd6892e723260ab2736fecc482f57448cdaa8657240d13cb9c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/integration/health-connect.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        128
+      ],
+      "sha256": "00730c9ae1f79e7f77d5323cd5790b3757ec47237ea5e4af1a4c93a22f6efb95",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/integration/prescription-trace-hardening.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 25,
+      "lines": [
+        37,
+        38,
+        99,
+        103,
+        126,
+        127,
+        128,
+        131,
+        132,
+        133,
+        245,
+        257,
+        293,
+        357,
+        373,
+        389,
+        412,
+        435,
+        448,
+        462,
+        495,
+        609,
+        681,
+        684,
+        772
+      ],
+      "sha256": "526bd1f5804e86bed95130056287b6fe11ed3c472de719a1da98bec8928ba90b",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integration/prescription-trace.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 14,
+      "lines": [
+        27,
+        28,
+        77,
+        81,
+        98,
+        162,
+        178,
+        202,
+        216,
+        236,
+        243,
+        281,
+        282,
+        300
+      ],
+      "sha256": "163da3f2ca731532fd3803887695b1604c4ca8d0f0728c678dad5a64aae38feb",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integration/routine-and-interview.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 84,
+      "lines": [
+        7,
+        16,
+        28,
+        31,
+        52,
+        54,
+        60,
+        65,
+        66,
+        68,
+        70,
+        71,
+        72,
+        80,
+        82,
+        88,
+        92,
+        94,
+        95,
+        96,
+        98,
+        99,
+        106,
+        107,
+        110,
+        111,
+        112,
+        115,
+        118,
+        119,
+        120,
+        121,
+        122,
+        123,
+        125,
+        127,
+        129,
+        130,
+        131,
+        132,
+        133,
+        197,
+        199,
+        200,
+        202,
+        207,
+        208,
+        209,
+        211,
+        212,
+        213,
+        216,
+        218,
+        222,
+        223,
+        229,
+        232,
+        253,
+        256,
+        257,
+        261,
+        264
+      ],
+      "sha256": "a53c86a6411145877812aa385d2690ca35f520ca587db3ac557206387c74baea",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integration/synthetic.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        59
+      ],
+      "sha256": "f6ddc764539d1df5af95675f556a2598ff1d78003e4847dd05861fdae9e7586a",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integration/training-analyst.int.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        28,
+        29,
+        99
+      ],
+      "sha256": "8d54ae27f6b9e4da8cc8378f611d50ed23fe17d929d37dd46a730485a2884db6",
+      "directWritePattern": true
+    },
+    {
+      "path": "apps/api/test/integrations-catalog.spec.ts",
+      "category": "teste/mock",
+      "hits": 16,
+      "lines": [
+        18,
+        30,
+        33,
+        41,
+        48,
+        58,
+        66,
+        69,
+        72,
+        74,
+        75,
+        80,
+        86,
+        142,
+        144,
+        145
+      ],
+      "sha256": "d7d4ff7f2a0904f774f07fd7c408016f281295e9e7ad15c50bd7e2770830875a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/legal-content.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        113,
+        119
+      ],
+      "sha256": "a686d63f56dbdf6b85b2be13f147fff4eabb612be6763190393c24d55dca5279",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/leo-foundation.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        11,
+        12
+      ],
+      "sha256": "1029943ccda468939bd161bddcae20cf1a0de3218a74744dbff186a76d3a29e2",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/medal-award-persistence.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        126,
+        129
+      ],
+      "sha256": "68dc4e12226ab00e3234adbef107be3df7fdd7739d076690d3977341dabbf521",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/onboarding-pain-other-location-timeline.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        32
+      ],
+      "sha256": "2283bc2b2c1276656d42ca1d69da1db7ed86e8792e610347afe31e21aefc62c7",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/persistent-facts.spec.ts",
+      "category": "teste/mock",
+      "hits": 5,
+      "lines": [
+        42,
+        56,
+        64,
+        151,
+        163
+      ],
+      "sha256": "85b32ce665124d5ec65a76cd1fc9fb5ea8e0db2cdf205c96c97ff070174891d0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/physical-activity-identity.spec.ts",
+      "category": "teste/mock",
+      "hits": 11,
+      "lines": [
+        45,
+        62,
+        278,
+        770,
+        813,
+        831,
+        842,
+        855,
+        895,
+        908
+      ],
+      "sha256": "6124869cbd709ca95f21c70548ecb1aa80e25cb38b4be6538a339c0122cb58f4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/polar-activity-normalizer.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        30
+      ],
+      "sha256": "f9d49b8ca66e4b873427fdcbedf7464ebb1e7abb160ac1b30296e41f28991c69",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/polar-health.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        163,
+        303,
+        314
+      ],
+      "sha256": "ea147fe88504f7cc243a7a24887eaa286a3eec034220d1e8fd0a61a7a694da8f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/prescription-agent-athlete-state-integration.spec.ts",
+      "category": "teste/mock",
+      "hits": 21,
+      "lines": [
+        22,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        62,
+        67,
+        85,
+        156,
+        165,
+        203,
+        266,
+        278,
+        280,
+        296
+      ],
+      "sha256": "f111a210f99cc306dc4cfbe6d385c314a5effa223df989c9f6103e3d6ae6988a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/prescription-lifecycle-correction.spec.ts",
+      "category": "teste/mock",
+      "hits": 13,
+      "lines": [
+        9,
+        22,
+        24,
+        26,
+        28,
+        30,
+        36,
+        38,
+        41,
+        43,
+        49,
+        50,
+        56
+      ],
+      "sha256": "2337480ea47411d1b47ee098623ad8d32ba5da9f7920a1a44b3eeac22b188033",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/prescription-trace-hardening.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        25,
+        26
+      ],
+      "sha256": "14f2500a0ce3081f8ba49b8a31a696b880ff87cb9968ab3d102b4bfc84296f5b",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/prescription-trace.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        63,
+        111,
+        165
+      ],
+      "sha256": "693409a603e518e978fbd84b1f9af1523521c3814151d26a4c4d1fc65e66f418",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/present-plan-reconciliation.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        49
+      ],
+      "sha256": "4ac3903cddac368a0fbd68998527a08764b98c9d3f7988944b7b18b24e7dfea0",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/provider-hub.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        268,
+        269
+      ],
+      "sha256": "f828d4cca2652bc34a416bb86efa0bb7ca34e29ecd23dc0bd86bf64725c53cf5",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/recent-execution-context.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        68,
+        137
+      ],
+      "sha256": "ed1243df4185211763db4370e03a6c7b1caef4d6a247c9b8192cf004c7c9aa3a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/reconciliation-v1.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        299
+      ],
+      "sha256": "55e940dbb81f5371ff79736510532b1b09b03dd7c1b5a1ae8ed1efdf967a6f3e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/relator-prontuario-integration.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        46
+      ],
+      "sha256": "0b5568e542111b247ef0cefe48b1047309fdb15c7cdc0e02622576c4e6140bb4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/report-timeline-no-duplicate-incorporation.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        89
+      ],
+      "sha256": "2eba6fc832616d12acad942961f5401c728074d64658329c013e8ff52d82007a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/self-account-deletion.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        177
+      ],
+      "sha256": "b609d6d9853e29629888f9736faa139dc5e83a954675d6434c6580b364dc84c4",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/sleep-stress-shared-record.spec.ts",
+      "category": "teste/mock",
+      "hits": 4,
+      "lines": [
+        16,
+        117,
+        197,
+        206
+      ],
+      "sha256": "5475c8922f53711b2c3bb636142886e489ef7624af24ce7dd4b1ce2ddbc4f669",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/store-subscription-reconcile.spec.ts",
+      "category": "teste/mock",
+      "hits": 6,
+      "lines": [
+        130,
+        194,
+        258,
+        334,
+        393,
+        412
+      ],
+      "sha256": "500ca3aff256db8a582cc0954f1957c6ff44b7dfcd7be810fc6cf35ade2647b3",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/student-calendar.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        50
+      ],
+      "sha256": "1a9c0188425ff718cf278349a60a91674b8d624fadafad8548128c40d3b58d52",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/student-information-flow.spec.ts",
+      "category": "teste/mock",
+      "hits": 10,
+      "lines": [
+        31,
+        44,
+        47,
+        216,
+        227,
+        276,
+        334,
+        357,
+        402,
+        454
+      ],
+      "sha256": "9f047d33f16a33d667adac1e0037f1a38812d4f694ac8a773908ce810bfc9841",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/student-integrations.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        62,
+        316
+      ],
+      "sha256": "2f0e97fc56a0a26fc3cb27fb6122ac008a1f8e40aa54071c9b8301a4d8a8dc38",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/target-race-changes.spec.ts",
+      "category": "teste/mock",
+      "hits": 4,
+      "lines": [
+        26,
+        62,
+        63,
+        66
+      ],
+      "sha256": "67a202ebe72479f7498fca5e7f50a648deb1e681a36b2b5f7030933998661224",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/target-race-registration.spec.ts",
+      "category": "teste/mock",
+      "hits": 10,
+      "lines": [
+        12,
+        17,
+        29,
+        46,
+        47,
+        53,
+        59
+      ],
+      "sha256": "f7195033af7f23f9c584854f79a5ee805aabc3c61e31e27b6b981080465126d1",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/training-analyst.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        196
+      ],
+      "sha256": "301acfef959afb83665d55937cc6392f6fab9a745d7488c179c1414e2f87fe55",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/training-load.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        292
+      ],
+      "sha256": "9653ef5013f3ea065516a7189c307b125e597201a85252212e344504e275e6fd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/wahoo-activity-ingestion.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        109,
+        421,
+        457
+      ],
+      "sha256": "a816333feed3de826b83d42227dc22cf6a5070c08b500c708072999e0715ef9c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/week-rollover-canonical.spec.ts",
+      "category": "teste/mock",
+      "hits": 6,
+      "lines": [
+        126,
+        133,
+        141,
+        143,
+        153
+      ],
+      "sha256": "6935629e70078f6f843ba72ed960dbc45856ce66b855978e7a66b57714425e56",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/week-window.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        6,
+        12
+      ],
+      "sha256": "e347ac8e199a7bf6f4de875444cfb2f9575cafe7961520e09504ca7d8cdf1d6e",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/weekly-checkin-payload.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        12
+      ],
+      "sha256": "21a126110589d4ace275f44cb491c3bfdd6809cdd0c29b9f9446e8a673297f91",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/weekly-checkin-pending-feedbacks.spec.ts",
+      "category": "teste/mock",
+      "hits": 1,
+      "lines": [
+        16
+      ],
+      "sha256": "950caa1fd24eabbf879397e8c0f6902b20b60841c75d8168a7cc51f4490de993",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/weekly-checkin-v3.spec.ts",
+      "category": "teste/mock",
+      "hits": 6,
+      "lines": [
+        39,
+        40,
+        46,
+        53,
+        72,
+        85
+      ],
+      "sha256": "0737caf76d224ddc24a8022d6843b52d97b403b72b7cbb0329b41d8dab8403a9",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/workout-completion-feedback-v2.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        10,
+        17
+      ],
+      "sha256": "d3df8b2abe95ed05f587eca2a91e28afef2012eb3a7f290e8d8bd72d5e62ea2d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-consent-ui.spec.ts",
+      "category": "teste/mock",
+      "hits": 6,
+      "lines": [
+        84,
+        108,
+        109,
+        110,
+        153,
+        154
+      ],
+      "sha256": "42231b1d42e1630bcb584c024f119d003b198a701b2f28d705523d9f5da39ecc",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-cycle.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        44,
+        143,
+        242
+      ],
+      "sha256": "3254f586537c011add253789fdf0196be2255f9366f0aec28e289b903ff6a589",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-health.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        211,
+        340
+      ],
+      "sha256": "aa35e9f6ed70f330b76ea711d0f10d8de41717cd443e01e60d03ab4d0229788c",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-import.spec.ts",
+      "category": "teste/mock",
+      "hits": 2,
+      "lines": [
+        369
+      ],
+      "sha256": "778a8eaa413ea4a17d192d9df6a2fb3f2346da16f0b619acab4061ec89a25b5f",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-oauth.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        191
+      ],
+      "sha256": "c132757cd3c3ac250008c528bb7c78a3fa6b1c56ee54947597bc18696d877022",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/api/test/zepp-workout-trigger.spec.ts",
+      "category": "teste/mock",
+      "hits": 3,
+      "lines": [
+        6,
+        28,
+        97
+      ],
+      "sha256": "7de437d5261f7e85b42faa915d60bcedf59e6708ef1ef147a4d64b130be2690a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/App.tsx",
+      "category": "fonte mobile",
+      "hits": 452,
+      "lines": [
+        94,
+        180,
+        222,
+        480,
+        649,
+        681,
+        682,
+        683,
+        705,
+        1051,
+        1187,
+        1194,
+        1195,
+        1198,
+        1222,
+        1233,
+        1255,
+        1324,
+        1326,
+        1327,
+        1339,
+        1341,
+        1342,
+        1343,
+        1344,
+        1345,
+        1346,
+        1348,
+        1349,
+        1352,
+        1353,
+        1386,
+        1387,
+        1389,
+        1390,
+        1391,
+        1406,
+        1415,
+        1425,
+        1426,
+        1430,
+        1438,
+        1500,
+        1515,
+        1516,
+        1574,
+        1577,
+        1578,
+        1581,
+        1583,
+        1584,
+        1585,
+        1586,
+        1587,
+        1591,
+        1592,
+        1668,
+        1671,
+        1762,
+        1796,
+        1797,
+        1798,
+        1808,
+        1812,
+        1813,
+        1815,
+        1818,
+        1918,
+        1919,
+        1920,
+        1922,
+        1925,
+        1926,
+        1927,
+        1928,
+        1930,
+        1946,
+        1947,
+        1948,
+        1949,
+        1950,
+        1954,
+        1955,
+        1956,
+        1958,
+        1959,
+        1960,
+        1961,
+        1964,
+        1966,
+        1969,
+        1976,
+        1977,
+        1978,
+        1979,
+        1988,
+        2031,
+        2085,
+        2086,
+        2117,
+        3006,
+        3022,
+        3024,
+        3025,
+        3026,
+        3028,
+        3033,
+        3034,
+        3043,
+        3044,
+        3089,
+        3091,
+        3100,
+        3183,
+        3184,
+        3187,
+        3196,
+        3198,
+        3224,
+        3226,
+        3227,
+        3229,
+        3232,
+        3235,
+        3236,
+        3237,
+        3238,
+        3384,
+        3399,
+        3400,
+        3404,
+        3405,
+        3406,
+        3410,
+        3412,
+        3437,
+        3464,
+        3466,
+        3468,
+        3755,
+        3809,
+        3815,
+        3851,
+        3869,
+        4033,
+        4044,
+        4057,
+        4069,
+        4173,
+        4174,
+        4245,
+        4273,
+        4274,
+        4275,
+        4379,
+        4381,
+        4446,
+        4609,
+        4610,
+        4660,
+        4663,
+        4682,
+        4685,
+        4710,
+        4715,
+        4774,
+        4874,
+        4914,
+        5197,
+        5346,
+        5433,
+        5438,
+        5478,
+        5607,
+        5614,
+        5685,
+        5871,
+        6027,
+        6887,
+        7080,
+        7154,
+        7155,
+        7157,
+        7158,
+        7159,
+        7163,
+        7167,
+        7187,
+        7188,
+        7210,
+        7212,
+        7213,
+        7214,
+        7335,
+        7347,
+        7355,
+        7363,
+        7367,
+        7368,
+        7371,
+        7425,
+        7914,
+        9106,
+        9107,
+        9294,
+        9395,
+        9396,
+        9404,
+        9405,
+        9423,
+        9424,
+        9425,
+        9427,
+        9428,
+        9429,
+        9430,
+        9431,
+        9432,
+        9433,
+        9434,
+        9570,
+        9689,
+        9691,
+        9692,
+        9694,
+        9695,
+        9696,
+        9697,
+        9699,
+        10213,
+        10648,
+        10892,
+        11855,
+        12225,
+        12226,
+        12509,
+        12513,
+        12547,
+        12803,
+        12804,
+        12807,
+        12808,
+        12810,
+        12811,
+        12814,
+        12833,
+        12843,
+        12844,
+        12845,
+        12846,
+        12952,
+        12966,
+        13074,
+        13398,
+        13400,
+        13402,
+        13405,
+        13409,
+        13411,
+        13412,
+        13413,
+        13414,
+        13416,
+        13420,
+        13421,
+        13484,
+        13490,
+        13539,
+        13540,
+        13544,
+        13545,
+        13576,
+        13614,
+        13615,
+        14436,
+        14443,
+        15341,
+        15347,
+        15351,
+        15354,
+        15362
+      ],
+      "sha256": "a91b1f125c82c445b08a7bad04aacf73e3018b23547d5d91b4385a5507c2b28a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/home/insights.ts",
+      "category": "fonte mobile",
+      "hits": 3,
+      "lines": [
+        275,
+        276,
+        313
+      ],
+      "sha256": "e6d46c14e40f7badf337e8662c92fedf74f9c796ae6847c99e66204f5fd82b71",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/home/PendingIdentity.tsx",
+      "category": "fonte mobile",
+      "hits": 1,
+      "lines": [
+        34
+      ],
+      "sha256": "c025ee4bdcc48c4f275b0c47571dcb905cf3f2c390b97267b966f92c790d29ed",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/activityDetail.tsx",
+      "category": "fonte mobile",
+      "hits": 1,
+      "lines": [
+        497
+      ],
+      "sha256": "be7b9a53b710ebd00b734ba2c6d2cef32f99191f858639c9579a65bcffe9b404",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/appleWatchDelivery/AppleWatchSendButton.tsx",
+      "category": "fonte mobile",
+      "hits": 6,
+      "lines": [
+        10,
+        50,
+        51,
+        52
+      ],
+      "sha256": "78d3e4378384b796dd164ed9db3063a8b5cab3a6c48cd0d54c44d64f566a06dd",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/appleWatchDelivery/sendSessionToAppleWatch.ts",
+      "category": "fonte mobile",
+      "hits": 3,
+      "lines": [
+        54,
+        69
+      ],
+      "sha256": "ad183c4d9d799e0274d89e4fdc5960fb593ba20f5ce1ec1a388a4ce61fc0b986",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/healthConnect/contract.ts",
+      "category": "fonte mobile",
+      "hits": 1,
+      "lines": [
+        124
+      ],
+      "sha256": "52ee5f16bc4ec6550043019dab984c1aeaa6490b59aa79b15429bd6f11b41d84",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/healthConnect/gateway.ts",
+      "category": "fonte mobile",
+      "hits": 2,
+      "lines": [
+        39,
+        40
+      ],
+      "sha256": "ff52b1ef4f4ff6b7b3c020096d47c106f5cec262680ff5417c89e46636e7a06a",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/healthConnect/HealthConnectCard.tsx",
+      "category": "fonte mobile",
+      "hits": 2,
+      "lines": [
+        36,
+        54
+      ],
+      "sha256": "95db6df34e542b3b2545c28a0dd624c0d0cfdfee84464794bd0b8da7fbfb0e1d",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/integrations/IntegrationsHub.tsx",
+      "category": "fonte mobile",
+      "hits": 15,
+      "lines": [
+        11,
+        20,
+        39,
+        40,
+        41,
+        47,
+        48,
+        53,
+        95,
+        148,
+        153,
+        157,
+        171
+      ],
+      "sha256": "0a72b327555e9a6134609f4a1872e0945c1c9991441de21b6a8b914bff375057",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/scientificSources/sources.ts",
+      "category": "fonte mobile",
+      "hits": 1,
+      "lines": [
+        83
+      ],
+      "sha256": "f95de022599b1387b23fbe8afe6491778f5140fa4b1f2cbec645a622c2c4f5d3",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/subscription/StoreSubscriptionPaywall.tsx",
+      "category": "fonte mobile",
+      "hits": 3,
+      "lines": [
+        12,
+        26,
+        28
+      ],
+      "sha256": "9011264c4116959b0fc7153e80cadc32ca6122a879cebbaf63fba38eb3bdac23",
+      "directWritePattern": false
+    },
+    {
+      "path": "apps/mobile/src/zepp/ZeppIntegration.tsx",
+      "category": "fonte mobile",
+      "hits": 6,
+      "lines": [
+        44,
+        48,
+        56,
+        58,
+        59,
+        459
+      ],
+      "sha256": "1322f8b7bdc69edeb9ad9ab87096d909babaae650eefc9bfcd097ca5d5afc41e",
+      "directWritePattern": false
+    },
+    {
+      "path": "ATHLETE_STATE_MODEL.md",
+      "category": "documentacao",
+      "hits": 9,
+      "lines": [
+        58,
+        66,
+        105,
+        112,
+        119,
+        120,
+        142,
+        290,
+        331
+      ],
+      "sha256": "867958bc4e1f65570e94c6a3fd2e0e7b0ec8f5427633ed94538ac38c1b543015",
+      "directWritePattern": false
+    },
+    {
+      "path": "atualizar-github-panzeri-run.bat",
+      "category": "outro candidato",
+      "hits": 8,
+      "lines": [
+        111,
+        112,
+        234,
+        235
+      ],
+      "sha256": "a955608a90bf447dd9e4005db6c1453809e3665c8cbe2a01b105a17573d377a8",
+      "directWritePattern": false
+    },
+    {
+      "path": "CAMADA_MATEMATICA_LONGITUDINAL.md",
+      "category": "documentacao",
+      "hits": 4,
+      "lines": [
+        281,
+        294,
+        315,
+        317
+      ],
+      "sha256": "1e3e617525bff309cf9724a674fef5ef5bb2e334499b247654fd93229b535c58",
+      "directWritePattern": false
+    },
+    {
+      "path": "CLAUDE.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        63
+      ],
+      "sha256": "4dcd82cc9edb0125bab66c3f24e46ba12a1323fa4e8c3ca10dc56d9cc03679f6",
+      "directWritePattern": false
+    },
+    {
+      "path": "CONSENTIMENTOS_ZEPP_ATLAS.md",
+      "category": "documentacao",
+      "hits": 15,
+      "lines": [
+        13,
+        35,
+        36,
+        79,
+        103,
+        112,
+        128,
+        143,
+        165,
+        188,
+        204,
+        211,
+        229
+      ],
+      "sha256": "04a3f7e56f5c6822db05132f9ddae638ee956c6d53a4816e2d5a3622090b50b9",
+      "directWritePattern": false
+    },
+    {
+      "path": "DIRETRIZ_MESTRA_TRAINING_INTELLIGENCE.md",
+      "category": "documentacao",
+      "hits": 8,
+      "lines": [
+        88,
+        165,
+        176,
+        204,
+        205,
+        212,
+        494
+      ],
+      "sha256": "1acbb689fdd58e81b6ab4f8f0c4307a341fb5e4518d62077a28e2084b48b2ef0",
+      "directWritePattern": false
+    },
+    {
+      "path": "DOSSIE_CASO_SILVIA.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        120
+      ],
+      "sha256": "185199de2d38410e577ae3fe9c57caaab54a877db5d976027afca7ace654e983",
+      "directWritePattern": false
+    },
+    {
+      "path": "ELTON2/RELATORIO_ORDEM_ELTON2_003.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        218
+      ],
+      "sha256": "86bbe83061b051bbea27f8f1ea5cc8a816e06f3babfbba841ebbcb9087522f70",
+      "directWritePattern": false
+    },
+    {
+      "path": "erros persistentes/0002_Tiago_Sessoes_Dom_Indevidas.md",
+      "category": "documentacao",
+      "hits": 4,
+      "lines": [
+        4,
+        14,
+        44,
+        53
+      ],
+      "sha256": "ea7b5d59185d08e4dda94374c6f777d60dbff7e783e3350449b739ba9b21d6d4",
+      "directWritePattern": false
+    },
+    {
+      "path": "erros persistentes/0003_Lucelane_Telegram_Rotina_Falso.md",
+      "category": "documentacao",
+      "hits": 23,
+      "lines": [
+        1,
+        4,
+        5,
+        16,
+        20,
+        21,
+        24,
+        26,
+        27,
+        35,
+        38,
+        41,
+        49,
+        51,
+        55,
+        60,
+        61,
+        62,
+        80
+      ],
+      "sha256": "601b281cc59763eb05b911295f37db5cc8fca73ad384a14b388d15ae882339f7",
+      "directWritePattern": false
+    },
+    {
+      "path": "erros persistentes/0004_Lucelane_Plano_Invisivel.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        40,
+        179
+      ],
+      "sha256": "6a1bf5d807385e9959ffb47bbd4d4ff76ff39e819d90569cd97326c6dddb62c1",
+      "directWritePattern": false
+    },
+    {
+      "path": "erros persistentes/0005_Data_Errada_Sessoes_Extra.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        34
+      ],
+      "sha256": "3a720c919e1eecbd3da83ae7186d2d29375ceb99b79689d5f81c3f5f7d85a5c3",
+      "directWritePattern": false
+    },
+    {
+      "path": "ETAPA_2_1_ANALISE_DE_EXECUCAO.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        19
+      ],
+      "sha256": "71b1779a19cc1946e499e9289f726c82fbebd6b698d02faf50ad43dbb69b8662",
+      "directWritePattern": false
+    },
+    {
+      "path": "ETAPA_2_2_ANALISTA_DE_TREINOS.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        3
+      ],
+      "sha256": "fff0503379e9934d7fd496ac125bfeadacb9aa5775a1ffa1f8532e4a6de703a6",
+      "directWritePattern": false
+    },
+    {
+      "path": "GLOSSARIO_METRICAS.md",
+      "category": "documentacao",
+      "hits": 5,
+      "lines": [
+        157,
+        226,
+        233
+      ],
+      "sha256": "294948f476cc94e351db8e9aac9549cb00b8a71cb857ef5d0b900cbbe646cdc4",
+      "directWritePattern": false
+    },
+    {
+      "path": "HEALTH_CONNECT_CONTRATO.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        50
+      ],
+      "sha256": "820b10ca198f243ac9452e09164a03a4be89f84895f59dc7a97313753361ff17",
+      "directWritePattern": false
+    },
+    {
+      "path": "HEALTH_CONNECT_PLAY_CONSOLE.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        7
+      ],
+      "sha256": "fd147dd58ce473b1bc3210fb28aaf7fd3b881a7e47c1e90631b6176006323389",
+      "directWritePattern": false
+    },
+    {
+      "path": "identidade-visual-panzeri-run/00-diagnostico/DIAGNOSTICO_E_RACIONAL.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        21
+      ],
+      "sha256": "077331e0f6e8e9ccc882fc4c2582aefceef5706108d032f50c43cfa2e0287f6b",
+      "directWritePattern": false
+    },
+    {
+      "path": "identidade-visual-panzeri-run/08-implementation/IMPLEMENTATION_CHECKLIST.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        40
+      ],
+      "sha256": "ead73a3ee002ee738c2a22951d33ae33f5f1f53fc7ae25235cad8ea7f72206ac",
+      "directWritePattern": false
+    },
+    {
+      "path": "identidade-visual-panzeri-run/README.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        15
+      ],
+      "sha256": "76d0a7894be99eb020f38ff013a6eb3848745d8967ba96c5ca6a82e165909605",
+      "directWritePattern": false
+    },
+    {
+      "path": "ORDEM_CLAUDE_IMPLEMENTACAO_ROTINA_CANONICA.md",
+      "category": "documentacao",
+      "hits": 56,
+      "lines": [
+        1,
+        11,
+        12,
+        13,
+        20,
+        21,
+        25,
+        29,
+        38,
+        40,
+        46,
+        50,
+        57,
+        59,
+        62,
+        63,
+        64,
+        79,
+        88,
+        91,
+        98,
+        99,
+        100,
+        102,
+        103,
+        105,
+        106,
+        107,
+        115,
+        117,
+        119,
+        120,
+        126,
+        129,
+        130,
+        133,
+        134,
+        144,
+        165,
+        167,
+        168,
+        169,
+        170,
+        172,
+        174
+      ],
+      "sha256": "7cd13c1a0eecc57e205e8580fb7c2921d80f6396e60cf86539c27bcb48d17c9b",
+      "directWritePattern": false
+    },
+    {
+      "path": "packages/shared/src/index.ts",
+      "category": "outro candidato",
+      "hits": 1,
+      "lines": [
+        12
+      ],
+      "sha256": "6f12c74ee951e607c954d5a7353fd7c286d4be1c865806d0c43586f47e02c42f",
+      "directWritePattern": false
+    },
+    {
+      "path": "PLANO_REVITALIZACAO_ADMIN.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        144
+      ],
+      "sha256": "eb57ba96ac76b75b814f9b7cffad4ed23194bc1b0f367de08020559423a11cf5",
+      "directWritePattern": false
+    },
+    {
+      "path": "PLANO_TECNICO_ZEPP_ATLAS.md",
+      "category": "documentacao",
+      "hits": 3,
+      "lines": [
+        58,
+        78
+      ],
+      "sha256": "04927f5a5814ad4521a73ab951bb7e134f8795a41dd4742985d56467224d2997",
+      "directWritePattern": false
+    },
+    {
+      "path": "prompt-identidade-visual-chatgpt.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        14
+      ],
+      "sha256": "8f2deab7eece44ca0111edba6434027e8c3a99b9094d880d54b740b10efd8e28",
+      "directWritePattern": false
+    },
+    {
+      "path": "PRONTUARIO.md",
+      "category": "documentacao",
+      "hits": 262,
+      "lines": [
+        87,
+        88,
+        89,
+        90,
+        96,
+        97,
+        98,
+        99,
+        101,
+        115,
+        118,
+        119,
+        257,
+        275,
+        284,
+        286,
+        287,
+        288,
+        311,
+        312,
+        327,
+        343,
+        344,
+        345,
+        363,
+        442,
+        478,
+        496,
+        627,
+        630,
+        746,
+        769,
+        907,
+        973,
+        1048,
+        1086,
+        1092,
+        1129,
+        1130,
+        1133,
+        1134,
+        1139,
+        1140,
+        1147,
+        1149,
+        1150,
+        1152,
+        1156,
+        1157,
+        1158,
+        1159,
+        1161,
+        1162,
+        1168,
+        1176,
+        1181,
+        1183,
+        1186,
+        1188,
+        1189,
+        1193,
+        1194,
+        1195,
+        1197,
+        1199,
+        1200,
+        1201,
+        1202,
+        1207,
+        1208,
+        1335,
+        1362,
+        1363,
+        1364,
+        1366,
+        1370,
+        1371,
+        1372,
+        1373,
+        1375,
+        1430,
+        1469,
+        1481,
+        1487,
+        1488,
+        1491,
+        1493,
+        1495,
+        1496,
+        1497,
+        1499,
+        1500,
+        1501,
+        1502,
+        1506,
+        1507,
+        1511,
+        1513,
+        1517,
+        1519,
+        1525,
+        1526,
+        1527,
+        1528,
+        1529,
+        1530,
+        1532,
+        1533,
+        1534,
+        1535,
+        1536,
+        1537,
+        1541,
+        1542,
+        1543,
+        1544,
+        1550,
+        1553,
+        1554,
+        1555,
+        1556,
+        1558,
+        1559,
+        1560,
+        1561,
+        1562,
+        1563,
+        1565,
+        1566,
+        1568,
+        1569,
+        1572,
+        1590,
+        1595,
+        1598,
+        1615,
+        1806,
+        1811,
+        1826,
+        1829,
+        1837,
+        1843,
+        1845,
+        1846,
+        1850,
+        1851,
+        1852,
+        1853,
+        1856,
+        1858,
+        1859,
+        1874,
+        2022,
+        2112,
+        2118,
+        2120,
+        2123,
+        2129,
+        2141,
+        2153,
+        2270,
+        2354,
+        2593,
+        2662,
+        2664,
+        2669,
+        2670,
+        2678,
+        2680,
+        2745,
+        2746,
+        2755,
+        2863,
+        2865,
+        2868,
+        2878,
+        2880,
+        2888,
+        2889,
+        2892,
+        2948,
+        2951,
+        2956,
+        2964,
+        3062,
+        3063,
+        3134,
+        3139,
+        3143,
+        3146,
+        3147,
+        3185
+      ],
+      "sha256": "e4da705e62f445c3a2c3003075c5b041a51527728b7e0f7d763be57e2a115ece",
+      "directWritePattern": false
+    },
+    {
+      "path": "PROPOSTA_HARNESS_AGENTES.md",
+      "category": "documentacao",
+      "hits": 4,
+      "lines": [
+        53,
+        87,
+        90,
+        119
+      ],
+      "sha256": "9a4819191d25cf3425ef2826faaa8203ef8c3249e154b0e1f760e84bcef15106",
+      "directWritePattern": false
+    },
+    {
+      "path": "RASCUNHO_TEXTOS_LEGAIS_RASTREABILIDADE.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        11
+      ],
+      "sha256": "3ede0ec342ecca8305546ef2af15abaa0d8660ef55ba6ca38d22aa06a6cb237f",
+      "directWritePattern": false
+    },
+    {
+      "path": "REVISAO_ASTRA_ETAPA_1_2A.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        80,
+        108
+      ],
+      "sha256": "6c17883a2a7c61de011e70d8e9f3276f1f05f34efadf5289fd4418eba6e64563",
+      "directWritePattern": false
+    },
+    {
+      "path": "ROADMAP.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        68
+      ],
+      "sha256": "4afbcb5b2e02c34afa642ec080cc33c709c620d29f4b01ef2d71c0773a9b5006",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOKS/2026-09-13-LANDING-PANZERI-RUN.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        24
+      ],
+      "sha256": "b21ee8dad27e39f637316caa6968c3271a7e3927d43fb6fe14db7e50766bb3d2",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOKS/2026-09-19-FUNDACAO-LONGITUDINAL.md",
+      "category": "documentacao",
+      "hits": 3,
+      "lines": [
+        65,
+        67,
+        70
+      ],
+      "sha256": "20902f56132de996317e8f3065d45f35661a72d7fdf6ae1e80c2290d7a2f5b06",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOKS/2026-10-05-BACKUP-RESTORE.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        99
+      ],
+      "sha256": "2ca377eb02ba8ca57515cc3c06692b21226de4fe14dabef80a6c1448ee56660a",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOKS/2026-10-24-CONTAS-REVISAO-APPLE.md",
+      "category": "documentacao",
+      "hits": 5,
+      "lines": [
+        27,
+        48,
+        62,
+        139,
+        175
+      ],
+      "sha256": "ffdd48d0b38a1c7c4db550cb23bc908941ec412b054ac7e416b1dbefe7610c1e",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOKS/prontuario.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        188
+      ],
+      "sha256": "e1d0ef6386988379dd4684c49811b21b495caec6b30b6217e7b045306a7b406f",
+      "directWritePattern": false
+    },
+    {
+      "path": "RUNBOOK_CORRECAO_MUSCULACAO_30-09_01-10.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        52
+      ],
+      "sha256": "1003bd8ba9051550c376120b5d05ffa2f74d151178227c20a7a08a7d314b7ed6",
+      "directWritePattern": false
+    },
+    {
+      "path": "SISTEMA_DE_MEDALHAS.md",
+      "category": "documentacao",
+      "hits": 2,
+      "lines": [
+        56,
+        196
+      ],
+      "sha256": "630eacd003abcc8a5de765f5a51d4b19aef586d273ef56f842cfff817f3de490",
+      "directWritePattern": false
+    },
+    {
+      "path": "TESTE_COM_ALUNOS.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        22
+      ],
+      "sha256": "102fe726bc86f9f7e173781fe24d7c9b25bd5b22a35e9e9d31bf98cd7008d4d1",
+      "directWritePattern": false
+    },
+    {
+      "path": "ZEPP_SAUDE_E_RECUPERACAO.md",
+      "category": "documentacao",
+      "hits": 1,
+      "lines": [
+        11
+      ],
+      "sha256": "6d124cf07db1d36efb1288fe3d8adcb9150519f8f71ee0b149f433278f40cbdd",
+      "directWritePattern": false
+    }
+  ],
+  "errors": []
+}

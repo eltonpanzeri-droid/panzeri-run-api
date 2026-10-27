@@ -1,0 +1,55 @@
+{
+  "root": "C:\\Users\\elton\\OneDrive\\Documentos\\GitHub\\panzeri-run-api",
+  "commit": "02bf6d2",
+  "reviewedAt": "2026-10-26T14:31:28.407Z",
+  "files": [
+    {
+      "path": "apps/api/prisma/schema.prisma",
+      "sha256": "12821d090261b6cc94f44458b783a775d7aea6bca0701648c4173db8fcb42c53"
+    },
+    {
+      "path": "apps/api/src/me/me.controller.ts",
+      "sha256": "7b425ede3220e606f7b3eea57774a6e2cc03773609b13a4c2908cdc0e7017942"
+    },
+    {
+      "path": "apps/api/src/me/me.service.ts",
+      "sha256": "884e7d079322560950e340edda5d007061b22fcb08712a9bc00799cef6882671"
+    },
+    {
+      "path": "apps/api/src/coach/coach.service.ts",
+      "sha256": "408470a1d47615f476c6a5edf104779c270ef3fa19f61df248151587b91f8aa3"
+    },
+    {
+      "path": "apps/admin/app/page.tsx",
+      "sha256": "a4e77496b236d632f6ed054006e3e62b5e663eb73027e7ab76b8218170591134"
+    },
+    {
+      "path": "apps/api/src/training-plans/training-plans.service.ts",
+      "sha256": "341c0a914bc31faf1af82dda4c7cd0a30430f198d53d26e28fd1992b21bb2eab"
+    },
+    {
+      "path": "apps/api/src/technical-manager/technical-manager-agent.service.ts",
+      "sha256": "14a8b4c23b19e4b3b315bafa3d474fc45781ddb71e691ce8784f6126d0e5bd34"
+    },
+    {
+      "path": "apps/api/src/training-plans/prescription-agent.service.ts",
+      "sha256": "a480e494778c172d2b89ae3a76ace963fb8e918ad1537c07a1e6e664a3f85940"
+    },
+    {
+      "path": "apps/api/src/observations/observations.service.ts",
+      "sha256": "796d86ee9d0b600c54e0c7ae144046b0e1749967604e904ec4d18628033c1845"
+    },
+    {
+      "path": "apps/mobile/App.tsx",
+      "sha256": "a91b1f125c82c445b08a7bad04aacf73e3018b23547d5d91b4385a5507c2b28a"
+    },
+    {
+      "path": "apps/api/src/training-plans/weekly-plan-scheduler.service.ts",
+      "sha256": "dff0b7c37f9bdd933dc99dd9f4807cbf4ccafdd7ef83e2d6c59c9d80287c49cb"
+    },
+    {
+      "path": "apps/mobile/src/appUpdate/useAppUpdate.ts",
+      "sha256": "39d043eac9c09ead849569f2db705a6f0b1336185438fa9bfbe5c38d8fa222b6"
+    }
+  ]
+}

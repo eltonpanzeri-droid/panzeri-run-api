@@ -1,0 +1,248 @@
+{
+  "generatedAt": "2026-10-26T14:28:23.181Z",
+  "sourceRoot": "C:\\Users\\elton\\OneDrive\\Documentos\\GitHub\\panzeri-run-api",
+  "method": "AST source-extracted execution; in-memory doubles; no network/database/LLM",
+  "results": [
+    {
+      "id": "A",
+      "description": "Metodo real salva ter/qui/dom e rele do armazenamento em memoria",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR",
+        "persisted": [
+          0,
+          2,
+          4
+        ]
+      }
+    },
+    {
+      "id": "B",
+      "description": "Tres alteracoes sequenciais; a ultima prevalece",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR"
+      }
+    },
+    {
+      "id": "C1",
+      "description": "Selecao real da geracao usa WA atual sem override",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR",
+        "scope": "selecao e slots, nao uma geracao completa"
+      }
+    },
+    {
+      "id": "C2",
+      "description": "Override antigo prevalece sobre WA nova sem modificar WA",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_RISK",
+        "generatedInputs": [
+          1,
+          3
+        ],
+        "storedCurrent": [
+          0,
+          2,
+          4
+        ]
+      }
+    },
+    {
+      "id": "C3",
+      "description": "WA sem dias ativos ativa rotina padrao hardcoded",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_RISK",
+        "fallback": [
+          1,
+          2,
+          4,
+          6
+        ]
+      }
+    },
+    {
+      "id": "C4",
+      "description": "Freshness aceita snapshot de override mesmo discordando da WA",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_RISK"
+      }
+    },
+    {
+      "id": "D",
+      "description": "Regeneracao real de sessao conserva dia/duracao antigos sem ler WA",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_OLD_SESSION_BASIS",
+        "scope": "metodo real; decisao IA e trilha substituidas; sem rede",
+        "waDays": [
+          2,
+          4
+        ],
+        "regeneratedWeekday": 1,
+        "minutesSent": 60
+      }
+    },
+    {
+      "id": "E1",
+      "description": "Ferramentas reais do chat nao incluem atualizacao de WA",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "MISSING_CAPABILITY",
+        "tools": [
+          "get_student_context",
+          "save_directive",
+          "deactivate_directive"
+        ]
+      }
+    },
+    {
+      "id": "E2",
+      "description": "Consulta real de contexto do chat rele WA atual",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR",
+        "scope": "ferramenta, sem conversar com LLM"
+      }
+    },
+    {
+      "id": "F",
+      "description": "Hidratacao real mobile a partir de uma nova leitura preserva dias",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR",
+        "scope": "funcoes puras, nao reinicio de dispositivo"
+      }
+    },
+    {
+      "id": "G1",
+      "description": "Concluir entrevista antiga preserva WA atual",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR"
+      }
+    },
+    {
+      "id": "G2",
+      "description": "Reparo force restaura dias antigos da entrevista",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_OVERWRITE",
+        "scope": "operacao explicita de reparo; nao gatilho automatico"
+      }
+    },
+    {
+      "id": "G3",
+      "description": "WA toda em descanso nao e protegida por existing_routine_preserved",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_OVERWRITE",
+        "scope": "reenvio de complete-routine apos pausa total"
+      }
+    },
+    {
+      "id": "H",
+      "description": "Escrita antiga atrasada sobrescreve escrita nova sem conflito",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_OVERWRITE",
+        "scope": "interleaving controlado com double, nao concorrencia PostgreSQL"
+      }
+    },
+    {
+      "id": "I",
+      "description": "Enviar apenas um dia substitui a semana inteira",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_REPLACEMENT",
+        "scope": "PUT e replacement, nao patch"
+      }
+    },
+    {
+      "id": "I2",
+      "description": "Validacao real aceita modalidade desconhecida e minutos negativos",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_VALIDATION_GAP",
+        "scope": "validator de negocio; DTO tambem nao limita min/modalidades"
+      }
+    },
+    {
+      "id": "J",
+      "description": "Observacao textual de rotina nao atualiza WA",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "NO_ROUTINE_COMMAND",
+        "scope": "registro de relato, sem inferencia LLM"
+      }
+    },
+    {
+      "id": "K",
+      "description": "Edicao real do treinador grava dias mas nao atualiza lastRoutineChangeAt",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_WRITE_WITH_AUDIT_GAP"
+      }
+    },
+    {
+      "id": "L1",
+      "description": "Falha de gravacao rejeita operacao e preserva estado anterior no double",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "EXPECTED_BEHAVIOR",
+        "scope": "rollback do double, nao PostgreSQL"
+      }
+    },
+    {
+      "id": "L2",
+      "description": "Erro no relato apos commit devolve falha apesar da rotina gravada",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_POST_COMMIT_ERROR"
+      }
+    },
+    {
+      "id": "UI1",
+      "description": "Conversao mobile altera modalidade legada bike para corrida",
+      "execution": "EXECUTED",
+      "assertions": "PASS",
+      "evidence": {
+        "product": "REPRODUCED_LOSSY_ROUNDTRIP"
+      }
+    }
+  ],
+  "hashes": {
+    "apps/api/src/me/me.service.ts": "884e7d079322560950e340edda5d007061b22fcb08712a9bc00799cef6882671",
+    "apps/api/src/me/availability.rules.ts": "56a2aacf06407fefaf998fa3e8571a3a63865db4bb4c06f989d5d9ab998b0435",
+    "apps/api/src/coach/coach.service.ts": "408470a1d47615f476c6a5edf104779c270ef3fa19f61df248151587b91f8aa3",
+    "apps/mobile/App.tsx": "a91b1f125c82c445b08a7bad04aacf73e3018b23547d5d91b4385a5507c2b28a",
+    "apps/api/src/training-plans/training-methodology.ts": "9ca3b111579289fe11e92bc345fc3dad2e6d394a02f9f0b2d74e6a462c41708f",
+    "apps/api/src/training-plans/training-plans.service.ts": "341c0a914bc31faf1af82dda4c7cd0a30430f198d53d26e28fd1992b21bb2eab",
+    "apps/api/src/technical-manager/technical-manager-agent.service.ts": "14a8b4c23b19e4b3b315bafa3d474fc45781ddb71e691ce8784f6126d0e5bd34",
+    "apps/api/src/observations/observations.service.ts": "796d86ee9d0b600c54e0c7ae144046b0e1749967604e904ec4d18628033c1845"
+  }
+}
