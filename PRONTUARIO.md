@@ -3300,3 +3300,6 @@ Confirmadas contra o código de antes da Etapa 1 (`ea06bcb`): mesmas falhas, mes
 
 ### 26/10/2026 — Corte do fuso (atividades sem offset)
 `common/local-date.ts`: variavel `LOCAL_DATE_CUTOVER_AT` (ISO, definida no deploy). Sem offset: antes do corte = dia UTC antigo (historico, vinculos e medalhas estaveis); a partir do corte = America/Sao_Paulo. Sem variavel ou invalida = regra antiga para tudo. Offset informado (inclusive 0) sempre prevalece. Nada gravado nem reclassificado. Painel de carga e feedback inalterados. Unitarios 2882 (so as 3 suites de base falham); integracao 153 (so correction-medals de base).
+
+### 27/10/2026 — Recuperação de intervalado e relógios (prompt da IA)
+A pedido do Elton: removida do prompt a recomendação de evitar pace mais lento que 8:30/km (semana e corrida por sessão; o trecho do 8:30/km também saiu do texto de metodologia `panzeri-methodology-knowledge.ts`, com a ordem do Elton). Nova instrução `WATCH_RECOVERY_INSTRUCTION`: recuperação sempre ativa e por distância; pausa passiva vira caminhada bem lenta (ex.: 15:00–20:00/km, valor a critério da IA) e a IA diz no campo notes, com uma frase, que fez isso para o relógio aceitar o envio. Hashes congelados atualizados. PENDENTE: teste real no Amazfit (Zepp aceita pace tão lento?) antes de confiar; Apple Watch não envia pace.

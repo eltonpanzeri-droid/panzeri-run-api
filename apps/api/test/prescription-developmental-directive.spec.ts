@@ -25,7 +25,7 @@ describe('diretriz desenvolvimentista no prompt semanal', () => {
   });
   it('o conflito da regua de dor ficou subordinado e o restante da metodologia permanece', () => {
     expect(PANZERI_METHODOLOGY_KNOWLEDGE).toContain('SUBORDINADO a secao 5 da');
-    for (const permanece of ['## Distribuicao de intensidade', '## Fases da preparacao para uma prova', '## Consolidar o degrau atual', '## Treino longo / longao', '8:30/km']) {
+    for (const permanece of ['## Distribuicao de intensidade', '## Fases da preparacao para uma prova', '## Consolidar o degrau atual', '## Treino longo / longao']) {
       expect(joined).toContain(permanece);
     }
   });
