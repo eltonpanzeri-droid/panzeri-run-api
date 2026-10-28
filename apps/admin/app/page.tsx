@@ -3158,7 +3158,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'carga'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'carga' | 'calendario'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   // 27/10/2026: periodo unico da aba Evolucao (nova central). Compartilhado pela exploracao, pela comparacao e pelas analises de treino.
@@ -3669,19 +3669,20 @@ function StudentPanel({
           seletor de filho direto (".detailPanel > .adminForm" etc.), e um <div> por aba quebraria
           esses seletores sem reescrever todo o CSS de layout.  */}
       <div className="detailTabs">
-        <button type="button" className={detailTab === 'treinos' ? 'active' : ''} onClick={() => setDetailTab('treinos')}>Treinos</button>
         <button type="button" className={detailTab === 'cadastro' ? 'active' : ''} onClick={() => setDetailTab('cadastro')}>Cadastro</button>
-        <button type="button" className={detailTab === 'provas' ? 'active' : ''} onClick={() => setDetailTab('provas')}>Provas e objetivos</button>
-        <button type="button" className={detailTab === 'avaliacao' ? 'active' : ''} onClick={() => setDetailTab('avaliacao')}>Avaliacao</button>
+        <button type="button" className={detailTab === 'avaliacao' ? 'active' : ''} onClick={() => setDetailTab('avaliacao')}>Avaliação</button>
         <button type="button" className={detailTab === 'rotina' ? 'active' : ''} onClick={() => setDetailTab('rotina')}>Rotina</button>
         <button type="button" className={detailTab === 'diretrizes' ? 'active' : ''} onClick={() => setDetailTab('diretrizes')}>Diretrizes</button>
+        <button type="button" className={detailTab === 'provas' ? 'active' : ''} onClick={() => setDetailTab('provas')}>Provas e objetivos</button>
         <button type="button" className={detailTab === 'semanas' ? 'active' : ''} onClick={() => setDetailTab('semanas')}>Semanas anteriores</button>
-        <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolucao</button>
+        <button type="button" className={detailTab === 'treinos' ? 'active' : ''} onClick={() => setDetailTab('treinos')}>Treino da semana</button>
+        <button type="button" className={detailTab === 'calendario' ? 'active' : ''} onClick={() => setDetailTab('calendario')}>Calendário</button>
+        <button type="button" className={detailTab === 'evolucao' ? 'active' : ''} onClick={() => setDetailTab('evolucao')}>Evolução</button>
         {/* 15/10/2026: abas "Contexto" e "Timeline" agora ficam dentro da Evolucao (secao "Registros e historico").
             O codigo das duas abas foi mantido, inalcancavel pelos botoes, para reverter. */}
-        <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
-        <button type="button" className={detailTab === 'integracoes' ? 'active' : ''} onClick={() => setDetailTab('integracoes')}>Integracoes</button>
+        <button type="button" className={detailTab === 'integracoes' ? 'active' : ''} onClick={() => setDetailTab('integracoes')}>Integrações</button>
         <button type="button" className={`tabNova ${detailTab === 'carga' ? 'active' : ''}`} onClick={() => setDetailTab('carga')}>Carga (propria) <span className="tabNovaTag">NOVO · em avaliacao</span></button>
+        <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -3900,6 +3901,32 @@ function StudentPanel({
       </>
       ) : null}
 
+      {detailTab === 'calendario' ? (() => {
+        // 28/10/2026: calendario e detalhamento por sessao sairam da Evolucao e viraram aba propria (pedido do Elton). Sem recorte de periodo: mostra todo o historico.
+        const hist = student.history ?? [];
+        const allSessions = flatFeedbackSessions(hist);
+        const handleCalendarDayClick = (planId: string) => {
+          const clicked = hist.find((plan) => plan.id === planId);
+          if (clicked) setCalendarFocus({ date: String(clicked.startDate).slice(0, 10), nonce: Date.now() });
+          setDetailTab('semanas');
+        };
+        return (
+          <div className="detailFull">
+            <div className="evoGrid">
+                  <EvoSection wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
+                    desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
+                    <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
+                  </EvoSection>
+
+                  <EvoSection wide icon="🗂️" title="Detalhamento por sessão" badge={`${allSessions.length} sessões`}
+                    desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
+                    <SessionDetailTable sessions={allSessions} />
+                  </EvoSection>
+            </div>
+          </div>
+        );
+      })() : null}
+
       {detailTab === 'evolucao' ? (() => {
         // Dados semanais para gráficos (oldest-first).
         const allWeeks = [...(student.history ?? [])].reverse().map((h) => ({
@@ -3933,12 +3960,6 @@ function StudentPanel({
           if (s.feedback && PAIN_KW.some((kw) => s.feedback!.toLowerCase().includes(kw))) painComments++;
 
         const sessionsWithV1Pain = allSessions.filter((s) => s.painFlag != null && (s.completionStatus === 'done' || s.completionStatus === 'adjusted'));
-
-        const handleCalendarDayClick = (planId: string) => {
-          const clicked = (student.history ?? []).find((plan) => plan.id === planId);
-          if (clicked) setCalendarFocus({ date: String(clicked.startDate).slice(0, 10), nonce: Date.now() });
-          setDetailTab('semanas');
-        };
 
         // Periodo unico da Evolucao -> recorte das analises de treino (semanas/sessoes) e das secoes que pedem "semanas".
         const PERIOD_DAYS: Record<string, number> = { '30': 30, '90': 90, '183': 183, '365': 365 };
@@ -3996,19 +4017,6 @@ function StudentPanel({
                   desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
                   <LoadAnalysisSection weeks={filteredWeeks} />
                 </EvoSection>
-              ),
-              treinos: (
-                <div className="evoGrid">
-                  <EvoSection order={5} wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
-                    desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
-                    <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
-                  </EvoSection>
-
-                  <EvoSection order={6} wide icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
-                    desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
-                    <SessionDetailTable sessions={filteredSessions} />
-                  </EvoSection>
-                </div>
               ),
               saude: (
                 <EvoSection defaultOpen icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
@@ -9560,7 +9568,9 @@ const EVOLUTION_COLORS = {
  */
 function isExtraSession(structure: Record<string, unknown> | null | undefined): boolean {
   const s = structure as { source?: string; type?: string } | null | undefined;
-  return s?.source === 'student' && s?.type === 'extra';
+  // 28/10/2026: o extra detectado pelo relogio (Polar/Zepp: structure {type:'extra', source:'device'}, origin device_extra) tambem e' extra. Antes so' o do proprio aluno
+  // contava e a corrida extra do Polar aparecia como 'feito' no calendario e sumia de Extras nos graficos semanais.
+  return s?.type === 'extra' && (s?.source === 'student' || s?.source === 'device');
 }
 
 type SessionStatusKind = 'feito' | 'extra' | 'perdido' | 'semRegistro' | 'futuro';
