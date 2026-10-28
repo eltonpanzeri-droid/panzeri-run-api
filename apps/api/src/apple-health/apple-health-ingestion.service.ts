@@ -1,4 +1,4 @@
-import { Optional } from '@nestjs/common';
+import { Optional, PayloadTooLargeException } from '@nestjs/common';
 import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -15,6 +15,13 @@ export const MAX_WORKOUTS_PER_BATCH = 50;
 // Limites do envio de percurso (28/10/2026). O corpo JSON da API aceita ~100 KB por requisicao: o limite de bytes abaixo fica com folga (60 KB) e o app monta lotes por BYTES,
 // reduzindo pontos de uma rota grande ate caber; a API nao teve o limite de corpo aumentado. Os valores sao devolvidos ao app em /apple-health/routes/pending.
 export const APPLE_ROUTE_LIMITS = { maxRoutesPerRequest: 3, maxPointsPerRoute: 1200, maxRequestBytes: 60_000, maxPendingIds: 200 } as const;
+
+// Tamanho do envio de percurso EXATAMENTE como o app o mede: JSON.stringify({ routes }) (o app envia essa mesma string; so' ASCII, entao caracteres = bytes). O servidor reserializa o
+// que recebeu — a ida e volta do JSON de numeros/textos e' estavel —, mede em bytes UTF-8 e recusa acima do limite combinado. O limite global de corpo da API NAO foi alterado.
+export function appleRoutesBodyBytes(body: unknown): number {
+  const routes = (body as { routes?: unknown } | null)?.routes;
+  return Buffer.byteLength(JSON.stringify({ routes }), 'utf8');
+}
 
 export interface AppleHealthImportItemResult {
   uuid: string | null;
@@ -83,14 +90,14 @@ export class AppleHealthIngestionService {
     const sensors = access.mode === 'recorded' && access.allowed.has('activity_sensors');
     const items: AppleHealthImportItemResult[] = [];
     for (const input of workouts) {
-      const normalized = normalizeAppleHealthWorkout(input, { sensors });
-      if (!normalized.ok) {
-        const uuid = typeof (input as { uuid?: unknown })?.uuid === 'string' ? (input as { uuid: string }).uuid : null;
-        items.push({ uuid, status: 'rejected', reason: normalized.reason });
-        continue;
-      }
+      const hint = typeof (input as { uuid?: unknown })?.uuid === 'string' ? (input as { uuid: string }).uuid : null;
       try {
-        const item = await this.persist(userId, normalized.value);
+        // A autorizacao e' RELIDA dentro da transacao que grava (trava FOR SHARE): uma revogacao que chegue no meio do lote espera esta gravacao terminar e a limpeza dela apaga o que foi
+        // gravado; os treinos seguintes do lote ja' veem a retirada e nao sao gravados.
+        const outcome = await this.importLocked(userId, input);
+        if (outcome.kind === 'invalid') { items.push({ uuid: hint, status: 'rejected', reason: outcome.reason }); continue; }
+        if (outcome.kind === 'denied') { items.push({ uuid: hint === null ? null : hint.toLowerCase(), status: 'rejected', reason: 'autorizacao_retirada' }); continue; }
+        const item = outcome.item;
         items.push(item);
         // Identidade fisica cross-provider (Etapa 2) e, DEPOIS dela, a reconciliacao do EVENTO com a prescricao (3B): so' a observacao
         // canonica do evento carrega vinculo/classificacao. Best-effort — nunca derruba a ingestao.
@@ -103,8 +110,8 @@ export class AppleHealthIngestionService {
         }
       } catch (error) {
         // Falha de um treino nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.
-        this.logger.warn(`Falha ao importar treino HealthKit ${normalized.value.externalId}: ${error instanceof Error ? error.message : String(error)}`);
-        items.push({ uuid: normalized.value.externalId, status: 'rejected', reason: 'falha_ao_gravar' });
+        this.logger.warn(`Falha ao importar treino HealthKit ${hint}: ${error instanceof Error ? error.message : String(error)}`);
+        items.push({ uuid: hint === null ? null : hint.toLowerCase(), status: 'rejected', reason: 'falha_ao_gravar' });
       }
     }
     return {
@@ -138,6 +145,8 @@ export class AppleHealthIngestionService {
   // 'activity_route' (e 'activity'), checado DENTRO da transacao que grava (retirada concorrente espera). A autorizacao do iOS NAO substitui esse registro. A altitude so' e' guardada
   // com 'activity_sensors'. Refaz o percurso do treino do zero (idempotente). Percurso nao entra no escopo da IA.
   async importRoutes(userId: string, body: unknown): Promise<{ stored: number; rejected: number; items: AppleRouteItemResult[] }> {
+    const bytes = appleRoutesBodyBytes(body);
+    if (bytes > APPLE_ROUTE_LIMITS.maxRequestBytes) throw new PayloadTooLargeException(`O envio de percurso tem ${bytes} bytes e o limite e ${APPLE_ROUTE_LIMITS.maxRequestBytes}. Envie menos rotas ou menos pontos por requisicao.`);
     const normalized = normalizeRoutes(body, { maxRoutes: APPLE_ROUTE_LIMITS.maxRoutesPerRequest, maxPoints: APPLE_ROUTE_LIMITS.maxPointsPerRoute });
     if (!normalized.ok) throw new BadRequestException(`Percurso invalido: ${normalized.reason}.`);
     const access: AppleConsentAccess = this.consent ? await this.consent.access(userId) : { mode: 'legacy', allowed: new Set() };
@@ -168,24 +177,39 @@ export class AppleHealthIngestionService {
     return { stored: items.filter((i) => i.status === 'stored').length, rejected: items.filter((i) => i.status === 'rejected').length + normalized.dropped, items };
   }
 
-  private async persist(userId: string, workout: NormalizedAppleWorkout): Promise<AppleHealthImportItemResult> {
-    const key = { provider_userId_externalId: { provider: APPLE_HEALTH_PROVIDER, userId, externalId: workout.externalId } };
+  // Executa a gravacao de UM treino na transacao que trava a autorizacao (FOR SHARE) e decide, com as categorias RELIDAS ali dentro, se o treino e as medidas de sensor podem ser gravados.
+  // Sem o servico de consentimento (testes antigos) usa uma transacao simples no modo 'legacy'.
+  private runLocked<T>(userId: string, fn: (tx: Prisma.TransactionClient, access: AppleConsentAccess) => Promise<T>): Promise<T> {
+    if (this.consent) return this.consent.writeWhileAuthorized(userId, fn);
+    return this.prisma.$transaction((tx) => fn(tx, { mode: 'legacy', allowed: new Set<string>() }));
+  }
+
+  private async importLocked(userId: string, input: unknown): Promise<{ kind: 'ok'; item: AppleHealthImportItemResult } | { kind: 'invalid'; reason: string } | { kind: 'denied' }> {
+    const attempt = () => this.runLocked(userId, async (tx, access) => {
+      if (access.mode === 'blocked' || (access.mode === 'recorded' && !access.allowed.has('activity'))) return { kind: 'denied' as const };
+      const sensors = access.mode === 'recorded' && access.allowed.has('activity_sensors');
+      const normalized = normalizeAppleHealthWorkout(input, { sensors });
+      if (!normalized.ok) return { kind: 'invalid' as const, reason: normalized.reason };
+      const key = { provider_userId_externalId: { provider: APPLE_HEALTH_PROVIDER, userId, externalId: normalized.value.externalId } };
+      return { kind: 'ok' as const, item: await this.write(tx, userId, normalized.value, key) };
+    });
     try {
-      return await this.write(userId, workout, key);
+      return await attempt();
     } catch (error) {
-      // Dois envios simultaneos do mesmo HKWorkout.uuid: o perdedor da corrida bate na chave unica; a segunda tentativa
-      // enxerga o registro do vencedor e vira "already_imported" — nunca cria duplicata.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return this.write(userId, workout, key);
+      // Dois envios simultaneos do mesmo HKWorkout.uuid: o perdedor da corrida bate na chave unica (e a transacao dele e' desfeita); a segunda tentativa, em transacao nova, enxerga o
+      // registro do vencedor e vira "already_imported" — nunca cria duplicata.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return attempt();
       throw error;
     }
   }
 
-  private write(
+  private async write(
+    tx: Prisma.TransactionClient,
     userId: string,
     workout: NormalizedAppleWorkout,
     key: { provider_userId_externalId: { provider: string; userId: string; externalId: string } },
   ): Promise<AppleHealthImportItemResult> {
-    return this.prisma.$transaction(async (tx) => {
+    {
       const existing = await tx.activityLog.findUnique({
         where: key,
         select: { id: true, distanceMeters: true, caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, providerMetrics: true },
@@ -236,6 +260,6 @@ export class AppleHealthIngestionService {
         select: { id: true },
       });
       return { uuid: workout.externalId, status: 'created' as const, activityLogId: activityLog.id };
-    });
+    }
   }
 }

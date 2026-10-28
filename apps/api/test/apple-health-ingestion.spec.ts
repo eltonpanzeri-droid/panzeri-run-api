@@ -1,6 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { APPLE_ROUTE_LIMITS, AppleHealthIngestionService } from '../src/apple-health/apple-health-ingestion.service';
+import { APPLE_ROUTE_LIMITS, AppleHealthIngestionService, appleRoutesBodyBytes } from '../src/apple-health/apple-health-ingestion.service';
+import { PayloadTooLargeException } from '@nestjs/common';
+import { bodySize, fitRoute } from '../../mobile/src/appleHealthSync/appleHealthSyncLogic';
 import { classifySourceFamily, normalizeAppleHealthWorkout, utcOffsetMinutesAt } from '../src/apple-health/apple-health-normalizer';
 
 // Etapa 1 da integracao Apple (06/10/2026): HKWorkout -> normalizer -> RawExternalActivity -> ActivityLog, com
@@ -440,5 +442,45 @@ describe('Apple Saude — percurso GPS (28/10/2026)', () => {
     await expect(service.pendingRoutes('user-1', { recordIds: Array.from({ length: APPLE_ROUTE_LIMITS.maxPendingIds + 1 }, () => UUID_A) })).rejects.toBeInstanceOf(BadRequestException);
     const other = await service.pendingRoutes('user-2', { recordIds: [UUID_A] });
     expect(other).toMatchObject({ pending: [], complete: [], notImported: [UUID_A.toLowerCase()] });
+  });
+});
+
+describe('Apple Saude — limite de 60.000 bytes por requisicao de percurso no SERVIDOR (28/10/2026)', () => {
+  const pts = (n: number) => Array.from({ length: n }, (_, i) => [i * 3, Number((-23.5 + i * 0.000123456789).toFixed(5)), Number((-46.6 - i * 0.000098765432).toFixed(5)), 760.1]);
+  const recorded = { mode: 'recorded' as const, allowed: ['activity', 'activity_route'] };
+  // Preenche (com uma chave extra ignorada pelo normalizador) ate o corpo ter EXATAMENTE target bytes na medida do contrato: JSON.stringify({ routes }).
+  function bodyOfSize(target: number) {
+    const routes: Array<Record<string, unknown>> = [{ recordId: UUID_A, points: pts(300) }, { recordId: UUID_B, points: pts(200) }];
+    const base = appleRoutesBodyBytes({ routes });
+    const added = ',"pad":""'.length; // acrescimo fixo da chave extra, alem do preenchimento
+    routes[0].pad = 'x'.repeat(target - base - added);
+    return { routes };
+  }
+
+  it('o tamanho medido no servidor e o medido pelo app sao o MESMO numero (mesmo contrato, sem divergencia de serializacao)', () => {
+    const items = [UUID_A, UUID_B].map((id) => fitRoute({ recordId: id, points: pts(2000) as never }, APPLE_ROUTE_LIMITS.maxRequestBytes, APPLE_ROUTE_LIMITS.maxPointsPerRoute)!);
+    const wire = JSON.parse(JSON.stringify({ routes: items })); // o que o servidor recebe depois do parse
+    expect(appleRoutesBodyBytes(wire)).toBe(bodySize(items));
+  });
+
+  it('aceita exatamente 60.000 bytes e recusa 60.001 com 413 e mensagem clara, sem gravar nada', async () => {
+    const accepted = bodyOfSize(APPLE_ROUTE_LIMITS.maxRequestBytes);
+    expect(appleRoutesBodyBytes(accepted)).toBe(60_000);
+    const ok = buildService({ consent: recorded });
+    await ok.service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    expect(await ok.service.importRoutes('user-1', accepted)).toMatchObject({ stored: 2, rejected: 0 });
+    const over = bodyOfSize(APPLE_ROUTE_LIMITS.maxRequestBytes + 1);
+    expect(appleRoutesBodyBytes(over)).toBe(60_001);
+    const refused = buildService({ consent: recorded });
+    await refused.service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    await expect(refused.service.importRoutes('user-1', over)).rejects.toBeInstanceOf(PayloadTooLargeException);
+    await expect(refused.service.importRoutes('user-1', over)).rejects.toThrow('60001 bytes e o limite e 60000');
+    expect(refused.points).toHaveLength(0);
+  });
+
+  it('a checagem de bytes vem ANTES do consentimento e da validacao (nao processa corpo grande demais) e nao mexe no limite de pontos/rotas', async () => {
+    const big = bodyOfSize(APPLE_ROUTE_LIMITS.maxRequestBytes + 500);
+    await expect(buildService({ consent: { mode: 'blocked', allowed: [] } }).service.importRoutes('user-1', big)).rejects.toBeInstanceOf(PayloadTooLargeException);
+    expect(APPLE_ROUTE_LIMITS).toMatchObject({ maxRoutesPerRequest: 3, maxPointsPerRoute: 1200, maxRequestBytes: 60_000 });
   });
 });

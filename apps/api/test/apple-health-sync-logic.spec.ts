@@ -74,3 +74,67 @@ describe('classificacao de falhas e mensagens', () => {
     expect(messageFor('native_failure', emptyCounters()).text).toContain('ler o app Saúde');
   });
 });
+
+// Replica EXECUTAVEL, linha a linha, de PanzeriAppleHealthModule.sampleIndices e da montagem de candidatos do Swift (nao ha Swift neste ambiente: o que e' testado aqui e' o algoritmo, e a
+// equivalencia com o codigo nativo e' conferida na compilacao/teste em macOS). Mantem primeiro e ultimo, ordem e no maximo maxPoints.
+function nativeSampleIndices(count: number, maxPoints: number): number[] {
+  if (count <= 0) return [];
+  const limit = Math.max(2, maxPoints);
+  if (count <= limit) return Array.from({ length: count }, (_, i) => i);
+  return Array.from({ length: limit }, (_, k) => Math.round((k * (count - 1)) / (limit - 1)));
+}
+function nativeCandidates(offsets: number[]): number[] {
+  // offsets de pontos validos em ordem cronologica; antes do inicio (<0) ignorados; mesmo segundo fica o primeiro, exceto o ultimo ponto valido, que prevalece.
+  const kept: Array<{ offset: number; source: number }> = [];
+  offsets.forEach((offset, source) => { if (offset < 0) return; const last = kept[kept.length - 1]; if (last && offset <= last.offset) return; kept.push({ offset, source }); });
+  const finalSource = offsets.length - 1;
+  const finalKept = kept[kept.length - 1];
+  if (finalKept && finalKept.source !== finalSource && offsets[finalSource] === finalKept.offset) kept[kept.length - 1] = { offset: offsets[finalSource], source: finalSource };
+  return kept.map((c) => c.source);
+}
+
+describe('preservacao do primeiro e do ultimo ponto do percurso', () => {
+  it('amostragem nativa: sempre inclui primeiro e ultimo, ordem estritamente crescente, nunca passa do maximo — inclusive quando count nao e multiplo do passo', () => {
+    for (const [count, max] of [[1201, 1200], [1202, 1200], [2399, 1200], [2401, 1200], [5000, 1200], [10_001, 777], [100, 3], [13, 5], [1200, 1200], [1199, 1200]]) {
+      const indices = nativeSampleIndices(count, max);
+      expect(indices[0]).toBe(0);
+      expect(indices[indices.length - 1]).toBe(count - 1);
+      expect(indices.length).toBeLessThanOrEqual(Math.max(2, max));
+      for (let i = 1; i < indices.length; i += 1) expect(indices[i]).toBeGreaterThan(indices[i - 1]);
+    }
+  });
+
+  it('rotas curtas ou com poucos pontos nao perdem nada; 0, 1 e 2 pontos', () => {
+    expect(nativeSampleIndices(0, 1200)).toEqual([]);
+    expect(nativeSampleIndices(1, 1200)).toEqual([0]);
+    expect(nativeSampleIndices(2, 1200)).toEqual([0, 1]);
+    expect(nativeSampleIndices(7, 1200)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(nativeSampleIndices(3, 2)).toEqual([0, 2]); // maximo minimo = 2 (primeiro e ultimo)
+    expect(nativeSampleIndices(50, 1)).toEqual([0, 49]); // maxPoints menor que 2 vale 2
+  });
+
+  it('o algoritmo antigo (passo fixo) perdia o ultimo ponto; o novo nao', () => {
+    const oldAlgorithm = (count: number, max: number) => { const step = Math.max(1, Math.ceil(count / max)); const out: number[] = []; for (let i = 0; i < count; i += step) out.push(i); return out; };
+    expect(oldAlgorithm(1202, 1200).includes(1201)).toBe(false); // bug reproduzido
+    expect(nativeSampleIndices(1202, 1200).includes(1201)).toBe(true);
+  });
+
+  it('candidatos: pontos antes do inicio sao ignorados, repetidos no mesmo segundo ficam com um so, e o ultimo ponto valido sempre prevalece', () => {
+    expect(nativeCandidates([-5, -1, 0, 1, 1, 2, 3])).toEqual([2, 3, 5, 6]);
+    expect(nativeCandidates([0, 5, 9, 9])).toEqual([0, 1, 3]); // o ultimo (indice 3) substitui o anterior do mesmo segundo
+    expect(nativeCandidates([0, 0])).toEqual([1]); // um unico segundo: fica so' o ultimo (menos de 2 candidatos: sem percurso)
+    expect(nativeCandidates([])).toEqual([]);
+  });
+
+  it('a reducao em JavaScript preserva os extremos que recebeu, em qualquer quantidade de pontos', () => {
+    for (const n of [2, 3, 41, 1200, 1201, 2399, 5001]) {
+      const fitted = fitRoute(route('x', n), LIMITS.maxRequestBytes, LIMITS.maxPointsPerRoute, 2);
+      expect(fitted).not.toBeNull();
+      const source = route('x', n).points;
+      expect(fitted!.points[0][0]).toBe(source[0][0]);
+      expect(fitted!.points[fitted!.points.length - 1][0]).toBe(source[n - 1][0]);
+      expect(fitted!.points.length).toBeLessThanOrEqual(LIMITS.maxPointsPerRoute);
+      for (let i = 1; i < fitted!.points.length; i += 1) expect(fitted!.points[i][0]).toBeGreaterThan(fitted!.points[i - 1][0]);
+    }
+  });
+});

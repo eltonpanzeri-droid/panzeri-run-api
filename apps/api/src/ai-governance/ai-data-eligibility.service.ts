@@ -4,13 +4,17 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConnectorRegistry, LEGACY_PROVIDER_IDS } from '../provider-hub/connector-registry';
 import { ConsentCapability } from '../provider-hub/provider-connector';
 import { HEALTH_CONNECT_CONSENT, HEALTH_CONNECT_PROVIDER_ID } from '../health-connect/health-connect-consent';
+import { APPLE_HEALTH_CONSENT, APPLE_HEALTH_PROVIDER_ID } from '../apple-health/apple-health-consent';
 import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LEGACY_CONSENT_PROVIDERS } from '../legacy-consent/legacy-consent';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
 // Elegibilidade de dados para IA (Central Universal de Integracoes, Lote 1). UMA regra, universal, por (usuario, provedor, categoria, destino):
 //
-//  - Provedores LEGADOS (Polar, Wahoo, Strava, Apple Health, Health Connect): comportamento atual preservado (elegiveis). Eles NAO tem consentimento de
+//  - Apple Health (28/10/2026, decisao de produto: usar o maximo de dado AUTORIZADO, SEM autorizacao especifica para IA): segue o consentimento por categoria JA' registrado. Sem registro (aluna que
+//    so' usou o aplicativo antigo) = comportamento anterior; com registro ativo e texto vigente, cada categoria (activity, activity_sensors, activity_route) vale enquanto autorizada; registro
+//    retirado (ou texto desatualizado) = nada do Apple Health alimenta a IA. Nao ha finalidade 'ai_*' nem trava de ambiente para o Apple Health.
+//  - Provedores LEGADOS (Polar, Wahoo, Strava, Health Connect): comportamento atual preservado (elegiveis). Eles NAO tem consentimento de
 //    finalidade "IA" por provedor; isso e' um achado registrado para a revisao juridica, fora do escopo desta mudanca.
 //  - Provedores da Central (conector com documento de consentimento): so' elegiveis quando TODAS as condicoes valem:
 //      1. (destino externo) o provedor foi LIBERADO para envio a IA externa — trava dupla: constante no codigo (EXTERNAL_AI_APPROVED_PROVIDERS, hoje VAZIA)
@@ -68,6 +72,7 @@ export class AiDataEligibility {
   }
 
   async decide(userId: string, provider: string, options: { category: string; destination: AiDestination }): Promise<EligibilityDecision> {
+    if (provider === APPLE_HEALTH_PROVIDER_ID) return this.decideAppleHealth(userId, options.category);
     // Polar/Wahoo ja' conectadas (22/10/2026): enquanto a aluna NAO decidiu sobre o Atlas (sem registro) vale o comportamento anterior; quando decide, vale a escolha dela. Sem trava de ambiente
     // (o fluxo anterior ja' enviava resumos a IA sem ela): a trava so' existe para os provedores novos.
     const legacyDoc = isLegacyConsentProvider(provider) ? LEGACY_CONSENT_DOCUMENTS[provider] : undefined;
@@ -96,6 +101,23 @@ export class AiDataEligibility {
     return { allowed: true, reason: 'allowed' };
   }
 
+  // Apple Health: respeita o consentimento por categoria ja' existente (nenhuma autorizacao nova para IA). Fail-closed quando ha registro retirado ou texto desatualizado.
+  private async decideAppleHealth(userId: string, category: string): Promise<EligibilityDecision> {
+    const connection = await this.prisma.providerConnection.findUnique({
+      where: { provider_userId: { provider: APPLE_HEALTH_PROVIDER_ID, userId } },
+      select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true },
+    });
+    if (!connection) {
+      // Sem registro = a aluna so' usou o aplicativo antigo (comportamento anterior). Se o registro sumiu mas a ultima decisao auditada foi a retirada, a retirada continua valendo.
+      const last = await this.prisma.providerConnectionEvent?.findFirst?.({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, type: { in: ['connected', 'disconnected'] } }, orderBy: { createdAt: 'desc' }, select: { type: true } });
+      return last?.type === 'disconnected' ? { allowed: false, reason: 'not_connected' } : { allowed: true, reason: 'legacy_provider_unchanged' };
+    }
+    if (connection.disconnectedAt) return { allowed: false, reason: 'not_connected' };
+    const categories = Array.isArray(connection.grantedCategories) ? (connection.grantedCategories as unknown[]) : [];
+    if (!categories.includes(category) || !isConnectionConsentCurrent(APPLE_HEALTH_CONSENT, connection)) return { allowed: false, reason: 'category_not_granted' };
+    return { allowed: true, reason: 'allowed' };
+  }
+
   // Conjunto de provedores que NAO podem alimentar a IA deste aluno agora. Considera os conectores da Central e qualquer provedor desconhecido que ja
   // tenha gravado atividades para o aluno (fail-closed).
   async scopeFor(userId: string, destination: AiDestination = 'external_ai', category = 'activity'): Promise<AiScope> {
@@ -106,7 +128,7 @@ export class AiDataEligibility {
     }
     const seen = await this.prisma.activityLog.findMany({ where: { userId }, distinct: ['provider'], select: { provider: true } });
     for (const { provider } of seen) {
-      if ((LEGACY_PROVIDER_IDS.includes(provider) && !DEVICE_CONSENT_PROVIDERS[provider]) || blocked.has(provider)) continue;
+      if ((LEGACY_PROVIDER_IDS.includes(provider) && !DEVICE_CONSENT_PROVIDERS[provider] && provider !== APPLE_HEALTH_PROVIDER_ID) || blocked.has(provider)) continue;
       if (!(await this.decide(userId, provider, { category, destination })).allowed) blocked.add(provider);
     }
     // Saude e recuperacao: cada categoria exige a propria autorizacao do aluno (alem da finalidade de IA e da liberacao do provedor).

@@ -97,6 +97,16 @@ export class AppleHealthConsentService {
     return out;
   }
 
+  // COORDENACAO ENTRE REVOGACAO E GRAVACAO (28/10/2026). Toda gravacao de dado sujeito a consentimento (treinos, medidas de sensor, percurso) roda em writeWhileAuthorized: transacao com
+  // `SELECT ... FOR SHARE` na linha de autorizacao e as categorias RELIDAS ali dentro. Toda alteracao/retirada de autorizacao roda em UMA transacao que toma `SELECT ... FOR UPDATE` na mesma
+  // linha, grava a nova autorizacao E apaga os dados das categorias retiradas antes de confirmar. O FOR UPDATE espera todas as gravacoes em andamento terminarem (e a limpeza dentro da
+  // transacao apaga o que elas gravaram); gravacoes que chegam durante a revogacao esperam a confirmacao e, ao reler as categorias, ja' veem a retirada e nao gravam. Resultado: depois de a
+  // revogacao terminar, nenhum dado das categorias retiradas permanece nem pode ser regravado com uma autorizacao consultada antes.
+  private async lockRow(tx: Prisma.TransactionClient, userId: string): Promise<Row | null> {
+    const rows = await tx.$queryRaw<Array<Row>>`SELECT "disconnectedAt", "grantedCategories", "grantedPurposes", "purposeConsents", "consentVersion", "consentTextHash", "consentedAt" FROM "ProviderConnection" WHERE "provider" = ${APPLE_HEALTH_PROVIDER_ID} AND "userId" = ${userId} FOR UPDATE`;
+    return rows[0] ?? null;
+  }
+
   // Concede/revoga GRUPOS. A primeira concessao cria o registro; revogar nao exige aceite e vale na hora; conceder exige o aceite expresso do texto VIGENTE. Quem depende de um grupo retirado sai junto.
   async updateGroups(userId: string, input: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
     const document = APPLE_HEALTH_CONSENT;
@@ -106,56 +116,60 @@ export class AppleHealthConsentService {
     const known = (id: unknown) => document.groups.find((g) => g.id === id);
     if ([...grant, ...revoke].some((id) => !known(id))) throw new BadRequestException('Grupo de dados desconhecido.');
     if (grant.some((id) => revoke.includes(id))) throw new BadRequestException('Um grupo nao pode ser concedido e revogado juntos.');
-    const row = await this.load(userId);
-    const connected = this.active(row);
-    const currentCategories = new Set(connected ? asStrings(row.grantedCategories) : []);
-    const selected = new Set(document.groups.filter((g) => g.categories.every((c) => currentCategories.has(c))).map((g) => g.id));
-    const before = new Set(selected);
     const hash = consentTextHash(document);
     if (grant.length > 0) {
       if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
       if (input.version !== document.version || input.textHash !== hash) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
-      for (const id of grant as string[]) selected.add(id);
     }
-    for (const id of revoke as string[]) selected.delete(id);
-    for (let changed = true; changed;) {
-      changed = false;
-      for (const group of document.groups) {
-        if (selected.has(group.id) && (group.requires ?? []).some((r) => !selected.has(r))) {
-          if ((grant as string[]).includes(group.id)) throw new BadRequestException('Selecao incompativel: um grupo depende de outro nao autorizado.');
-          selected.delete(group.id);
-          changed = true;
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const row = await this.lockRow(tx, userId);
+      const connected = this.active(row);
+      const currentCategories = new Set(connected ? asStrings(row.grantedCategories) : []);
+      const selected = new Set(document.groups.filter((g) => g.categories.every((c) => currentCategories.has(c))).map((g) => g.id));
+      const before = new Set(selected);
+      for (const id of grant as string[]) selected.add(id);
+      for (const id of revoke as string[]) selected.delete(id);
+      for (let changed = true; changed;) {
+        changed = false;
+        for (const group of document.groups) {
+          if (selected.has(group.id) && (group.requires ?? []).some((r) => !selected.has(r))) {
+            if ((grant as string[]).includes(group.id)) throw new BadRequestException('Selecao incompativel: um grupo depende de outro nao autorizado.');
+            selected.delete(group.id);
+            changed = true;
+          }
         }
       }
-    }
-    const categories: string[] = [];
-    for (const group of document.groups.filter((g) => selected.has(g.id))) for (const category of group.categories) if (!categories.includes(category)) categories.push(category);
-    const now = new Date();
-    if (!connected) {
-      if (grant.length === 0) return { groups: [], categories: [] };
-      const data = {
-        externalAccountId: userId, accessTokenEncrypted: null, refreshTokenEncrypted: null, accessTokenExpiresAt: null,
-        grantedCategories: categories as never, grantedPurposes: [...document.purposes] as never, purposeConsents: {} as never,
-        consentVersion: document.version, consentTextHash: hash, consentedAt: now, refreshLockUntil: null, collectFrom: now, lastSyncCompletedAt: null, disconnectedAt: null,
-      };
-      await this.prisma.providerConnection.upsert({ where: { provider_userId: { provider: APPLE_HEALTH_PROVIDER_ID, userId } }, create: { userId, provider: APPLE_HEALTH_PROVIDER_ID, ...data }, update: data });
-      await this.audit(userId, 'connected', { groups: [...selected], categories, purposes: document.purposes, consentVersion: document.version, consentTextHash: hash, decision: 'granted' });
-      return { groups: [...selected], categories };
-    }
-    const grantedIds = [...selected].filter((id) => !before.has(id));
-    const revokedIds = [...before].filter((id) => !selected.has(id));
-    // Apagar ANTES de gravar a revogacao: se o apagamento falhar, a revogacao nao fica registrada e a nova tentativa refaz tudo (nunca sobra localizacao/sensor sem autorizacao).
-    if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) await this.scrubSensorData(userId);
-    if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) await this.scrubRouteData(userId);
-    const updated = await this.prisma.providerConnection.updateMany({
-      where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null, grantedCategories: { equals: (row as Row).grantedCategories as Prisma.InputJsonValue } },
-      data: { grantedCategories: categories as never },
-    });
-    if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
-    if (grantedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash });
-    if (revokedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'revoked', groups: revokedIds });
-    if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => INVALIDATING_CATEGORIES.includes(c)))) await this.invalidateAi(userId, 'import_revoked');
-    return { groups: [...selected], categories };
+      const categories: string[] = [];
+      for (const group of document.groups.filter((g) => selected.has(g.id))) for (const category of group.categories) if (!categories.includes(category)) categories.push(category);
+      const now = new Date();
+      const audits: Array<{ type: string; details: Record<string, unknown> }> = [];
+      if (!connected) {
+        // Sem registro ativo: so' faz sentido conceder (revogar o que nao existe nao muda nada).
+        if (grant.length === 0) return { groups: [] as string[], categories: [] as string[], audits, invalidate: false };
+        const data = {
+          externalAccountId: userId, accessTokenEncrypted: null, refreshTokenEncrypted: null, accessTokenExpiresAt: null,
+          grantedCategories: categories as never, grantedPurposes: [...document.purposes] as never, purposeConsents: {} as never,
+          consentVersion: document.version, consentTextHash: hash, consentedAt: now, refreshLockUntil: null, collectFrom: now, lastSyncCompletedAt: null, disconnectedAt: null,
+        };
+        await tx.providerConnection.upsert({ where: { provider_userId: { provider: APPLE_HEALTH_PROVIDER_ID, userId } }, create: { userId, provider: APPLE_HEALTH_PROVIDER_ID, ...data }, update: data });
+        audits.push({ type: 'connected', details: { groups: [...selected], categories, purposes: document.purposes, consentVersion: document.version, consentTextHash: hash, decision: 'granted' } });
+        return { groups: [...selected], categories, audits, invalidate: false };
+      }
+      const grantedIds = [...selected].filter((id) => !before.has(id));
+      const revokedIds = [...before].filter((id) => !selected.has(id));
+      // Limpeza e retirada na MESMA transacao, com a linha travada: se qualquer passo falhar, nada fica pela metade; se terminar, nada das categorias retiradas permanece.
+      if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) { await this.scrubSensorData(userId, tx); audits.push({ type: 'sensor_data_scrubbed', details: {} }); }
+      if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) { await this.scrubRouteData(userId, tx); audits.push({ type: 'route_data_scrubbed', details: {} }); }
+      const updated = await tx.providerConnection.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null }, data: { grantedCategories: categories as never } });
+      if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
+      if (grantedIds.length > 0) audits.push({ type: 'groups_updated', details: { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash } });
+      if (revokedIds.length > 0) audits.push({ type: 'groups_updated', details: { decision: 'revoked', groups: revokedIds } });
+      const invalidate = revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => INVALIDATING_CATEGORIES.includes(c)));
+      return { groups: [...selected], categories, audits, invalidate };
+    }, { timeout: 60_000 });
+    for (const entry of outcome.audits) await this.audit(userId, entry.type, entry.details);
+    if (outcome.invalidate) await this.invalidateAi(userId, 'import_revoked');
+    return { groups: outcome.groups, categories: outcome.categories };
   }
 
   // Reconfirma o texto vigente apos mudanca material, sem alterar o que ja foi autorizado.
@@ -170,22 +184,26 @@ export class AppleHealthConsentService {
     return { version: document.version };
   }
 
-  // Retira TODAS as autorizacoes. Apaga a localizacao (percurso) e as medidas de sensor ja' guardadas ANTES de gravar a retirada (retry seguro). Nao apaga os treinos importados (exclusao e' outro pedido).
+  // Retira TODAS as autorizacoes: numa unica transacao, com a linha travada, apaga percurso e medidas de sensor e grava a retirada. Nao apaga os treinos importados (exclusao e' outro pedido).
   async withdrawAll(userId: string) {
-    const row = await this.load(userId);
-    if (this.active(row)) {
-      await this.scrubRouteData(userId);
-      await this.scrubSensorData(userId);
-    }
-    const updated = await this.prisma.providerConnection.updateMany({
-      where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null },
-      data: { disconnectedAt: new Date(), grantedCategories: [] as never, grantedPurposes: [] as never, purposeConsents: {} as never },
-    });
-    if (updated.count === 1) {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const row = await this.lockRow(tx, userId);
+      if (!this.active(row)) return { withdrawn: false };
+      await this.scrubRouteData(userId, tx);
+      await this.scrubSensorData(userId, tx);
+      const updated = await tx.providerConnection.updateMany({
+        where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null },
+        data: { disconnectedAt: new Date(), grantedCategories: [] as never, grantedPurposes: [] as never, purposeConsents: {} as never },
+      });
+      return { withdrawn: updated.count === 1 };
+    }, { timeout: 60_000 });
+    if (outcome.withdrawn) {
+      await this.audit(userId, 'route_data_scrubbed', {});
+      await this.audit(userId, 'sensor_data_scrubbed', {});
       await this.audit(userId, 'disconnected', { decision: 'revoked' });
       await this.invalidateAi(userId, 'withdrawn');
     }
-    return { withdrawn: updated.count === 1 };
+    return outcome;
   }
 
   // Lock de leitura na linha de autorizacao durante a gravacao: uma revogacao concorrente espera e as categorias sao RELIDAS aqui dentro. Fail-closed para rotas/sensores.
@@ -196,33 +214,32 @@ export class AppleHealthConsentService {
     }, { timeout: 60_000 });
   }
 
-  async scrubRouteData(userId: string): Promise<void> {
-    await this.prisma.activityTimeSeriesPoint.deleteMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, latitude: { not: null }, activityLog: { userId } } });
-    await this.prisma.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, hasRoute: true }, data: { hasRoute: false } });
-    await this.audit(userId, 'route_data_scrubbed', {});
+  // Apagam apenas dados da PROPRIA aluna e do provedor apple_health (outras fontes e categorias autorizadas nao sao tocadas). Sempre dentro da transacao que tem a linha travada.
+  private async scrubRouteData(userId: string, db: Prisma.TransactionClient): Promise<void> {
+    await db.activityTimeSeriesPoint.deleteMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, latitude: { not: null }, activityLog: { userId } } });
+    await db.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, hasRoute: true }, data: { hasRoute: false } });
   }
 
   // Apaga FC, cadencia, potencia e elevacao (colunas da atividade), a altitude dos pontos e as chaves de sensor do resumo do provedor e do bruto recebido.
-  async scrubSensorData(userId: string): Promise<void> {
-    await this.prisma.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID }, data: { avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null } });
-    await this.prisma.activityTimeSeriesPoint.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, elevationMeters: { not: null }, activityLog: { userId } }, data: { elevationMeters: null } });
+  private async scrubSensorData(userId: string, db: Prisma.TransactionClient): Promise<void> {
+    await db.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID }, data: { avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null } });
+    await db.activityTimeSeriesPoint.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, elevationMeters: { not: null }, activityLog: { userId } }, data: { elevationMeters: null } });
     const strip = (value: unknown): Record<string, unknown> | null => {
       const object = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : null;
       if (!object || !APPLE_SENSOR_KEYS.some((key) => object[key] != null)) return null;
       for (const key of APPLE_SENSOR_KEYS) if (key in object) object[key] = null;
       return object;
     };
-    const logs = await this.prisma.activityLog.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } });
+    const logs = await db.activityLog.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } });
     for (const log of logs) {
       const next = strip(log.providerMetrics);
-      if (next) await this.prisma.activityLog.update({ where: { id: log.id }, data: { providerMetrics: next as Prisma.InputJsonObject } });
+      if (next) await db.activityLog.update({ where: { id: log.id }, data: { providerMetrics: next as Prisma.InputJsonObject } });
     }
-    const raws = await this.prisma.rawExternalActivity.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID }, select: { id: true, payload: true } });
+    const raws = await db.rawExternalActivity.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID }, select: { id: true, payload: true } });
     for (const raw of raws) {
       const next = strip(raw.payload);
-      if (next) await this.prisma.rawExternalActivity.update({ where: { id: raw.id }, data: { payload: next as Prisma.InputJsonObject } });
+      if (next) await db.rawExternalActivity.update({ where: { id: raw.id }, data: { payload: next as Prisma.InputJsonObject } });
     }
-    await this.audit(userId, 'sensor_data_scrubbed', {});
   }
 
   // Exclusao dos treinos IMPORTADOS (a pedido da aluna). Exige estar sem autorizacao ativa (senao a proxima sincronizacao reimportaria).
