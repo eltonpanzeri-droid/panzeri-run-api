@@ -3312,3 +3312,22 @@ Só painel admin + leitura na API; nenhuma mudança no aplicativo do aluno, no A
 - **Comparar** = Studio existente em modo `compareOnly` com período controlado. Trajetória de FitnessTest e trajetória INITIAL→R1→R2 saíram da Evolução e foram para Avaliação; Provas alvo duplicadas e Exploração Longitudinal por pastas saíram da tela (o componente LongitudinalExplorer e seus blocos exclusivos foram removidos do código; o build do painel falhava por código sem uso). Dados intactos.
 - NÃO feito de propósito: desacoplamento aeróbio (sem cálculo improvisado); banda média ± 2 DP não foi preservada; síntese "quantos indicadores fora do padrão por sessão" e episódios/relações temporais ficam para etapa futura; catálogo ainda sem carga sRPE, sessões perdidas e distância/duração por treino como indicadores selecionáveis.
 - Deploy: API primeiro (endpoints novos), depois o painel. Sem a API nova o painel degrada (sem referências), não quebra.
+
+### 28/10/2026 — Nova ordem das abas do aluno no painel (DECIDIDO, NÃO IMPLEMENTADO)
+Pedido do Elton: só registrar; ele trará outras mudanças para analisar antes de qualquer implementação.
+Ordem desejada das abas do "Aluno selecionado": Cadastro | Avaliação | Rotina | Diretrizes | Semanas anteriores | Treino da semana (hoje "Treinos") | Integrações | Calendário | Evolução | Saúde e recuperação | Carga (própria).
+- **Calendário** vira aba própria: trazer o calendário que o Elton gosta (hoje está dentro de Evolução e de "Treinos e carga"), incluindo o detalhamento por sessão.
+- **Saúde e recuperação** e **Carga (própria)** ficam como abas por enquanto; a intenção é movê-las para dentro de Evolução depois (lugar ainda a pensar; Carga própria segue "em avaliação").
+- Dúvidas a confirmar antes de implementar: "Integrações" apareceu duas vezes na lista (considerado uma só, depois de Treino da semana); "Provas e objetivos" e "Atividades externas" existem hoje e não constam na nova lista (destino a definir).
+
+**Atualização (28/10/2026, ordem FINAL das abas, substitui a lista acima; ainda NÃO implementado):**
+Cadastro | Avaliação | Rotina | Diretrizes | Provas e objetivos | Semanas anteriores | Treino da semana | Calendário | Evolução | Saúde e recuperação | Carga (própria) | Integrações | Atividades externas.
+Dúvidas anteriores resolvidas: Integrações é uma só (penúltima); Provas e objetivos e Atividades externas ficam como abas. Calendário, Saúde e recuperação e Carga (própria) seguem como descrito acima.
+
+### 28/10/2026 — Saúde e Recuperação integrada à Evolução (local, sem commit)
+Decisão do Elton: não manter dois lugares para os mesmos indicadores. Substitui a anotação anterior que mantinha a aba Saúde e recuperação por enquanto.
+- Aba "Saude e Recuperacao" REMOVIDA do menu do aluno (`page.tsx`); `student-health-recovery.tsx` apagado. Endpoint `GET /coach/students/:id/health-recovery` e dados históricos intactos (agora consumido pelo gráfico de sono). Integrações continua no menu.
+- Explorar ganhou a categoria **Atividade diária** (`wearable.dailySteps`, `wearable.dailyActiveKcal`, antes em Recuperação; `explorer-catalog.ts`). HRV e FC de repouso seguem em Recuperação; sono (duração, etapas, pontuação, cochilo) em Sono. Todos têm o gráfico de colunas com média histórica, MM7/21/60/200 e faixa habitual.
+- **Composição do sono por noite** (`ti/sleep-composition.tsx`): o gráfico especializado da antiga aba, preservado, é a visão de entrada da categoria Sono (coluna empilhada profundo/leve/REM/acordada, pontuação em linha, total da noite sem sobreposição, sessões por noite, resumo n/média/mín-máx/primeira-última/tendência, fonte e sincronização). Referências por cima: seletor "Referências de" (duração, profundo, leve, REM, acordada, pontuação), cada uma com a própria média histórica, MM e faixa, ligáveis separadamente; alinhadas à noite pela `calendarDate` da observação. Grandezas nunca se misturam (pontuação usa o eixo direito 0–100).
+- Removido de propósito: tabela "Comparação entre períodos" do sono (a aba Comparar já cobre) e o seletor próprio de datas (usa o período único da Evolução).
+- Teste do catálogo atualizado (`training-intelligence-reference-series.spec.ts`). NÃO verificado visualmente com dado real (Area de faixa no recharts 3); conferir em aluna com Polar/Zepp antes de publicar.

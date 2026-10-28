@@ -4,11 +4,12 @@
 import { evidenceKindOf, type EvidenceKind, type VariableDefinition } from './variable-registry';
 import { referenceUnitOf, type ReferenceUnit } from './reference-series';
 
-export type ExplorerCategory = 'treinos' | 'sono' | 'recuperacao' | 'bem_estar' | 'saude';
+export type ExplorerCategory = 'treinos' | 'sono' | 'recuperacao' | 'atividade_diaria' | 'bem_estar' | 'saude';
 
 // Categoria visual. Contexto nao tem variaveis: sao acontecimentos (ContextEvent), tratados a parte pela interface.
 export function explorerCategoryOf(definition: Pick<VariableDefinition, 'variableId' | 'domain'>): ExplorerCategory {
   const id = definition.variableId;
+  if (id === 'wearable.dailySteps' || id === 'wearable.dailyActiveKcal') return 'atividade_diaria'; // passos e calorias ativas do dia (relogio): rotina diaria, nao recuperacao
   if (id.startsWith('wearable.')) return /sleep|nap/i.test(id) ? 'sono' : 'recuperacao';
   if (id === 'workout.postPhysicalFatigue') return 'bem_estar';
   switch (definition.domain) {

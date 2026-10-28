@@ -2,7 +2,7 @@
 // referencias, medias moveis e faixa habitual vem do backend (campo `reference` do snapshot).
 import type { Observation, Snapshot, Variable } from './data';
 
-export type ExplorerCategoryId = 'treinos' | 'sono' | 'recuperacao' | 'bem_estar' | 'saude';
+export type ExplorerCategoryId = 'treinos' | 'sono' | 'recuperacao' | 'atividade_diaria' | 'bem_estar' | 'saude';
 export type ExplorerInfo = {
   category: ExplorerCategoryId; evidenceKind: string; evidenceLabel: string; source: string; periodicity: string; periodicityLabel: string;
   windowUnit: string; versionComparability: 'comparable_across_versions' | 'not_comparable_across_versions'; crossSourceComparability: 'comparable' | 'not_comparable'; notes: string | null;
@@ -31,7 +31,7 @@ export type ExplorerSnapshot = Snapshot & {
 export type Availability = { id: string; n: number; firstObservationAt: string | null; lastObservationAt: string | null; mathApplicable: boolean };
 
 export const CATEGORIES: Array<{ id: ExplorerCategoryId | 'contexto'; label: string }> = [
-  { id: 'treinos', label: 'Treinos' }, { id: 'sono', label: 'Sono' }, { id: 'recuperacao', label: 'Recuperação' },
+  { id: 'treinos', label: 'Treinos' }, { id: 'sono', label: 'Sono' }, { id: 'recuperacao', label: 'Recuperação' }, { id: 'atividade_diaria', label: 'Atividade diária' },
   { id: 'bem_estar', label: 'Bem-estar' }, { id: 'saude', label: 'Saúde' }, { id: 'contexto', label: 'Contexto' },
 ];
 

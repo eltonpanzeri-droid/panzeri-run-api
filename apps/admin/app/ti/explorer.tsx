@@ -7,22 +7,25 @@ import {
   CATEGORIES, MODALITY_LABELS, SIGNAL_LABEL, availableGroups, modalitiesQueryOf, referenceFor, statusOf, ucFirst,
   type Availability, type ExplorerSnapshot, type ExplorerVariable, type ModalityGroupId,
 } from './explorer-data';
+import SleepComposition from './sleep-composition';
 import './explorer.css';
 
 export type PeriodSelection = { id: string; custom: [number, number] | null };
 type CategoryId = (typeof CATEGORIES)[number]['id'];
-const DEFAULT_ACTIVE: Record<string, string> = { treinos: 'training.volumeCompletedTotalKm', sono: 'workout.preSleepQuality', recuperacao: 'wearable.hrvLastNightAvg', bem_estar: 'workout.prePhysicalFatigue', saude: 'workout.painFlag' };
+const DEFAULT_ACTIVE: Record<string, string> = { treinos: 'training.volumeCompletedTotalKm', sono: 'workout.preSleepQuality', recuperacao: 'wearable.hrvLastNightAvg', bem_estar: 'workout.prePhysicalFatigue', saude: 'workout.painFlag', atividade_diaria: 'wearable.dailySteps' };
 const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : 'Não foi possível carregar os dados.');
 const categoryOf = (variable: ExplorerVariable): string => variable.info?.category ?? 'treinos';
 const valueText = (value: number | string, unit?: string) => (typeof value === 'number' ? `${fmt(value)}${unit ? ` ${unit}` : ''}` : String(value));
 
-export default function EvolutionExplorer({ studentId, token, studentIsFemale, period, onOpenOriginal }: {
-  studentId: string; token: string; studentIsFemale: boolean | null; period: PeriodSelection; onOpenOriginal?: (target: { date: string; sessionId?: string }) => void;
+export default function EvolutionExplorer({ studentId, token, studentIsFemale, period, onOpenOriginal, onOpenIntegrations }: {
+  studentId: string; token: string; studentIsFemale: boolean | null; period: PeriodSelection; onOpenOriginal?: (target: { date: string; sessionId?: string }) => void; onOpenIntegrations?: () => void;
 }) {
   const [legend, setLegend] = React.useState<ExplorerVariable[]>([]);
   const [legendError, setLegendError] = React.useState('');
   const [category, setCategory] = React.useState<CategoryId>('treinos');
   const [search, setSearch] = React.useState('');
+  // Visualizacao especializada da categoria Sono (composicao por noite, vinda da antiga aba Saude e Recuperacao): e' o que abre ao entrar em Sono
+  const [sleepView, setSleepView] = React.useState(false);
   const [activeId, setActiveId] = React.useState<string>(DEFAULT_ACTIVE.treinos);
   const [availability, setAvailability] = React.useState<Record<string, Availability>>({});
   const [group, setGroup] = React.useState<ModalityGroupId>('agregada');
@@ -87,7 +90,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
   const requestKey = `${studentId}|${activeId}|${modalitiesQuery}|${source}`;
 
   React.useEffect(() => {
-    if (!studentId || !active || category === 'contexto') return;
+    if (!studentId || !active || category === 'contexto' || sleepView) return;
     const cached = cache.current.get(requestKey);
     if (cached) { setSnapshot({ key: requestKey, data: cached }); remember(activeId, cached); setError(''); setLoading(false); return; }
     const controller = new AbortController();
@@ -109,7 +112,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
       finally { if (!controller.signal.aborted) setLoading(false); }
     })();
     return () => controller.abort();
-  }, [requestKey, studentId, active, activeId, category, headers, modalitiesQuery, source, remember]);
+  }, [requestKey, studentId, active, activeId, category, sleepView, headers, modalitiesQuery, source, remember]);
 
   React.useEffect(() => {
     if (category !== 'contexto' || !studentId || events?.owner === studentId) return;
@@ -130,11 +133,12 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
   const range = React.useMemo<[number, number]>(() => (period.id === 'custom' && period.custom ? period.custom : windowFor(periodDefinition?.days ?? 183, current ? [current] : [], [])), [period, periodDefinition?.days, current]);
 
   function pickCategory(next: CategoryId) {
-    setCategory(next); setSearch(''); setEventSelected(null);
+    setCategory(next); setSearch(''); setEventSelected(null); setSleepView(next === 'sono');
     if (next !== 'contexto') setActiveId(DEFAULT_ACTIVE[next] && legend.some((v) => v.id === DEFAULT_ACTIVE[next]) ? DEFAULT_ACTIVE[next] : (legend.find((v) => categoryOf(v) === next)?.id ?? activeId));
   }
   function pickVariable(variable: ExplorerVariable) {
     const next = categoryOf(variable);
+    setSleepView(false);
     if (category !== next) setCategory(next as CategoryId);
     setActiveId(variable.id);
   }
@@ -162,10 +166,11 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
         {category === 'contexto' && !needle
           ? <p className="evx-side-note">Acontecimentos de vida registrados para esta aluna: viagem, trabalho, doença, mudança de rotina. Não são medidas, são registros datados.</p>
           : <ul className="evx-list">
+            {category === 'sono' && !needle && <li><button type="button" className={`evx-item available ${sleepView ? 'active' : ''}`} aria-current={sleepView ? 'true' : undefined} onClick={() => setSleepView(true)}><span><b>Composição do sono por noite</b><small>etapas, pontuação e sessões</small></span></button></li>}
             {listed.map((variable) => {
               const status = statusOf(variable, availability[variable.id], studentIsFemale);
               return <li key={variable.id}>
-                <button type="button" className={`evx-item ${variable.id === activeId && category !== 'contexto' ? 'active' : ''} ${status.kind}`} aria-current={variable.id === activeId ? 'true' : undefined} onClick={() => pickVariable(variable)}>
+                <button type="button" className={`evx-item ${variable.id === activeId && category !== 'contexto' && !sleepView ? 'active' : ''} ${status.kind}`} aria-current={variable.id === activeId && !sleepView ? 'true' : undefined} onClick={() => pickVariable(variable)}>
                   <span><b>{ucFirst(variable.constructLabel ?? variable.id)}</b>{status.label && <small>{status.label}</small>}{needle && <small className="evx-chip">{CATEGORIES.find((c) => c.id === categoryOf(variable))?.label}</small>}</span>
                 </button>
                 <button type="button" className="evx-info-btn" aria-label={`Informações sobre ${variable.constructLabel ?? variable.id}`} aria-expanded={infoFor === variable.id} onClick={() => setInfoFor(infoFor === variable.id ? null : variable.id)}><Info size={15} /></button>
@@ -176,7 +181,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
         <p className="evx-side-foot">Indicadores fora do catálogo (carga sRPE, sessões perdidas, calendário) estão em “Treinos e carga”.</p>
       </aside>
       <section className="evx-main">
-        {info && <div className="evx-info" role="dialog" aria-label={`Informações: ${info.constructLabel ?? info.id}`}>
+        {info && !(sleepView && category === 'sono' && !needle) && <div className="evx-info" role="dialog" aria-label={`Informações: ${info.constructLabel ?? info.id}`}>
           <div className="evx-info-head"><b>{info.constructLabel ?? info.id}</b><button type="button" aria-label="Fechar informações" onClick={() => setInfoFor(null)}><X size={15} /></button></div>
           <dl>
             <dt>Definição</dt><dd>{info.dataType === 'categorical' ? 'Registro categórico: guarda a categoria informada, sem média nem tendência numérica.' : `Valores maiores indicam mais de: ${info.constructLabel ?? info.id}. Não significa melhor nem pior.`}</dd>
@@ -192,7 +197,8 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
           </dl>
         </div>}
 
-        {category === 'contexto' && !needle ? <ContextPanel events={events} studentId={studentId} range={range} selected={eventSelected} onSelect={setEventSelected} />
+        {category === 'sono' && sleepView && !needle ? <SleepComposition key={studentId} studentId={studentId} token={token} period={period} onOpenIntegrations={onOpenIntegrations} />
+          : category === 'contexto' && !needle ? <ContextPanel events={events} studentId={studentId} range={range} selected={eventSelected} onSelect={setEventSelected} />
           : !active ? <p className="evx-empty">Carregando indicadores…</p>
           : <>
             <header className="evx-head">

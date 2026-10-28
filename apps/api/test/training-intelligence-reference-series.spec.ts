@@ -124,7 +124,7 @@ describe('catalogo da Evolucao: categoria e ficha de cada indicador', () => {
     for (const id of listVariableIds()) {
       const definition = getVariableDefinition(id)!;
       const info = explorerInfoOf(definition);
-      expect(['treinos', 'sono', 'recuperacao', 'bem_estar', 'saude']).toContain(info.category);
+      expect(['treinos', 'sono', 'recuperacao', 'atividade_diaria', 'bem_estar', 'saude']).toContain(info.category);
       expect(info.evidenceLabel.length).toBeGreaterThan(5);
       expect(info.periodicityLabel.length).toBeGreaterThan(5);
       expect(info.source.length).toBeGreaterThan(0);
@@ -144,8 +144,11 @@ describe('catalogo da Evolucao: categoria e ficha de cada indicador', () => {
     expect(category('cycle.moodLevel')).toBe('saude');
     const wearables = listVariableIds().filter((id) => id.startsWith('wearable.'));
     expect(wearables.length).toBeGreaterThan(0);
-    for (const id of wearables) expect(['sono', 'recuperacao']).toContain(category(id));
+    for (const id of wearables) expect(['sono', 'recuperacao', 'atividade_diaria']).toContain(category(id));
     expect(category('wearable.hrvLastNightAvg')).toBe('recuperacao');
+    expect(category('wearable.dailySteps')).toBe('atividade_diaria');
+    expect(category('wearable.dailyActiveKcal')).toBe('atividade_diaria');
+    expect(category('wearable.sleepDeepMin')).toBe('sono');
   });
 });
 
