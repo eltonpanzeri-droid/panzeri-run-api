@@ -51,6 +51,15 @@ export const SOURCES: Record<string, string> = { student_reported: 'Relato do al
 export const MODALITIES: Record<string, string> = { corrida: 'Corrida', forca: 'Musculação', fortalecimento_corredores: 'Fortalecimento', global: 'Todas (canônico)' };
 export const DEFAULT_LAYERS: Layers = { raw: true, mm21: true, mm60: false, mm200: false, baseline: false, habitual: true, trend: true, events: true, prescribed: false, completed: false };
 export const PERIODS = [{ id: '30', label: '30 dias', days: 30 }, { id: '90', label: '90 dias', days: 90 }, { id: '183', label: '6 meses', days: 183 }, { id: '365', label: '1 ano', days: 365 }, { id: 'all', label: 'Tudo', days: 0 }];
+// Ritmo (pace) sempre em min/km (m:ss), nunca em segundos: a serie guarda s/km, a tela mostra minutos. Sinal negativo preservado (diferencas).
+export const isPaceUnit = (unit: string | null | undefined) => unit === 's/km';
+export const paceText = (seconds: number | null | undefined) => {
+  if (seconds == null || !Number.isFinite(seconds)) return '—';
+  const total = Math.round(Math.abs(seconds));
+  return `${seconds < 0 ? '-' : ''}${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};
+export const unitLabel = (unit: string | null | undefined) => (isPaceUnit(unit) ? 'min/km' : unit ?? undefined);
+export const fmtFor = (unit: string | null | undefined) => (isPaceUnit(unit) ? paceText : fmt);
 export const fmt = (v: number | null | undefined) => v == null || !Number.isFinite(v) ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 export const dateKey = (value: string) => value.slice(0, 10);
 export const time = (value: string) => Date.parse(`${dateKey(value)}T00:00:00Z`);
@@ -88,7 +97,8 @@ export function chartAxis(variable: Variable, values: number[], bars: boolean, f
   if (scale && scale.min >= 0 && finite.every((v) => v >= 0)) low = Math.max(0, low);
   const rough = (high - low) / 16;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const step = Math.max(0.1, ([1, 2, 2.5, 5, 10].find((n) => n * magnitude >= rough) ?? 10) * magnitude);
+  // ritmo (s/km): degraus em segundos que viram marcas legiveis em min:seg (5, 10, 15, 30 s, 1, 2 min)
+  const step = scale?.unit === 's/km' ? ([5, 10, 15, 30, 60, 120].find((n) => n >= rough) ?? 120) : Math.max(0.1, ([1, 2, 2.5, 5, 10].find((n) => n * magnitude >= rough) ?? 10) * magnitude);
   const min = Number((Math.floor(low / step) * step).toFixed(8));
   const max = Number((Math.ceil(high / step) * step).toFixed(8));
   const ticks = Array.from({ length: Math.round((max - min) / step) + 1 }, (_, i) => Number((min + i * step).toFixed(8)));

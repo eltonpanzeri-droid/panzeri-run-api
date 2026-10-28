@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { chartAxis, dateKey, dateLabel, fmt, inWindow, time, type Observation } from './data';
+import { chartAxis, dateKey, dateLabel, fmtFor, inWindow, time, unitLabel, type Observation } from './data';
 import { MODALITY_COLORS, MODALITY_COLOR_LABELS, modalityColorKey, modalityNameOf, type ModalityColorKey } from './modality-colors';
 import { SIGNAL_LABEL, referenceFor, layerLabelOf, type ExplorerSnapshot, type ReferencePoint, type ReferenceWindowKey } from './explorer-data';
 
@@ -29,7 +29,9 @@ export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect
   const height = 400;
   const left = 52, right = width - 20, top = 30, bottom = height - 54;
   const reference = snapshot.reference ?? null;
-  const unit = snapshot.variable.scale?.unit ?? '';
+  const rawUnit = snapshot.variable.scale?.unit ?? '';
+  const unit = unitLabel(rawUnit) ?? '';
+  const fmt = fmtFor(rawUnit); // ritmo (s/km) aparece em min/km
 
   const numericPosition = new Map<Observation, number>();
   snapshot.observations.filter((o) => typeof o.value === 'number').forEach((o, i) => numericPosition.set(o, i));

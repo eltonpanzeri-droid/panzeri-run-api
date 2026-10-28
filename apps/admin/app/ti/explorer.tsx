@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
 import { Info, Search, X } from 'lucide-react';
-import { API_URL, EVENT_TYPES, SOURCES, ContextEvent, PERIODS, dateKey, dateLabel, displayVariable, fmt, snapshotIsValid, windowFor, type Observation, type Variable } from './data';
+import { API_URL, EVENT_TYPES, SOURCES, ContextEvent, PERIODS, dateKey, dateLabel, displayVariable, fmtFor, snapshotIsValid, unitLabel, windowFor, type Observation, type Variable } from './data';
 import { ChartLegend, DEFAULT_EXPLORER_LAYERS, ExplorerChart, ModalityKey, type ExplorerLayers } from './explorer-chart';
 import {
   CATEGORIES, MODALITY_LABELS, SIGNAL_LABEL, availableGroups, modalitiesQueryOf, referenceFor, statusOf, ucFirst,
@@ -15,7 +15,7 @@ type CategoryId = (typeof CATEGORIES)[number]['id'];
 const DEFAULT_ACTIVE: Record<string, string> = { treinos: 'training.volumeCompletedTotalKm', sono: 'workout.preSleepQuality', recuperacao: 'wearable.hrvLastNightAvg', bem_estar: 'workout.prePhysicalFatigue', saude: 'workout.painFlag', atividade_diaria: 'wearable.dailySteps' };
 const errorMessage = (cause: unknown) => (cause instanceof Error ? cause.message : 'Não foi possível carregar os dados.');
 const categoryOf = (variable: ExplorerVariable): string => variable.info?.category ?? 'treinos';
-const valueText = (value: number | string, unit?: string) => (typeof value === 'number' ? `${fmt(value)}${unit ? ` ${unit}` : ''}` : String(value));
+const valueText = (value: number | string, unit?: string) => (typeof value === 'number' ? `${fmtFor(unit)(value)}${unitLabel(unit) ? ` ${unitLabel(unit)}` : ''}` : String(value));
 
 export default function EvolutionExplorer({ studentId, token, studentIsFemale, period, onOpenOriginal, onOpenIntegrations, panels }: {
   studentId: string; token: string; studentIsFemale: boolean | null; period: PeriodSelection; onOpenOriginal?: (target: { date: string; sessionId?: string }) => void; onOpenIntegrations?: () => void; panels?: { volume: React.ReactNode; carga: React.ReactNode };
@@ -190,7 +190,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
           <div className="evx-info-head"><b>{info.constructLabel ?? info.id}</b><button type="button" aria-label="Fechar informações" onClick={() => setInfoFor(null)}><X size={15} /></button></div>
           <dl>
             <dt>Definição</dt><dd>{info.dataType === 'categorical' ? 'Registro categórico: guarda a categoria informada, sem média nem tendência numérica.' : `Valores maiores indicam mais de: ${info.constructLabel ?? info.id}. Não significa melhor nem pior.`}</dd>
-            <dt>Unidade</dt><dd>{info.scale ? `${info.scale.unit ?? 'escala'} (${info.scale.min} a ${info.scale.max})` : 'Categorias'}</dd>
+            <dt>Unidade</dt><dd>{info.scale ? `${unitLabel(info.scale.unit) ?? 'escala'} (${fmtFor(info.scale.unit)(info.scale.min).replace(',0', '')} a ${fmtFor(info.scale.unit)(info.scale.max).replace(',0', '')})` : 'Categorias'}</dd>
             <dt>Origem</dt><dd>{info.info?.evidenceLabel ?? '—'}</dd>
             <dt>Periodicidade</dt><dd>{info.info?.periodicityLabel ?? '—'}</dd>
             <dt>Condições de comparação</dt><dd>{[
@@ -208,7 +208,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
           : !active ? <p className="evx-empty">Carregando indicadores…</p>
           : <>
             <header className="evx-head">
-              <div><h3>{ucFirst(active.constructLabel ?? active.id)}</h3><p>{unit ? `${unit} · ` : ''}{current ? `${current.evidence.n} registros${current.selectedSource ? ` · fonte: ${current.selectedSource}` : ''}` : loading ? 'Carregando…' : ''}</p></div>
+              <div><h3>{ucFirst(active.constructLabel ?? active.id)}</h3><p>{unit ? `${unitLabel(unit)} · ` : ''}{current ? `${current.evidence.n} registros${current.selectedSource ? ` · fonte: ${current.selectedSource}` : ''}` : loading ? 'Carregando…' : ''}</p></div>
               <button type="button" className="evx-info-btn big" aria-label="Informações do indicador" onClick={() => setInfoFor(infoFor === active.id ? null : active.id)}><Info size={17} />Sobre este indicador</button>
             </header>
             {error && <p role="alert" className="evx-error">{error}</p>}
@@ -238,14 +238,14 @@ function Summary({ snapshot, unit, lastObservation, lastReference }: { snapshot:
   const reference = snapshot.reference;
   const band = lastReference?.band;
   const bandText = !band || band.basis === 'none' || band.lower == null ? 'Sem base suficiente'
-    : `${fmt(band.lower)} – ${fmt(band.upper)}`;
+    : `${fmtFor(unit)(band.lower)} – ${fmtFor(unit)(band.upper)}`;
   const bandNote = !band ? '' : band.basis === 'individual' ? `${band.n} registros anteriores` : band.basis === 'limited' ? `base pequena: ${band.n} registros` : `${lastReference?.priorN ?? 0} registros anteriores (mínimo ${reference?.bandPolicy.limitedMin ?? 4})`;
   const partial = snapshot.currentWeekContext?.isPartialWeek;
   return <section className="evx-summary" aria-label="Resumo matemático">
     <div className="evx-card"><span>Mais recente</span><strong>{lastObservation ? valueText(lastObservation.value, unit) : '—'}</strong><small>{lastObservation ? dateLabel(lastObservation.timestamp, true) : 'sem registro'}{partial ? ' · semana em andamento' : ''}</small></div>
     <div className="evx-card"><span>Média histórica anterior</span><strong>{lastReference?.historicalMean.value != null ? valueText(lastReference.historicalMean.value, unit) : '—'}</strong><small>{lastReference ? `${lastReference.historicalMean.n} registros antes do mais recente` : 'sem referência'}</small></div>
     <div className="evx-card"><span>Faixa habitual anterior</span><strong>{bandText}</strong><small>{bandNote}</small></div>
-    <div className={`evx-card signal ${lastReference?.signal ?? 'no_reference'}`}><span>Posição do mais recente</span><strong>{lastReference ? SIGNAL_LABEL[lastReference.signal] : 'Sem referência suficiente'}</strong><small>{lastReference?.outsideBy != null ? `${lastReference.outsideBy > 0 ? '+' : ''}${fmt(lastReference.outsideBy)} ${unit} além do limite` : 'Sinal neutro: não indica melhora nem piora'}</small></div>
+    <div className={`evx-card signal ${lastReference?.signal ?? 'no_reference'}`}><span>Posição do mais recente</span><strong>{lastReference ? SIGNAL_LABEL[lastReference.signal] : 'Sem referência suficiente'}</strong><small>{lastReference?.outsideBy != null ? `${lastReference.outsideBy > 0 ? '+' : ''}${fmtFor(unit)(lastReference.outsideBy)} ${unitLabel(unit) ?? ''} além do limite` : 'Sinal neutro: não indica melhora nem piora'}</small></div>
     {reference && lastReference && <div className="evx-refs"><b>Médias móveis anteriores ao mais recente</b>{reference.windows.map((window) => { const item = lastReference.movingAverages[window.key]; return <span key={window.key}>{window.label}: <em>{item.value == null ? 'sem base' : valueText(item.value, unit)}</em><small>{item.n} reg.{item.isPartialWindow && item.value != null ? ' · janela parcial' : ''}</small></span>; })}</div>}
     {lastReference && lastReference.priorN < (reference?.bandPolicy.individualMin ?? 12) && <p className="evx-low">Quantidade de registros ainda baixa ({lastReference.priorN} antes do mais recente): as referências são exploratórias.</p>}
   </section>;
@@ -262,7 +262,7 @@ function ObservationDetail({ snapshot, observation, reference, unit, onClose, on
       {context.modality && <><dt>Modalidade</dt><dd>{MODALITY_LABELS[context.modality] ?? context.modality}</dd></>}
       {typeof context.sourceKey === 'string' && <><dt>Fonte</dt><dd>{context.sourceKey}</dd></>}
       {observation.instrumentVersion != null && <><dt>Versão do instrumento</dt><dd>{observation.instrumentVersion}</dd></>}
-      {reference && <><dt>Referência na época</dt><dd>{SIGNAL_LABEL[reference.signal]}{reference.band.lower != null ? ` (${fmt(reference.band.lower)} – ${fmt(reference.band.upper)})` : ''} · {reference.priorN} registros anteriores · média histórica {reference.historicalMean.value == null ? '—' : fmt(reference.historicalMean.value)}</dd></>}
+      {reference && <><dt>Referência na época</dt><dd>{SIGNAL_LABEL[reference.signal]}{reference.band.lower != null ? ` (${fmtFor(unit)(reference.band.lower)} – ${fmtFor(unit)(reference.band.upper)})` : ''} · {reference.priorN} registros anteriores · média histórica {reference.historicalMean.value == null ? '—' : fmtFor(unit)(reference.historicalMean.value)}</dd></>}
       {context.isPartialWeek && <><dt>Semana</dt><dd>Em andamento no momento do registro</dd></>}
       {['sessionId', 'workoutCompletionId', 'checkinId'].filter((key) => typeof context[key] === 'string').map((key) => <React.Fragment key={key}><dt>{key === 'sessionId' ? 'Sessão' : key === 'workoutCompletionId' ? 'Feedback do treino' : 'Check-in semanal'}</dt><dd className="evx-id">{String(context[key])}</dd></React.Fragment>)}
     </dl>
