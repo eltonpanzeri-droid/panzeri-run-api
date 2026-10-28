@@ -19,6 +19,7 @@ import {
   HistoricalReturnBehavior,
 } from './longitudinal-dynamics.service';
 import { getVariableDefinition, VariableDefinition } from './variable-registry';
+import { buildReferenceSeries, ReferenceSeries } from './reference-series';
 import { isSourceSegmentationEnabled, rankSources, type SourceActivity } from './wearable-source';
 
 export interface VariableSnapshotResponse {
@@ -91,6 +92,11 @@ export interface VariableSnapshotResponse {
     instrumentVersion: number;
     context: Observation['context'];
   }>;
+  /**
+   * 27/10/2026 — referencias ANTERIORES a cada observacao (media historica, MM7/21/60/200, faixa habitual), a propria observacao fora da sua referencia. Presente SO' quando pedido
+   * (`options.withReference`): a Evolucao do painel usa; o Atlas, o Prescritor e demais consumidores nao recebem nem pagam esse custo.
+   */
+  reference?: ReferenceSeries | null;
   /** Modalidades presentes no historico COMPLETO (nao filtrado) desta variavel — pra montar o seletor. Vazio quando a variavel nao tem dimensao de modalidade (ex: checkin.* semanal). */
   availableModalities: string[];
   /**
@@ -140,7 +146,7 @@ export class TrainingIntelligenceQueryService {
    * os dois numa unica media/baseline seria uma composicao silenciosa). Variaveis sem dimensao de
    * modalidade (ex: checkin.* semanal, sem context.modality) ignoram o filtro.
    */
-  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string): Promise<VariableSnapshotResponse> {
+  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string, options: { withReference?: boolean } = {}): Promise<VariableSnapshotResponse> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);
@@ -265,6 +271,7 @@ export class TrainingIntelligenceQueryService {
       mean,
       movingAverages,
       movingAverageSeries,
+      reference: options.withReference ? buildReferenceSeries(series, definition, this.mathLayer, this.longitudinalDynamics) : undefined,
       baseline: baselineResult,
       deviation: deviationResult,
       trend,
@@ -279,6 +286,25 @@ export class TrainingIntelligenceQueryService {
       evidence,
       ...segmentation.fields,
     };
+  }
+
+  /**
+   * 27/10/2026 — disponibilidade de varios indicadores de uma vez (a lista lateral da Evolucao): quantos registros, desde quando e ate quando. Le a MESMA fonte que o snapshot
+   * (ObservationReader); nao calcula media nem faixa. Variavel desconhecida e' ignorada.
+   */
+  async getVariablesAvailability(athleteId: string, variableIds: string[]): Promise<Array<{ id: string; n: number; firstObservationAt: string | null; lastObservationAt: string | null; mathApplicable: boolean }>> {
+    const known = [...new Set(variableIds)].map((id) => getVariableDefinition(id)).filter((d): d is VariableDefinition => Boolean(d));
+    return Promise.all(known.map(async (definition) => {
+      const observations = await this.observationReader.getObservations(athleteId, definition.variableId);
+      const times = observations.map((o) => o.timestamp.getTime());
+      return {
+        id: definition.variableId,
+        n: observations.length,
+        firstObservationAt: times.length ? new Date(Math.min(...times)).toISOString() : null,
+        lastObservationAt: times.length ? new Date(Math.max(...times)).toISOString() : null,
+        mathApplicable: definition.allowedMathStrategy === 'ordinal_or_continuous_stats',
+      };
+    }));
   }
 
   /**

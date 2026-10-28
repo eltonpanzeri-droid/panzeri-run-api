@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import TrainingIntelligenceStudio from './ti/studio';
+import EvolutionHub from './evolution-hub';
 import ZeppTestPanel from './zepp-test-panel';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
@@ -3162,7 +3163,8 @@ function StudentPanel({
   const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'saude' | 'carga'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
-  const [evolPeriod, setEvolPeriod] = useState<4 | 8 | 12 | 24 | 52 | 999>(12);
+  // 27/10/2026: periodo unico da aba Evolucao (nova central). Compartilhado pela exploracao, pela comparacao e pelas analises de treino.
+  const [evolPeriodSel, setEvolPeriodSel] = useState<{ id: string; custom: [number, number] | null }>({ id: '183', custom: null });
   // 19/10/2026: indicador de geracao da semana. localGeneratingSince = clique neste painel (imediato); serverGeneratingSince = trava no servidor (vale tambem se o
   // aluno disparou ou se a pagina foi recarregada). Nao ha porcentagem real da IA: a barra e' indeterminada e o tempo decorrido e' o que mostra que segue rodando.
   const [localGeneratingSince, setLocalGeneratingSince] = useState<number | null>(null);
@@ -3942,215 +3944,155 @@ function StudentPanel({
           setDetailTab('semanas');
         };
 
-        const cutoffDate = evolPeriod !== 999
-          ? new Date(Date.now() - evolPeriod * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-          : '0000-00-00';
-        const filteredWeeks = allWeeks.filter((w) => w.startDate >= cutoffDate);
-        const filteredSessions = allSessions.filter((s) => s.date >= cutoffDate);
+        // Periodo unico da Evolucao -> recorte das analises de treino (semanas/sessoes) e das secoes que pedem "semanas".
+        const PERIOD_DAYS: Record<string, number> = { '30': 30, '90': 90, '183': 183, '365': 365 };
+        let cutoffDate = '0000-00-00';
+        let endDate = '9999-12-31';
+        let evolPeriodWeeks = 999;
+        if (evolPeriodSel.id === 'custom' && evolPeriodSel.custom) {
+          cutoffDate = new Date(evolPeriodSel.custom[0]).toISOString().slice(0, 10);
+          endDate = new Date(evolPeriodSel.custom[1]).toISOString().slice(0, 10);
+          evolPeriodWeeks = Math.max(1, Math.ceil((Date.now() - evolPeriodSel.custom[0]) / (7 * 86400000)));
+        } else if (PERIOD_DAYS[evolPeriodSel.id]) {
+          cutoffDate = new Date(Date.now() - PERIOD_DAYS[evolPeriodSel.id] * 86400000).toISOString().slice(0, 10);
+          evolPeriodWeeks = Math.ceil(PERIOD_DAYS[evolPeriodSel.id] / 7);
+        }
+        const filteredWeeks = allWeeks.filter((w) => w.startDate >= cutoffDate && w.startDate <= endDate);
+        const filteredSessions = allSessions.filter((s) => s.date >= cutoffDate && s.date <= endDate);
+        const sex = student.interview?.answers?.personal_sex;
+        const studentIsFemale = sex === 'Feminino' ? true : sex === 'Masculino' ? false : null;
 
-        // Divisor de grupo
-        const GroupLabel = ({ label }: { label: string }) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 2px', userSelect: 'none' }}>
-            <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>{label}</span>
-            <div style={{ flex: 1, height: 1, background: 'var(--line)' }} />
-          </div>
-        );
-
+        // 27/10/2026: a aba Evolucao virou uma central (EvolutionHub). Sairam da tela: trajetoria de FitnessTest (foi para Avaliacao), bloco duplicado de provas-alvo (ja existe
+        // em Provas e objetivos), navegacao por pastas da Exploracao Longitudinal e trajetoria INITIAL -> R1 -> R2 (foi para Avaliacao). Nenhum dado foi apagado.
         return (
-        <div className="detailFull" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="detailFull">
+          <EvolutionHub
+            key={student.id}
+            studentId={student.id}
+            token={token}
+            studentIsFemale={studentIsFemale}
+            exportProfile={exportProfileFor(student)}
+            period={evolPeriodSel}
+            onPeriodChange={setEvolPeriodSel}
+            onOpenOriginal={({ date }) => { setCalendarFocus({ date, nonce: Date.now() }); setDetailTab('semanas'); }}
+            slots={{
+              geral: (
+                <>
+                  <VisaoGeralSection sessions={filteredSessions} weeks={filteredWeeks} />
+                  <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriodWeeks} />
+                </>
+              ),
+              treinos: (
+                <div className="evoGrid">
+                  <EvoSection order={1} defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
+                    desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Para prescrito/realizado/extra separados, médias e faixa habitual: aba Explorar → Treinos.">
+                    <KmEvolutionChart weeks={filteredWeeks} period={999} />
+                  </EvoSection>
 
-          {/* ── FILTRO UNIVERSAL DE PERÍODO ──────────────────────────────────── */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 4px', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', flexShrink: 0 }}>Período</span>
-            {([
-              [4,'1m'],[8,'2m'],[12,'3m'],[24,'6m'],[52,'1a'],[999,'Tudo'],
-            ] as [4|8|12|24|52|999, string][]).map(([p, label]) => (
-              <button key={p} type="button"
-                style={{ padding: '3px 10px', fontSize: 12, borderRadius: 20,
-                  background: evolPeriod === p ? 'var(--accent)' : 'var(--surface)',
-                  color: evolPeriod === p ? '#fff' : 'var(--muted)',
-                  border: `1px solid ${evolPeriod === p ? 'var(--accent)' : 'var(--line)'}`,
-                  cursor: 'pointer', fontWeight: evolPeriod === p ? 700 : 400, flexShrink: 0 }}
-                onClick={() => setEvolPeriod(p)}>
-                {label}
-              </button>
-            ))}
-          </div>
+                  <EvoSection order={3} defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+                    desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
+                    <LoadAnalysisSection weeks={filteredWeeks} />
+                  </EvoSection>
 
-          {/* ── EVOLUÇÃO AO LONGO DO TEMPO (Training Intelligence embutido) ───────────────────────────
-              15/10/2026 (Fase 4 lote 4.3, plano de revitalização): o gráfico de volume e as séries do Intelligence
-              passam a aparecer aqui, na Evolução da aluna. O seletor de aluna do Intelligence fica oculto (a aluna é a
-              desta aba). A tela Training Intelligence do menu continua até o lote 4.7. */}
-          <GroupLabel label="Evolução ao longo do tempo" />
-          <div className="evoStudio">
-            <EvoSection defaultOpen wide icon="🧭" title="Volume, sono, esforço e dor no mesmo tempo"
-              desc="Visão do Training Intelligence para esta aluna: escolha os indicadores com “+ Indicador”, mova a janela de datas e clique num dia para ver o painel do dia.">
-              <TrainingIntelligenceStudio key={student.id} accessToken={token} initialStudentId={student.id} exportProfile={exportProfileFor(student)} />
-            </EvoSection>
-          </div>
+                  <EvoSection order={2} defaultOpen icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
+                    desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal: compare com o histórico individual deste aluno.">
+                    <LoadChartAderencia weeks={filteredWeeks} history={hist} />
+                  </EvoSection>
 
-          {/* ── VISÃO GERAL ───────────────────────────────────────────────── */}
-          <GroupLabel label="Visão geral do período" />
-          <VisaoGeralSection sessions={filteredSessions} weeks={filteredWeeks} />
+                  <EvoSection order={4} defaultOpen icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
+                    desc="RPE 1–10 por sessão, semana ou mês. Filtre por modalidade. Clique nas bolinhas do calendário para ver o treino completo.">
+                    <EffortSection history={hist} period={evolPeriodWeeks} />
+                  </EvoSection>
 
-          {/* ── TREINAMENTO ───────────────────────────────────────────────── */}
-          <GroupLabel label="Treinamento" />
+                  <EvoSection order={5} wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
+                    desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
+                    <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
+                  </EvoSection>
 
-          <div className="evoGrid">
-          <EvoSection order={1} defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
-            desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Pra aprofundar (prescrito/realizado/extra separados, tendência, baseline, faixa habitual, comparar modalidades): Exploração Longitudinal → Volume, aderência e carga, mais abaixo.">
-            <KmEvolutionChart weeks={filteredWeeks} period={999} />
-            <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriod} />
-          </EvoSection>
-
-          <EvoSection order={5} wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
-            desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro — mesma paleta usada em todos os gráficos abaixo). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
-            <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
-          </EvoSection>
-
-          <EvoSection order={2} defaultOpen icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-            desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal — compare com o histórico e o baseline individual deste aluno, não com um número fixo. Pra ver numerador/denominador/coverage de cada ponto e a tendência ao longo do tempo: Exploração Longitudinal → Volume, aderência e carga.">
-            <LoadChartAderencia weeks={filteredWeeks} history={hist} />
-          </EvoSection>
-
-          <EvoSection order={6} wide icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
-            desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
-            <SessionDetailTable sessions={filteredSessions} />
-          </EvoSection>
-
-          <EvoSection order={3} defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-            desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção — não responde sozinho 'está treinando certo?' ou 'precisa reduzir?'. Interprete sempre junto com RPE, sono, dor e contexto real do aluno. Composição completa (agudo/crônico/janelas/coverage) de cada ponto: Exploração Longitudinal → Volume, aderência e carga → relação carga aguda:crônica.">
-            <LoadAnalysisSection weeks={filteredWeeks} />
-          </EvoSection>
-
-          <EvoSection order={4} defaultOpen icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
-            desc="RPE 1–10 por sessão, semana ou mês. Filtre por modalidade. Clique nas bolinhas do calendário para ver o treino completo.">
-            <EffortSection history={hist} period={evolPeriod} />
-          </EvoSection>
-          </div>
-
-          {/* ── ESTADO E RESPOSTA ─────────────────────────────────────────── */}
-          <GroupLabel label="Estado e resposta ao treinamento" />
-
-          {/* 15/10/2026 (decisao de Elton, plano de revitalizacao, Fase 4 lote 4.1): as secoes "Estado antes dos
-              treinos" e "Experiencia com o treino" (versoes antigas da Evolucao) saíram da tela; as versoes do
-              Training Intelligence sao as que ficam. Componentes PreWorkoutStateSection e ExperienciaTreinoSection
-              mantidos no arquivo para reverter. */}
-
-
-          <EvoSection defaultOpen icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
-            desc="Intensidade de dor por sessão (0 = sem dor, 1 = leve, 2 = moderada, 3 = forte). Episódios detalhados com quando a dor apareceu. Círculo maior = dor mais intensa. Dados de v1 (a partir de 11/09/2026) + observações antigas.">
-            <DorLongitudinalSection history={hist} />
-            {/* Mantém relatos históricos de texto para contexto */}
-            {(painObs.length + painComments) > 0 && (
-              <details style={{ marginTop: 12 }}>
-                <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>Relatos históricos de dor em texto ({painObs.length + painComments})</summary>
-                <PainReportsSection health={student.health} observations={student.observations ?? []} history={hist} />
-              </details>
-            )}
-          </EvoSection>
-
-          {/* ── ANÁLISE ───────────────────────────────────────────────────── */}
-          <GroupLabel label="Análise e exploração" />
-
-          {/* 15/10/2026 (decisao de Elton, Fase 4 lote 4.1): "Explorar relacoes" (dispersao) saiu da tela;
-              ExplorarRelacoesSection mantido no arquivo para reverter. */}
-
-          <EvoSection icon="🕒" title="Timeline integrada" badge={allSessions.filter((s) => s.completionStatus !== 'sem_registro').length}
-            desc="Todos os treinos em ordem cronológica inversa com estado pré-treino, RPE, satisfação, sensação final, dor e comentário de cada sessão num único card.">
-            <TimelineIntegradaSection history={hist} />
-          </EvoSection>
-
-          <EvoSection icon="🧬" title="Exploração Longitudinal" desc="Navegação pasta → variável → matemática → observação original, direto da Camada Matemática Longitudinal (Variable Registry + a mesma matemática usada pelo agente de prescrição). Nenhum cálculo novo aqui — só apresentação em profundidade.">
-            <LongitudinalExplorer studentId={student.id} studentName={student.name} accessToken={token} />
-          </EvoSection>
-
-          {/* ── REGISTROS ─────────────────────────────────────────────────── */}
-          <GroupLabel label="Registros e histórico" />
-
-          {/* 15/10/2026 (Fase 4 lote 4.5, decisao de Elton): as abas soltas "Timeline" e "Contexto" foram para dentro
-              da Evolucao. Mesmos componentes (TimelineTab e ContextoTab), sem mudanca de dados nem de rotas. */}
-          <EvoSection icon="🕒" title="Linha do tempo de eventos"
-            desc="Sessões, feedbacks, eventos de contexto, reavaliações, relatórios, testes e provas em ordem cronológica. Contexto relatado é registro, nunca causa comprovada de uma mudança fisiológica próxima.">
-            <TimelineTab student={student} accessToken={token} />
-          </EvoSection>
-
-          <EvoSection icon="🧩" title="Contexto da aluna (eventos relatados)"
-            desc="Eventos de vida que podem explicar variações (viagem, trabalho, doença, mudança de rotina). Dá para registrar um novo evento aqui.">
-            <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
-          </EvoSection>
-
-          <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
-            desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa — revela motivação, dificuldades e contexto fora do plano.">
-            <CommentsSection history={hist} />
-          </EvoSection>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-            <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}
-              desc="Síntese das reavaliações periódicas — evolução, conquistas e pontos de atenção gerados pela IA após cada ciclo avaliativo.">
-              {student.reassessments?.length ? (
-                student.reassessments.map((r, i) => (
-                  <div key={r.completedAt ?? i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12, marginBottom: 12 }}>
-                    <strong style={{ fontSize: 13 }}>{r.completedAt ? dateLabel(r.completedAt) : 'Data nao registrada'}</strong>
-                    {r.evolutionSummary ? <p style={{ fontSize: 13, marginTop: 4 }}>{r.evolutionSummary}</p> : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Sem analise gerada.</p>}
-                    {r.evolutionWins?.length ? <p style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>✓ {r.evolutionWins.join(' · ')}</p> : null}
-                    {r.evolutionConcerns?.length ? <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>⚠ {r.evolutionConcerns.join(' · ')}</p> : null}
-                  </div>
-                ))
-              ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
-            </EvoSection>
-
-            <EvoSection icon="📈" title="Trajetória longitudinal (INITIAL → R1 → R2...)" badge={undefined}
-              desc="Direto do backend (reassessment-trajectory.ts) — nunca recalculado aqui. DIRECT = comparável ponto a ponto; PARTIAL = existe relação mas com limitação real; ausência = dado não coletado nessa reavaliação, nunca zero.">
-              <ReassessmentTrajectoryPanel studentId={student.id} accessToken={token} />
-            </EvoSection>
-
-            <EvoSection icon="🏃" title="Trajetória de FitnessTest" badge={undefined}
-              desc="Histórico completo de testes de 3km — nunca reduzido ao último. Protocolos diferentes (se existirem no futuro) não são conectados como a mesma série.">
-              <FitnessTestTrajectoryPanel studentId={student.id} accessToken={token} />
-            </EvoSection>
-
-            <EvoSection icon="🏁" title="Provas alvo" badge={student.targetRaces?.length ?? 0}
-              desc="Provas cadastradas como meta do aluno. Usadas pela IA para periodização e geração das semanas de pico e polimento.">
-              {student.targetRaces?.length ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {student.targetRaces.map((race) => (
-                    <div key={race.id} style={{ display: 'flex', gap: 12, alignItems: 'baseline', fontSize: 13, borderLeft: '3px solid var(--accent)', paddingLeft: 10, flexWrap: 'wrap' }}>
-                      <strong>{race.name}</strong>
-                      <span style={{ color: 'var(--muted)' }}>{dateLabel(race.raceDate)}</span>
-                      {race.distanceKm && <span>{race.distanceKm} km</span>}
-                      {race.paceSecondsPerKm && <span style={{ color: 'var(--muted)' }}>meta {Math.floor(race.paceSecondsPerKm/60)}:{String(race.paceSecondsPerKm%60).padStart(2,'0')}/km</span>}
-                      <span style={{ fontSize: 11, background: race.status === 'active' ? '#22c55e22' : 'var(--line)', color: race.status === 'active' ? '#22c55e' : 'var(--muted)', borderRadius: 4, padding: '1px 6px' }}>{race.status}</span>
-                    </div>
-                  ))}
+                  <EvoSection order={6} wide icon="🗂️" title="Detalhamento por sessão" badge={`${filteredSessions.length} sessões`}
+                    desc="Toda sessão do período, uma linha por sessão — sem agregação. Prescrito, feito, extra, perdido e sem registro aparecem lado a lado com km, ritmo, RPE, dor e comentário de cada treino individual. Ordenado da mais recente para a mais antiga.">
+                    <SessionDetailTable sessions={filteredSessions} />
+                  </EvoSection>
                 </div>
-              ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma prova alvo cadastrada.</p>}
-            </EvoSection>
-          </div>
+              ),
+              saude: (
+                <EvoSection defaultOpen icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
+                  desc="Intensidade de dor por sessão (0 = sem dor, 1 = leve, 2 = moderada, 3 = forte). Episódios detalhados com quando a dor apareceu. Círculo maior = dor mais intensa. Dados de v1 (a partir de 11/09/2026) + observações antigas.">
+                  <DorLongitudinalSection history={hist} />
+                  {/* Mantém relatos históricos de texto para contexto */}
+                  {(painObs.length + painComments) > 0 && (
+                    <details style={{ marginTop: 12 }}>
+                      <summary style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer' }}>Relatos históricos de dor em texto ({painObs.length + painComments})</summary>
+                      <PainReportsSection health={student.health} observations={student.observations ?? []} history={hist} />
+                    </details>
+                  )}
+                </EvoSection>
+              ),
+              linha: (
+                <>
+                  <EvoSection defaultOpen icon="🕒" title="Timeline integrada" badge={allSessions.filter((s) => s.completionStatus !== 'sem_registro').length}
+                    desc="Todos os treinos em ordem cronológica inversa com estado pré-treino, RPE, satisfação, sensação final, dor e comentário de cada sessão num único card.">
+                    <TimelineIntegradaSection history={hist} />
+                  </EvoSection>
 
-          <EvoSection icon="📋" title="Relatórios do agente" badge={student.reports?.length ?? 0}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-              <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
-                onClick={() => generateReport('technical')}>
-                <FileText size={15} />Gerar prestacao tecnica
-              </button>
-              <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
-                onClick={() => generateReport('evolution')}>
-                <Activity size={15} />Gerar relatorio de evolucao
-              </button>
-            </div>
-            {student.reports?.length ? (
-              <div className="reportHistory">
-                {student.reports.map((report) => (
-                  <details key={report.id} className="reportItem">
-                    <summary><strong>{report.title}</strong><span>{dateTimeLabel(report.createdAt)}</span></summary>
-                    <ReportContent report={report} />
-                  </details>
-                ))}
-              </div>
-            ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum relatorio gerado ainda.</p>}
-          </EvoSection>
+                  <EvoSection icon="🕒" title="Linha do tempo de eventos"
+                    desc="Sessões, feedbacks, eventos de contexto, reavaliações, relatórios, testes e provas em ordem cronológica. Contexto relatado é registro, nunca causa comprovada de uma mudança fisiológica próxima.">
+                    <TimelineTab student={student} accessToken={token} />
+                  </EvoSection>
 
+                  <EvoSection icon="🧩" title="Contexto da aluna (eventos relatados)"
+                    desc="Eventos de vida que podem explicar variações (viagem, trabalho, doença, mudança de rotina). Dá para registrar um novo evento aqui.">
+                    <ContextoTab studentId={student.id} accessToken={token} onStatus={onStatus} />
+                  </EvoSection>
+                </>
+              ),
+              registros: (
+                <>
+                  <EvoSection icon="💬" title="Comentários em texto" badge={commentCount > 0 ? commentCount : undefined}
+                    desc="Texto livre registrado pelo aluno após os treinos. Fonte qualitativa — revela motivação, dificuldades e contexto fora do plano.">
+                    <CommentsSection history={hist} />
+                  </EvoSection>
+
+                  <EvoSection icon="🔄" title="Reavaliações" badge={student.reassessments?.length ?? 0}
+                    desc="Síntese das reavaliações periódicas — evolução, conquistas e pontos de atenção gerados pela IA após cada ciclo avaliativo.">
+                    {student.reassessments?.length ? (
+                      student.reassessments.map((r, i) => (
+                        <div key={r.completedAt ?? i} style={{ borderLeft: '3px solid var(--line)', paddingLeft: 12, marginBottom: 12 }}>
+                          <strong style={{ fontSize: 13 }}>{r.completedAt ? dateLabel(r.completedAt) : 'Data nao registrada'}</strong>
+                          {r.evolutionSummary ? <p style={{ fontSize: 13, marginTop: 4 }}>{r.evolutionSummary}</p> : <p style={{ fontSize: 13, color: 'var(--muted)' }}>Sem analise gerada.</p>}
+                          {r.evolutionWins?.length ? <p style={{ fontSize: 12, color: '#22c55e', marginTop: 4 }}>✓ {r.evolutionWins.join(' · ')}</p> : null}
+                          {r.evolutionConcerns?.length ? <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>⚠ {r.evolutionConcerns.join(' · ')}</p> : null}
+                        </div>
+                      ))
+                    ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhuma reavaliacao concluida ainda.</p>}
+                  </EvoSection>
+
+                  <EvoSection icon="📋" title="Relatórios do agente" badge={student.reports?.length ?? 0}>
+                    <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+                      <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                        onClick={() => generateReport('technical')}>
+                        <FileText size={15} />Gerar prestacao tecnica
+                      </button>
+                      <button type="button" className="primaryButton" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+                        onClick={() => generateReport('evolution')}>
+                        <Activity size={15} />Gerar relatorio de evolucao
+                      </button>
+                    </div>
+                    {student.reports?.length ? (
+                      <div className="reportHistory">
+                        {student.reports.map((report) => (
+                          <details key={report.id} className="reportItem">
+                            <summary><strong>{report.title}</strong><span>{dateTimeLabel(report.createdAt)}</span></summary>
+                            <ReportContent report={report} />
+                          </details>
+                        ))}
+                      </div>
+                    ) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum relatorio gerado ainda.</p>}
+                  </EvoSection>
+                </>
+              ),
+            }}
+          />
         </div>
         );
       })() : null}
@@ -4241,6 +4183,14 @@ function StudentPanel({
           </div>
         </details>
       </section>
+      <EvoSection icon="🏃" title="Trajetória de FitnessTest" badge={undefined}
+        desc="Histórico completo de testes de 3km — nunca reduzido ao último. Protocolos diferentes (se existirem no futuro) não são conectados como a mesma série.">
+        <FitnessTestTrajectoryPanel studentId={student.id} accessToken={token} />
+      </EvoSection>
+      <EvoSection icon="📈" title="Trajetória longitudinal (INITIAL → R1 → R2...)" badge={undefined}
+        desc="Direto do backend (reassessment-trajectory.ts) — nunca recalculado aqui. DIRECT = comparável ponto a ponto; PARTIAL = existe relação mas com limitação real; ausência = dado não coletado nessa reavaliação, nunca zero.">
+        <ReassessmentTrajectoryPanel studentId={student.id} accessToken={token} />
+      </EvoSection>
       </>
       ) : null}
 

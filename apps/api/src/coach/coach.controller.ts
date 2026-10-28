@@ -24,6 +24,7 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { CreateContextEventDto } from '../context-events/dto/create-context-event.dto';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { listVariableIds, getVariableDefinition } from '../training-intelligence/variable-registry';
+import { explorerInfoOf } from '../training-intelligence/explorer-catalog';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -89,6 +90,8 @@ export class CoachController {
         scale: def.scale,
         direction: def.direction,
         allowedMathStrategy: def.allowedMathStrategy,
+        // 27/10/2026 — ficha do botao (i) e categoria da Evolucao; so' leitura do registro.
+        info: explorerInfoOf(def),
       };
     });
   }
@@ -124,9 +127,23 @@ export class CoachController {
   // modalities (25/09/2026, Exploracao Longitudinal): filtro opcional "?modalities=corrida,forca"
   // — mesma pipeline de calculo, aplicada so' ao subconjunto escolhido pelo treinador.
   @Get('students/:id/observations/:variableId')
-  getStudentObservationSnapshot(@Param('id') id: string, @Param('variableId') variableId: string, @Query('modalities') modalities?: string) {
+  getStudentObservationSnapshot(
+    @Param('id') id: string,
+    @Param('variableId') variableId: string,
+    @Query('modalities') modalities?: string,
+    @Query('source') source?: string,
+    @Query('reference') reference?: string,
+  ) {
     const modalityList = modalities ? modalities.split(',').map((m) => m.trim()).filter(Boolean) : undefined;
-    return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId, modalityList);
+    // 27/10/2026 — `source` escolhe a fonte (variaveis nao comparaveis entre fontes) e `reference=1` anexa as referencias anteriores a cada observacao (Evolucao do painel).
+    return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId, modalityList, source?.trim() || undefined, { withReference: reference === '1' });
+  }
+
+  // 27/10/2026 — disponibilidade (n, primeiro e ultimo registro) de varios indicadores: alimenta a lista lateral da Evolucao sem baixar a serie de cada um.
+  @Get('students/:id/observations-availability')
+  getStudentObservationsAvailability(@Param('id') id: string, @Query('variables') variables?: string) {
+    const ids = (variables ?? '').split(',').map((v) => v.trim()).filter(Boolean).slice(0, 80);
+    return this.trainingIntelligenceQuery.getVariablesAvailability(id, ids);
   }
 
   // 24/09: Athlete State Snapshot V1 — endpoint isolado, so' de validacao (pedido explicito: NAO
