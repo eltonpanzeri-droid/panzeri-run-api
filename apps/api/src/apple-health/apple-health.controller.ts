@@ -14,4 +14,12 @@ export class AppleHealthController {
   importWorkouts(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
     return this.ingestion.importWorkouts(user.sub, body);
   }
+
+  // Percurso GPS dos treinos ja' importados (so' chega se a aluna autorizou a rota na folha do iOS).
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('routes')
+  importRoutes(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.ingestion.importRoutes(user.sub, body);
+  }
 }

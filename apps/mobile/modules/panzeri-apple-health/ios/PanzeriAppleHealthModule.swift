@@ -1,18 +1,34 @@
 import ExpoModulesCore
 import HealthKit
+import CoreLocation
 import WorkoutKit
 
 // Apple Watch via HealthKit + WorkoutKit, isolado neste modulo. As funcoes daqui so' leem/agendam NO aparelho; o envio de treinos lidos para a API
 // (sincronizacao com o Panzeri Run) e' feito pelo app, com autorizacao do usuario.
 //
-// HealthKit: so' LEITURA de HKWorkout (corrida) e da distancia andada/corrida. Nada e' escrito no Saude.
+// HealthKit: so' LEITURA. Treinos (HKWorkout de corrida) e TUDO o que o app Saude guarda associado a eles: distancia, frequencia cardiaca (media e maxima), energia ativa, passos
+// (base da cadencia), potencia, velocidade, passada, tempo de contato com o solo, oscilacao vertical, ganho de elevacao e o percurso (rota GPS). Nada e' escrito no Saude.
 // WorkoutKit: agenda UM treino de corrida simples (distancia definida) no app Treino do Apple Watch,
 // com o identificador do Panzeri Run (UUID) preservado em WorkoutPlan.id.
 public class PanzeriAppleHealthModule: Module {
   private let healthStore = HKHealthStore()
 
+  // Tudo o que o app pede ao iOS (28/10/2026, ordem do Elton: o app deve tentar pegar tudo o que puder). O iOS mostra uma folha unica; o aluno escolhe o que compartilhar e o
+  // app nunca sabe o que foi negado (dado ausente continua ausente).
   private var readTypes: Set<HKObjectType> {
-    [HKObjectType.workoutType(), HKQuantityType(.distanceWalkingRunning)]
+    [
+      HKObjectType.workoutType(),
+      HKSeriesType.workoutRoute(),
+      HKQuantityType(.distanceWalkingRunning),
+      HKQuantityType(.heartRate),
+      HKQuantityType(.activeEnergyBurned),
+      HKQuantityType(.stepCount),
+      HKQuantityType(.runningPower),
+      HKQuantityType(.runningSpeed),
+      HKQuantityType(.runningStrideLength),
+      HKQuantityType(.runningGroundContactTime),
+      HKQuantityType(.runningVerticalOscillation),
+    ]
   }
 
   public func definition() -> ModuleDefinition {
@@ -58,7 +74,7 @@ public class PanzeriAppleHealthModule: Module {
       let query = HKSampleQuery(
         sampleType: HKObjectType.workoutType(),
         predicate: predicate,
-        limit: max(1, min(limit, 20)),
+        limit: max(1, min(limit, 200)),
         sortDescriptors: [sort]
       ) { _, samples, error in
         if let error = error {
@@ -77,7 +93,7 @@ public class PanzeriAppleHealthModule: Module {
             // Round trip futuro: se o treino foi executado a partir de um plano agendado por nos,
             // workoutPlan.id devolve o UUID do Panzeri Run. Nulo para treinos iniciados no relogio.
             let plan = try? await workout.workoutPlan
-            items.append([
+            var item: [String: Any] = [
               "uuid": workout.uuid.uuidString,
               "sourceName": workout.sourceRevision.source.name,
               "sourceBundleId": workout.sourceRevision.source.bundleIdentifier,
@@ -96,12 +112,31 @@ public class PanzeriAppleHealthModule: Module {
               "durationSeconds": workout.duration,
               "distanceMeters": Self.orNull(distanceMeters),
               "workoutPlanId": Self.orNull(plan?.id.uuidString)
-            ])
+            ]
+            // Medidas associadas ao treino (so' as que o iOS entregar: sem autorizacao ou sem dado, a chave simplesmente nao existe).
+            item.merge(Self.workoutMeasures(workout)) { _, new in new }
+            items.append(item)
           }
           promise.resolve(items)
         }
       }
       self.healthStore.execute(query)
+    }
+
+    // Percurso (rota GPS) de um treino, em pontos compactos [deslocamentoSeg, latitude, longitude, altitude|null], amostrados uniformemente quando passam de maxPoints. Sem
+    // autorizacao da rota, ou treino sem rota, devolve lista vazia (o iOS nao diferencia).
+    AsyncFunction("readWorkoutRoute") { (uuid: String, maxPoints: Int, promise: Promise) in
+      guard let id = UUID(uuidString: uuid) else {
+        promise.reject("E_INVALID_ID", "uuid invalido.")
+        return
+      }
+      Task {
+        do {
+          promise.resolve(try await self.routePoints(workoutId: id, maxPoints: max(2, min(maxPoints, 2500))))
+        } catch {
+          promise.reject("E_HEALTH_ROUTE", error.localizedDescription)
+        }
+      }
     }
 
     // --- WorkoutKit --------------------------------------------------------------------------
@@ -222,6 +257,71 @@ public class PanzeriAppleHealthModule: Module {
         promise.resolve(["removed": true])
       }
     }
+  }
+
+  // Estatisticas do proprio HKWorkout (iOS 16+). So' entram as que existem; nada e' estimado nem calculado aqui.
+  private static func workoutMeasures(_ workout: HKWorkout) -> [String: Any] {
+    var out: [String: Any] = [:]
+    let bpm = HKUnit.count().unitDivided(by: .minute())
+    if let stats = workout.statistics(for: HKQuantityType(.heartRate)) {
+      if let value = stats.averageQuantity()?.doubleValue(for: bpm) { out["avgHeartRateBpm"] = value }
+      if let value = stats.maximumQuantity()?.doubleValue(for: bpm) { out["maxHeartRateBpm"] = value }
+    }
+    if let value = workout.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()) { out["activeEnergyKcal"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.stepCount))?.sumQuantity()?.doubleValue(for: .count()) { out["stepCount"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.runningPower))?.averageQuantity()?.doubleValue(for: .watt()) { out["powerAvgWatts"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.runningSpeed))?.averageQuantity()?.doubleValue(for: HKUnit.meter().unitDivided(by: .second())) { out["avgSpeedMetersPerSecond"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.runningStrideLength))?.averageQuantity()?.doubleValue(for: .meter()) { out["avgStrideLengthMeters"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.runningGroundContactTime))?.averageQuantity()?.doubleValue(for: HKUnit.secondUnit(with: .milli)) { out["avgGroundContactTimeMs"] = value }
+    if let value = workout.statistics(for: HKQuantityType(.runningVerticalOscillation))?.averageQuantity()?.doubleValue(for: HKUnit.meterUnit(with: .centi)) { out["avgVerticalOscillationCm"] = value }
+    if let ascended = workout.metadata?[HKMetadataKeyElevationAscended] as? HKQuantity { out["elevationGainMeters"] = ascended.doubleValue(for: .meter()) }
+    return out
+  }
+
+  private func fetchSamples(type: HKSampleType, predicate: NSPredicate?) async throws -> [HKSample] {
+    try await withCheckedThrowingContinuation { continuation in
+      let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+        if let error = error { continuation.resume(throwing: error) } else { continuation.resume(returning: samples ?? []) }
+      }
+      self.healthStore.execute(query)
+    }
+  }
+
+  private func locations(of route: HKWorkoutRoute) async throws -> [CLLocation] {
+    try await withCheckedThrowingContinuation { continuation in
+      var all: [CLLocation] = []
+      let query = HKWorkoutRouteQuery(route: route) { _, batch, done, error in
+        if let error = error {
+          continuation.resume(throwing: error)
+          return
+        }
+        if let batch = batch { all.append(contentsOf: batch) }
+        if done { continuation.resume(returning: all) }
+      }
+      self.healthStore.execute(query)
+    }
+  }
+
+  private func routePoints(workoutId: UUID, maxPoints: Int) async throws -> [[Any]] {
+    let workouts = try await fetchSamples(type: HKObjectType.workoutType(), predicate: HKQuery.predicateForObject(with: workoutId))
+    guard let workout = workouts.first as? HKWorkout else { return [] }
+    let routes = try await fetchSamples(type: HKSeriesType.workoutRoute(), predicate: HKQuery.predicateForObjects(from: workout))
+    var all: [CLLocation] = []
+    for case let route as HKWorkoutRoute in routes { all.append(contentsOf: try await locations(of: route)) }
+    all = all.filter { $0.horizontalAccuracy >= 0 }.sorted { $0.timestamp < $1.timestamp }
+    if all.count < 2 { return [] }
+    let step = max(1, Int((Double(all.count) / Double(maxPoints)).rounded(.up)))
+    var points: [[Any]] = []
+    var lastOffset = -1
+    for index in stride(from: 0, to: all.count, by: step) {
+      let location = all[index]
+      let offset = Int(location.timestamp.timeIntervalSince(workout.startDate))
+      if offset < 0 || offset <= lastOffset { continue }
+      lastOffset = offset
+      let altitude: Any = location.verticalAccuracy >= 0 ? location.altitude : NSNull()
+      points.append([offset, location.coordinate.latitude, location.coordinate.longitude, altitude])
+    }
+    return points
   }
 
   // Optional -> valor serializavel (nulo vira NSNull, nunca zero: ausencia continua ausencia).

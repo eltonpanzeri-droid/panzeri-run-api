@@ -70,7 +70,7 @@
       },
       "revenueCatAndroidApiKey": "goog_FLrWawYScrxGhBOzuyNKTlxJxAQ",
       "revenueCatIosApiKey": "appl_pJNyuQYPZISZBCwRbuskrWNZopK",
-      "appleHealthProof": true
+      "appleHealthProof": false
     },
     "plugins": [
       "expo-notifications",

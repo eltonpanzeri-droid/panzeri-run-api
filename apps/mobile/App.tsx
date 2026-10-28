@@ -5,7 +5,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
-import { AppleHealthProofCard } from './src/appleHealthProof/AppleHealthProofCard';
+import { AppleHealthSyncCard } from './src/appleHealthSync/AppleHealthSyncCard';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
@@ -8968,8 +8968,8 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
           <Ionicons name="sync" size={18} color={PRColors.ocean} />
         </Pressable>
       </View>
-      {/* Bloco 1 (prova tecnica Apple Watch): so' aparece no app nativo iOS com extra.appleHealthProof. */}
-      <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />
+      {/* Apple Saude (28/10/2026): sincronizacao simples; so' aparece no app nativo iOS. A antiga tela tecnica (AppleHealthProofCard) nao e' mais exibida ao aluno. */}
+      <AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} />
     </>
   );
 }
@@ -9212,8 +9212,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} /><LegacyAtlasConsentCard provider="polar" apiUrl={API_URL} accessToken={accessToken} /></>),
     strava: () => <StravaSync accessToken={accessToken} />,
     wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
-    // Prova tecnica Apple: so aparece no app nativo iOS com extra.appleHealthProof (o proprio card se autolimita).
-    apple_watch: () => <AppleHealthProofCard accessToken={accessToken} apiUrl={API_URL} />,
+    // Apple Saude: sincronizacao simples (so aparece no app nativo iOS; o proprio card se autolimita).
+    apple_watch: () => <AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} />,
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
     samsung: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,

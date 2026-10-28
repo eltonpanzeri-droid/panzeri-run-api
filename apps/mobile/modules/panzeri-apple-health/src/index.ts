@@ -25,7 +25,21 @@ export interface AppleRunningWorkout {
   distanceMeters: number | null;
   // UUID do Panzeri Run quando o treino foi executado a partir de um plano agendado por nos (round trip); senao null.
   workoutPlanId: string | null;
+  // Medidas associadas ao treino no app Saude (28/10/2026). So' existem quando o iOS as entregou: sem autorizacao ou sem dado, o campo falta (nunca zero).
+  avgHeartRateBpm?: number;
+  maxHeartRateBpm?: number;
+  activeEnergyKcal?: number;
+  stepCount?: number;
+  powerAvgWatts?: number;
+  avgSpeedMetersPerSecond?: number;
+  avgStrideLengthMeters?: number;
+  avgGroundContactTimeMs?: number;
+  avgVerticalOscillationCm?: number;
+  elevationGainMeters?: number;
 }
+
+// Ponto compacto do percurso: [deslocamentoSeg, latitude, longitude, altitude|null].
+export type AppleRoutePoint = [number, number, number, number | null];
 
 export interface AppleScheduledWorkout {
   planId: string;
@@ -62,6 +76,7 @@ interface NativeModule {
   getHealthAuthorizationRequestStatus(): Promise<HealthAuthorizationRequestStatus>;
   requestHealthAuthorization(): Promise<{ requested: boolean }>;
   readRecentRunningWorkouts(limit: number): Promise<AppleRunningWorkout[]>;
+  readWorkoutRoute(uuid: string, maxPoints: number): Promise<AppleRoutePoint[]>;
   requestWorkoutAuthorization(): Promise<WorkoutAuthorizationState>;
   scheduleRunWorkout(planId: string, distanceKm: number, startIso: string): Promise<{ scheduled: boolean; planId: string; distanceKm: number; scheduledFor: string }>;
   validateCustomWorkoutSpec(specJson: string): NativeCustomWorkoutValidation;
@@ -83,6 +98,7 @@ export const isHealthDataAvailable = () => (native ? native.isHealthDataAvailabl
 export const getHealthAuthorizationRequestStatus = () => module_().getHealthAuthorizationRequestStatus();
 export const requestHealthAuthorization = () => module_().requestHealthAuthorization();
 export const readRecentRunningWorkouts = (limit = 5) => module_().readRecentRunningWorkouts(limit);
+export const readWorkoutRoute = (uuid: string, maxPoints = 2000) => module_().readWorkoutRoute(uuid, maxPoints);
 export const requestWorkoutAuthorization = () => module_().requestWorkoutAuthorization();
 export const scheduleRunWorkout = (planId: string, distanceKm: number, start: Date) => module_().scheduleRunWorkout(planId, distanceKm, start.toISOString());
 // Constroi e valida (SEM agendar) um CustomWorkout a partir do AppleCustomWorkoutSpec ja validado pela API. O spec vai como JSON, sem alteracao.

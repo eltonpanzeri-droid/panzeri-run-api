@@ -28,6 +28,13 @@ export interface NormalizedAppleWorkout {
     durationSec: number | null;
     distanceMeters: number | null;
     sport: string;
+    // Medidas do app Saude associadas ao treino (so' as informadas). Nada e' estimado: ausente fica null.
+    caloriesKcal: number | null;
+    avgHeartRateBpm: number | null;
+    maxHeartRateBpm: number | null;
+    cadenceAvg: number | null;
+    powerAvgWatts: number | null;
+    elevationGainMeters: number | null;
   };
   providerMetrics: Record<string, unknown>;
 }
@@ -80,6 +87,12 @@ function modalityFor(activityType: string | null, activityTypeRaw: number | null
   return appleHealthModality(activityTypeRaw, activityType, isIndoor);
 }
 
+// Faixas plausiveis: fora delas o valor e' descartado (null), nunca corrigido.
+function inRange(value: unknown, min: number, max: number): number | null {
+  const n = asFiniteNumber(value);
+  return n !== null && n >= min && n <= max ? n : null;
+}
+
 export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, reason: 'item_invalido' };
   const w = input as Record<string, unknown>;
@@ -99,6 +112,23 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
   const rawDistance = w.distanceMeters;
   const distanceNumber = asFiniteNumber(rawDistance);
   if (rawDistance !== undefined && rawDistance !== null && (distanceNumber === null || distanceNumber < 0)) return { ok: false, reason: 'distancia_invalida' };
+  // 28/10/2026: o HealthKit informa 0 m para treino sem amostras de distancia (registro manual, outro app). Corrida com 0 m nao e' medida: e' AUSENCIA. O valor original
+  // continua no raw (auditoria); o campo canonico fica null para nao virar "0,00 km" nem divergencia falsa na identidade fisica.
+  const canonicalDistance = distanceNumber !== null && distanceNumber > 0 ? distanceNumber : null;
+
+  const stepCount = inRange(w.stepCount, 1, 200_000);
+  const durationForCadence = durationNumber !== null && durationNumber > 0 ? durationNumber : null;
+  const energy = inRange(w.activeEnergyKcal, 0, 20_000);
+  const avgHr = inRange(w.avgHeartRateBpm, 20, 260);
+  const maxHr = inRange(w.maxHeartRateBpm, 20, 260);
+  const power = inRange(w.powerAvgWatts, 1, 3000);
+  const elevation = inRange(w.elevationGainMeters, 0, 20_000);
+  const extra = {
+    avgSpeedMetersPerSecond: inRange(w.avgSpeedMetersPerSecond, 0, 30),
+    avgStrideLengthMeters: inRange(w.avgStrideLengthMeters, 0, 5),
+    avgGroundContactTimeMs: inRange(w.avgGroundContactTimeMs, 0, 2000),
+    avgVerticalOscillationCm: inRange(w.avgVerticalOscillationCm, 0, 50),
+  };
 
   const sourceName = asString(w.sourceName);
   const sourceBundleId = asString(w.sourceBundleId);
@@ -130,6 +160,13 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         endDate: endedAt.toISOString(),
         durationSeconds: durationNumber,
         distanceMeters: distanceNumber,
+        activeEnergyKcal: energy,
+        avgHeartRateBpm: avgHr,
+        maxHeartRateBpm: maxHr,
+        stepCount,
+        powerAvgWatts: power,
+        elevationGainMeters: elevation,
+        ...extra,
         activityType,
         activityTypeRaw: asFiniteNumber(w.activityTypeRaw),
         isIndoor: typeof w.isIndoor === 'boolean' ? w.isIndoor : null,
@@ -140,7 +177,14 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         startedAt,
         utcOffsetMinutes,
         durationSec: durationNumber === null ? null : Math.round(durationNumber),
-        distanceMeters: distanceNumber,
+        distanceMeters: canonicalDistance,
+        caloriesKcal: energy === null ? null : Math.round(energy),
+        avgHeartRateBpm: avgHr === null ? null : Math.round(avgHr),
+        maxHeartRateBpm: maxHr === null ? null : Math.round(maxHr),
+        // Cadencia = passos do treino / minutos de duracao (o iOS nao tem um campo de cadencia): a base fica registrada em providerMetrics.cadenceBasis.
+        cadenceAvg: stepCount !== null && durationForCadence !== null ? Math.round(stepCount / (durationForCadence / 60)) : null,
+        powerAvgWatts: power === null ? null : Math.round(power),
+        elevationGainMeters: elevation,
         sport: modalityFor(activityType, asFiniteNumber(w.activityTypeRaw), typeof w.isIndoor === 'boolean' ? w.isIndoor : null),
       },
       providerMetrics: {
@@ -152,6 +196,10 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         isIndoor: typeof w.isIndoor === 'boolean' ? w.isIndoor : null,
         timeZone,
         endedAt: endedAt.toISOString(),
+        reportedDistanceMeters: distanceNumber,
+        stepCount,
+        cadenceBasis: stepCount !== null && durationForCadence !== null ? 'steps_over_duration' : null,
+        ...extra,
       },
     },
   };

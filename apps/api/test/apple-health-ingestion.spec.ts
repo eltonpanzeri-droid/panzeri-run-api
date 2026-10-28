@@ -111,6 +111,7 @@ function buildService(options: { failFirstCreateWithP2002?: boolean } = {}) {
   const tx = {
     activityLog: {
       findUnique: jest.fn(async ({ where }: any) => logs.get(k(where)) ?? null),
+      update: jest.fn(async ({ where, data }: any) => { const row = [...logs.values()].find((l) => l.id === where.id)!; Object.assign(row, data); return row; }),
       create: jest.fn(async ({ data }: any) => {
         if (failOnce) {
           failOnce = false;
@@ -229,5 +230,45 @@ describe('AppleHealthIngestionService — D2 (reconciliar observacoes afetadas)'
     expect(identity.evaluateSafely).toHaveBeenCalledTimes(1);
     expect(link.reconcileEvent).toHaveBeenCalledTimes(1);
     expect(link.reconcileAffectedByIdentity).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Apple Saude — medidas do treino (28/10/2026)', () => {
+  const rich = { avgHeartRateBpm: 152.4, maxHeartRateBpm: 178, activeEnergyKcal: 430.6, stepCount: 6500, powerAvgWatts: 240.2, elevationGainMeters: 85.5, avgSpeedMetersPerSecond: 2.7 };
+
+  it('normaliza FC, energia, passos (cadencia), potencia e elevacao; ausentes ficam null e fora da faixa e descartado', () => {
+    const result = normalizeAppleHealthWorkout(workout(rich));
+    if (!result.ok) throw new Error('esperava ok');
+    expect(result.value.activity).toMatchObject({ avgHeartRateBpm: 152, maxHeartRateBpm: 178, caloriesKcal: 431, powerAvgWatts: 240, elevationGainMeters: 85.5, cadenceAvg: 144 });
+    expect(result.value.providerMetrics).toMatchObject({ stepCount: 6500, cadenceBasis: 'steps_over_duration', avgSpeedMetersPerSecond: 2.7 });
+    const bare = normalizeAppleHealthWorkout(workout());
+    if (!bare.ok) throw new Error('esperava ok');
+    expect(bare.value.activity).toMatchObject({ avgHeartRateBpm: null, maxHeartRateBpm: null, caloriesKcal: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null });
+    const absurd = normalizeAppleHealthWorkout(workout({ avgHeartRateBpm: 900, powerAvgWatts: -3, stepCount: 0 }));
+    if (!absurd.ok) throw new Error('esperava ok');
+    expect(absurd.value.activity).toMatchObject({ avgHeartRateBpm: null, powerAvgWatts: null, cadenceAvg: null });
+  });
+
+  it('distancia 0 m e ausencia: o campo canonico fica null e o valor original segue no raw', () => {
+    const result = normalizeAppleHealthWorkout(workout({ distanceMeters: 0 }));
+    if (!result.ok) throw new Error('esperava ok');
+    expect(result.value.activity.distanceMeters).toBeNull();
+    expect(result.value.raw.distanceMeters).toBe(0);
+    expect(result.value.providerMetrics).toMatchObject({ reportedDistanceMeters: 0 });
+  });
+
+  it('reenvio completa o que faltava (FC etc.) sem sobrescrever valor existente nem criar outro treino; zero antigo vira ausente', async () => {
+    const { service, logs, raws } = buildService();
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0 })] });
+    const log = [...logs.values()][0];
+    log.distanceMeters = 0; // gravado como zero antes da correcao
+    log.avgHeartRateBpm = 140; // ja' existia: nao pode ser sobrescrito
+    const again = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich, avgHeartRateBpm: 999 })] });
+    expect(again).toMatchObject({ created: 0, enriched: 1, alreadyImported: 1 });
+    expect(logs.size).toBe(1);
+    expect(raws.size).toBe(1);
+    expect(log).toMatchObject({ avgHeartRateBpm: 140, maxHeartRateBpm: 178, caloriesKcal: 431, powerAvgWatts: 240, distanceMeters: null });
+    const third = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich })] });
+    expect(third).toMatchObject({ enriched: 0, alreadyImported: 1 });
   });
 });
