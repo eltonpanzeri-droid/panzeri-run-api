@@ -86,6 +86,8 @@ public class PanzeriAppleHealthModule: Module {
           let formatter = ISO8601DateFormatter()
           var items: [[String: Any]] = []
           for workout in workouts {
+            // Distancia: o HealthKit pode nao ter estatistica de distancia para o treino (registro manual, outro app). Nesse caso NAO e' zero: e' indisponivel na origem, e o app diz isso
+            // (distanceStatus) em vez de inventar um valor. Um 0 informado pelo HealthKit segue como 0.
             let distanceMeters = workout
               .statistics(for: HKQuantityType(.distanceWalkingRunning))?
               .sumQuantity()?
@@ -111,6 +113,7 @@ public class PanzeriAppleHealthModule: Module {
               "endDate": formatter.string(from: workout.endDate),
               "durationSeconds": workout.duration,
               "distanceMeters": Self.orNull(distanceMeters),
+              "distanceStatus": distanceMeters == nil ? "unavailable" : "reported",
               "workoutPlanId": Self.orNull(plan?.id.uuidString)
             ]
             // Medidas associadas ao treino (so' as que o iOS entregar: sem autorizacao ou sem dado, a chave simplesmente nao existe).

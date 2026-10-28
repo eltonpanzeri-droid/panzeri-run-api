@@ -5304,7 +5304,7 @@ type ExternalActivityRow = {
   executionClassifiedBy?: string | null;
   observerKey?: string;
   sportCanonical?: string | null;
-  providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string } } | null;
+  providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string }; distanceStatus?: string | null; distanceLimitation?: string | null } | null;
 };
 
 // Motivo da observacao canonica (regra v2, so' leitura): papel de cada observacao do evento + regra usada.
@@ -5666,8 +5666,10 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
           <ExtMetric label="Calorias" value={row.caloriesKcal ?? '—'} />
           <ExtMetric label="Potência" value={row.powerAvgWatts != null ? `${row.powerAvgWatts} W` : '—'} />
           <ExtMetric label="Elevação" value={row.elevationGainMeters != null ? `${row.elevationGainMeters} m` : '—'} />
-          <ExtMetric label="Rota" value={row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não'} />
+          <ExtMetric label="Rota" value={row.hasRoute == null ? '—' : row.hasRoute ? 'sim' : 'não recebida'} />
         </div>
+        {row.providerMetrics?.distanceLimitation ? <div className="extHint">Limitação: a origem informou distância 0 m e não há evidência para dizer se foi medida ou ausente. O valor foi mantido como veio, sem interpretação.</div> : null}
+        {row.providerMetrics?.distanceStatus === 'unavailable_at_source' ? <div className="extHint">Distância indisponível na origem (o app Saúde não tem estatística de distância deste treino).</div> : null}
 
         <details className="extDetails">
           <summary>Detalhes técnicos</summary>

@@ -12,16 +12,20 @@ export type NormalizeRoutesResult = { ok: true; routes: NormalizedRoute[]; dropp
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 
-export function normalizeRoutes(body: unknown): NormalizeRoutesResult {
+export interface RouteLimits { maxRoutes?: number; maxPoints?: number }
+
+export function normalizeRoutes(body: unknown, limits: RouteLimits = {}): NormalizeRoutesResult {
+  const maxRoutes = limits.maxRoutes ?? MAX_ROUTES_PER_REQUEST;
+  const maxPoints = limits.maxPoints ?? MAX_POINTS_PER_ROUTE;
   const routes = (body as { routes?: unknown } | null)?.routes;
   if (!Array.isArray(routes) || routes.length === 0) return { ok: false, reason: 'lista_vazia' };
-  if (routes.length > MAX_ROUTES_PER_REQUEST) return { ok: false, reason: 'rotas_demais' };
+  if (routes.length > maxRoutes) return { ok: false, reason: 'rotas_demais' };
   const out: NormalizedRoute[] = [];
   let dropped = 0;
   for (const input of routes) {
     const recordId = typeof (input as { recordId?: unknown })?.recordId === 'string' ? ((input as { recordId: string }).recordId.trim().slice(0, 128)) : '';
     const rawPoints = (input as { points?: unknown })?.points;
-    if (!recordId || !Array.isArray(rawPoints) || rawPoints.length === 0 || rawPoints.length > MAX_POINTS_PER_ROUTE) { dropped += 1; continue; }
+    if (!recordId || !Array.isArray(rawPoints) || rawPoints.length === 0 || rawPoints.length > maxPoints) { dropped += 1; continue; }
     const points: NormalizedRoutePoint[] = [];
     let last = -1;
     for (const raw of rawPoints) {

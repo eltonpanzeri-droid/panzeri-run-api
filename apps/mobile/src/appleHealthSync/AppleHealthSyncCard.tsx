@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   isAppleHealthSupported,
@@ -6,106 +6,291 @@ import {
   readRecentRunningWorkouts,
   readWorkoutRoute,
   requestHealthAuthorization,
-  type AppleRoutePoint,
+  type AppleRunningWorkout,
 } from '../../modules/panzeri-apple-health/src';
+import {
+  HttpError, NativeReadError, classifyFailure, emptyCounters, fitRoute, messageFor, packRouteBatches,
+  type RouteBatchItem, type SyncCounters, type SyncOutcome,
+} from './appleHealthSyncLogic';
 
-// Sincronizacao simples com o app Saude (28/10/2026). Substitui a antiga tela tecnica (AppleHealthProofCard) para o aluno: um unico botao que abre a folha de permissao do
-// proprio iOS, le os treinos de corrida e as medidas guardadas junto deles (distancia, frequencia cardiaca, calorias, passos, potencia, elevacao e percurso) e envia para a
-// PROPRIA conta. O iOS nao informa o que foi negado: dado que nao chegou simplesmente nao aparece. Tocar de novo nunca duplica (o servidor reconhece cada treino) e completa
-// o que faltava em treinos ja' importados. So' iOS nativo; no PWA/Android o cartao nao aparece.
+// Apple Saude (28/10/2026). Duas autorizacoes DIFERENTES, explicadas ao aluno: (1) a folha do iOS, que deixa o app LER o dado no aparelho; (2) o consentimento registrado no Panzeri Run
+// (por grupo: treinos, medidas de sensor, percurso GPS), que decide o que o servidor guarda. O servidor so' aceita o que (2) autoriza. Sincronizar nunca duplica (o servidor reconhece cada
+// treino) e completa o que faltava; a rota e' enviada de forma independente, so' para treinos que ainda nao tem percurso. So' iOS nativo.
 
 const MAX_WORKOUTS = 200;
 const WORKOUTS_PER_REQUEST = 50;
-const ROUTES_PER_REQUEST = 5;
+const PENDING_IDS_PER_REQUEST = 200;
+const DEFAULT_ROUTE_LIMITS = { maxRoutesPerRequest: 3, maxPointsPerRoute: 1200, maxRequestBytes: 60_000 };
 
-type ImportResponse = { created: number; enriched?: number; alreadyImported: number; rejected: number; items: Array<{ uuid: string | null; status: string; enriched?: boolean }> };
-
-async function post<T>(apiUrl: string, accessToken: string, path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return (await response.json()) as T;
-}
-
-function plural(count: number, one: string, many: string) {
-  return `${count} ${count === 1 ? one : many}`;
-}
+type ConsentDocument = {
+  version: string; textHash: string; title: string; intro: string;
+  sections: Array<{ heading: string | null; paragraphs?: string[] }>;
+  groups: Array<{ id: string; label: string; description: string; requires?: string[] }>;
+  acknowledgementText: string; confirmButtonLabel: string;
+};
+type Permissions = { connected: boolean; consent: { needsReview: boolean }; groups: Array<{ id: string; granted: boolean }>; legacyImport: boolean };
+type ImportResponse = { created: number; enriched?: number; alreadyImported: number; rejected: number };
+type PendingResponse = { pending: string[]; limits?: { maxRoutesPerRequest: number; maxPointsPerRoute: number; maxRequestBytes: number } };
+type RouteResponse = { stored: number; items: Array<{ recordId: string; status: string; reason?: string }> };
 
 export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [document, setDocument] = useState<ConsentDocument | null>(null);
+  const [permissions, setPermissions] = useState<Permissions | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const call = useCallback(async <T,>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown): Promise<T> => {
+    const response = await fetch(`${apiUrl}${path}`, {
+      method,
+      headers: { Authorization: `Bearer ${accessToken}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) throw new HttpError(response.status);
+    return (await response.json()) as T;
+  }, [apiUrl, accessToken]);
+
+  const load = useCallback(async () => {
+    setLoadFailed(false);
+    try {
+      const [doc, perms] = await Promise.all([call<ConsentDocument>('GET', '/apple-health/consent'), call<Permissions>('GET', '/apple-health/permissions')]);
+      setDocument(doc);
+      setPermissions(perms);
+      setSelected(new Set(perms.groups.filter((group) => group.granted).map((group) => group.id)));
+      setAcknowledged(false);
+    } catch {
+      setLoadFailed(true);
+    }
+  }, [call]);
+
+  useEffect(() => {
+    if (Platform.OS === 'ios' && isAppleHealthSupported) void load();
+  }, [load]);
 
   if (Platform.OS !== 'ios' || !isAppleHealthSupported) return null;
+
+  const granted = new Set(permissions?.groups.filter((group) => group.granted).map((group) => group.id) ?? []);
+  const consentCurrent = Boolean(permissions?.connected && !permissions.consent.needsReview && granted.has('workouts'));
+
+  function toggle(id: string) {
+    const next = new Set(selected);
+    if (next.has(id)) {
+      next.delete(id);
+      // quem depende do grupo retirado sai junto
+      for (const group of document?.groups ?? []) if ((group.requires ?? []).includes(id)) next.delete(group.id);
+    } else {
+      next.add(id);
+    }
+    setSelected(next);
+  }
+
+  async function saveConsent() {
+    if (!document || saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const grant = [...selected].filter((id) => !granted.has(id));
+      const revoke = [...granted].filter((id) => !selected.has(id));
+      if (grant.length > 0 && !acknowledged) {
+        setMessage({ ok: false, text: 'Confirme a autorização para salvar.' });
+        return;
+      }
+      if (permissions?.consent.needsReview && grant.length === 0 && revoke.length === 0 && selected.size > 0) {
+        if (!acknowledged) { setMessage({ ok: false, text: 'Confirme a autorização para salvar.' }); return; }
+        await call('POST', '/apple-health/consent/reconfirm', { acknowledged: true, consentVersion: document.version, consentTextHash: document.textHash });
+      } else if (grant.length > 0 || revoke.length > 0) {
+        await call('POST', '/apple-health/consent/groups', { grant, revoke, acknowledged: grant.length > 0 ? true : undefined, consentVersion: document.version, consentTextHash: document.textHash });
+      }
+      await load();
+      setMessage({ ok: true, text: 'Suas autorizações foram salvas.' });
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof HttpError && error.status === 409 ? 'O texto de autorização mudou. Leia a versão atual e tente de novo.' : 'Não foi possível salvar suas autorizações agora. Tente novamente.' });
+      void load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function withdrawAll() {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await call('DELETE', '/apple-health/consent');
+      await load();
+      setMessage({ ok: true, text: 'Autorizações retiradas. Percursos e medidas já guardados foram apagados; os treinos importados continuam. Para excluí-los, fale com o suporte.' });
+    } catch {
+      setMessage({ ok: false, text: 'Não foi possível retirar as autorizações agora. Tente novamente.' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Uma lista de treinos por vez: o que ja' foi enviado fica enviado (o servidor e' idempotente); falhas viram contadores e o resultado diz exatamente o que ficou pendente.
+  async function syncRoutes(workouts: AppleRunningWorkout[], counters: SyncCounters): Promise<SyncOutcome | null> {
+    // treino em ambiente fechado (esteira) nao tem percurso GPS: nao e' consultado
+    const candidates = workouts.filter((workout) => workout.isIndoor !== true).map((workout) => workout.uuid.toLowerCase());
+    let limits = DEFAULT_ROUTE_LIMITS;
+    const pending: string[] = [];
+    for (let start = 0; start < candidates.length; start += PENDING_IDS_PER_REQUEST) {
+      const result = await call<PendingResponse>('POST', '/apple-health/routes/pending', { recordIds: candidates.slice(start, start + PENDING_IDS_PER_REQUEST) });
+      pending.push(...result.pending);
+      if (result.limits) limits = result.limits;
+    }
+    const items: RouteBatchItem[] = [];
+    for (let index = 0; index < pending.length; index += 1) {
+      setProgress(`Lendo percursos (${index + 1} de ${pending.length})…`);
+      let points;
+      try {
+        points = await readWorkoutRoute(pending[index], limits.maxPointsPerRoute);
+      } catch {
+        counters.routesFailed += 1;
+        continue;
+      }
+      if (points.length < 2) continue; // sem percurso (ou sem permissao: o iOS nao diferencia): nada a enviar, e nada e' afirmado
+      const fitted = fitRoute({ recordId: pending[index], points }, limits.maxRequestBytes, limits.maxPointsPerRoute);
+      if (fitted) items.push(fitted); else counters.routesTooLarge += 1;
+    }
+    const batches = packRouteBatches(items, limits);
+    for (let index = 0; index < batches.length; index += 1) {
+      setProgress(`Enviando percursos (lote ${index + 1} de ${batches.length})…`);
+      try {
+        const result = await call<RouteResponse>('POST', '/apple-health/routes', { routes: batches[index] });
+        counters.routesStored += result.stored;
+        counters.routesFailed += result.items.filter((item) => item.status !== 'stored').length;
+      } catch (error) {
+        const failure = classifyFailure(error);
+        counters.routesFailed += batches.slice(index).reduce((sum, batch) => sum + batch.length, 0);
+        // falha de comunicacao/servidor: para aqui (o resto fica pendente para a proxima sincronizacao); falta de autorizacao tambem
+        return failure;
+      }
+    }
+    return null;
+  }
 
   async function sync() {
     if (busy) return;
     setBusy(true);
     setMessage(null);
+    const counters = emptyCounters();
+    let outcome: SyncOutcome = 'completed';
     try {
-      if (!isHealthDataAvailable()) {
-        setMessage({ ok: false, text: 'O app Saúde não está disponível neste aparelho.' });
-        return;
-      }
-      await requestHealthAuthorization();
-      const workouts = await readRecentRunningWorkouts(MAX_WORKOUTS);
-      if (workouts.length === 0) {
-        setMessage({ ok: false, text: 'Não encontramos corridas no app Saúde. Confira em Ajustes > Saúde > Acesso a Dados e Dispositivos > Panzeri Run se o acesso aos treinos está liberado.' });
-        return;
-      }
-      let created = 0; let enriched = 0; let already = 0; let rejected = 0;
-      const changed: string[] = [];
-      for (let start = 0; start < workouts.length; start += WORKOUTS_PER_REQUEST) {
-        const result = await post<ImportResponse>(apiUrl, accessToken, '/apple-health/workouts', { workouts: workouts.slice(start, start + WORKOUTS_PER_REQUEST) });
-        created += result.created; enriched += result.enriched ?? 0; rejected += result.rejected;
-        already += result.alreadyImported - (result.enriched ?? 0);
-        // percurso: so' dos treinos novos ou que receberam dados novos neste envio
-        const ids = new Set(workouts.slice(start, start + WORKOUTS_PER_REQUEST).map((w) => w.uuid.toLowerCase()));
-        for (const item of result.items) if (item.uuid && ids.has(item.uuid.toLowerCase()) && (item.status === 'created' || item.enriched === true)) changed.push(item.uuid.toLowerCase());
-      }
-      // Percurso (GPS): opcional. Falha ou ausencia de rota nunca derruba a sincronizacao dos treinos.
-      let routes = 0;
+      if (!isHealthDataAvailable()) throw new NativeReadError('Saude indisponivel');
+      setProgress('Aguardando a permissão do iPhone…');
+      let workouts: AppleRunningWorkout[];
       try {
-        const pending: Array<{ recordId: string; points: AppleRoutePoint[] }> = [];
-        for (const uuid of changed) {
-          const points = await readWorkoutRoute(uuid);
-          if (points.length >= 2) pending.push({ recordId: uuid, points });
-        }
-        for (let start = 0; start < pending.length; start += ROUTES_PER_REQUEST) {
-          const result = await post<{ stored: number }>(apiUrl, accessToken, '/apple-health/routes', { routes: pending.slice(start, start + ROUTES_PER_REQUEST) });
-          routes += result.stored;
-        }
-      } catch {
-        routes = 0;
+        await requestHealthAuthorization();
+        setProgress('Lendo o app Saúde…');
+        workouts = await readRecentRunningWorkouts(MAX_WORKOUTS);
+      } catch (error) {
+        throw error instanceof NativeReadError ? error : new NativeReadError('leitura');
       }
-      const parts = [
-        created > 0 ? `${plural(created, 'treino novo importado', 'treinos novos importados')}` : null,
-        enriched > 0 ? `${plural(enriched, 'treino atualizado', 'treinos atualizados')} com mais dados` : null,
-        already > 0 ? `${plural(already, 'já estava', 'já estavam')} no Panzeri Run` : null,
-        routes > 0 ? `${plural(routes, 'percurso', 'percursos')} do mapa` : null,
-        rejected > 0 ? `${plural(rejected, 'não pôde ser importado', 'não puderam ser importados')}` : null,
-      ].filter(Boolean);
-      setMessage({ ok: rejected === 0, text: `Pronto. ${parts.join(' · ')}.` });
+      if (workouts.length === 0) {
+        outcome = 'no_activities';
+      } else {
+        let failure: SyncOutcome | null = null;
+        for (let start = 0; start < workouts.length && failure === null; start += WORKOUTS_PER_REQUEST) {
+          const chunk = workouts.slice(start, start + WORKOUTS_PER_REQUEST);
+          setProgress(`Enviando treinos (${Math.min(start + chunk.length, workouts.length)} de ${workouts.length})…`);
+          try {
+            const result = await call<ImportResponse>('POST', '/apple-health/workouts', { workouts: chunk });
+            counters.created += result.created;
+            counters.enriched += result.enriched ?? 0;
+            counters.already += result.alreadyImported - (result.enriched ?? 0);
+            counters.rejected += result.rejected;
+          } catch (error) {
+            failure = classifyFailure(error);
+            counters.workoutsNotSent += workouts.length - start;
+          }
+        }
+        if (failure === null && granted.has('route')) {
+          try {
+            failure = await syncRoutes(workouts, counters);
+          } catch (error) {
+            failure = classifyFailure(error);
+          }
+        }
+        const anyDone = counters.created + counters.enriched + counters.already + counters.routesStored > 0;
+        const anyPending = counters.workoutsNotSent + counters.routesFailed + counters.routesTooLarge + counters.rejected > 0;
+        if (failure !== null) outcome = anyDone && failure !== 'not_authorized' ? 'partial' : failure;
+        else outcome = anyPending ? 'partial' : 'completed';
+      }
     } catch (error) {
-      const detail = error instanceof Error && error.message.startsWith('HTTP ') ? ` (${error.message})` : '';
-      setMessage({ ok: false, text: `Não foi possível sincronizar agora${detail}. Tente novamente em instantes.` });
+      outcome = classifyFailure(error);
     } finally {
+      setProgress(null);
       setBusy(false);
     }
+    setMessage(messageFor(outcome, counters));
   }
 
+  const disabled = busy || saving;
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Apple Saúde</Text>
-      <Text style={styles.hint}>Traz suas corridas do app Saúde para o Panzeri Run, com as medidas guardadas junto de cada treino: distância, frequência cardíaca, calorias, passos, potência, elevação e percurso. Você escolhe o que compartilhar na tela do iPhone, e só entra o que você permitir.</Text>
-      <Pressable style={[styles.button, busy && styles.buttonDisabled]} disabled={busy} onPress={() => void sync()} accessibilityRole="button">
+      <Text style={styles.hint}>Traz suas corridas do app Saúde para o Panzeri Run. São duas permissões diferentes: a do iPhone (deixa o aplicativo ler os dados no aparelho) e a do Panzeri Run, abaixo, que registra o que o Panzeri Run pode guardar e usar. O iPhone não informa ao aplicativo o que foi negado.</Text>
+
+      {loadFailed ? (
+        <>
+          <Text style={styles.problem}>Não foi possível carregar suas autorizações agora.</Text>
+          <Pressable style={styles.button} onPress={() => void load()} accessibilityRole="button"><Text style={styles.buttonText}>Tentar de novo</Text></Pressable>
+        </>
+      ) : null}
+
+      {document && permissions ? (
+        <View style={styles.consent}>
+          <Text style={styles.subtitle}>{document.title}</Text>
+          {!consentCurrent || permissions.consent.needsReview ? (
+            <>
+              <Text style={styles.hint}>{document.intro}</Text>
+              {document.sections.map((section, index) => (
+                <View key={index} style={styles.section}>
+                  {section.heading ? <Text style={styles.sectionTitle}>{section.heading}</Text> : null}
+                  {(section.paragraphs ?? []).map((paragraph) => <Text key={paragraph} style={styles.hint}>{paragraph}</Text>)}
+                </View>
+              ))}
+            </>
+          ) : null}
+          {document.groups.map((group) => {
+            const dependsOn = (group.requires ?? []).filter((id) => !selected.has(id));
+            const on = selected.has(group.id);
+            return (
+              <Pressable key={group.id} style={[styles.row, dependsOn.length > 0 && styles.rowDisabled]} disabled={dependsOn.length > 0 || disabled} onPress={() => toggle(group.id)} accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: dependsOn.length > 0 }}>
+                <Text style={styles.check}>{on ? '☑' : '☐'}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.rowTitle}>{group.label}</Text>
+                  <Text style={styles.hint}>{group.description}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+          {[...selected].some((id) => !granted.has(id)) || permissions.consent.needsReview ? (
+            <Pressable style={styles.row} disabled={disabled} onPress={() => setAcknowledged((value) => !value)} accessibilityRole="checkbox" accessibilityState={{ checked: acknowledged }}>
+              <Text style={styles.check}>{acknowledged ? '☑' : '☐'}</Text>
+              <Text style={[styles.hint, { flex: 1 }]}>{document.acknowledgementText}</Text>
+            </Pressable>
+          ) : null}
+          <Pressable style={[styles.button, disabled && styles.buttonDisabled]} disabled={disabled} onPress={() => void saveConsent()} accessibilityRole="button">
+            {saving ? <ActivityIndicator size="small" color="#246F91" /> : null}
+            <Text style={styles.buttonText}>{document.confirmButtonLabel}</Text>
+          </Pressable>
+          {permissions.connected ? (
+            <Pressable disabled={disabled} onPress={() => void withdrawAll()} accessibilityRole="button"><Text style={styles.link}>Retirar todas as autorizações</Text></Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      <Pressable style={[styles.button, (disabled || !consentCurrent) && styles.buttonDisabled]} disabled={disabled || !consentCurrent} onPress={() => void sync()} accessibilityRole="button">
         {busy ? <ActivityIndicator size="small" color="#246F91" /> : null}
         <Text style={styles.buttonText}>{busy ? 'Sincronizando…' : 'Continuar e sincronizar'}</Text>
       </Pressable>
-      {message ? <Text style={[styles.message, message.ok ? null : styles.messageProblem]}>{message.text}</Text> : null}
-      <Text style={styles.hint}>Você pode tocar de novo sempre que quiser: treinos já importados não são duplicados e, se novos dados estiverem disponíveis, eles são completados.</Text>
+      {!consentCurrent && document ? <Text style={styles.hint}>Salve suas autorizações (ao menos “Treinos de corrida”) para poder sincronizar.</Text> : null}
+      {progress ? <Text style={styles.hint}>{progress}</Text> : null}
+      {message ? <Text style={[styles.message, message.ok ? null : styles.problem]}>{message.text}</Text> : null}
+      <Text style={styles.hint}>Você pode sincronizar de novo quando quiser: treinos já importados não são duplicados, o que faltava é completado e só os percursos pendentes são enviados. A sincronização acontece só quando você toca no botão.</Text>
     </View>
   );
 }
@@ -113,10 +298,19 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
 const styles = StyleSheet.create({
   card: { marginTop: 16, padding: 14, borderWidth: 1, borderColor: '#246F91', borderRadius: 8, gap: 10 },
   title: { fontSize: 16, fontWeight: '700', color: '#071827' },
+  subtitle: { fontSize: 14, fontWeight: '700', color: '#071827' },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: '#071827' },
+  section: { gap: 4 },
+  consent: { gap: 10 },
   hint: { fontSize: 12, color: '#4a5560' },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
+  rowDisabled: { opacity: 0.5 },
+  rowTitle: { fontSize: 13, fontWeight: '600', color: '#071827' },
+  check: { fontSize: 18, color: '#246F91' },
   button: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#246F91' },
-  buttonDisabled: { opacity: 0.6 },
+  buttonDisabled: { opacity: 0.5 },
   buttonText: { fontSize: 15, color: '#246F91', fontWeight: '700' },
+  link: { fontSize: 13, color: '#b91c1c', textDecorationLine: 'underline' },
   message: { fontSize: 13, color: '#14532d' },
-  messageProblem: { color: '#b91c1c' },
+  problem: { fontSize: 13, color: '#b91c1c' },
 });

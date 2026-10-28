@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AppleHealthIngestionService } from '../src/apple-health/apple-health-ingestion.service';
+import { APPLE_ROUTE_LIMITS, AppleHealthIngestionService } from '../src/apple-health/apple-health-ingestion.service';
 import { classifySourceFamily, normalizeAppleHealthWorkout, utcOffsetMinutesAt } from '../src/apple-health/apple-health-normalizer';
 
 // Etapa 1 da integracao Apple (06/10/2026): HKWorkout -> normalizer -> RawExternalActivity -> ActivityLog, com
@@ -99,7 +99,9 @@ describe('normalizeAppleHealthWorkout', () => {
 });
 
 // Banco em memoria com a mesma chave unica (provider, userId, externalId) do schema.
-function buildService(options: { failFirstCreateWithP2002?: boolean } = {}) {
+function buildService(options: { failFirstCreateWithP2002?: boolean; consent?: { mode: 'legacy' | 'recorded' | 'blocked'; allowed: string[] }; failRouteWriteFor?: string[]; identity?: unknown } = {}) {
+  const points: Array<Record<string, unknown>> = [];
+  const failRoutes = new Set(options.failRouteWriteFor ?? []);
   const raws = new Map<string, { id: string; userId: string; payload: unknown; payloadSchemaVersion?: string; ingestionMeta?: unknown }>();
   const logs = new Map<string, { id: string; userId: string; provider: string; externalId: string; [k: string]: unknown }>();
   let seq = 0;
@@ -125,6 +127,14 @@ function buildService(options: { failFirstCreateWithP2002?: boolean } = {}) {
         return row;
       }),
     },
+    activityTimeSeriesPoint: {
+      deleteMany: jest.fn(async ({ where }: any) => { for (let i = points.length - 1; i >= 0; i -= 1) if (points[i].activityLogId === where.activityLogId) points.splice(i, 1); }),
+      createMany: jest.fn(async ({ data }: any) => {
+        const owner = [...logs.values()].find((l) => l.id === data[0].activityLogId);
+        if (owner && failRoutes.has(String(owner.externalId))) throw new Error('falha simulada');
+        points.push(...data);
+      }),
+    },
     rawExternalActivity: {
       upsert: jest.fn(async ({ where, create }: any) => {
         const key = k(where);
@@ -136,8 +146,14 @@ function buildService(options: { failFirstCreateWithP2002?: boolean } = {}) {
       }),
     },
   };
-  const prisma = { $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)) };
-  return { service: new AppleHealthIngestionService(prisma as never), raws, logs, tx, prisma };
+  const prisma = {
+    $transaction: jest.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+    activityLog: { findMany: jest.fn(async ({ where }: any) => [...logs.values()].filter((l) => l.userId === where.userId && where.externalId.in.includes(l.externalId)).map((l) => ({ externalId: l.externalId, hasRoute: l.hasRoute === true }))) },
+  };
+  const access = options.consent ? { mode: options.consent.mode, allowed: new Set(options.consent.allowed) } : null;
+  const consent = access ? { access: jest.fn(async () => access), writeWhileAuthorized: jest.fn(async (_user: string, write: (t: typeof tx, a: typeof access) => Promise<unknown>) => write(tx, access)) } : undefined;
+  const link = options.identity ? { reconcileEvent: jest.fn(async () => ({})), reconcileAffectedByIdentity: jest.fn(async () => undefined) } : undefined;
+  return { service: new AppleHealthIngestionService(prisma as never, options.identity as never, link as never, undefined, consent as never), raws, logs, tx, prisma, points, consent, failRoutes };
 }
 
 describe('AppleHealthIngestionService', () => {
@@ -233,8 +249,9 @@ describe('AppleHealthIngestionService — D2 (reconciliar observacoes afetadas)'
   });
 });
 
-describe('Apple Saude — medidas do treino (28/10/2026)', () => {
+describe('Apple Saude — medidas do treino e distancia (28/10/2026, correcoes da auditoria)', () => {
   const rich = { avgHeartRateBpm: 152.4, maxHeartRateBpm: 178, activeEnergyKcal: 430.6, stepCount: 6500, powerAvgWatts: 240.2, elevationGainMeters: 85.5, avgSpeedMetersPerSecond: 2.7 };
+  const recorded = (...groups: string[]) => ({ mode: 'recorded' as const, allowed: ['activity', ...groups] });
 
   it('normaliza FC, energia, passos (cadencia), potencia e elevacao; ausentes ficam null e fora da faixa e descartado', () => {
     const result = normalizeAppleHealthWorkout(workout(rich));
@@ -249,26 +266,179 @@ describe('Apple Saude — medidas do treino (28/10/2026)', () => {
     expect(absurd.value.activity).toMatchObject({ avgHeartRateBpm: null, powerAvgWatts: null, cadenceAvg: null });
   });
 
-  it('distancia 0 m e ausencia: o campo canonico fica null e o valor original segue no raw', () => {
-    const result = normalizeAppleHealthWorkout(workout({ distanceMeters: 0 }));
-    if (!result.ok) throw new Error('esperava ok');
-    expect(result.value.activity.distanceMeters).toBeNull();
-    expect(result.value.raw.distanceMeters).toBe(0);
-    expect(result.value.providerMetrics).toMatchObject({ reportedDistanceMeters: 0 });
+  it('distancia: informada (>0), zero informado, ausente, indisponivel na origem e ilegivel sao situacoes DIFERENTES; o zero nao vira null', () => {
+    const status = (w: Record<string, unknown>) => { const r = normalizeAppleHealthWorkout(w); if (!r.ok) throw new Error('esperava ok'); return r.value; };
+    const measured = status(workout({ distanceMeters: 5020 }));
+    expect(measured.activity.distanceMeters).toBe(5020);
+    expect(measured.providerMetrics).toMatchObject({ distanceStatus: 'measured', distanceLimitation: null });
+    const zero = status(workout({ distanceMeters: 0 }));
+    expect(zero.activity.distanceMeters).toBe(0); // mantido como a origem informou
+    expect(zero.raw.distanceMeters).toBe(0);
+    expect(zero.providerMetrics).toMatchObject({ distanceStatus: 'zero_reported', distanceLimitation: 'zero_informado_pela_origem_sem_evidencia_de_distancia_medida' });
+    const absent = status(workout({ distanceMeters: undefined }));
+    expect(absent.activity.distanceMeters).toBeNull();
+    expect(absent.providerMetrics).toMatchObject({ distanceStatus: 'absent' });
+    const unavailable = status(workout({ distanceMeters: null, distanceStatus: 'unavailable' }));
+    expect(unavailable.activity.distanceMeters).toBeNull();
+    expect(unavailable.providerMetrics).toMatchObject({ distanceStatus: 'unavailable_at_source' });
+    expect(unavailable.raw.distanceStatus).toBe('unavailable');
+    // falha de leitura/conversao: rejeitado com motivo (nunca vira zero nem null silencioso)
+    expect(normalizeAppleHealthWorkout(workout({ distanceMeters: 'NaN' }))).toEqual({ ok: false, reason: 'distancia_invalida' });
+    expect(normalizeAppleHealthWorkout(workout({ distanceMeters: -5 }))).toEqual({ ok: false, reason: 'distancia_invalida' });
   });
 
-  it('reenvio completa o que faltava (FC etc.) sem sobrescrever valor existente nem criar outro treino; zero antigo vira ausente', async () => {
-    const { service, logs, raws } = buildService();
-    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0 })] });
+  it('sem o grupo de sensores, FC/passos/potencia/biomecanica/elevacao sao descartados (energia e velocidade ficam)', () => {
+    const result = normalizeAppleHealthWorkout(workout({ ...rich, avgStrideLengthMeters: 1.1 }), { sensors: false });
+    if (!result.ok) throw new Error('esperava ok');
+    expect(result.value.activity).toMatchObject({ avgHeartRateBpm: null, maxHeartRateBpm: null, powerAvgWatts: null, elevationGainMeters: null, cadenceAvg: null, caloriesKcal: 431 });
+    expect(result.value.raw).toMatchObject({ avgHeartRateBpm: null, stepCount: null, avgStrideLengthMeters: null, activeEnergyKcal: 430.6 });
+  });
+
+  it('compatibilidade: payload do aplicativo antigo (sem medidas novas, sem distanceStatus) importa em modo legacy e nada de sensor e aceito', async () => {
+    const { service, logs } = buildService({ consent: { mode: 'legacy', allowed: [] } });
+    const result = await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B, distanceMeters: 0 })] });
+    expect(result).toMatchObject({ created: 2, rejected: 0, consent: { mode: 'legacy', sensors: false } });
+    const rows = [...logs.values()];
+    expect(rows[0]).toMatchObject({ distanceMeters: 6000, avgHeartRateBpm: null });
+    expect(rows[1]).toMatchObject({ distanceMeters: 0 }); // zero informado: mantido
+  });
+
+  it('com payload novo em modo legacy (sem registro de consentimento) as medidas de sensor NAO sao guardadas', async () => {
+    const { service, logs } = buildService({ consent: { mode: 'legacy', allowed: [] } });
+    await service.importWorkouts('user-1', { workouts: [workout(rich)] });
+    expect([...logs.values()][0]).toMatchObject({ avgHeartRateBpm: null, powerAvgWatts: null, caloriesKcal: 431 });
+  });
+
+  it('consentimento: retirado/desatualizado bloqueia a importacao; registro sem o grupo de treinos tambem; com sensores autorizados as medidas sao guardadas', async () => {
+    await expect(buildService({ consent: { mode: 'blocked', allowed: [] } }).service.importWorkouts('user-1', { workouts: [workout()] })).rejects.toThrow('nao esta autorizada');
+    await expect(buildService({ consent: { mode: 'recorded', allowed: [] } }).service.importWorkouts('user-1', { workouts: [workout()] })).rejects.toThrow('nao esta autorizada');
+    const withSensors = buildService({ consent: recorded('activity_sensors') });
+    expect(await withSensors.service.importWorkouts('user-1', { workouts: [workout(rich)] })).toMatchObject({ created: 1, consent: { mode: 'recorded', sensors: true } });
+    expect([...withSensors.logs.values()][0]).toMatchObject({ avgHeartRateBpm: 152, powerAvgWatts: 240, elevationGainMeters: 85.5 });
+    const without = buildService({ consent: recorded() });
+    await without.service.importWorkouts('user-1', { workouts: [workout(rich)] });
+    expect([...without.logs.values()][0]).toMatchObject({ avgHeartRateBpm: null, powerAvgWatts: null });
+  });
+
+  it('reenvio: distancia null -> valor valido e preenchida; metricas null (colunas e providerMetrics) sao completadas; valores validos existentes nao sao sobrescritos', async () => {
+    const { service, logs, raws } = buildService({ consent: recorded('activity_sensors') });
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: undefined })] });
     const log = [...logs.values()][0];
-    log.distanceMeters = 0; // gravado como zero antes da correcao
+    expect(log.distanceMeters).toBeNull();
     log.avgHeartRateBpm = 140; // ja' existia: nao pode ser sobrescrito
-    const again = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich, avgHeartRateBpm: 999 })] });
+    log.providerMetrics = { ...(log.providerMetrics as object), stepCount: null, avgSpeedMetersPerSecond: 2.0 }; // chave presente com null
+    const again = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 6000, ...rich, avgHeartRateBpm: 999, avgSpeedMetersPerSecond: 9 })] });
     expect(again).toMatchObject({ created: 0, enriched: 1, alreadyImported: 1 });
     expect(logs.size).toBe(1);
     expect(raws.size).toBe(1);
-    expect(log).toMatchObject({ avgHeartRateBpm: 140, maxHeartRateBpm: 178, caloriesKcal: 431, powerAvgWatts: 240, distanceMeters: null });
-    const third = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich })] });
-    expect(third).toMatchObject({ enriched: 0, alreadyImported: 1 });
+    expect(log).toMatchObject({ distanceMeters: 6000, avgHeartRateBpm: 140, maxHeartRateBpm: 178, caloriesKcal: 431, powerAvgWatts: 240, cadenceAvg: 144 });
+    expect(log.providerMetrics).toMatchObject({ stepCount: 6500, avgSpeedMetersPerSecond: 2.0 });
+  });
+
+  it('reenvio e idempotente: sem nada novo nao altera, nao duplica e nao apaga; zero ja gravado NAO e substituido nem apagado', async () => {
+    const { service, logs } = buildService({ consent: recorded('activity_sensors') });
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich })] });
+    const log = [...logs.values()][0];
+    const snapshot = JSON.stringify(log);
+    const again = await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich })] });
+    expect(again).toMatchObject({ created: 0, enriched: 0, alreadyImported: 1 });
+    expect(JSON.stringify(log)).toBe(snapshot);
+    // origem passa a informar distancia > 0 para um treino que tinha 0: o 0 gravado e' preservado (nenhuma correcao retroativa automatica)
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 7300, ...rich })] });
+    expect(log.distanceMeters).toBe(0);
+    expect(logs.size).toBe(1);
+  });
+
+  it('preservacao de ambiguos: completar FC/calorias NAO reavalia a identidade fisica; completar a distancia sim', async () => {
+    const identity = { evaluateSafely: jest.fn(async () => ({ activityLogId: 'x', status: 'unique', affectedActivityLogIds: [] })) };
+    const { service, logs } = buildService({ consent: recorded('activity_sensors'), identity });
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0 })] });
+    expect(identity.evaluateSafely).toHaveBeenCalledTimes(1); // criacao
+    const log = [...logs.values()][0];
+    log.physicalIdentityStatus = 'ambiguous'; // como os dois registros de 08/10
+    await service.importWorkouts('user-1', { workouts: [workout({ distanceMeters: 0, ...rich })] });
+    expect(identity.evaluateSafely).toHaveBeenCalledTimes(1); // so' completou metricas: identidade intocada
+    expect(log.physicalIdentityStatus).toBe('ambiguous');
+    expect(log.avgHeartRateBpm).toBe(152);
+    // distancia ausente completada: insumo da identidade mudou, entao e' reavaliada
+    await service.importWorkouts('user-1', { workouts: [workout({ uuid: UUID_B, distanceMeters: undefined })] });
+    log.distanceMeters = null;
+    await service.importWorkouts('user-1', { workouts: [workout({ uuid: UUID_B, distanceMeters: 5000 })] });
+    const second = [...logs.values()][1];
+    expect(second.distanceMeters).toBe(5000);
+    expect(identity.evaluateSafely).toHaveBeenCalledTimes(3); // 1a criacao + 2a criacao + distancia completada
+  });
+});
+
+describe('Apple Saude — percurso GPS (28/10/2026)', () => {
+  const pts = (n: number): Array<[number, number, number, number | null]> => Array.from({ length: n }, (_, i) => [i * 5, -23.5 + i * 0.0001, -46.6 + i * 0.0001, 760 + (i % 3)]);
+  const recorded = (...groups: string[]) => ({ mode: 'recorded' as const, allowed: ['activity', ...groups] });
+
+  it('sem consentimento registrado para o percurso o envio e recusado (a autorizacao do iOS nao basta); legacy e blocked tambem', async () => {
+    for (const consent of [{ mode: 'legacy' as const, allowed: [] }, { mode: 'blocked' as const, allowed: [] }, recorded(), recorded('activity_sensors')]) {
+      const { service } = buildService({ consent });
+      await expect(service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(10) }] })).rejects.toThrow('percurso');
+    }
+  });
+
+  it('guarda o percurso de treino JA importado, sem depender de ele ter sido criado ou enriquecido agora; altitude so com o grupo de sensores', async () => {
+    const { service, logs, points } = buildService({ consent: recorded('activity_route') });
+    await service.importWorkouts('user-1', { workouts: [workout()] }); // treino importado antes, sem rota
+    await service.importWorkouts('user-1', { workouts: [workout()] }); // reimportado: nada novo (nao enriquece)
+    const result = await service.importRoutes('user-1', { routes: [{ recordId: UUID_A.toUpperCase(), points: pts(30) }] });
+    expect(result).toMatchObject({ stored: 1, rejected: 0, items: [{ recordId: UUID_A.toLowerCase(), status: 'stored', points: 30 }] });
+    expect([...logs.values()][0].hasRoute).toBe(true);
+    expect(points).toHaveLength(30);
+    expect(points.every((p) => p.elevationMeters === null && p.provider === 'apple_health')).toBe(true);
+    const withAltitude = buildService({ consent: recorded('activity_route', 'activity_sensors') });
+    await withAltitude.service.importWorkouts('user-1', { workouts: [workout()] });
+    await withAltitude.service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(5) }] });
+    expect(withAltitude.points.some((p) => p.elevationMeters !== null)).toBe(true);
+  });
+
+  it('limites explicitos por requisicao: rotas demais e recusado, rota acima do limite de pontos e rejeitada (nao aceita calada) e atividade desconhecida volta com motivo', async () => {
+    const { service } = buildService({ consent: recorded('activity_route') });
+    await service.importWorkouts('user-1', { workouts: [workout()] });
+    const many = Array.from({ length: APPLE_ROUTE_LIMITS.maxRoutesPerRequest + 1 }, () => ({ recordId: UUID_A, points: pts(5) }));
+    await expect(service.importRoutes('user-1', { routes: many })).rejects.toThrow('rotas_demais');
+    await expect(service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(APPLE_ROUTE_LIMITS.maxPointsPerRoute + 1) }] })).rejects.toThrow('nenhuma_rota_valida');
+    const mixed = await service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(APPLE_ROUTE_LIMITS.maxPointsPerRoute) }, { recordId: UUID_B, points: pts(10) }] });
+    expect(mixed).toMatchObject({ stored: 1, rejected: 1 });
+    expect(mixed.items.find((i) => i.recordId === UUID_B.toLowerCase())).toMatchObject({ status: 'rejected', reason: 'atividade_nao_encontrada' });
+    // o corpo de uma requisicao com o maximo permitido cabe no limite de bytes combinado com o app
+    const biggest = JSON.stringify({ routes: Array.from({ length: 1 }, () => ({ recordId: UUID_A, points: pts(APPLE_ROUTE_LIMITS.maxPointsPerRoute).map((p) => [p[0], Number(p[1].toFixed(5)), Number(p[2].toFixed(5)), p[3]]) })) });
+    expect(biggest.length).toBeLessThan(APPLE_ROUTE_LIMITS.maxRequestBytes); // 1 rota no maximo de pontos (coordenadas com 5 casas) cabe no orcamento de 60 KB, abaixo do limite de ~100 KB do corpo
+  });
+
+  it('falha parcial e recuperacao: a rota que falhou segue pendente e e enviada depois, sem duplicar a que ja foi guardada', async () => {
+    const { service, logs, points, failRoutes } = buildService({ consent: recorded('activity_route'), failRouteWriteFor: [UUID_B.toLowerCase()] });
+    await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    const first = await service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(20) }, { recordId: UUID_B, points: pts(20) }] });
+    expect(first).toMatchObject({ stored: 1, rejected: 1 });
+    expect(first.items.find((i) => i.recordId === UUID_B.toLowerCase())).toMatchObject({ status: 'rejected', reason: 'falha_ao_gravar' });
+    const pending = await service.pendingRoutes('user-1', { recordIds: [UUID_A, UUID_B, '0c0c0c0c-9999-4999-8999-000000000000'] });
+    expect(pending).toMatchObject({ pending: [UUID_B.toLowerCase()], complete: [UUID_A.toLowerCase()], notImported: ['0c0c0c0c-9999-4999-8999-000000000000'] });
+    expect(pending.limits).toEqual(APPLE_ROUTE_LIMITS);
+    // recuperacao: a falha era transitoria; o app consulta os pendentes e reenvia SO' a que falta
+    const logB = [...logs.values()].find((l) => l.externalId === UUID_B.toLowerCase())!;
+    expect(logB.hasRoute).not.toBe(true);
+    failRoutes.clear();
+    const retry = await service.importRoutes('user-1', { routes: [{ recordId: pending.pending[0], points: pts(20) }] });
+    expect(retry).toMatchObject({ stored: 1, rejected: 0 });
+    expect(logB.hasRoute).toBe(true);
+    expect(await service.pendingRoutes('user-1', { recordIds: [UUID_A, UUID_B] })).toMatchObject({ pending: [], complete: [UUID_A.toLowerCase(), UUID_B.toLowerCase()] });
+    // reenviar a rota ja completa nao e' necessario, mas se acontecer refaz sem duplicar pontos
+    const again = await service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(20) }] });
+    expect(again).toMatchObject({ stored: 1, rejected: 0 });
+    expect(points.filter((p) => p.activityLogId === [...logs.values()].find((l) => l.externalId === UUID_A.toLowerCase())!.id)).toHaveLength(20);
+  });
+
+  it('consulta de pendentes valida a lista (vazia, grande demais) e so enxerga treinos da propria aluna', async () => {
+    const { service } = buildService({ consent: recorded('activity_route') });
+    await service.importWorkouts('user-1', { workouts: [workout()] });
+    await expect(service.pendingRoutes('user-1', { recordIds: [] })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.pendingRoutes('user-1', { recordIds: Array.from({ length: APPLE_ROUTE_LIMITS.maxPendingIds + 1 }, () => UUID_A) })).rejects.toBeInstanceOf(BadRequestException);
+    const other = await service.pendingRoutes('user-2', { recordIds: [UUID_A] });
+    expect(other).toMatchObject({ pending: [], complete: [], notImported: [UUID_A.toLowerCase()] });
   });
 });

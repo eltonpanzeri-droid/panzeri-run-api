@@ -50,10 +50,10 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'apple_watch',
     name: 'Apple Watch',
-    summary: 'Envio de treinos ao Apple Watch em validação. Ainda não está disponível para os alunos.',
+    summary: 'Importa as suas corridas do app Saúde do iPhone, com as medidas e o percurso que você autorizar (no iPhone e no Panzeri Run). O envio de treinos ao Apple Watch segue em validação.',
     availability: 'preparing',
     platforms: ['ios_native'],
-    capabilities: { receiveActivities: false, sendWorkouts: true },
+    capabilities: { receiveActivities: true, sendWorkouts: true },
   },
   {
     id: 'health_connect',

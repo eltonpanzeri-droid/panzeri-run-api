@@ -23,6 +23,8 @@ export interface AppleRunningWorkout {
   endDate: string;
   durationSeconds: number;
   distanceMeters: number | null;
+  // 'unavailable' = o HealthKit nao tem estatistica de distancia para o treino (nao e' zero); 'reported' = valor informado (inclusive 0).
+  distanceStatus?: 'reported' | 'unavailable';
   // UUID do Panzeri Run quando o treino foi executado a partir de um plano agendado por nos (round trip); senao null.
   workoutPlanId: string | null;
   // Medidas associadas ao treino no app Saude (28/10/2026). So' existem quando o iOS as entregou: sem autorizacao ou sem dado, o campo falta (nunca zero).

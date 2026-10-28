@@ -39,6 +39,20 @@ export interface NormalizedAppleWorkout {
   providerMetrics: Record<string, unknown>;
 }
 
+// Situacao da distancia como a ORIGEM a informou (28/10/2026). Nao interpretamos: so' registramos o que o HealthKit disse.
+//  measured             - valor > 0 informado.
+//  zero_reported        - a origem informou 0 m. Pode ser treino sem amostras de distancia (registro manual, outro app) ou distancia realmente zero; NAO ha evidencia para decidir, entao o 0
+//                         e' mantido como veio e a limitacao e' sinalizada (providerMetrics.distanceLimitation).
+//  absent               - campo ausente no envio (aplicativo antigo ou treino sem estatistica de distancia).
+//  unavailable_at_source- o aplicativo novo declarou explicitamente que o HealthKit nao tem estatistica de distancia para o treino.
+// Valor ilegivel (nao numerico/negativo) NAO e' uma situacao: o treino e' rejeitado (falha de leitura/conversao) com motivo identificavel.
+export type DistanceStatus = 'measured' | 'zero_reported' | 'absent' | 'unavailable_at_source';
+
+export interface NormalizeOptions {
+  // false = a aluna nao autorizou (no servidor) o grupo de sensores: FC, passos/cadencia, potencia, biomecanica e elevacao sao descartados. Padrao true (compatibilidade e testes).
+  sensors?: boolean;
+}
+
 export type NormalizeResult = { ok: true; value: NormalizedAppleWorkout } | { ok: false; reason: string };
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -93,7 +107,8 @@ function inRange(value: unknown, min: number, max: number): number | null {
   return n !== null && n >= min && n <= max ? n : null;
 }
 
-export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
+export function normalizeAppleHealthWorkout(input: unknown, options: NormalizeOptions = {}): NormalizeResult {
+  const sensorsAllowed = options.sensors !== false;
   if (!input || typeof input !== 'object' || Array.isArray(input)) return { ok: false, reason: 'item_invalido' };
   const w = input as Record<string, unknown>;
 
@@ -112,22 +127,22 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
   const rawDistance = w.distanceMeters;
   const distanceNumber = asFiniteNumber(rawDistance);
   if (rawDistance !== undefined && rawDistance !== null && (distanceNumber === null || distanceNumber < 0)) return { ok: false, reason: 'distancia_invalida' };
-  // 28/10/2026: o HealthKit informa 0 m para treino sem amostras de distancia (registro manual, outro app). Corrida com 0 m nao e' medida: e' AUSENCIA. O valor original
-  // continua no raw (auditoria); o campo canonico fica null para nao virar "0,00 km" nem divergencia falsa na identidade fisica.
-  const canonicalDistance = distanceNumber !== null && distanceNumber > 0 ? distanceNumber : null;
+  const distanceHint = asString(w.distanceStatus, 30);
+  const distanceStatus: DistanceStatus = distanceNumber === null ? (distanceHint === 'unavailable' ? 'unavailable_at_source' : 'absent') : distanceNumber === 0 ? 'zero_reported' : 'measured';
 
-  const stepCount = inRange(w.stepCount, 1, 200_000);
+  // Grupo 'sensores' (so' com autorizacao registrada no servidor): FC, passos (base da cadencia), potencia, biomecanica e elevacao. Energia ativa e velocidade fazem parte do exercicio.
   const durationForCadence = durationNumber !== null && durationNumber > 0 ? durationNumber : null;
+  const stepCount = sensorsAllowed ? inRange(w.stepCount, 1, 200_000) : null;
   const energy = inRange(w.activeEnergyKcal, 0, 20_000);
-  const avgHr = inRange(w.avgHeartRateBpm, 20, 260);
-  const maxHr = inRange(w.maxHeartRateBpm, 20, 260);
-  const power = inRange(w.powerAvgWatts, 1, 3000);
-  const elevation = inRange(w.elevationGainMeters, 0, 20_000);
+  const avgHr = sensorsAllowed ? inRange(w.avgHeartRateBpm, 20, 260) : null;
+  const maxHr = sensorsAllowed ? inRange(w.maxHeartRateBpm, 20, 260) : null;
+  const power = sensorsAllowed ? inRange(w.powerAvgWatts, 1, 3000) : null;
+  const elevation = sensorsAllowed ? inRange(w.elevationGainMeters, 0, 20_000) : null;
   const extra = {
     avgSpeedMetersPerSecond: inRange(w.avgSpeedMetersPerSecond, 0, 30),
-    avgStrideLengthMeters: inRange(w.avgStrideLengthMeters, 0, 5),
-    avgGroundContactTimeMs: inRange(w.avgGroundContactTimeMs, 0, 2000),
-    avgVerticalOscillationCm: inRange(w.avgVerticalOscillationCm, 0, 50),
+    avgStrideLengthMeters: sensorsAllowed ? inRange(w.avgStrideLengthMeters, 0, 5) : null,
+    avgGroundContactTimeMs: sensorsAllowed ? inRange(w.avgGroundContactTimeMs, 0, 2000) : null,
+    avgVerticalOscillationCm: sensorsAllowed ? inRange(w.avgVerticalOscillationCm, 0, 50) : null,
   };
 
   const sourceName = asString(w.sourceName);
@@ -160,6 +175,7 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         endDate: endedAt.toISOString(),
         durationSeconds: durationNumber,
         distanceMeters: distanceNumber,
+        distanceStatus: distanceNumber === null ? distanceHint : null,
         activeEnergyKcal: energy,
         avgHeartRateBpm: avgHr,
         maxHeartRateBpm: maxHr,
@@ -177,7 +193,7 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         startedAt,
         utcOffsetMinutes,
         durationSec: durationNumber === null ? null : Math.round(durationNumber),
-        distanceMeters: canonicalDistance,
+        distanceMeters: distanceNumber,
         caloriesKcal: energy === null ? null : Math.round(energy),
         avgHeartRateBpm: avgHr === null ? null : Math.round(avgHr),
         maxHeartRateBpm: maxHr === null ? null : Math.round(maxHr),
@@ -196,7 +212,9 @@ export function normalizeAppleHealthWorkout(input: unknown): NormalizeResult {
         isIndoor: typeof w.isIndoor === 'boolean' ? w.isIndoor : null,
         timeZone,
         endedAt: endedAt.toISOString(),
-        reportedDistanceMeters: distanceNumber,
+        distanceStatus,
+        // Zero informado sem evidencia de distancia medida: mantido como veio; esta limitacao aparece no painel e nao altera a classificacao da atividade.
+        distanceLimitation: distanceStatus === 'zero_reported' ? 'zero_informado_pela_origem_sem_evidencia_de_distancia_medida' : null,
         stepCount,
         cadenceBasis: stepCount !== null && durationForCadence !== null ? 'steps_over_duration' : null,
         ...extra,
