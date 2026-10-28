@@ -9145,7 +9145,7 @@ function trendChannel(values: Array<number | null>, size: number, minCount: numb
  *  andamento nunca entra no calculo. */
 function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, linearTrend = false }: {
   rows: Array<{ label: string } & Record<string, number | string | null | undefined>>;
-  bars: Array<{ key: string; label: string; color: string }>;
+  bars: Array<{ key: string; label: string; color: string; stack?: string }>;
   base: number[];
   inProgress: boolean[];
   unit: string;
@@ -9190,7 +9190,7 @@ function WeeklyBarsChart({ rows, bars, base, inProgress, unit, height = 280, lin
           <Tooltip formatter={(value: unknown, name: unknown) => (Array.isArray(value) ? `${fmt(value[0])} a ${fmt(value[1])}` : name === 'Média 21 dias' || name === 'Média 60 dias' || name === 'Média 200 dias' || name === 'Tendência linear' ? fmt(value) : (typeof value === 'number' ? (Number.isInteger(value) ? String(value) : fmt(value)) : '—'))} />
           {isOn('canal') && has(channel) ? <Area type="monotone" dataKey="canal" name="Canal de tendência" stroke="#6366f1" strokeOpacity={0.5} fill="#6366f1" fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /> : null}
           {isOn('canal') && has(channel) ? <Line type="monotone" dataKey="centro" name="Centro do canal (média de 8 semanas)" stroke="#6366f1" strokeWidth={1} strokeDasharray="3 3" dot={false} connectNulls={false} /> : null}
-          {bars.map((bar) => (isOn(bar.key) ? <Bar key={bar.key} dataKey={bar.key} name={bar.label} fill={bar.color} maxBarSize={18} radius={[3, 3, 0, 0]} /> : null))}
+          {bars.map((bar) => (isOn(bar.key) ? <Bar key={bar.key} dataKey={bar.key} name={bar.label} fill={bar.color} stackId={bar.stack} maxBarSize={18} radius={[3, 3, 0, 0]} /> : null))}
           {isOn('mm21') ? <Line type="monotone" dataKey="mm21" name="Média 21 dias" stroke="#e0a72d" strokeWidth={2} dot={false} connectNulls={false} /> : null}
           {isOn('mm60') ? <Line type="monotone" dataKey="mm60" name="Média 60 dias" stroke="#a855f7" strokeWidth={2} dot={false} connectNulls={false} /> : null}
           {isOn('mm200') ? <Line type="monotone" dataKey="mm200" name="Média 200 dias" stroke="#ec4899" strokeWidth={2} dot={false} connectNulls={false} /> : null}
@@ -9223,8 +9223,8 @@ function KmEvolutionChart({ weeks, period }: { weeks: WeekData[]; period: number
       linearTrend
       bars={[
         { key: 'prescrito', label: 'Prescrito', color: '#94a3b8' },
-        { key: 'realizado', label: 'Realizado', color: '#22c55e' },
-        { key: 'extras', label: 'Extras', color: '#06b6d4' },
+        { key: 'realizado', label: 'Realizado', color: '#22c55e', stack: 'real' },
+        { key: 'extras', label: 'Extras (em cima do realizado)', color: '#06b6d4', stack: 'real' },
       ]}
     />
   );
@@ -10321,17 +10321,17 @@ function LoadChartACR({ weeks }: { weeks: WeekData[] }) {
  */
 function LoadChartAderencia({ weeks, history }: {
   weeks: WeekData[];
-  history?: Array<{ startDate: string | null; sessions?: Array<{ modality: string; completionStatus: string }> | null }>;
+  history?: Array<{ startDate: string | null; sessions?: Array<{ modality: string; completionStatus: string; structure?: Record<string, unknown> | null }> | null }>;
 }) {
   const [modFilter, setModFilter] = useState<string>('all');
 
   if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem dados.</p>;
 
   // Map: weekStart → sessions[]
-  const planMap = new Map<string, Array<{ modality: string; completionStatus: string }>>();
+  const planMap = new Map<string, Array<{ modality: string; completionStatus: string; isExtra: boolean }>>();
   for (const plan of (history ?? [])) {
     const ws = String(plan.startDate ?? '').slice(0, 10);
-    planMap.set(ws, (plan.sessions ?? []).map((s) => ({ modality: s.modality ?? '', completionStatus: s.completionStatus ?? '' })));
+    planMap.set(ws, (plan.sessions ?? []).map((s) => ({ modality: s.modality ?? '', completionStatus: s.completionStatus ?? '', isExtra: isExtraSession(s.structure) })));
   }
 
   function normMod(m: string): string {
@@ -10357,12 +10357,14 @@ function LoadChartAderencia({ weeks, history }: {
   const barData = weeks.map((w) => {
     const all = planMap.get(w.startDate) ?? [];
     const filtered = modFilter === 'all' ? all : all.filter((s) => normMod(s.modality) === modFilter);
-    const prescritos = filtered.length;
-    const feitos = filtered.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted').length;
-    const perdidos = filtered.filter((s) => s.completionStatus === 'missed').length;
-    const semReg = filtered.filter((s) => s.completionStatus === 'sem_registro').length;
-    // Extras: só no modo Geral — sessões com source='student' e type='extra' (isExtraSession)
-    const extras = modFilter === 'all' ? (w.extraSessions ?? 0) : 0;
+    // 28/10/2026: extra (do aluno ou detectado pelo relogio) nunca entra em prescritos/feitos/perdidos/sem registro (o backend ja' o exclui da aderencia); e agora aparece tambem
+    // quando se filtra por modalidade, empilhado sobre os feitos.
+    const planned = filtered.filter((s) => !s.isExtra);
+    const prescritos = planned.length;
+    const feitos = planned.filter((s) => s.completionStatus === 'done' || s.completionStatus === 'adjusted').length;
+    const perdidos = planned.filter((s) => s.completionStatus === 'missed').length;
+    const semReg = planned.filter((s) => s.completionStatus === 'sem_registro').length;
+    const extras = filtered.filter((s) => s.isExtra).length;
     return { startDate: w.startDate, prescritos, feitos, perdidos, semReg, extras };
   });
 
@@ -10400,10 +10402,10 @@ function LoadChartAderencia({ weeks, history }: {
         height={260}
         bars={[
           { key: 'prescritos', label: 'Prescritos', color: EVOLUTION_COLORS.prescrito },
-          { key: 'feitos', label: 'Feitos', color: EVOLUTION_COLORS.feito },
+          { key: 'feitos', label: 'Feitos', color: EVOLUTION_COLORS.feito, stack: 'real' },
           { key: 'perdidos', label: 'Perdidos', color: EVOLUTION_COLORS.perdido },
           { key: 'semRegistro', label: 'Sem registro', color: EVOLUTION_COLORS.semRegistro },
-          ...(modFilter === 'all' ? [{ key: 'extras', label: 'Extras (além do plano)', color: EVOLUTION_COLORS.extra }] : []),
+          { key: 'extras', label: 'Extras (além do plano, em cima dos feitos)', color: EVOLUTION_COLORS.extra, stack: 'real' },
         ]}
       />
     </div>
