@@ -152,6 +152,8 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
   const lastObservation = current?.observations[lastIndex];
   const lastNumericPosition = current && lastObservation ? current.observations.filter((o) => typeof o.value === 'number').indexOf(lastObservation) : -1;
   const lastReference = current && lastObservation ? referenceFor(current, lastObservation, lastNumericPosition) : null;
+  // Cor por modalidade em QUALQUER indicador cujas observacoes tem modalidade (treino, feedback do treino, sono relatado no treino...); indicadores sem modalidade (relogio) mantem a cor padrao
+  const colorByModality = Boolean(current?.observations.some((o) => o.context?.modality));
   const shown = selected != null && current ? current.observations[selected] : null;
   const shownReference = current && shown ? referenceFor(current, shown, current.observations.filter((o) => typeof o.value === 'number').indexOf(shown)) : null;
 
@@ -214,9 +216,9 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
             {loading && !current && <p role="status" className="evx-empty">Carregando série…</p>}
             {current && (current.mathApplicable
               ? <>
-                <ExplorerChart snapshot={current} range={range} layers={layers} selectedIndex={selected} onSelect={setSelected} title={active.constructLabel ?? active.id} byModality={categoryOf(active) === 'treinos'} />
+                <ExplorerChart snapshot={current} range={range} layers={layers} selectedIndex={selected} onSelect={setSelected} title={active.constructLabel ?? active.id} byModality={colorByModality} />
                 <ChartLegend snapshot={current} layers={layers} onToggle={toggleLayer} />
-                {categoryOf(active) === 'treinos' && <ModalityKey snapshot={current} range={range} />}
+                {colorByModality && <ModalityKey snapshot={current} range={range} />}
                 <Summary snapshot={current} unit={unit} lastObservation={lastObservation} lastReference={lastReference} />
               </>
               : <CategoricalPanel snapshot={current} range={range} selected={selected} onSelect={setSelected} />)}
