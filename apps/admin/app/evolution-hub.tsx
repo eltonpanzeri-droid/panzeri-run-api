@@ -19,7 +19,7 @@ export type { PeriodSelection };
 export default function EvolutionHub({ studentId, token, studentIsFemale, exportProfile, period, onPeriodChange, onOpenOriginal, onOpenIntegrations, slots, initialTab = 'geral' }: {
   studentId: string; token: string; studentIsFemale: boolean | null; exportProfile?: ExportProfile;
   period: PeriodSelection; onPeriodChange: (next: PeriodSelection) => void; onOpenOriginal: (target: { date: string; sessionId?: string }) => void; onOpenIntegrations?: () => void;
-  slots: Record<'geral' | 'treinos' | 'saude' | 'linha' | 'registros', React.ReactNode>; initialTab?: HubTab;
+  slots: Record<'geral' | 'volume' | 'carga' | 'treinos' | 'saude' | 'linha' | 'registros', React.ReactNode>; initialTab?: HubTab;
 }) {
   const [tab, setTab] = React.useState<HubTab>(initialTab);
   const [visited, setVisited] = React.useState<Set<HubTab>>(new Set([initialTab]));
@@ -48,7 +48,7 @@ export default function EvolutionHub({ studentId, token, studentIsFemale, export
       </div>
       {slots.geral}
     </>)}
-    {panel('explorar', <EvolutionExplorer key={studentId} studentId={studentId} token={token} studentIsFemale={studentIsFemale} period={period} onOpenOriginal={onOpenOriginal} onOpenIntegrations={onOpenIntegrations} />)}
+    {panel('explorar', <EvolutionExplorer key={studentId} studentId={studentId} token={token} studentIsFemale={studentIsFemale} period={period} onOpenOriginal={onOpenOriginal} onOpenIntegrations={onOpenIntegrations} panels={{ volume: slots.volume, carga: slots.carga }} />)}
     {panel('comparar', <>
       <p className="evh-note">Compare séries na mesma janela de tempo, cada uma com a sua escala, fonte e significado. Coincidência temporal não demonstra causa nem efeito.</p>
       <TrainingIntelligenceStudio key={studentId} accessToken={token} initialStudentId={studentId} exportProfile={exportProfile} compareOnly controlledPeriod={period} />

@@ -3920,9 +3920,8 @@ function StudentPanel({
         const allSessions = flatFeedbackSessions(hist);
 
         // Contadores para badges
-        let feedbackSessions = 0; let commentCount = 0;
+        let commentCount = 0;
         for (const s of allSessions) {
-          if (s.perceivedEffort != null || s.satisfactionElaboracao != null || s.preSleepQuality != null) feedbackSessions++;
           if (s.feedback?.trim()) commentCount++;
         }
         const PAIN_KW = ['dor', 'lesao', 'lesão', 'machuc', 'inflam', 'torce', 'torci'];
@@ -3986,23 +3985,20 @@ function StudentPanel({
                   </div>
                 </>
               ),
+              volume: (
+                <EvoSection wide defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
+                  desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Para prescrito/realizado/extra separados, médias e faixa habitual: aba Explorar → Treinos.">
+                  <KmEvolutionChart weeks={filteredWeeks} period={999} />
+                </EvoSection>
+              ),
+              carga: (
+                <EvoSection wide defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+                  desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
+                  <LoadAnalysisSection weeks={filteredWeeks} />
+                </EvoSection>
+              ),
               treinos: (
                 <div className="evoGrid">
-                  <EvoSection order={1} defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
-                    desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Para prescrito/realizado/extra separados, médias e faixa habitual: aba Explorar → Treinos.">
-                    <KmEvolutionChart weeks={filteredWeeks} period={999} />
-                  </EvoSection>
-
-                  <EvoSection order={3} defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-                    desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
-                    <LoadAnalysisSection weeks={filteredWeeks} />
-                  </EvoSection>
-
-                  <EvoSection order={4} defaultOpen icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
-                    desc="RPE 1–10 por sessão, semana ou mês. Filtre por modalidade. Clique nas bolinhas do calendário para ver o treino completo.">
-                    <EffortSection history={hist} period={evolPeriodWeeks} />
-                  </EvoSection>
-
                   <EvoSection order={5} wide defaultOpen icon="📅" title="Calendário de treinos" badge="8 sem"
                     desc="Últimas 8 semanas. Cor = status do treino (feito / perdido / extra / sem registro / futuro). Anel colorido = nível de esforço percebido. Ponto ciano no canto = dia com sessão extra. Clique em qualquer bolinha para ver o treino completo na aba Semanas anteriores.">
                     <TrainingCalendarDots history={hist} onDayClick={handleCalendarDayClick} />
@@ -9739,294 +9735,8 @@ function matchesModality(modality: string, filter: string): boolean {
   return true;
 }
 
-/** Esforço percebido — scatter plot por sessão + média semanal + tendência + filtro modalidade. */
-function EffortSection({ history, period }: { history: StudentDetail['history']; period?: number }) {
-  const [aggBy, setAggBy] = useState<'sessao' | 'semana' | 'mes'>('semana');
-  const [modalityFilter, setModalityFilter] = useState<string>('all');
-  // 15/10/2026 (pedido de Elton): canal de tendencia e media movel no lugar da zona fixa 4-6, com liga/desliga.
-  const [trendOn, setTrendOn] = useState({ canal: true, media: true });
-  const trendChips = (
-    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 0 6px' }}>
-      <SeriesChip label="Média móvel" color="#6366f1" on={trendOn.media} onClick={() => setTrendOn((current) => ({ ...current, media: !current.media }))} />
-      <SeriesChip label="Canal de tendência" color="#6366f1" on={trendOn.canal} onClick={() => setTrendOn((current) => ({ ...current, canal: !current.canal }))} />
-    </div>
-  );
-  const allSessions = flatFeedbackSessions(history).filter((s) => s.perceivedEffort != null);
-  if (allSessions.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Nenhum esforço registrado ainda.</p>;
 
-  // Filtra por período e modalidade
-  const cutoff = period && period !== 999
-    ? new Date(Date.now() - period * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    : '0000-00-00';
-  const sessions = allSessions
-    .filter((s) => s.date >= cutoff)
-    .filter((s) => matchesModality(s.modality, modalityFilter));
 
-  const effortColor = (v: number) => v <= 3 ? '#93c5fd' : v <= 6 ? '#fbbf24' : v <= 8 ? '#fb923c' : '#ef4444';
-
-  const VW = 620, VH = 200;
-  const ML = 28, MR = 10, MT = 12, MB = 32;
-  const CW = VW - ML - MR, CH = VH - MT - MB;
-  const yFn = (v: number) => MT + CH - ((v - 1) / 9) * CH;
-
-  // Filtros de modalidade + agregação. Media movel, canal, tendencia e media geral sao SEMPRE calculados so' com as sessoes da modalidade escolhida (nao do agregado).
-  const scopeLabel = MODALITY_FILTERS.find((f) => f.key === modalityFilter)?.label.replace(/^S+s/, '') ?? 'todas';
-  const FilterBar = () => (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      {MODALITY_FILTERS.map((f) => {
-        const count = allSessions.filter((s) =>
-          s.date >= cutoff && matchesModality(s.modality, f.key)
-        ).length;
-        if (f.key !== 'all' && count === 0) return null;
-        return (
-          <button key={f.key} type="button"
-            style={{ padding: '2px 9px', fontSize: 11, borderRadius: 6,
-              background: modalityFilter === f.key ? '#6366f1' : 'var(--surface)',
-              color: modalityFilter === f.key ? '#fff' : 'var(--muted)',
-              border: `1px solid ${modalityFilter === f.key ? '#6366f1' : 'var(--line)'}`,
-              cursor: 'pointer' }}
-            onClick={() => setModalityFilter(f.key)}>
-            {f.label} {f.key !== 'all' && <span style={{ opacity: 0.7 }}>({count})</span>}
-          </button>
-        );
-      })}
-      {modalityFilter !== 'all' ? <span style={{ fontSize: 10, color: 'var(--muted)' }}>média, canal e tendência calculados só com {scopeLabel}</span> : null}
-    </div>
-  );
-
-  if (aggBy === 'sessao') {
-    // Scatter plot individual — cada sessão é um ponto
-    const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
-    if (sorted.length === 0) return <div><AggToggle value={aggBy} onChange={setAggBy} /><FilterBar /><p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período/modalidade.</p></div>;
-    const xFn = (i: number) => ML + (i / Math.max(1, sorted.length - 1)) * CW;
-    // Média móvel de 5 sessões
-    const movAvg = sorted.map((_, i) => {
-      const slice = sorted.slice(Math.max(0, i-2), i+3);
-      return slice.reduce((s, x) => s + x.perceivedEffort!, 0) / slice.length;
-    });
-    const avg = sessions.reduce((s, x) => s + x.perceivedEffort!, 0) / sessions.length;
-    // Canal de tendencia: media ± 2 desvios das ultimas 10 sessoes (precisa de 5), limitado a escala 1-10.
-    const sessionChannel = trendChannel(sorted.map((s) => s.perceivedEffort!), 12, 12, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
-    const sessionChannelPath = sessionChannel.length > 1
-      ? `M ${sessionChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...sessionChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
-      : '';
-    const xLabels = sorted.length <= 10
-      ? sorted.map((s, i) => ({ i, label: s.date.slice(5).replace('-', '/') }))
-      : [0, Math.floor(sorted.length/3), Math.floor(2*sorted.length/3), sorted.length-1]
-          .map((i) => ({ i, label: sorted[i].date.slice(5).replace('-', '/') }));
-    return (
-      <div>
-        <AggToggle value={aggBy} onChange={setAggBy} />
-        <FilterBar />
-        {trendChips}
-        <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
-          {[1,2,3,4,5,6,7,8,9,10].map((v) => (
-            <g key={v}>
-              <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3} strokeDasharray={v===5||v===8?'4,3':''}/>
-              <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
-            </g>
-          ))}
-          {/* Canal de tendência (substitui a zona fixa 4–6) */}
-          {trendOn.canal && sessionChannelPath ? <path d={sessionChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
-          {/* Linha de tendência (média móvel) */}
-          {trendOn.media ? <polyline
-            points={movAvg.map((v, i) => `${xFn(i)},${yFn(v)}`).join(' ')}
-            fill="none" stroke="#6366f1" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.7}
-          /> : null}
-          {/* Pontos */}
-          {sorted.map((s, i) => (
-            <circle key={i} cx={xFn(i)} cy={yFn(s.perceivedEffort!)} r={5}
-              fill={effortColor(s.perceivedEffort!)} stroke="var(--bg)" strokeWidth={1.5} opacity={0.9}>
-              <title>{s.date} — {s.title || s.modality}: {s.perceivedEffort}/10</title>
-            </circle>
-          ))}
-          {/* Linha de média geral */}
-          <line x1={ML} x2={VW-MR} y1={yFn(avg)} y2={yFn(avg)} stroke="#6366f1" strokeWidth={1} strokeDasharray="6,4" opacity={0.4}/>
-          <text x={VW-MR+2} y={yFn(avg)+3} fontSize={8} fill="#6366f1" opacity={0.8}>⌀{avg.toFixed(1)}</text>
-          {/* Labels eixo X */}
-          {xLabels.map(({i,label}) => (
-            <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">{label}</text>
-          ))}
-        </svg>
-        <EffortLegend sessions={sessions} />
-      </div>
-    );
-  }
-
-  if (aggBy === 'mes') {
-    // Agrupado por mês — média mensal
-    const byMonth = new Map<string, number[]>();
-    for (const s of sessions) {
-      const month = s.date.slice(0, 7); // 'YYYY-MM'
-      if (!byMonth.has(month)) byMonth.set(month, []);
-      byMonth.get(month)!.push(s.perceivedEffort!);
-    }
-    const months = Array.from(byMonth.entries()).sort(([a],[b])=>a.localeCompare(b))
-      .map(([month, vals]) => ({ month, avg: vals.reduce((a,v)=>a+v,0)/vals.length, count: vals.length, min: Math.min(...vals), max: Math.max(...vals) }));
-    if (months.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
-    const gap = CW / months.length;
-    const barW = Math.max(8, Math.min(40, gap * 0.65));
-    const xFn = (i: number) => ML + i * gap + gap / 2;
-    // Canal de tendencia mensal: media ± 2 desvios dos ultimos 6 meses (precisa de 4); media movel de 3 meses. Sempre so' da modalidade filtrada.
-    const monthChannel = trendChannel(months.map((m) => m.avg), 6, 4, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
-    const monthChannelPath = monthChannel.length > 1
-      ? `M ${monthChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...monthChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
-      : '';
-    const monthMean3Points = months.map((_, i) => (i >= 2 ? `${xFn(i)},${yFn((months[i].avg + months[i - 1].avg + months[i - 2].avg) / 3)}` : null)).filter((p): p is string => p != null).join(' ');
-    return (
-      <div>
-        <AggToggle value={aggBy} onChange={setAggBy} />
-        <FilterBar />
-        {trendChips}
-        <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
-          {[1,3,5,7,8,10].map((v) => (
-            <g key={v}>
-              <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3}/>
-              <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
-            </g>
-          ))}
-          {trendOn.canal && monthChannelPath ? <path d={monthChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
-          {months.map((m, i) => (
-            <g key={i}>
-              {/* Barra min-max (amplitude) */}
-              <line x1={xFn(i)} x2={xFn(i)} y1={yFn(m.max)} y2={yFn(m.min)} stroke={effortColor(m.avg)} strokeWidth={3} opacity={0.25}/>
-              {/* Barra principal (média) */}
-              <rect x={xFn(i)-barW/2} y={yFn(m.avg)} width={barW} height={Math.max(1,yFn(1)-yFn(m.avg))} fill={effortColor(m.avg)} rx={3} opacity={0.85}/>
-              {/* Rótulo valor */}
-              <text x={xFn(i)} y={yFn(m.avg)-3} textAnchor="middle" fontSize={8} fontWeight={600} fill={effortColor(m.avg)}>{m.avg.toFixed(1)}</text>
-              <text x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
-                {m.month.slice(5)}/{m.month.slice(2,4)}
-              </text>
-            </g>
-          ))}
-          {trendOn.media && monthMean3Points.includes(' ') ? <polyline points={monthMean3Points} fill="none" stroke="#e0a72d" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} /> : null}
-        </svg>
-        <EffortLegend sessions={sessions} />
-      </div>
-    );
-  }
-
-  // aggBy === 'semana' (padrão) — barras de média semanal
-  const byWeek = new Map<string, number[]>();
-  for (const s of sessions) {
-    if (!byWeek.has(s.weekStart)) byWeek.set(s.weekStart, []);
-    byWeek.get(s.weekStart)!.push(s.perceivedEffort!);
-  }
-  const weeks = Array.from(byWeek.entries()).sort(([a],[b])=>a.localeCompare(b))
-    .map(([week, vals]) => ({ week, avg: vals.reduce((a,v)=>a+v,0)/vals.length, count: vals.length, min: Math.min(...vals), max: Math.max(...vals) }));
-  if (weeks.length === 0) return <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sem registros no período.</p>;
-
-  const gap = CW / weeks.length;
-  const barW = Math.max(6, Math.min(36, gap * 0.60));
-  const xFn = (i: number) => ML + i * gap + gap / 2;
-  // Tendência linear simples (regressão)
-  const n = weeks.length;
-  const meanX = (n-1)/2;
-  const meanY = weeks.reduce((s,w)=>s+w.avg,0)/n;
-  const slope = weeks.reduce((s,w,i)=>s+(i-meanX)*(w.avg-meanY),0) / weeks.reduce((s,_,i)=>s+(i-meanX)**2,0);
-  const intercept = meanY - slope * meanX;
-  const trendPts = `${xFn(0)},${yFn(intercept)} ${xFn(n-1)},${yFn(intercept + slope*(n-1))}`;
-  // Canal de tendencia semanal: media ± 2 desvios das ultimas 8 semanas (precisa de 4), limitado a escala 1-10; media movel de 3 semanas.
-  const weekChannel = trendChannel(weeks.map((w) => w.avg), 8, 8, 1).map((point, i) => (point ? { i, lower: point.lower, upper: Math.min(10, point.upper) } : null)).filter((point): point is { i: number; lower: number; upper: number } => point != null);
-  const weekChannelPath = weekChannel.length > 1
-    ? `M ${weekChannel.map((p) => `${xFn(p.i)} ${yFn(p.upper)}`).join(' L ')} L ${[...weekChannel].reverse().map((p) => `${xFn(p.i)} ${yFn(p.lower)}`).join(' L ')} Z`
-    : '';
-  const weekMean3 = weeks.map((_, i) => (i >= 2 ? (weeks[i].avg + weeks[i - 1].avg + weeks[i - 2].avg) / 3 : null));
-  const weekMean3Points = weekMean3.map((v, i) => (v == null ? null : `${xFn(i)},${yFn(v)}`)).filter((p): p is string => p != null).join(' ');
-
-  const xLabels = weeks.length <= 10
-    ? weeks.map((_,i)=>i)
-    : weeks.map((_,i)=>i).filter((i)=>i===0||i===n-1||i%Math.ceil(n/6)===0);
-
-  return (
-    <div>
-      <AggToggle value={aggBy} onChange={setAggBy} />
-      <FilterBar />
-      {trendChips}
-      <svg viewBox={`0 0 ${VW} ${VH}`} style={{ width: '100%', display: 'block' }}>
-        {[1,2,3,4,5,6,7,8,9,10].map((v) => (
-          <g key={v}>
-            <line x1={ML} x2={VW-MR} y1={yFn(v)} y2={yFn(v)} stroke="var(--line)" strokeWidth={v===5||v===8?0.8:0.3} strokeDasharray={v===5||v===8?'4,3':''}/>
-            <text x={ML-3} y={yFn(v)+3.5} textAnchor="end" fontSize={8} fill="var(--muted)">{v}</text>
-          </g>
-        ))}
-        {/* Canal de tendência (substitui a zona fixa 4–6) */}
-        {trendOn.canal && weekChannelPath ? <path d={weekChannelPath} fill="#6366f1" fillOpacity={0.13} stroke="#6366f1" strokeOpacity={0.35} strokeWidth={1} /> : null}
-        {/* Amplitude (linha min-max) */}
-        {weeks.map((w,i) => (
-          <line key={`r${i}`} x1={xFn(i)} x2={xFn(i)} y1={yFn(w.max)} y2={yFn(w.min)} stroke={effortColor(w.avg)} strokeWidth={2} opacity={0.2}/>
-        ))}
-        {/* Barras de média */}
-        {weeks.map((w,i) => (
-          <g key={i}>
-            <rect x={xFn(i)-barW/2} y={yFn(w.avg)} width={barW} height={Math.max(1,yFn(1)-yFn(w.avg))} fill={effortColor(w.avg)} rx={3} opacity={0.85}>
-              <title>{w.week}: média {w.avg.toFixed(1)} · min {w.min} · max {w.max} · {w.count} treino(s)</title>
-            </rect>
-            {/* Rótulo no topo da barra */}
-            {barW >= 16 && (
-              <text x={xFn(i)} y={yFn(w.avg)-3} textAnchor="middle" fontSize={7.5} fontWeight={600} fill={effortColor(w.avg)}>{w.avg.toFixed(1)}</text>
-            )}
-          </g>
-        ))}
-        {/* Linha de tendência */}
-        {n >= 3 && <line x1={xFn(0)} y1={yFn(intercept)} x2={xFn(n-1)} y2={yFn(intercept+slope*(n-1))}
-          stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6,3" opacity={0.6}/>}
-        {n >= 3 && <polyline points={trendPts} fill="none"/>}
-        {trendOn.media && weekMean3Points.includes(' ') ? <polyline points={weekMean3Points} fill="none" stroke="#e0a72d" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" opacity={0.9} /> : null}
-        {/* Labels eixo X */}
-        {xLabels.map((i) => (
-          <text key={i} x={xFn(i)} y={VH-4} textAnchor="middle" fontSize={8} fill="var(--muted)">
-            {weeks[i].week.slice(5).replace('-','/')}
-          </text>
-        ))}
-      </svg>
-      <EffortLegend sessions={sessions} />
-    </div>
-  );
-}
-
-function AggToggle({ value, onChange }: { value: 'sessao'|'semana'|'mes'; onChange: (v: 'sessao'|'semana'|'mes') => void }) {
-  return (
-    <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-      {(['sessao','semana','mes'] as const).map((v) => (
-        <button key={v} type="button"
-          style={{ padding: '2px 10px', fontSize: 11, borderRadius: 6,
-            background: value === v ? 'var(--accent)' : 'var(--surface)',
-            color: value === v ? '#fff' : 'var(--muted)',
-            border: `1px solid ${value === v ? 'var(--accent)' : 'var(--line)'}`,
-            cursor: 'pointer' }}
-          onClick={() => onChange(v)}>
-          {v === 'sessao' ? 'Por sessão' : v === 'semana' ? 'Por semana' : 'Por mês'}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function EffortLegend({ sessions }: { sessions: Array<{ perceivedEffort: number|null }> }) {
-  const counts = { facil: 0, moderado: 0, intenso: 0, maximo: 0 };
-  for (const s of sessions) {
-    const v = s.perceivedEffort!;
-    if (v <= 3) counts.facil++;
-    else if (v <= 6) counts.moderado++;
-    else if (v <= 8) counts.intenso++;
-    else counts.maximo++;
-  }
-  const total = sessions.length;
-  return (
-    <div style={{ display: 'flex', gap: 10, marginTop: 6, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
-      {[['#93c5fd','1-3 fácil', counts.facil],['#fbbf24','4-6 moderado',counts.moderado],
-        ['#fb923c','7-8 intenso',counts.intenso],['#ef4444','9-10 máximo',counts.maximo]].map(([c,l,n]) => (
-        <span key={l as string}>
-          <span style={{display:'inline-block',width:10,height:10,borderRadius:2,background:c as string,marginRight:3,verticalAlign:'middle'}}/>
-          {l} <span style={{ color: 'var(--text)', fontWeight: 600 }}>{n}</span>
-          <span style={{ fontSize: 10 }}> ({total > 0 ? Math.round((n as number/total)*100) : 0}%)</span>
-        </span>
-      ))}
-      <span style={{ marginLeft: 'auto' }}>{total} registro{total !== 1 ? 's' : ''}</span>
-    </div>
-  );
-}
 
 /** Satisfação por categoria — gráfico individual por categoria + filtro de modalidade. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
