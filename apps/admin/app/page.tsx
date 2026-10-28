@@ -3978,6 +3978,12 @@ function StudentPanel({
                 <>
                   <VisaoGeralSection sessions={filteredSessions} weeks={filteredWeeks} />
                   <EvolutionKeyNumbers weeks={allWeeks} period={evolPeriodWeeks} />
+                  <div className="evoGrid">
+                    <EvoSection order={1} wide defaultOpen icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
+                      desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal: compare com o histórico individual deste aluno.">
+                      <LoadChartAderencia weeks={filteredWeeks} history={hist} />
+                    </EvoSection>
+                  </div>
                 </>
               ),
               treinos: (
@@ -3990,11 +3996,6 @@ function StudentPanel({
                   <EvoSection order={3} defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
                     desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
                     <LoadAnalysisSection weeks={filteredWeeks} />
-                  </EvoSection>
-
-                  <EvoSection order={2} defaultOpen icon="📋" title="Aderência aos treinos" badge={filteredWeeks.length > 0 ? `${filteredWeeks.length} sem` : undefined}
-                    desc="% de treinos planejados que foram realizados por semana. As 5 categorias (prescrito/feito/perdido/sem registro/extra) são sempre mostradas separadas — nunca somadas escondendo o detalhe. Não existe uma meta universal: compare com o histórico individual deste aluno.">
-                    <LoadChartAderencia weeks={filteredWeeks} history={hist} />
                   </EvoSection>
 
                   <EvoSection order={4} defaultOpen icon="💪" title="Esforço percebido (RPE)" badge={feedbackSessions > 0 ? `${feedbackSessions} treinos` : undefined}
