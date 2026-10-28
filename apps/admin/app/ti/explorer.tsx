@@ -2,7 +2,7 @@
 import * as React from 'react';
 import { Info, Search, X } from 'lucide-react';
 import { API_URL, EVENT_TYPES, SOURCES, ContextEvent, PERIODS, dateKey, dateLabel, displayVariable, fmt, snapshotIsValid, windowFor, type Observation, type Variable } from './data';
-import { ChartLegend, DEFAULT_EXPLORER_LAYERS, ExplorerChart, type ExplorerLayers } from './explorer-chart';
+import { ChartLegend, DEFAULT_EXPLORER_LAYERS, ExplorerChart, ModalityKey, type ExplorerLayers } from './explorer-chart';
 import {
   CATEGORIES, MODALITY_LABELS, SIGNAL_LABEL, availableGroups, modalitiesQueryOf, referenceFor, statusOf, ucFirst,
   type Availability, type ExplorerSnapshot, type ExplorerVariable, type ModalityGroupId,
@@ -214,8 +214,9 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
             {loading && !current && <p role="status" className="evx-empty">Carregando série…</p>}
             {current && (current.mathApplicable
               ? <>
-                <ExplorerChart snapshot={current} range={range} layers={layers} selectedIndex={selected} onSelect={setSelected} title={active.constructLabel ?? active.id} />
+                <ExplorerChart snapshot={current} range={range} layers={layers} selectedIndex={selected} onSelect={setSelected} title={active.constructLabel ?? active.id} byModality={categoryOf(active) === 'treinos'} />
                 <ChartLegend snapshot={current} layers={layers} onToggle={toggleLayer} />
+                {categoryOf(active) === 'treinos' && <ModalityKey snapshot={current} range={range} />}
                 <Summary snapshot={current} unit={unit} lastObservation={lastObservation} lastReference={lastReference} />
               </>
               : <CategoricalPanel snapshot={current} range={range} selected={selected} onSelect={setSelected} />)}

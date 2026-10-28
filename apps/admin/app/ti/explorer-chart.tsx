@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import { chartAxis, dateKey, dateLabel, fmt, inWindow, time, type Observation } from './data';
+import { MODALITY_COLORS, MODALITY_COLOR_LABELS, modalityColorKey, modalityNameOf, type ModalityColorKey } from './modality-colors';
 import { SIGNAL_LABEL, referenceFor, layerLabelOf, type ExplorerSnapshot, type ReferencePoint, type ReferenceWindowKey } from './explorer-data';
 
 // Grafico principal da exploracao: uma COLUNA por observacao (duas sessoes no mesmo dia ficam lado a lado, cada uma clicavel), com as referencias ANTERIORES que o backend
@@ -10,10 +11,10 @@ export const DEFAULT_EXPLORER_LAYERS: ExplorerLayers = { mean: true, mm7: false,
 export const LAYER_COLORS: Record<keyof ExplorerLayers, string> = { mean: '#b9822e', mm7: '#12a19a', mm21: '#3a78e6', mm60: '#d8a118', mm200: '#8a5fd0', band: '#7a56c2' };
 const MOVING: ReferenceWindowKey[] = ['mm7', 'mm21', 'mm60', 'mm200'];
 
-type Bar = { observation: Observation; index: number; reference: ReferencePoint | null; x: number; width: number; value: number };
+type Bar = { observation: Observation; index: number; reference: ReferencePoint | null; x: number; width: number; value: number; colorKey: ModalityColorKey | null };
 
-export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect, title }: {
-  snapshot: ExplorerSnapshot; range: [number, number]; layers: ExplorerLayers; selectedIndex: number | null; onSelect: (index: number | null) => void; title: string;
+export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect, title, byModality = false }: {
+  snapshot: ExplorerSnapshot; range: [number, number]; layers: ExplorerLayers; selectedIndex: number | null; onSelect: (index: number | null) => void; title: string; byModality?: boolean;
 }) {
   const root = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = React.useState(860);
@@ -57,10 +58,11 @@ export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect
     const each = Math.max(3, slot / items.length);
     const total = each * items.length;
     items.forEach((item, position) => {
-      bars.push({ observation: item.observation, index: item.index, reference: referenceFor(snapshot, item.observation, numericPosition.get(item.observation) ?? -1), x: x(time(day)) - total / 2 + position * each, width: Math.max(2, each - (items.length > 1 ? 1.5 : 0)), value: item.observation.value as number });
+      bars.push({ observation: item.observation, index: item.index, reference: referenceFor(snapshot, item.observation, numericPosition.get(item.observation) ?? -1), x: x(time(day)) - total / 2 + position * each, width: Math.max(2, each - (items.length > 1 ? 1.5 : 0)), value: item.observation.value as number, colorKey: byModality ? modalityColorKey(item.observation.context?.modality) : null });
     });
   }
 
+  const usedKeys = [...new Set(bars.map((bar) => bar.colorKey).filter((key): key is ModalityColorKey => key !== null))];
   const linePath = (key: ReferenceWindowKey | 'mean') => {
     let started = false;
     return referencePoints.map((point) => {
@@ -89,6 +91,7 @@ export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect
     const ref = bar.reference;
     return [
       `${dateLabel(bar.observation.timestamp, true)} · ${fmt(bar.value)} ${unit}`.trim(),
+      bar.colorKey ? `Modalidade: ${bar.colorKey === 'agregada' ? MODALITY_COLOR_LABELS.agregada : modalityNameOf(bar.observation.context?.modality)}` : '',
       ref ? `${SIGNAL_LABEL[ref.signal]}${ref.band.lower != null ? ` (${fmt(ref.band.lower)} – ${fmt(ref.band.upper)})` : ''}` : 'Sem referência anterior',
       ref ? `Referência: ${ref.priorN} registros anteriores` : '',
     ].filter(Boolean).join('\n');
@@ -96,7 +99,7 @@ export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect
 
   return <div ref={root} className="evx-chart" style={{ height }}>
     <svg role="img" aria-label={`${title}: ${bars.length} observações no período`} width="100%" height={height} viewBox={`0 0 ${width} ${height}`}>
-      <defs><linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--evx-bar)" stopOpacity="1" /><stop offset="1" stopColor="var(--evx-bar)" stopOpacity="0.55" /></linearGradient><clipPath id={`${gradient}-clip`}><rect x={left - 2} y={top - 6} width={right - left + 4} height={bottom - top + 8} /></clipPath></defs>
+      <defs><linearGradient id={gradient} x1="0" x2="0" y1="0" y2="1"><stop stopColor="var(--evx-bar)" stopOpacity="1" /><stop offset="1" stopColor="var(--evx-bar)" stopOpacity="0.55" /></linearGradient>{usedKeys.map((key) => <linearGradient key={key} id={`${gradient}-${key}`} x1="0" x2="0" y1="0" y2="1"><stop stopColor={MODALITY_COLORS[key]} stopOpacity="1" /><stop offset="1" stopColor={MODALITY_COLORS[key]} stopOpacity="0.6" /></linearGradient>)}<clipPath id={`${gradient}-clip`}><rect x={left - 2} y={top - 6} width={right - left + 4} height={bottom - top + 8} /></clipPath></defs>
       {ticks.map((v) => <g key={v}><line x1={left} x2={right} y1={y(v)} y2={y(v)} stroke="var(--evx-grid)" strokeWidth="1" /><text x={left - 9} y={y(v) + 4} textAnchor="end" fill="var(--evx-muted)" fontSize="11">{fmt(v)}</text></g>)}
       <text x={left} y={16} fill="var(--evx-muted)" fontSize="12">{unit || 'Valor'}</text>
       {xTicks.map((at) => <g key={at}><line x1={x(at)} x2={x(at)} y1={top} y2={bottom} stroke="var(--evx-grid)" strokeWidth="1" strokeDasharray="2 4" opacity="0.6" /><text x={x(at)} y={bottom + 22} textAnchor={at === range[0] ? 'start' : at === range[1] ? 'end' : 'middle'} fill="var(--evx-muted)" fontSize="11">{dateLabel(at)}</text></g>)}
@@ -109,8 +112,8 @@ export function ExplorerChart({ snapshot, range, layers, selectedIndex, onSelect
           const isSelected = bar.index === selectedIndex;
           const barTop = Math.min(y(0), y(bar.value));
           const barHeight = Math.max(1.5, Math.abs(y(0) - y(bar.value)));
-          return <g key={bar.index} role="button" tabIndex={0} aria-label={`Observação de ${dateLabel(bar.observation.timestamp, true)}: ${fmt(bar.value)} ${unit}`} aria-pressed={isSelected} data-observation-index={bar.index} onClick={() => onSelect(isSelected ? null : bar.index)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(isSelected ? null : bar.index); } }} style={{ cursor: 'pointer' }}>
-            <rect data-observation="true" x={bar.x} y={barTop} width={bar.width} height={barHeight} rx={Math.min(3, bar.width / 2)} fill={`url(#${gradient})`} opacity={bar.observation.context?.isPartialWeek ? 0.6 : isLast || isSelected ? 1 : 0.86} stroke={isSelected ? 'var(--evx-ink)' : isLast ? 'var(--evx-bar)' : 'none'} strokeWidth={isSelected ? 2 : isLast ? 1.5 : 0}><title>{tooltip(bar)}</title></rect>
+          return <g key={bar.index} role="button" tabIndex={0} aria-label={`Observação de ${dateLabel(bar.observation.timestamp, true)}: ${fmt(bar.value)} ${unit}${bar.colorKey ? ` · ${bar.colorKey === 'agregada' ? MODALITY_COLOR_LABELS.agregada : modalityNameOf(bar.observation.context?.modality)}` : ''}`} aria-pressed={isSelected} data-observation-index={bar.index} onClick={() => onSelect(isSelected ? null : bar.index)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(isSelected ? null : bar.index); } }} style={{ cursor: 'pointer' }}>
+            <rect data-observation="true" data-modality={bar.colorKey ?? undefined} x={bar.x} y={barTop} width={bar.width} height={barHeight} rx={Math.min(3, bar.width / 2)} fill={`url(#${gradient}${bar.colorKey ? `-${bar.colorKey}` : ''})`} opacity={bar.observation.context?.isPartialWeek ? 0.6 : isLast || isSelected ? 1 : 0.86} stroke={isSelected ? 'var(--evx-ink)' : isLast ? (bar.colorKey ? MODALITY_COLORS[bar.colorKey] : 'var(--evx-bar)') : 'none'} strokeWidth={isSelected ? 2 : isLast ? 1.5 : 0}><title>{tooltip(bar)}</title></rect>
             {bar.reference && (bar.reference.signal === 'above' || bar.reference.signal === 'below') && <path data-signal={bar.reference.signal} d={`M ${bar.x + bar.width / 2} ${barTop - 13} l 4.5 5.5 l -4.5 5.5 l -4.5 -5.5 Z`} fill="var(--evx-signal)" />}
           </g>;
         })}
@@ -133,5 +136,17 @@ export function ChartLegend({ snapshot, layers, onToggle }: { snapshot: Explorer
   return <div className="evx-legend" role="group" aria-label="Referências no gráfico">
     {entries.map(({ key, label, available }) => <button type="button" key={key} className={`evx-layer ${layers[key] && available ? 'on' : ''}`} aria-pressed={layers[key]} disabled={!available} title={available ? undefined : 'Sem base suficiente de registros anteriores para esta referência.'} onClick={() => onToggle(key)}><i style={{ background: LAYER_COLORS[key] }} />{label}{!available && <small>sem base</small>}</button>)}
     <span className="evx-layer-note"><i className="evx-diamond" />fora da faixa habitual (sinal neutro, não indica melhora nem piora)</span>
+  </div>;
+}
+
+// Chave de cores das modalidades presentes no periodo: cor + nome (a cor sozinha nunca identifica a modalidade)
+export function ModalityKey({ snapshot, range }: { snapshot: ExplorerSnapshot; range: [number, number] }) {
+  const present = new Set<ModalityColorKey>();
+  for (const observation of snapshot.observations) if (typeof observation.value === 'number' && inWindow(observation.timestamp, range)) present.add(modalityColorKey(observation.context?.modality));
+  const keys = (Object.keys(MODALITY_COLORS) as ModalityColorKey[]).filter((key) => present.has(key));
+  if (!keys.length) return null;
+  return <div className="evx-modkey" role="group" aria-label="Cores por modalidade">
+    <b>Modalidade</b>
+    {keys.map((key) => <span key={key}><i style={{ background: MODALITY_COLORS[key] }} />{MODALITY_COLOR_LABELS[key]}{key === 'agregada' ? ' (total)' : ''}</span>)}
   </div>;
 }
