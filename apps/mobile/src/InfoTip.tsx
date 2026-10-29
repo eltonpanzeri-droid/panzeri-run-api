@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { Text } from './PtText';
 import { Ionicons } from '@expo/vector-icons';
 
 // Pequeno ícone circular de informação: ao tocar, abre uma explicação curta logo abaixo (e fecha ao tocar de novo). Use só onde a explicação ajuda o aluno a entender uma informação ou decisão.

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Platform, Pressable, Text } from 'react-native';
+import { Platform, Pressable } from 'react-native';
+import { Text } from '../PtText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppUpdate } from './useAppUpdate';
 

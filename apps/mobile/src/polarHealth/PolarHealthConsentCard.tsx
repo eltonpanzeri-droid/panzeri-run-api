@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import { PRColors } from '../../theme/tokens';
 
 // Saude e recuperacao da Polar (23/10/2026): quem JA' conectou a Polar escolhe aqui, sem reconectar, quais grupos de dados de saude compartilhar (sono, recuperacao noturna/HRV, atividade

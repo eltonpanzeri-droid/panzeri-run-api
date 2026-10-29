@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { InfoTip } from '../InfoTip';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import {
   isAppleHealthSupported,
   isHealthDataAvailable,

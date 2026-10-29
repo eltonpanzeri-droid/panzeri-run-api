@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import { PRColors } from '../../theme/tokens';
 
 // Autorizacao do ATLAS para quem JA' estava conectada em Polar ou Wahoo (22/10/2026). Os textos, a versao e o hash vem do servidor (GET /legacy-consent/:provider) e voltam em cada

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import { CONTENT_KINDS, SOURCE_THEMES, isReferenceComplete, openSources, referenceUrl, themesById } from './sources';
 
 // "Fontes científicas e metodologia" (Apple 1.4.1). Só leitura: nenhum dado do app é lido, calculado ou alterado aqui.

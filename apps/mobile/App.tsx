@@ -45,24 +45,8 @@ import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/b
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
 // realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
 // comentario no useFonts() mais abaixo.
-import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Image,
-  Modal,
-  PanResponder,
-  Platform,
-  AppState,
-  Pressable,
-  Linking,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Animated, Image, Modal, PanResponder, Platform, AppState, Pressable, Linking, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { Text } from './src/PtText';
 // 03/09: `SafeAreaView` do pacote `react-native` puro NUNCA aplicou de verdade a area segura no
 // Android (so' funciona no iOS) — antes disso nao importava, porque o Android reservava sozinho o
 // espaco da barra de status por baixo dos panos. Upgrade pro Expo SDK 54 (exigencia do Google de
@@ -7289,7 +7273,7 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
           : 'Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use o campo de observacao abaixo.'}
       </Text>
       <RoutineEditor routineDays={days} onChange={setDays} />
-      {allRest ? <Text style={[styles.formHint, { marginTop: 8 }]}>Todos os dias estão como "Sem treinos": isso e uma pausa. Nenhum programa é gerado até você incluir dias de treino.</Text> : null}
+      {allRest ? <Text style={[styles.formHint, { marginTop: 8 }]}>Todos os dias estão como "Sem treinos": isso é uma pausa. Nenhum programa é gerado até você incluir dias de treino.</Text> : null}
       <Text style={[styles.inputLabel, { marginTop: 12 }]}>Quer contar algo sobre a sua rotina? (opcional)</Text>
       <TextInput style={styles.input} value={observation} onChangeText={setObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Ex.: trabalho em turnos, treino musculação em outra academia" />
       <Pressable style={[styles.primaryButton, saving && styles.disabledButton, { marginTop: 12 }]} disabled={saving} onPress={save}>

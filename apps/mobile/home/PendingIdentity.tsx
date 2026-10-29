@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../src/PtText';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 
 // Atividades para confirmar (10/2026). EXCECAO, nunca etapa obrigatoria: o servidor ja' resolve sozinho (mesma atividade / atividades diferentes) sempre

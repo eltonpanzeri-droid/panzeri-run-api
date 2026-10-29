@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import { PRColors } from '../../theme/tokens';
 
 // Autorizacoes do Health Connect (22/10/2026). A aluna escolhe, grupo a grupo, o que compartilha — NADA vem marcado; o Atlas (IA) e o historico anterior sao autorizacoes separadas.

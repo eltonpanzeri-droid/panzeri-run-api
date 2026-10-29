@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-native';
+import { Text } from '../PtText';
 import { PRColors } from '../../theme/tokens';
 import { formatLastSync, HealthConnectStatus, STATUS_LABEL } from './contract';
 import { HealthConnectConsent } from './HealthConnectConsent';

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { Text } from '../src/PtText';
 import { DetailChart } from '../src/activityDetail';
 import { fetchSnapshots } from './homeApi';
 import {

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from './PtText';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 // "Treino completo" (Bloco 1, 04/10/2026). Consome SO' o payload canonico de

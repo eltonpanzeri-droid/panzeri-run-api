@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Text } from '../src/PtText';
 import { Ionicons } from '@expo/vector-icons';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography, MedalGrauColors, formatMetric } from './homeTheme';
 import { categoryLabel, formatShortDate, UnlockedMedalLite } from './homeLogic';
