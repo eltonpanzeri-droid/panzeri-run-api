@@ -33,6 +33,11 @@ function fakeDb() {
       findMany: jest.fn(async ({ where }: any) => activityLogs.filter((l) => l.userId === where.userId && l.provider === where.provider && l.providerMetrics)),
       update: jest.fn(async ({ where, data }: any) => { Object.assign(activityLogs.find((l) => l.id === where.id), data); return {}; }),
     },
+    // Saude do dia a dia (29/10/2026): a retirada tambem limpa as tabelas Wearable* do provedor; estes testes nao semeiam esses dados (ver apple-health-records.spec.ts).
+    wearableSleepSummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableHrvSummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableDailySummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableMetricRecord: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
     activityTimeSeriesPoint: { deleteMany: jest.fn(async () => { calls.push('points.deleteMany'); return { count: 0 }; }), updateMany: jest.fn(async () => ({ count: 0 })) },
     rawExternalActivity: {
       findMany: jest.fn(async ({ where }: any) => rawActivities.filter((r) => r.userId === where.userId && r.provider === where.provider)),
@@ -47,15 +52,16 @@ function fakeDb() {
 const fakeProviderData = () => ({ invalidateAiArtifacts: jest.fn(async () => ({})), deleteProviderData: jest.fn(async () => ({ deleted: true })) });
 
 describe('documento de consentimento do Apple Saude', () => {
-  it('categorias validas, dependencias reais, nada marcado e SEM dados diarios (nao declara o que nao foi implementado)', () => {
+  it('categorias validas, dependencias reais e nada marcado; a v2.0 declara a saude do dia a dia que o app agora le', () => {
     for (const category of APPLE_HEALTH_CATEGORIES) expect(PROVIDER_DATA_CATEGORIES).toContain(category);
-    expect([...APPLE_HEALTH_CATEGORIES].sort()).toEqual(['activity', 'activity_route', 'activity_sensors']);
+    expect([...APPLE_HEALTH_CATEGORIES].sort()).toEqual(['activity', 'activity_route', 'activity_sensors', 'body_composition', 'clinical_vitals', 'daily_activity', 'heart_rate', 'hrv', 'lifestyle_load', 'menstrual_cycle', 'mobility', 'nutrition', 'pulse_ox', 'respiratory_rate', 'resting_heart_rate', 'skin_temperature', 'sleep', 'vo2_max']);
     const ids = new Set(doc.groups.map((g) => g.id));
     for (const group of doc.groups) { expect(group.required).toBe(false); for (const r of group.requires ?? []) expect(ids.has(r)).toBe(true); }
     const text = JSON.stringify(doc);
-    expect(text).toContain('não importa sono');
-    expect(text).toContain('200 mais recentes');
-    expect(text).not.toMatch(/20 treinos|sono e recupera/);
+    expect(text).toContain('últimos 3 anos');
+    expect(text).toContain('não são enviados à inteligência artificial');
+    expect(text).not.toContain('não importa sono');
+    expect(doc.version).toBe('2.0');
     expect(doc.optionalPurposes).toHaveLength(0);
   });
 });

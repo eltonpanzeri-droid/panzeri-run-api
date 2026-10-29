@@ -43,7 +43,7 @@ export function externalAiUnlockedFor(provider: string, config: { get<T = string
 }
 
 // Categorias de saude e recuperacao (autorizadas uma a uma pelo aluno). Cada par provedor:categoria e' avaliado separadamente no escopo de IA.
-export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition'] as const;
+export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition'] as const; // Apple Saude tambem usa esta lista (29/10/2026)
 
 export const AI_PURPOSE_BY_DESTINATION: Record<AiDestination, string> = { internal_ai: 'ai_internal', external_ai: 'ai_external' };
 
@@ -138,6 +138,11 @@ export class AiDataEligibility {
         if (!(connector.categories ?? []).includes(healthCategory)) continue;
         if (!(await this.decide(userId, connector.id, { category: healthCategory, destination })).allowed) blockedHealth.add(`${connector.id}:${healthCategory}`);
       }
+    }
+    // Apple Saude (29/10/2026): a saude do dia a dia segue o consentimento POR CATEGORIA ja' registrado (sem autorizacao nova de IA). Categoria nao autorizada, retirada ou com texto desatualizado fica
+    // fora do contexto da IA. Pressao arterial, glicemia e ciclo menstrual nao estao em HEALTH_AI_CATEGORIES: nunca chegam a IA.
+    for (const healthCategory of HEALTH_AI_CATEGORIES) {
+      if (!(await this.decide(userId, APPLE_HEALTH_PROVIDER_ID, { category: healthCategory, destination })).allowed) blockedHealth.add(`${APPLE_HEALTH_PROVIDER_ID}:${healthCategory}`);
     }
     // Polar/Wahoo (23/10/2026): a autorizacao deles sobre o Atlas cobre so' ATIVIDADES. Saude e recuperacao da Polar (sono, HRV, atividade diaria), autorizada apenas para o acompanhamento pelo
     // treinador, fica FORA da IA: sem uma autorizacao propria sobre o Atlas para saude, essas categorias sao sempre bloqueadas (nunca fail-open).

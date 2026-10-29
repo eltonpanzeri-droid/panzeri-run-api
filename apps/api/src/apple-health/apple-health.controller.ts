@@ -3,6 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { AppleHealthConsentService } from './apple-health-consent.service';
 import { AppleHealthIngestionService } from './apple-health-ingestion.service';
+import { AppleHealthRecordsService } from './apple-health-records.service';
 
 // Etapa 1 (06/10/2026): o app iOS envia os HKWorkout lidos no aparelho. O usuario vem SEMPRE do JWT.
 // 28/10/2026: percurso GPS, consulta de percursos pendentes e autorizacoes por categoria (mesmo modelo do Health Connect). Rotas antigas inalteradas (o aplicativo publicado so' usa /workouts).
@@ -11,6 +12,7 @@ export class AppleHealthController {
   constructor(
     private readonly ingestion: AppleHealthIngestionService,
     private readonly consent: AppleHealthConsentService,
+    private readonly records: AppleHealthRecordsService,
   ) {}
 
   @UseGuards(AuthGuard('jwt'))
@@ -18,6 +20,14 @@ export class AppleHealthController {
   @Post('workouts')
   importWorkouts(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
     return this.ingestion.importWorkouts(user.sub, body);
+  }
+
+  // Saude do dia a dia (sono, passos, FC de repouso, HRV, VO2 max, composicao corporal, sinais vitais, mobilidade, ciclo, nutricao...): exige consentimento registrado por categoria.
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('health-records')
+  importHealthRecords(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.records.importRecords(user.sub, body);
   }
 
   // Quais treinos importados ainda nao tem percurso + limites de envio (independe de o treino ter mudado agora).

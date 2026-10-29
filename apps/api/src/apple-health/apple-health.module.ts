@@ -4,11 +4,12 @@ import { ActivityExecutionModule } from '../activity-execution/activity-executio
 import { AppleHealthController } from './apple-health.controller';
 import { AppleHealthIngestionService } from './apple-health-ingestion.service';
 import { AppleHealthConsentService } from './apple-health-consent.service';
+import { AppleHealthRecordsService } from './apple-health-records.service';
 import { DeviceRegistryModule } from '../equipment/device-registry.module';
 
 @Module({
   imports: [PrismaModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [AppleHealthController],
-  providers: [AppleHealthIngestionService, AppleHealthConsentService],
+  providers: [AppleHealthIngestionService, AppleHealthConsentService, AppleHealthRecordsService],
 })
 export class AppleHealthModule {}

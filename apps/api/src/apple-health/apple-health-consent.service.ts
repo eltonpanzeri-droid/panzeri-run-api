@@ -1,16 +1,18 @@
+import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { consentTextHash, isConnectionConsentCurrent } from '../provider-hub/provider-consent.service';
 import { APPLE_HEALTH_CONSENT, APPLE_HEALTH_PROVIDER_ID } from './apple-health-consent';
+import { APPLE_HEALTH_RECORD_CATEGORIES, metricKindsOfCategory } from './apple-health-records';
 
 // Autorizacoes do aluno para o Apple Saude (28/10/2026). Mesmo modelo do HealthConnectConsentService (ver la' o raciocinio): o servidor guarda SO' o consentimento por categoria, na linha
 // ProviderConnection (provider 'apple_health', sem credenciais), e a ingestao respeita esse registro. A permissao do iOS (HealthKit, no aparelho) NAO e' este consentimento.
 //
 // Compatibilidade com o aplicativo ja' publicado: SEM registro (nunca houve conexao), a importacao basica de treinos segue aceita (`mode: 'legacy'`); com registro ativo e texto vigente vale
 // o que foi autorizado (`mode: 'recorded'`); com registro retirado ou texto desatualizado nada novo e' aceito (`mode: 'blocked'`) — retirar vale na hora.
-const INVALIDATING_CATEGORIES: readonly string[] = ['activity', 'activity_sensors', 'activity_route'];
+const INVALIDATING_CATEGORIES: readonly string[] = ['activity', 'activity_sensors', 'activity_route', ...APPLE_HEALTH_RECORD_CATEGORIES];
 
 type Row = { disconnectedAt: Date | null; grantedCategories: unknown; grantedPurposes: unknown; purposeConsents: unknown; consentVersion: string; consentTextHash: string | null; consentedAt: Date };
 
@@ -74,6 +76,8 @@ export class AppleHealthConsentService {
       connected,
       consent: { version: APPLE_HEALTH_CONSENT.version, textHash: consentTextHash(APPLE_HEALTH_CONSENT), grantedVersion: connected ? row.consentVersion : null, grantedAt: connected ? row.consentedAt : null, needsReview: connected && !current },
       groups: APPLE_HEALTH_CONSENT.groups.map((g) => ({ id: g.id, label: g.label, required: g.required, requires: g.requires ?? [], granted: current && g.categories.every((c) => categories.has(c)) })),
+      // Chave estavel e nao reversivel desta aluna para o estado de cobertura do historico guardado NO APARELHO (duas contas no mesmo iPhone nao compartilham cobertura).
+      syncKey: createHash('sha256').update(`apple-health-sync:${userId}`).digest('hex').slice(0, 16),
       purposes: [] as never[],
       // Importacao feita antes deste registro (aplicativo anterior): nao ha consentimento por categoria gravado.
       legacyImport: row === null,
@@ -160,6 +164,8 @@ export class AppleHealthConsentService {
       // Limpeza e retirada na MESMA transacao, com a linha travada: se qualquer passo falhar, nada fica pela metade; se terminar, nada das categorias retiradas permanece.
       if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) { await this.scrubSensorData(userId, tx); audits.push({ type: 'sensor_data_scrubbed', details: {} }); }
       if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) { await this.scrubRouteData(userId, tx); audits.push({ type: 'route_data_scrubbed', details: {} }); }
+      const revokedHealth = [...new Set(revokedIds.flatMap((id) => [...(known(id)?.categories ?? [])]).filter((c) => APPLE_HEALTH_RECORD_CATEGORIES.includes(c)))];
+      if (revokedHealth.length > 0) { await this.scrubHealthData(userId, revokedHealth, tx); audits.push({ type: 'health_data_scrubbed', details: { categories: revokedHealth } }); }
       const updated = await tx.providerConnection.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null }, data: { grantedCategories: categories as never } });
       if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
       if (grantedIds.length > 0) audits.push({ type: 'groups_updated', details: { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash } });
@@ -191,6 +197,7 @@ export class AppleHealthConsentService {
       if (!this.active(row)) return { withdrawn: false };
       await this.scrubRouteData(userId, tx);
       await this.scrubSensorData(userId, tx);
+      await this.scrubHealthData(userId, [...APPLE_HEALTH_RECORD_CATEGORIES], tx);
       const updated = await tx.providerConnection.updateMany({
         where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null },
         data: { disconnectedAt: new Date(), grantedCategories: [] as never, grantedPurposes: [] as never, purposeConsents: {} as never },
@@ -200,6 +207,7 @@ export class AppleHealthConsentService {
     if (outcome.withdrawn) {
       await this.audit(userId, 'route_data_scrubbed', {});
       await this.audit(userId, 'sensor_data_scrubbed', {});
+      await this.audit(userId, 'health_data_scrubbed', { categories: [...APPLE_HEALTH_RECORD_CATEGORIES] });
       await this.audit(userId, 'disconnected', { decision: 'revoked' });
       await this.invalidateAi(userId, 'withdrawn');
     }
@@ -218,6 +226,23 @@ export class AppleHealthConsentService {
   private async scrubRouteData(userId: string, db: Prisma.TransactionClient): Promise<void> {
     await db.activityTimeSeriesPoint.deleteMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, latitude: { not: null }, activityLog: { userId } } });
     await db.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, hasRoute: true }, data: { hasRoute: false } });
+  }
+
+  // Apaga a SAUDE DO DIA A DIA (tabelas Wearable*, provedor apple_health, so' desta aluna) das categorias retiradas. Sempre dentro da transacao que tem a linha travada. Outras fontes (Zepp, Health
+  // Connect, Polar) e categorias ainda autorizadas nao sao tocadas. O registro diario mistura duas categorias: retirar so' uma zera apenas as colunas dela e remove a linha se nada sobrar.
+  private async scrubHealthData(userId: string, categories: readonly string[], db: Prisma.TransactionClient): Promise<void> {
+    const where = { userId, provider: APPLE_HEALTH_PROVIDER_ID };
+    if (categories.includes('sleep')) await db.wearableSleepSummary.deleteMany({ where });
+    if (categories.includes('hrv')) await db.wearableHrvSummary.deleteMany({ where });
+    const dailyCleared = categories.includes('daily_activity');
+    const restingCleared = categories.includes('resting_heart_rate');
+    if (dailyCleared) await db.wearableDailySummary.updateMany({ where, data: { steps: null, distanceMeters: null, activeKilocalories: null, stepsGoal: null } });
+    if (restingCleared) await db.wearableDailySummary.updateMany({ where, data: { restingHeartRateBpm: null } });
+    if (dailyCleared || restingCleared) {
+      await db.wearableDailySummary.deleteMany({ where: { ...where, steps: null, distanceMeters: null, activeKilocalories: null, restingHeartRateBpm: null } });
+    }
+    const kinds = [...new Set(categories.flatMap((category) => metricKindsOfCategory(category)))];
+    if (kinds.length > 0) await db.wearableMetricRecord.deleteMany({ where: { ...where, metricKind: { in: kinds } } });
   }
 
   // Apaga FC, cadencia, potencia e elevacao (colunas da atividade), a altitude dos pontos e as chaves de sensor do resumo do provedor e do bruto recebido.
@@ -248,6 +273,7 @@ export class AppleHealthConsentService {
     const row = await this.load(userId);
     if (this.active(row)) throw new ConflictException('Retire as autorizacoes antes de excluir os dados importados.');
     const result = await this.providerData.deleteProviderData(userId, APPLE_HEALTH_PROVIDER_ID);
+    await this.scrubHealthData(userId, [...APPLE_HEALTH_RECORD_CATEGORIES], this.prisma as unknown as Prisma.TransactionClient);
     await this.audit(userId, 'data_deleted', {});
     return result;
   }

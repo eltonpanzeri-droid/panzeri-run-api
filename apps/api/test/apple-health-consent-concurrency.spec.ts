@@ -46,6 +46,11 @@ function fakeDb() {
       updateMany: jest.fn(async ({ where, data }: any) => { let count = 0; for (const l of logs) if (l.userId === where.userId && l.provider === where.provider && (where.hasRoute === undefined || l.hasRoute === where.hasRoute)) { Object.assign(l, data); count += 1; } return { count }; }),
       findMany: jest.fn(async ({ where }: any) => logs.filter((l) => l.userId === where.userId && l.provider === where.provider && l.providerMetrics)),
     },
+    // Saude do dia a dia (29/10/2026): a retirada tambem limpa as tabelas Wearable* do provedor; estes testes nao semeiam esses dados (ver apple-health-records.spec.ts).
+    wearableSleepSummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableHrvSummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableDailySummary: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
+    wearableMetricRecord: { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) },
     activityTimeSeriesPoint: {
       deleteMany: jest.fn(async ({ where }: any) => {
         if (hooks.onPointsDelete) { const h = hooks.onPointsDelete; hooks.onPointsDelete = undefined; await h(); }

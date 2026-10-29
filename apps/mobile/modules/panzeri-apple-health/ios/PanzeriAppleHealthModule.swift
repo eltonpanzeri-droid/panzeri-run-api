@@ -83,47 +83,117 @@ public class PanzeriAppleHealthModule: Module {
         }
         let workouts = (samples as? [HKWorkout]) ?? []
         Task {
-          let formatter = ISO8601DateFormatter()
-          var items: [[String: Any]] = []
-          for workout in workouts {
-            // Distancia: o HealthKit pode nao ter estatistica de distancia para o treino (registro manual, outro app). Nesse caso NAO e' zero: e' indisponivel na origem, e o app diz isso
-            // (distanceStatus) em vez de inventar um valor. Um 0 informado pelo HealthKit segue como 0.
-            let distanceMeters = workout
-              .statistics(for: HKQuantityType(.distanceWalkingRunning))?
-              .sumQuantity()?
-              .doubleValue(for: .meter())
-            // Round trip futuro: se o treino foi executado a partir de um plano agendado por nos,
-            // workoutPlan.id devolve o UUID do Panzeri Run. Nulo para treinos iniciados no relogio.
-            let plan = try? await workout.workoutPlan
-            var item: [String: Any] = [
-              "uuid": workout.uuid.uuidString,
-              "sourceName": workout.sourceRevision.source.name,
-              "sourceBundleId": workout.sourceRevision.source.bundleIdentifier,
-              "sourceProductType": Self.orNull(workout.sourceRevision.productType),
-              "deviceName": Self.orNull(workout.device?.name),
-              "deviceManufacturer": Self.orNull(workout.device?.manufacturer),
-              "deviceModel": Self.orNull(workout.device?.model),
-              "deviceHardwareVersion": Self.orNull(workout.device?.hardwareVersion),
-              "deviceSoftwareVersion": Self.orNull(workout.device?.softwareVersion),
-              "activityType": workout.workoutActivityType == .running ? "running" : "other",
-              "activityTypeRaw": Int(workout.workoutActivityType.rawValue),
-              "isIndoor": Self.orNull(workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool),
-              "timeZone": Self.orNull(workout.metadata?[HKMetadataKeyTimeZone] as? String),
-              "startDate": formatter.string(from: workout.startDate),
-              "endDate": formatter.string(from: workout.endDate),
-              "durationSeconds": workout.duration,
-              "distanceMeters": Self.orNull(distanceMeters),
-              "distanceStatus": distanceMeters == nil ? "unavailable" : "reported",
-              "workoutPlanId": Self.orNull(plan?.id.uuidString)
-            ]
-            // Medidas associadas ao treino (so' as que o iOS entregar: sem autorizacao ou sem dado, a chave simplesmente nao existe).
-            item.merge(Self.workoutMeasures(workout)) { _, new in new }
-            items.append(item)
-          }
-          promise.resolve(items)
+          promise.resolve(await self.workoutItems(workouts))
         }
       }
       self.healthStore.execute(query)
+    }
+
+    // Treinos de TODOS os tipos num periodo (corrida, caminhada, ciclismo, forca, natacao...), do mais recente ao mais antigo. O tipo bruto (activityTypeRaw) segue preservado.
+    AsyncFunction("readWorkoutsInRange") { (startIso: String, endIso: String, limit: Int, promise: Promise) in
+      guard let start = Self.parseDate(startIso), let end = Self.parseDate(endIso), start < end else {
+        promise.reject("E_INVALID_DATE", "Periodo invalido (use ISO 8601, inicio antes do fim).")
+        return
+      }
+      let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+      let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+      let query = HKSampleQuery(sampleType: HKObjectType.workoutType(), predicate: predicate, limit: max(1, min(limit, 500)), sortDescriptors: [sort]) { _, samples, error in
+        if let error = error {
+          promise.reject("E_HEALTH_QUERY", error.localizedDescription)
+          return
+        }
+        let workouts = (samples as? [HKWorkout]) ?? []
+        Task {
+          promise.resolve(await self.workoutItems(workouts))
+        }
+      }
+      self.healthStore.execute(query)
+    }
+
+    // Pede a leitura dos tipos de saude do dia a dia (identificadores HealthKit) ALEM dos de treino. Nunca pede escrita. Identificador desconhecido neste iOS e' ignorado. O iOS nunca informa o
+    // que foi negado: negar e' indistinguivel de "sem dados".
+    AsyncFunction("requestHealthAuthorizationFor") { (quantityIds: [String], categoryIds: [String], promise: Promise) in
+      Task {
+        var types = self.readTypes
+        for id in quantityIds {
+          if let type = HKObjectType.quantityType(forIdentifier: HKQuantityTypeIdentifier(rawValue: id)) { types.insert(type) }
+        }
+        for id in categoryIds {
+          if let type = HKObjectType.categoryType(forIdentifier: HKCategoryTypeIdentifier(rawValue: id)) { types.insert(type) }
+        }
+        do {
+          try await self.healthStore.requestAuthorization(toShare: [], read: types)
+          promise.resolve(["requested": true, "typeCount": types.count])
+        } catch {
+          promise.reject("E_HEALTH_AUTH", error.localizedDescription)
+        }
+      }
+    }
+
+    // Estatisticas POR DIA (fuso do aparelho) de tipos quantitativos. specsJson = [{ identifier, unit }] (unit = ficha de unidade conhecida, ver unit(for:)). Tipos cumulativos devolvem a soma do
+    // dia (o HealthKit ja' desduplica fontes); os demais, media/minimo/maximo/ultimo valor. Dia sem amostra NAO gera linha (ausencia nunca vira zero). Tipo indisponivel neste iOS, unidade
+    // incompativel ou consulta com erro entram em "failed" e nao derrubam os demais.
+    AsyncFunction("readDailyStatistics") { (specsJson: String, startIso: String, endIso: String, promise: Promise) in
+      guard let start = Self.parseDate(startIso), let end = Self.parseDate(endIso), start < end else {
+        promise.reject("E_INVALID_DATE", "Periodo invalido (use ISO 8601, inicio antes do fim).")
+        return
+      }
+      guard let data = specsJson.data(using: .utf8), let specs = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else {
+        promise.reject("E_INVALID_SPECS", "specsJson invalido.")
+        return
+      }
+      Task {
+        var rows: [[String: Any]] = []
+        var failed: [String] = []
+        for spec in specs {
+          guard let identifier = spec["identifier"] as? String, let unitToken = spec["unit"] as? String else { continue }
+          do {
+            rows.append(contentsOf: try await self.dailyStatistics(identifier: identifier, unitToken: unitToken, start: start, end: end))
+          } catch {
+            failed.append(identifier)
+          }
+        }
+        promise.resolve(["rows": rows, "failed": failed])
+      }
+    }
+
+    // Amostras de tipos de CATEGORIA (sono, ciclo menstrual, eventos cardiacos, atencao plena...) num periodo: valor inteiro bruto do HealthKit, inicio, fim e origem. Quem monta sessoes/dias
+    // e' o aplicativo (logica testada em TypeScript); aqui so' se le.
+    AsyncFunction("readCategorySamples") { (identifiers: [String], startIso: String, endIso: String, promise: Promise) in
+      guard let start = Self.parseDate(startIso), let end = Self.parseDate(endIso), start < end else {
+        promise.reject("E_INVALID_DATE", "Periodo invalido (use ISO 8601, inicio antes do fim).")
+        return
+      }
+      Task {
+        let formatter = ISO8601DateFormatter()
+        var rows: [[String: Any]] = []
+        var failed: [String] = []
+        for identifier in identifiers {
+          guard let type = HKObjectType.categoryType(forIdentifier: HKCategoryTypeIdentifier(rawValue: identifier)) else {
+            failed.append(identifier)
+            continue
+          }
+          do {
+            let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+            let samples = try await self.fetchSamples(type: type, predicate: predicate)
+            for case let sample as HKCategorySample in samples {
+              rows.append([
+                "identifier": identifier,
+                "value": sample.value,
+                "startTime": formatter.string(from: sample.startDate),
+                "endTime": formatter.string(from: sample.endDate),
+                "offsetSeconds": TimeZone.current.secondsFromGMT(for: sample.startDate),
+                "sourceBundleId": sample.sourceRevision.source.bundleIdentifier,
+                "sourceName": sample.sourceRevision.source.name,
+                "deviceName": Self.orNull(sample.device?.name)
+              ])
+            }
+          } catch {
+            failed.append(identifier)
+          }
+        }
+        promise.resolve(["rows": rows, "failed": failed])
+      }
     }
 
     // Percurso (rota GPS) de um treino, em pontos compactos [deslocamentoSeg, latitude, longitude, altitude|null], amostrados uniformemente quando passam de maxPoints. Sem
@@ -262,6 +332,55 @@ public class PanzeriAppleHealthModule: Module {
     }
   }
 
+  // Item serializavel de UM treino (todos os tipos). Distancia ausente nao e' zero; medidas so' entram quando o iOS as entrega.
+  private func workoutItem(_ workout: HKWorkout) async -> [String: Any] {
+    let formatter = ISO8601DateFormatter()
+
+    // Distancia: o HealthKit pode nao ter estatistica de distancia para o treino (registro manual, outro app). Nesse caso NAO e' zero: e' indisponivel na origem, e o app diz isso
+    // (distanceStatus) em vez de inventar um valor. Um 0 informado pelo HealthKit segue como 0.
+    // Treinos que nao sao de corrida/caminhada guardam a distancia em outro tipo (ciclismo, natacao, cadeira de rodas): usa o primeiro que existir.
+    var distanceMeters: Double? = nil
+    for identifier in [HKQuantityTypeIdentifier.distanceWalkingRunning, .distanceCycling, .distanceSwimming, .distanceWheelchair] {
+      if let value = workout.statistics(for: HKQuantityType(identifier))?.sumQuantity()?.doubleValue(for: HKUnit.meter()) {
+        distanceMeters = value
+        break
+      }
+    }
+    // Round trip futuro: se o treino foi executado a partir de um plano agendado por nos,
+    // workoutPlan.id devolve o UUID do Panzeri Run. Nulo para treinos iniciados no relogio.
+    let plan = try? await workout.workoutPlan
+    var item: [String: Any] = [
+      "uuid": workout.uuid.uuidString,
+      "sourceName": workout.sourceRevision.source.name,
+      "sourceBundleId": workout.sourceRevision.source.bundleIdentifier,
+      "sourceProductType": Self.orNull(workout.sourceRevision.productType),
+      "deviceName": Self.orNull(workout.device?.name),
+      "deviceManufacturer": Self.orNull(workout.device?.manufacturer),
+      "deviceModel": Self.orNull(workout.device?.model),
+      "deviceHardwareVersion": Self.orNull(workout.device?.hardwareVersion),
+      "deviceSoftwareVersion": Self.orNull(workout.device?.softwareVersion),
+      "activityType": workout.workoutActivityType == .running ? "running" : "other",
+      "activityTypeRaw": Int(workout.workoutActivityType.rawValue),
+      "isIndoor": Self.orNull(workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool),
+      "timeZone": Self.orNull(workout.metadata?[HKMetadataKeyTimeZone] as? String),
+      "startDate": formatter.string(from: workout.startDate),
+      "endDate": formatter.string(from: workout.endDate),
+      "durationSeconds": workout.duration,
+      "distanceMeters": Self.orNull(distanceMeters),
+      "distanceStatus": distanceMeters == nil ? "unavailable" : "reported",
+      "workoutPlanId": Self.orNull(plan?.id.uuidString)
+    ]
+    // Medidas associadas ao treino (so' as que o iOS entregar: sem autorizacao ou sem dado, a chave simplesmente nao existe).
+    item.merge(Self.workoutMeasures(workout)) { _, new in new }
+    return item
+  }
+
+  private func workoutItems(_ workouts: [HKWorkout]) async -> [[String: Any]] {
+    var items: [[String: Any]] = []
+    for workout in workouts { items.append(await workoutItem(workout)) }
+    return items
+  }
+
   // Estatisticas do proprio HKWorkout (iOS 16+). So' entram as que existem; nada e' estimado nem calculado aqui.
   private static func workoutMeasures(_ workout: HKWorkout) -> [String: Any] {
     var out: [String: Any] = [:]
@@ -325,6 +444,88 @@ public class PanzeriAppleHealthModule: Module {
       points.append([offset, location.coordinate.latitude, location.coordinate.longitude, altitude])
     }
     return points
+  }
+
+  private static func parseDate(_ text: String) -> Date? {
+    let withFraction = ISO8601DateFormatter()
+    withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return withFraction.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+  }
+
+  // Fichas de unidade aceitas (so' unidades construidas pela API do HealthKit, nunca texto livre). Ficha desconhecida = tipo ignorado.
+  private static func unit(for token: String) -> HKUnit? {
+    switch token {
+    case "count": return HKUnit.count()
+    case "bpm": return HKUnit.count().unitDivided(by: HKUnit.minute())
+    case "m": return HKUnit.meter()
+    case "kcal": return HKUnit.kilocalorie()
+    case "ms": return HKUnit.secondUnit(with: .milli)
+    case "s": return HKUnit.second()
+    case "min": return HKUnit.minute()
+    case "mps": return HKUnit.meter().unitDivided(by: HKUnit.second())
+    case "kg": return HKUnit.gramUnit(with: .kilo)
+    case "g": return HKUnit.gram()
+    case "mg": return HKUnit.gramUnit(with: .milli)
+    case "ml": return HKUnit.literUnit(with: .milli)
+    case "percent": return HKUnit.percent()
+    case "degC": return HKUnit.degreeCelsius()
+    case "mmHg": return HKUnit.millimeterOfMercury()
+    case "mgdl": return HKUnit.gramUnit(with: .milli).unitDivided(by: HKUnit.literUnit(with: .deci))
+    case "dbaspl": return HKUnit.decibelAWeightedSoundPressureLevel()
+    case "vo2": return HKUnit.literUnit(with: .milli).unitDivided(by: HKUnit.gramUnit(with: .kilo).unitMultiplied(by: HKUnit.minute()))
+    default: return nil
+    }
+  }
+
+  // Uma linha por dia COM amostra. Cumulativo: sum. Demais: avg, min, max e latest (ultimo valor do dia). Lanca erro se o tipo/unidade nao servem (o chamador registra em "failed").
+  private func dailyStatistics(identifier: String, unitToken: String, start: Date, end: Date) async throws -> [[String: Any]] {
+    guard let type = HKObjectType.quantityType(forIdentifier: HKQuantityTypeIdentifier(rawValue: identifier)),
+          let unit = Self.unit(for: unitToken),
+          type.is(compatibleWith: unit) else {
+      throw NSError(domain: "PanzeriAppleHealth", code: 1, userInfo: [NSLocalizedDescriptionKey: "Tipo ou unidade indisponivel: \(identifier)"])
+    }
+    let cumulative = type.aggregationStyle == .cumulative
+    let options: HKStatisticsOptions = cumulative ? [.cumulativeSum] : [.discreteAverage, .discreteMin, .discreteMax, .mostRecent]
+    let calendar = Calendar.current
+    let anchor = calendar.startOfDay(for: start)
+    var interval = DateComponents()
+    interval.day = 1
+    let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+    let dayFormatter = DateFormatter()
+    dayFormatter.locale = Locale(identifier: "en_US_POSIX")
+    dayFormatter.timeZone = TimeZone.current
+    dayFormatter.dateFormat = "yyyy-MM-dd"
+    let isoFormatter = ISO8601DateFormatter()
+    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[[String: Any]], Error>) in
+      let query = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate, options: options, anchorDate: anchor, intervalComponents: interval)
+      query.initialResultsHandler = { _, collection, error in
+        if let error = error {
+          continuation.resume(throwing: error)
+          return
+        }
+        var out: [[String: Any]] = []
+        collection?.enumerateStatistics(from: anchor, to: end) { statistics, _ in
+          var row: [String: Any] = [
+            "identifier": identifier,
+            "day": dayFormatter.string(from: statistics.startDate),
+            "startTime": isoFormatter.string(from: statistics.startDate),
+            "offsetSeconds": TimeZone.current.secondsFromGMT(for: statistics.startDate)
+          ]
+          var any = false
+          if cumulative {
+            if let value = statistics.sumQuantity()?.doubleValue(for: unit) { row["sum"] = value; any = true }
+          } else {
+            if let value = statistics.averageQuantity()?.doubleValue(for: unit) { row["avg"] = value; any = true }
+            if let value = statistics.minimumQuantity()?.doubleValue(for: unit) { row["min"] = value }
+            if let value = statistics.maximumQuantity()?.doubleValue(for: unit) { row["max"] = value }
+            if let value = statistics.mostRecentQuantity()?.doubleValue(for: unit) { row["latest"] = value }
+          }
+          if any { out.append(row) }
+        }
+        continuation.resume(returning: out)
+      }
+      self.healthStore.execute(query)
+    }
   }
 
   // Optional -> valor serializavel (nulo vira NSNull, nunca zero: ausencia continua ausencia).

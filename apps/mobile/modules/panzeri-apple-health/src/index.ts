@@ -70,6 +70,11 @@ export interface NativeScheduleCustomWorkoutResult {
   errors?: Array<{ code: string; message: string; path: string }>;
 }
 
+// Saude do dia a dia (29/10/2026). Linhas cruas lidas pelo nativo; quem monta os registros e' src/appleHealthSync/appleHealthRecords.ts.
+export interface AppleStatRow { identifier: string; day: string; startTime: string; offsetSeconds: number; sum?: number; avg?: number; min?: number; max?: number; latest?: number }
+export interface AppleCategoryRow { identifier: string; value: number; startTime: string; endTime: string; offsetSeconds: number; sourceBundleId: string; sourceName: string; deviceName: string | null }
+export interface NativeRows<T> { rows: T[]; failed: string[] }
+
 export type HealthAuthorizationRequestStatus = 'shouldRequest' | 'unnecessary' | 'unknown';
 export type WorkoutAuthorizationState = 'authorized' | 'denied' | 'restricted' | 'notDetermined' | 'unknown';
 
@@ -79,6 +84,10 @@ interface NativeModule {
   requestHealthAuthorization(): Promise<{ requested: boolean }>;
   readRecentRunningWorkouts(limit: number): Promise<AppleRunningWorkout[]>;
   readWorkoutRoute(uuid: string, maxPoints: number): Promise<AppleRoutePoint[]>;
+  readWorkoutsInRange(startIso: string, endIso: string, limit: number): Promise<AppleRunningWorkout[]>;
+  requestHealthAuthorizationFor(quantityIds: string[], categoryIds: string[]): Promise<{ requested: boolean; typeCount: number }>;
+  readDailyStatistics(specsJson: string, startIso: string, endIso: string): Promise<NativeRows<AppleStatRow>>;
+  readCategorySamples(identifiers: string[], startIso: string, endIso: string): Promise<NativeRows<AppleCategoryRow>>;
   requestWorkoutAuthorization(): Promise<WorkoutAuthorizationState>;
   scheduleRunWorkout(planId: string, distanceKm: number, startIso: string): Promise<{ scheduled: boolean; planId: string; distanceKm: number; scheduledFor: string }>;
   validateCustomWorkoutSpec(specJson: string): NativeCustomWorkoutValidation;
@@ -101,6 +110,12 @@ export const getHealthAuthorizationRequestStatus = () => module_().getHealthAuth
 export const requestHealthAuthorization = () => module_().requestHealthAuthorization();
 export const readRecentRunningWorkouts = (limit = 5) => module_().readRecentRunningWorkouts(limit);
 export const readWorkoutRoute = (uuid: string, maxPoints = 2000) => module_().readWorkoutRoute(uuid, maxPoints);
+// Treinos de TODOS os tipos num periodo (mais recente primeiro).
+export const readWorkoutsInRange = (start: Date, end: Date, limit = 500) => module_().readWorkoutsInRange(start.toISOString(), end.toISOString(), limit);
+// Pede leitura (nunca escrita) dos tipos de saude informados, alem dos de treino.
+export const requestHealthAuthorizationFor = (quantityIds: string[], categoryIds: string[]) => module_().requestHealthAuthorizationFor(quantityIds, categoryIds);
+export const readDailyStatistics = (specs: Array<{ identifier: string; unit: string }>, start: Date, end: Date) => module_().readDailyStatistics(JSON.stringify(specs), start.toISOString(), end.toISOString());
+export const readCategorySamples = (identifiers: string[], start: Date, end: Date) => module_().readCategorySamples(identifiers, start.toISOString(), end.toISOString());
 export const requestWorkoutAuthorization = () => module_().requestWorkoutAuthorization();
 export const scheduleRunWorkout = (planId: string, distanceKm: number, start: Date) => module_().scheduleRunWorkout(planId, distanceKm, start.toISOString());
 // Constroi e valida (SEM agendar) um CustomWorkout a partir do AppleCustomWorkoutSpec ja validado pela API. O spec vai como JSON, sem alteracao.

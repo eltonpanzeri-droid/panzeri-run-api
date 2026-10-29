@@ -9,7 +9,7 @@
 
 // Categorias de dado que um conector pode trazer. A permissao/consentimento por categoria (futuro) se apoia neste vocabulario; declarar uma categoria
 // aqui NAO autoriza seu uso — so' informa o que o conector e' capaz de entregar.
-export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'activity_sensors', 'sleep', 'hrv', 'resting_heart_rate', 'daily_activity', 'pulse_ox', 'skin_temperature', 'body_composition', 'nutrition', 'lifestyle_load', 'vo2_max', 'respiratory_rate', 'profile'] as const;
+export const PROVIDER_DATA_CATEGORIES = ['activity', 'activity_route', 'activity_sensors', 'sleep', 'hrv', 'resting_heart_rate', 'daily_activity', 'pulse_ox', 'skin_temperature', 'body_composition', 'nutrition', 'lifestyle_load', 'vo2_max', 'respiratory_rate', 'profile', 'heart_rate', 'mobility', 'menstrual_cycle', 'clinical_vitals'] as const;
 export type ProviderDataCategory = (typeof PROVIDER_DATA_CATEGORIES)[number];
 
 // ── Consentimento (Passo 2b) ────────────────────────────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ const { withEntitlementsPlist, withInfoPlist, withPodfileProperties, withXcodePr
 
 const IOS_DEPLOYMENT_TARGET = '17.0';
 const HEALTH_SHARE_TEXT =
-  'O Panzeri Run le seus treinos de corrida do app Saude e as medidas guardadas junto deles: inicio, fim, duracao, distancia, frequencia cardiaca, calorias ativas, passos, potencia, velocidade, passada, elevacao e percurso. Voce escolhe o que compartilhar, e os dados que autorizar sao enviados ao Panzeri Run para sincronizacao e acompanhamento do seu treino.';
+  'O Panzeri Run le os dados do app Saude que voce autorizar: seus treinos (de qualquer tipo) com as medidas guardadas junto e o percurso, e sua saude do dia a dia - atividade, sono, frequencia cardiaca, variabilidade da frequencia cardiaca, VO2 maximo, peso e composicao corporal, oxigenacao, temperatura, respiracao, mobilidade, habitos, nutricao, pressao arterial, glicemia e ciclo menstrual. Voce escolhe o que compartilhar, e os dados que autorizar sao enviados ao Panzeri Run para acompanhar sua evolucao e personalizar o seu treino.';
 
 const HEALTH_UPDATE_TEXT =
   'O Panzeri Run nao grava registros de saude no app Saude. A Apple exige esta declaracao porque o app usa o HealthKit e pode, somente com a sua autorizacao, agendar no Apple Watch um treino planejado do seu programa de treino.';
