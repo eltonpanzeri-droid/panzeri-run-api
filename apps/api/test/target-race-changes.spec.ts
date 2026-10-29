@@ -133,7 +133,7 @@ describe('app: editar, reabrir e remover com confirmacao', () => {
     expect(app).toContain("method: editingId ? 'PATCH' : 'POST'");
     expect(app).toContain('const clear = editingId ? null : undefined;');
     expect(app).toContain("'Salvar alteracoes'");
-    expect(app).toContain('Cancelar edicao');
+    expect(app).toContain('Cancelar edição');
     expect(app).toContain('onPress={saveRace}');
   });
   it('a aluna nao recebe mensagem de aviso: nenhum envio de notificacao a aluna no servico de metas', () => {

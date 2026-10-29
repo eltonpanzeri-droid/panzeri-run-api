@@ -45,6 +45,7 @@ import type { CorrectionOptions } from '../activity-execution/session-execution-
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { IdentityConfirmationService } from '../activity-execution/identity-confirmation.service';
+import { validateDefinition } from '../billing/coupon-rules';
 
 @Injectable()
 export class CoachService {
@@ -1861,41 +1862,51 @@ export class CoachService {
         code: coupon.code,
         name: coupon.name,
         discountPercent: coupon.discountPercent,
+        discountType: coupon.discountType,
+        discountAmountCents: coupon.discountAmountCents,
+        durationMonths: coupon.durationMonths,
+        maxRedemptions: coupon.maxRedemptions,
+        validFrom: coupon.validFrom,
+        validUntil: coupon.validUntil,
         active: coupon.active,
         usageCount: coupon.usageCount,
         createdAt: coupon.createdAt,
         redemptions: coupon.redemptions.map((redemption: any) => ({
           id: redemption.id,
           createdAt: redemption.createdAt,
+          status: redemption.status,
           student: redemption.user,
         })),
       })),
     };
   }
 
-  async createCoupon(dto: { code: string; name?: string; discountPercent?: number; active?: boolean }) {
+  async createCoupon(dto: CouponInput) {
     const code = normalizeCouponCode(dto.code);
-    if (!code) throw new BadRequestException('Informe o codigo do cupom.');
-    const discountPercent = clampPercent(dto.discountPercent ?? 100);
+    if (!code) throw new BadRequestException('Informe o código do cupom.');
+    const conditions = couponConditionsFrom(dto, null);
+    const problem = validateDefinition(conditions);
+    if (problem) throw new BadRequestException(problem);
     const prisma = this.prisma as any;
-    return prisma.coupon.create({
-      data: {
-        code,
-        name: dto.name?.trim() || code,
-        discountPercent,
-        active: dto.active ?? true,
-      },
-    });
+    return prisma.coupon.create({ data: { code, name: dto.name?.trim() || code, ...conditions, active: dto.active ?? true } });
   }
 
-  async updateCoupon(couponId: string, dto: { code?: string; name?: string; discountPercent?: number; active?: boolean }) {
+  async updateCoupon(couponId: string, dto: Partial<CouponInput>) {
+    const prisma = this.prisma as any;
+    const current = await prisma.coupon.findUnique({ where: { id: couponId } });
+    if (!current) throw new BadRequestException('Cupom não encontrado.');
     const data: Record<string, unknown> = {};
     if (dto.code !== undefined) data.code = normalizeCouponCode(dto.code);
-    if (dto.name !== undefined) data.name = dto.name.trim() || normalizeCouponCode(dto.code ?? 'Cupom');
-    if (dto.discountPercent !== undefined) data.discountPercent = clampPercent(dto.discountPercent);
+    if (dto.name !== undefined) data.name = dto.name.trim() || normalizeCouponCode(dto.code ?? current.code);
     if (dto.active !== undefined) data.active = dto.active;
-    if (!Object.keys(data).length) throw new BadRequestException('Nenhuma alteracao informada.');
-    const prisma = this.prisma as any;
+    const touchesConditions = ['discountType', 'discountPercent', 'discountAmountCents', 'durationMonths', 'maxRedemptions', 'validFrom', 'validUntil'].some((key) => (dto as Record<string, unknown>)[key] !== undefined);
+    if (touchesConditions) {
+      const conditions = couponConditionsFrom(dto, current);
+      const problem = validateDefinition(conditions);
+      if (problem) throw new BadRequestException(problem);
+      Object.assign(data, conditions);
+    }
+    if (!Object.keys(data).length) throw new BadRequestException('Nenhuma alteração informada.');
     return prisma.coupon.update({ where: { id: couponId }, data });
   }
 
@@ -2612,3 +2623,27 @@ function formatPace(secondsPerKm: number) {
 
 
 
+
+export interface CouponInput {
+  code: string; name?: string; active?: boolean;
+  discountType?: string; discountPercent?: number; discountAmountCents?: number | null;
+  durationMonths?: number | null; maxRedemptions?: number | null; validFrom?: string | null; validUntil?: string | null;
+}
+
+// Condicoes do cupom a partir do que o painel enviou; campo nao enviado mantem o valor atual (edicao) ou o padrao (criacao). Nada comercial e' presumido: sem limite/validade/duracao = sem limite.
+function couponConditionsFrom(dto: Partial<CouponInput>, current: Record<string, any> | null) {
+  const pick = <T>(value: T | undefined, fallback: T) => (value === undefined ? fallback : value);
+  const date = (value: string | null | undefined, fallback: Date | null) => (value === undefined ? fallback : value ? new Date(value) : null);
+  const validFrom = date(dto.validFrom, current?.validFrom ?? null);
+  const validUntil = date(dto.validUntil, current?.validUntil ?? null);
+  if ((validFrom && Number.isNaN(validFrom.getTime())) || (validUntil && Number.isNaN(validUntil.getTime()))) throw new BadRequestException('Data de validade inválida.');
+  return {
+    discountType: pick(dto.discountType, current?.discountType ?? 'percent'),
+    discountPercent: pick(dto.discountPercent, current?.discountPercent ?? 100),
+    discountAmountCents: pick(dto.discountAmountCents, current?.discountAmountCents ?? null),
+    durationMonths: pick(dto.durationMonths, current?.durationMonths ?? null),
+    maxRedemptions: pick(dto.maxRedemptions, current?.maxRedemptions ?? null),
+    validFrom,
+    validUntil,
+  };
+}

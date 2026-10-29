@@ -204,7 +204,7 @@ describe('P2 — chave RevenueCat ausente', () => {
     expect(app).toContain('async function syncStoreAccess(accessToken: string, automatic = false): Promise<boolean>');
     expect(app).toContain('return response.ok;');
     expect(app.split('const synced = await syncStoreAccess(accessToken);')).toHaveLength(4); // 3 usos: 2 compras + restauracao
-    expect(app).toContain('nao consegui confirmar seu acesso agora');
+    expect(app).toContain('não consegui confirmar seu acesso agora');
   });
 
   it('botao Atualizar situacao: assinante da loja manda o RevenueCat reler o recibo antes de consultar o servidor; falha nao diz atualizada', () => {

@@ -25,6 +25,7 @@ import { CreateContextEventDto } from '../context-events/dto/create-context-even
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { listVariableIds, getVariableDefinition } from '../training-intelligence/variable-registry';
 import { explorerInfoOf } from '../training-intelligence/explorer-catalog';
+import type { CouponInput } from './coach.service';
 
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('coach', 'admin')
@@ -241,12 +242,12 @@ export class CoachController {
   }
 
   @Post('coupons')
-  createCoupon(@Body() dto: { code: string; name?: string; discountPercent?: number; active?: boolean }) {
+  createCoupon(@Body() dto: CouponInput) {
     return this.coachService.createCoupon(dto);
   }
 
   @Patch('coupons/:couponId')
-  updateCoupon(@Param('couponId') couponId: string, @Body() dto: { code?: string; name?: string; discountPercent?: number; active?: boolean }) {
+  updateCoupon(@Param('couponId') couponId: string, @Body() dto: Partial<CouponInput>) {
     return this.coachService.updateCoupon(couponId, dto);
   }
 

@@ -2004,6 +2004,14 @@ model Coupon {
   code            String             @unique
   name            String
   discountPercent Int                @default(100)
+  // Condicoes do cupom (30/10/2026), todas opcionais e aditivas. discountType: 'percent' (usa discountPercent) | 'fixed' (usa discountAmountCents). durationMonths nulo = todas as
+  // mensalidades; hoje a cobranca por cartao so' executa 'todas' (ver billing/coupon-rules.ts). maxRedemptions/validFrom/validUntil nulos = sem limite.
+  discountType        String   @default("percent")
+  discountAmountCents Int?
+  durationMonths      Int?
+  maxRedemptions      Int?
+  validFrom           DateTime?
+  validUntil          DateTime?
   active          Boolean            @default(true)
   usageCount      Int                @default(0)
   createdAt       DateTime           @default(now())
@@ -2018,6 +2026,11 @@ model CouponRedemption {
   userId    String
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
+  // 'applied' = efeito confirmado (acesso liberado ou desconto confirmado no Asaas); 'reserved' = desconto escolhido, ainda nao cobrado (nao conta como uso). Linhas antigas ficam 'applied'.
+  status              String    @default("applied")
+  appliedAt           DateTime?
+  appliedValueCents   Int?
+  appliedSubscriptionId String?
 
   @@unique([couponId, userId])
   @@index([userId])

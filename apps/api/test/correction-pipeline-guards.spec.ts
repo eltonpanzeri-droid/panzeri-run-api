@@ -178,7 +178,7 @@ describe('migracao: aditiva, preserva registros e converte as retracoes antigas 
 
   it('e a migration mais recente (ordem de aplicacao)', () => {
     const names = readdirSync(join(__dirname, '..', 'prisma', 'migrations')).filter((n: string) => /^\d{14}_/.test(n)).sort();
-    expect(names[names.length - 1]).toBe('20261015120000_medal_award_transitions_and_pending_reevaluation');
+    expect(names).toContain('20261015120000_medal_award_transitions_and_pending_reevaluation') // migrations posteriores (ex.: cupons, 30/10/2026) sao aditivas;
   });
 
   it('a exclusao de conta cobre as tabelas novas (historico das transicoes e pendencia)', () => {

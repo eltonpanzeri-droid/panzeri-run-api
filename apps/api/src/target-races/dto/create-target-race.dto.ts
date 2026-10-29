@@ -16,7 +16,7 @@ export class CreateTargetRaceDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(172800)
+  @Max(864000)
   targetSeconds?: number;
 
   @IsOptional()

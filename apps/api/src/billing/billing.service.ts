@@ -9,7 +9,9 @@ import { MetaCapiService } from '../meta/meta-capi.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { fetchAppleSubscriptionVerdict, readAppleCredentials } from './apple-store-status';
-import { discountedPrice, formatBRL, partialCouponProblem, priceLabelWithDiscount } from './coupon-pricing';
+import { formatBRL } from './coupon-pricing';
+import { CouponDefinition, CouponPlan, evaluateCoupon, priceLabelFromCharge } from './coupon-rules';
+import { ensureExistingSubscriptionValue, verifyCreatedSubscriptionValue } from './coupon-charge';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -385,7 +387,7 @@ export class BillingService {
     // 05/09: subscriptionContext derivado dos campos atuais (pos-sync quando aplicavel) — additive,
     // preserva todos os campos existentes para compatibilidade com versoes antigas do app.
     const latestBilling = billing ? await this.prisma.billingSubscription.findUnique({ where: { userId } }) : null;
-    const couponDiscount = (await this.activeCouponDiscount(userId))?.percent ?? null;
+    const activeCoupon = await this.activeCouponDiscount(userId);
     const subscriptionContext = deriveSubscriptionContext(
       { subscriptionStatus: appStatus, subscriptionCancelRequestedAt: user.subscriptionCancelRequestedAt, studentCode: user.studentCode },
       latestBilling ? { overdueInvoiceUrl: latestBilling.overdueInvoiceUrl ?? null, nextChargeAt: latestBilling.nextChargeAt ?? null } : null,
@@ -397,8 +399,9 @@ export class BillingService {
       // Assinatura da loja (Apple/Google): so' a loja cancela. O app abre a gestao da loja em vez de chamar /billing/cancel.
       storeManaged: user.subscriptionProvider === 'revenuecat',
       planName: PLAN_DESCRIPTION,
-      priceLabel: priceLabelWithDiscount(PLAN_PRICE, couponDiscount),
-      discountPercent: couponDiscount,
+      priceLabel: activeCoupon ? priceLabelFromCharge(PLAN_PRICE, activeCoupon.plan.chargeValue, activeCoupon.plan.discountLabel) : priceLabelFromCharge(PLAN_PRICE, PLAN_PRICE),
+      couponCode: activeCoupon?.code ?? null,
+      chargeValue: activeCoupon ? activeCoupon.plan.chargeValue : PLAN_PRICE,
       status: appStatus,
       providerStatus,
       hasCpf: Boolean(user.cpf),
@@ -529,20 +532,15 @@ export class BillingService {
     const existingSubscriptions = await this.asaasRequest<AsaasSubscriptionList>(`/subscriptions?customer=${customerId}&status=ACTIVE`);
     const reusableSubscription = existingSubscriptions.data?.[0] ?? null;
 
-    // Cupom parcial: o valor COBRADO e' o valor com desconto (lido do cupom ativo no momento do checkout, nunca de um preco guardado pelo aplicativo).
-    const couponDiscount = await this.activeCouponDiscount(userId);
-    const chargeValue = couponDiscount ? discountedPrice(PLAN_PRICE, couponDiscount.percent) : PLAN_PRICE;
+    // Cupom com desconto: o valor COBRADO sai das condicoes cadastradas no cupom (coupon-rules.ts), lidas no momento do checkout. O Asaas so' e' considerado aplicado se o valor relido da
+    // assinatura for exatamente o planejado (coupon-charge.ts); o resgate so' e' registrado depois disso.
+    const activeCoupon = await this.activeCouponDiscount(userId);
+    const chargeValue = activeCoupon ? activeCoupon.plan.chargeValue : PLAN_PRICE;
+    const asaasCall = <T>(path: string, init?: { method?: string; body?: string }) => this.asaasRequest<T>(path, init);
     let subscriptionId: string;
     if (reusableSubscription) {
       subscriptionId = reusableSubscription.id;
-      if (couponDiscount && Number(reusableSubscription.value) !== chargeValue) {
-        // assinatura pendente criada antes do cupom: ajusta o valor no Asaas. Se o Asaas recusar, falha com clareza (nunca mostra desconto que nao sera cobrado).
-        try {
-          await this.asaasRequest<AsaasSubscription>(`/subscriptions/${reusableSubscription.id}`, { method: 'PUT', body: JSON.stringify({ value: chargeValue, updatePendingPayments: true }) });
-        } catch {
-          throw new BadGatewayException('Nao foi possivel aplicar o desconto na sua assinatura agora. Tente novamente em instantes ou fale com o suporte.');
-        }
-      }
+      if (activeCoupon) await ensureExistingSubscriptionValue(asaasCall, reusableSubscription, chargeValue);
     } else {
       const nextDueDate = formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
       const subscription = await this.asaasRequest<AsaasSubscription>('/subscriptions', {
@@ -556,6 +554,7 @@ export class BillingService {
           description: PLAN_DESCRIPTION,
         }),
       });
+      if (activeCoupon) await verifyCreatedSubscriptionValue(asaasCall, subscription, chargeValue);
       subscriptionId = subscription.id;
     }
 
@@ -643,81 +642,90 @@ export class BillingService {
 
     if (isGenuinelyNewSubscription) {
       const title = isReactivation ? 'Assinatura reativada no Panzeri Run' : 'Nova assinatura gerada no Panzeri Run';
-      await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (${formatBRL(chargeValue)}/mes${couponDiscount ? `, cupom ${couponDiscount.code} com ${couponDiscount.percent}% de desconto` : ''})`);
+      await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (${formatBRL(chargeValue)}/mes${activeCoupon ? `, cupom ${activeCoupon.code}: ${activeCoupon.plan.discountLabel}` : ''})`);
     }
+    // Resgate so' passa a contar DEPOIS de o desconto estar confirmado no Asaas.
+    if (activeCoupon) await this.markCouponApplied(userId, activeCoupon.couponId, chargeValue, subscriptionId);
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
     this.pruneRecentCheckouts();
 
     return { checkoutUrl, paymentId: relevantPayment?.id ?? null };
   }
 
+  // Cupom: as condicoes vem do cadastro do cupom (painel); a decisao e' de coupon-rules.ts e a cobranca de coupon-charge.ts. Acesso liberado (100% ou desconto que zera a mensalidade) ativa na hora.
+  // Desconto parcial fica RESERVADO e so' vira resgate efetivo quando o checkout confirmar o valor no Asaas.
   async applyCoupon(userId: string, code: string) {
     const normalized = code.trim().toUpperCase();
     if (!normalized) throw new BadRequestException('Informe o cupom.');
 
     const prisma = this.prisma as any;
-    const coupon = await prisma.coupon.findUnique({ where: { code: normalized } });
-    if (coupon && !coupon.active) throw new BadRequestException('Cupom inativo.');
-
-    if (coupon && coupon.discountPercent < 100) {
-      // Desconto parcial so' vale onde ele pode ser cobrado de verdade (assinatura pelo Asaas, cartao). Valida ANTES de registrar o resgate: nao confirma cupom sem efeito.
-      const problem = partialCouponProblem(PLAN_PRICE, coupon.discountPercent);
-      if (problem) throw new BadRequestException(problem);
-      const [account, billing] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true, subscriptionStatus: true } }),
-        this.prisma.billingSubscription.findUnique({ where: { userId }, select: { providerStatus: true } }),
-      ]);
-      if (account?.subscriptionProvider === 'revenuecat') throw new BadRequestException('Sua assinatura e feita pela loja de aplicativos. Este cupom vale apenas para assinatura pelo site.');
-      if (['active', 'manual_active', 'grace'].includes(account?.subscriptionStatus ?? '') || ACTIVE_STATUSES.has(billing?.providerStatus ?? '')) {
-        throw new BadRequestException('Este cupom vale para novas assinaturas. Sua assinatura ja esta ativa.');
-      }
+    const coupon = (await prisma.coupon.findUnique({ where: { code: normalized } })) as (CouponDefinition & { usageCount: number }) | null;
+    if (!coupon) {
+      if (!this.validCouponCodes().includes(normalized)) throw new BadRequestException('Cupom inválido.');
+      await this.activateCouponAccess(userId, normalized);
+      return { status: 'manual_active', message: 'Cupom aplicado. Acesso liberado.' };
     }
 
-    if (coupon) {
-      const alreadyUsed = await prisma.couponRedemption.findUnique({
-        where: { couponId_userId: { couponId: coupon.id, userId } },
-      });
+    const own = await prisma.couponRedemption.findUnique({ where: { couponId_userId: { couponId: coupon.id, userId } }, select: { status: true } });
+    const counted = (await prisma.couponRedemption.count({ where: { couponId: coupon.id, status: { in: ['reserved', 'applied'] } } })) - (own && ['reserved', 'applied'].includes(own.status) ? 1 : 0);
+    const decision = evaluateCoupon(coupon, { baseValue: PLAN_PRICE, now: new Date(), countedRedemptions: counted });
+    if (!decision.ok) throw new BadRequestException(decision.message);
 
+    if (decision.plan.kind === 'free_access') {
+      const firstUse = !own || own.status !== 'applied';
       await this.prisma.$transaction([
-        prisma.couponRedemption.upsert({
-          where: { couponId_userId: { couponId: coupon.id, userId } },
-          create: { couponId: coupon.id, userId },
-          update: {},
-        }),
-        ...(alreadyUsed ? [] : [prisma.coupon.update({ where: { id: coupon.id }, data: { usageCount: { increment: 1 } } })]),
+        prisma.couponRedemption.upsert({ where: { couponId_userId: { couponId: coupon.id, userId } }, create: { couponId: coupon.id, userId, status: 'applied', appliedAt: new Date() }, update: { status: 'applied', appliedAt: new Date() } }),
+        ...(firstUse ? [prisma.coupon.update({ where: { id: coupon.id }, data: { usageCount: { increment: 1 } } })] : []),
       ]);
-
-      if (coupon.discountPercent >= 100) {
-        await this.activateCouponAccess(userId, normalized);
-        return { status: 'manual_active', discountPercent: coupon.discountPercent, message: 'Cupom aplicado. Acesso liberado.' };
-      }
-
-      return {
-        status: 'pending',
-        discountPercent: coupon.discountPercent,
-        finalPrice: discountedPrice(PLAN_PRICE, coupon.discountPercent),
-        message: `Cupom aplicado: ${coupon.discountPercent}% de desconto. Sua mensalidade passa a ser ${formatBRL(discountedPrice(PLAN_PRICE, coupon.discountPercent))} (de ${formatBRL(PLAN_PRICE)}), em todas as mensalidades. Finalize o pagamento para liberar o acesso.`,
-      };
+      await this.activateCouponAccess(userId, normalized);
+      return { status: 'manual_active', message: 'Cupom aplicado. Acesso liberado.' };
     }
 
-    if (!this.validCouponCodes().includes(normalized)) {
-      throw new BadRequestException('Cupom invalido.');
+    // Desconto: so' vale onde pode ser cobrado de verdade (assinatura pelo Asaas, cartao).
+    const [account, billing] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true, subscriptionStatus: true } }),
+      this.prisma.billingSubscription.findUnique({ where: { userId }, select: { providerStatus: true } }),
+    ]);
+    if (account?.subscriptionProvider === 'revenuecat') throw new BadRequestException('Sua assinatura é feita pela loja de aplicativos. Este cupom vale apenas para assinatura pelo site.');
+    if (['active', 'manual_active', 'grace'].includes(account?.subscriptionStatus ?? '') || ACTIVE_STATUSES.has(billing?.providerStatus ?? '')) {
+      throw new BadRequestException('Este cupom vale para novas assinaturas. Sua assinatura já está ativa.');
     }
-
-    await this.activateCouponAccess(userId, normalized);
-    return { status: 'manual_active', discountPercent: 100, message: 'Cupom aplicado. Acesso liberado.' };
+    // o resgate fica reservado (sem contar uso) ate' o desconto ser confirmado na cobranca
+    await prisma.couponRedemption.upsert({
+      where: { couponId_userId: { couponId: coupon.id, userId } },
+      create: { couponId: coupon.id, userId, status: 'reserved' },
+      update: own?.status === 'applied' ? {} : { status: 'reserved' },
+    });
+    return {
+      status: 'pending',
+      finalPrice: decision.plan.chargeValue,
+      message: `Cupom reservado: ${decision.plan.discountLabel}. A mensalidade será ${formatBRL(decision.plan.chargeValue)} (de ${formatBRL(PLAN_PRICE)}). O desconto é aplicado quando você finalizar o pagamento.`,
+    };
   }
 
-  // Cupom parcial ativo (1% a 99%) resgatado por este aluno; o mais recente vale. Cupom desativado deixa de valer no proximo checkout.
-  private async activeCouponDiscount(userId: string): Promise<{ percent: number; code: string } | null> {
-    let rows: Array<{ coupon?: { code: string; discountPercent: number } }> = [];
+  // Cupom com desconto reservado/aplicado deste aluno, reavaliado agora com as condicoes ATUAIS do cadastro (cupom desativado, expirado ou esgotado deixa de valer no proximo checkout).
+  private async activeCouponDiscount(userId: string): Promise<{ couponId: string; code: string; plan: Extract<CouponPlan, { kind: 'discount' }> } | null> {
     try {
-      rows = await (this.prisma as any).couponRedemption.findMany({ where: { userId, coupon: { active: true, discountPercent: { gte: 1, lt: 100 } } }, orderBy: { createdAt: 'desc' }, take: 1, select: { coupon: { select: { code: true, discountPercent: true } } } });
+      const prisma = this.prisma as any;
+      const rows = await prisma.couponRedemption.findMany({ where: { userId, status: { in: ['reserved', 'applied'] } }, orderBy: { createdAt: 'desc' }, include: { coupon: true } });
+      for (const row of rows as Array<{ status: string; coupon: CouponDefinition }>) {
+        const counted = (await prisma.couponRedemption.count({ where: { couponId: row.coupon.id, status: { in: ['reserved', 'applied'] } } })) - 1;
+        const decision = evaluateCoupon(row.coupon, { baseValue: PLAN_PRICE, now: new Date(), countedRedemptions: counted });
+        if (decision.ok && decision.plan.kind === 'discount') return { couponId: row.coupon.id, code: row.coupon.code, plan: decision.plan };
+      }
     } catch {
-      rows = [];
+      return null;
     }
-    const coupon = rows[0]?.coupon;
-    return coupon ? { percent: coupon.discountPercent, code: coupon.code } : null;
+    return null;
+  }
+
+  private async markCouponApplied(userId: string, couponId: string, chargeValue: number, subscriptionId: string) {
+    const prisma = this.prisma as any;
+    const flipped = await prisma.couponRedemption.updateMany({
+      where: { couponId, userId, status: 'reserved' },
+      data: { status: 'applied', appliedAt: new Date(), appliedValueCents: Math.round(chargeValue * 100), appliedSubscriptionId: subscriptionId },
+    });
+    if (flipped.count > 0) await prisma.coupon.update({ where: { id: couponId }, data: { usageCount: { increment: 1 } } });
   }
 
   // 18/08: studentCode agora so e atribuido aqui, na hora em que a pessoa realmente vira aluna de

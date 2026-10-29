@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { InfoTip } from '../InfoTip';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
@@ -293,7 +294,8 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Apple Saúde</Text>
-      <Text style={styles.hint}>Traz seus treinos e seus dados de saúde do app Saúde (sono, passos, frequência cardíaca, HRV, peso e outros) para o Panzeri Run, dos últimos 3 anos e depois só o que é novo. São duas permissões diferentes: a do iPhone (deixa o aplicativo ler os dados no aparelho) e a do Panzeri Run, abaixo, que registra o que o Panzeri Run pode guardar e usar. O iPhone não informa ao aplicativo o que foi negado.</Text>
+      <Text style={styles.hint}>Traz seus treinos e seus dados de saúde do app Saúde (sono, passos, frequência cardíaca, HRV, peso e outros) para o Panzeri Run, dos últimos 3 anos e depois só o que é novo.</Text>
+      <InfoTip label="Por que existem duas permissões?">{'A permissão do iPhone deixa o aplicativo ler os dados no aparelho. A permissão do Panzeri Run, logo abaixo, registra o que podemos guardar e usar para acompanhar sua evolução. O iPhone não informa ao aplicativo o que foi negado, então um dado ausente pode não existir ou não ter sido permitido.'}</InfoTip>
 
       {loadFailed ? (
         <>

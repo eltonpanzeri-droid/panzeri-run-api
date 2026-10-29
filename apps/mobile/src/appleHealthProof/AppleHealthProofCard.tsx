@@ -67,7 +67,7 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
       },
     },
     {
-      label: '2. Ler ultimas corridas (HKWorkout)',
+      label: '2. Ler últimas corridas (HKWorkout)',
       action: async () => {
         const workouts = await readRecentRunningWorkouts(5);
         if (workouts.length === 0) {
@@ -122,7 +122,7 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
       },
     },
     {
-      label: '7. Importar ultimas corridas para o Panzeri Run',
+      label: '7. Importar últimas corridas para o Panzeri Run',
       action: async () => {
         // Etapa 1 (ingestao): envia os HKWorkout lidos neste aparelho para a conta autenticada. So' corridas; so' os campos que o
         // HealthKit informou. O servidor decide duplicidade pelo UUID do HKWorkout.
@@ -150,7 +150,7 @@ export function AppleHealthProofCard({ accessToken, apiUrl }: { accessToken: str
   return (
     <View style={styles.card}>
       <Text style={styles.title}>Prova Apple Watch (Bloco 1)</Text>
-      <Text style={styles.hint}>Teste tecnico. Os passos 1 a 6 ficam so neste aparelho. O passo 7 envia suas corridas lidas do Saude para a sua propria conta no Panzeri Run.</Text>
+      <Text style={styles.hint}>Teste técnico. Os passos 1 a 6 ficam só neste aparelho. O passo 7 envia suas corridas lidas do Saúde para a sua própria conta no Panzeri Run.</Text>
       <Text style={styles.hint}>O passo 1 (leitura de treinos do app Saude) e o passo 3 (agendar corridas no Relogio) abrem a tela do proprio iOS, onde voce escolhe o que compartilhar. Se voce nao permitir, nada e lido nem agendado.</Text>
       {steps.map((step) => (
         <Pressable key={step.label} style={[styles.button, busy && styles.buttonDisabled]} disabled={busy} onPress={() => void run(step.label, step.action)}>

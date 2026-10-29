@@ -1064,6 +1064,8 @@ export class PrescriptionAgentService {
         metasDeProva: (input.targetRaces ?? []).map((race) => ({
           nome: race.name,
           data: race.raceDate,
+          // fato calendario (nao e regra): quantos dias faltam, para o agente situar preparacao, polimento e semana da prova
+          diasAteAProva: Math.ceil((new Date(race.raceDate).getTime() - Date.now()) / 86_400_000),
           distanciaKm: race.distanceKm,
           paceAlvoSegundosPorKm: race.paceSecondsPerKm,
           // Questionario de contexto sobre a meta (10/08), 1 a 10 cada, ou null se o aluno

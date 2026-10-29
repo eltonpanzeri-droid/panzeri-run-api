@@ -86,7 +86,7 @@ describe('hook e ligacao no app', () => {
   it('a faixa so aparece na web com versao disponivel, com o texto em pt-BR, e esta ligada uma unica vez no App', () => {
     const banner = read('src', 'appUpdate', 'AppUpdateBanner.tsx');
     expect(banner).toMatch(/Platform\.OS !== 'web' \|\| !updateAvailable/);
-    expect(banner).toMatch(/Nova versão disponível — Atualizar/);
+    expect(banner).toMatch(/Nova versão disponível, Atualizar/);
     const app = read('App.tsx');
     expect(app.match(/<AppUpdateBanner \/>/g)).toHaveLength(1);
     expect(app).toMatch(/import \{ AppUpdateBanner \} from '\.\/src\/appUpdate\/AppUpdateBanner'/);

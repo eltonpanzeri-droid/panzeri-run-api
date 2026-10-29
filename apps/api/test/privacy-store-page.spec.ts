@@ -7,11 +7,12 @@ const read = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8')
 const all = PRIVACY_SECTIONS.flatMap((s) => s.paragraphs).join('\n');
 
 describe('politica de privacidade das lojas', () => {
-  it('Apple Saude: so leitura de treinos e distancia; nao le FC, rota, sono nem passos; nao grava', () => {
+  it('Apple Saude: so leitura (nunca grava); a pagina publica declara tudo o que o aplicativo le', () => {
     const swift = read('mobile/modules/panzeri-apple-health/ios/PanzeriAppleHealthModule.swift');
-    expect(swift).toContain('[HKObjectType.workoutType(), HKQuantityType(.distanceWalkingRunning)]');
-    expect(swift).toContain('requestAuthorization(toShare: [], read: self.readTypes)');
-    expect(swift).not.toMatch(/heartRate|HKWorkoutRoute|sleepAnalysis|stepCount|activeEnergyBurned/);
+    expect(swift).toContain('requestAuthorization(toShare: [], read: types)');
+    expect(swift).not.toMatch(/toShare: \[[^\]]+\]/);
+    for (const declared of ['sono', 'frequência cardíaca', 'HRV', 'VO₂ máximo', 'composição corporal', 'pressão arterial', 'ciclo menstrual', 'Anthropic']) expect(all).toContain(declared);
+    expect(all).not.toContain('Não lemos sono');
     expect(all).toContain('Pedimos apenas permissão de leitura');
     expect(all).toContain('não gravamos nenhum dado no app Saúde');
   });

@@ -157,7 +157,7 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
   it('Polar, Wahoo, Strava e o pipeline de atividades nao dependem da Zepp nem da conexao generica', () => {
     for (const d of ['polar', 'wahoo', 'strava', 'activity-execution', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', d);
-      for (const file of readdirSync(base).filter((f) => f.endsWith('.ts') && !(d === 'health-connect' && /^health-connect-(consent|health)/.test(f)) && !(d === 'polar' && /^polar-health/.test(f)))) {
+      for (const file of readdirSync(base).filter((f) => f.endsWith('.ts') && !(d === 'health-connect' && /^(health-connect-(consent|health)|health-record-persist)/.test(f)) && !(d === 'apple-health' && /^apple-health-(consent|records)/.test(f)) && !(d === 'polar' && /^polar-health/.test(f)))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp|ProviderConnection\b|provider-connection/i);
       }
     }
@@ -265,7 +265,7 @@ describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
+        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|apple-health\/apple-health-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
       }
     };
     walk(join(__dirname, '..', 'src'));

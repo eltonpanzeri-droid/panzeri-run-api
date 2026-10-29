@@ -316,7 +316,7 @@ describe('o Panzeri Run segue com TODAS as integracoes existentes intactas', () 
   it('Polar, Wahoo, Strava, Apple Health e Health Connect nao referenciam nada novo da Zepp', () => {
     for (const dir of ['polar', 'wahoo', 'strava', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', dir);
-      for (const file of require('node:fs').readdirSync(base).filter((f: string) => f.endsWith('.ts') && !(dir === 'health-connect' && /^health-connect-(consent|health)/.test(f)))) {
+      for (const file of require('node:fs').readdirSync(base).filter((f: string) => f.endsWith('.ts') && !(dir === 'health-connect' && /^(health-connect-(consent|health)|health-record-persist)/.test(f)) && !(dir === 'apple-health' && /^apple-health-(consent|records)/.test(f)))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp/i);
       }
     }

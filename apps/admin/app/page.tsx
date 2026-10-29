@@ -386,9 +386,14 @@ interface CouponRow {
   code: string;
   name: string;
   discountPercent: number;
+  discountType?: string;
+  discountAmountCents?: number | null;
+  durationMonths?: number | null;
+  maxRedemptions?: number | null;
+  validUntil?: string | null;
   active: boolean;
   usageCount: number;
-  redemptions?: Array<{ id: string; createdAt: string; student: { id: string; name: string; email: string; subscriptionStatus?: string } }>;
+  redemptions?: Array<{ id: string; createdAt: string; status?: string; student: { id: string; name: string; email: string; subscriptionStatus?: string } }>;
 }
 
 interface FinanceResponse {
@@ -534,6 +539,8 @@ export default function AdminHome() {
   const [couponCode, setCouponCode] = useState('');
   const [couponName, setCouponName] = useState('');
   const [couponDiscount, setCouponDiscount] = useState('100');
+  // Condições opcionais do cupom: vazio = sem limite. Tipo 'fixed' usa o valor em reais (não o percentual).
+  const [couponExtra, setCouponExtra] = useState({ type: 'percent', amount: '', maxUses: '', validUntil: '', months: '' });
 
   // 28/08, bug real corrigido (treinador deslogava toda vez que recarregava a pagina): antes,
   // essa tela SEMPRE chamava /auth/refresh ao carregar, mesmo com um accessToken salvo ainda
@@ -890,12 +897,23 @@ export default function AdminHome() {
     const response = await fetch(`${API_URL}/coach/coupons`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code: couponCode, name: couponName || couponCode, discountPercent: Number(couponDiscount) || 0, active: true }),
+      body: JSON.stringify({
+        code: couponCode,
+        name: couponName || couponCode,
+        discountType: couponExtra.type,
+        ...(couponExtra.type === 'fixed' ? { discountAmountCents: Math.round(Number(couponExtra.amount.replace(',', '.')) * 100) || 0 } : { discountPercent: Number(couponDiscount) || 0 }),
+        maxRedemptions: couponExtra.maxUses ? Number(couponExtra.maxUses) : null,
+        validUntil: couponExtra.validUntil ? new Date(`${couponExtra.validUntil}T23:59:59`).toISOString() : null,
+        durationMonths: couponExtra.months ? Number(couponExtra.months) : null,
+        active: true,
+      }),
     });
     if (!response.ok) {
-      setStatus('Nao consegui criar o cupom. Verifique se ele ja existe.');
+      const detail = await response.json().catch(() => ({}));
+      setStatus(typeof detail.message === 'string' ? detail.message : 'Não consegui criar o cupom. Verifique se ele já existe.');
       return;
     }
+    setCouponExtra({ type: 'percent', amount: '', maxUses: '', validUntil: '', months: '' });
     setCouponCode('');
     setCouponName('');
     setCouponDiscount('100');
@@ -1988,6 +2006,8 @@ export default function AdminHome() {
             onCode={setCouponCode}
             onName={setCouponName}
             onDiscount={setCouponDiscount}
+            extra={couponExtra}
+            onExtra={setCouponExtra}
             onCreate={createCoupon}
             onToggle={toggleCoupon}
           />
@@ -2046,6 +2066,8 @@ function CouponsView({
   onCode,
   onName,
   onDiscount,
+  extra,
+  onExtra,
   onCreate,
   onToggle,
 }: {
@@ -2056,6 +2078,8 @@ function CouponsView({
   onCode: (value: string) => void;
   onName: (value: string) => void;
   onDiscount: (value: string) => void;
+  extra: { type: string; amount: string; maxUses: string; validUntil: string; months: string };
+  onExtra: (value: { type: string; amount: string; maxUses: string; validUntil: string; months: string }) => void;
   onCreate: () => void;
   onToggle: (coupon: CouponRow) => void;
 }) {
@@ -2065,15 +2089,24 @@ function CouponsView({
       <div className="couponCreateGrid">
         <input value={code} onChange={(event) => onCode(event.target.value.toUpperCase())} placeholder="Codigo. Ex: JUCAMISA10" />
         <input value={name} onChange={(event) => onName(event.target.value)} placeholder="Nome interno" />
-        <input value={discount} onChange={(event) => onDiscount(event.target.value.replace(/\D/g, ''))} placeholder="Desconto %" inputMode="numeric" />
+        <select value={extra.type} onChange={(event) => onExtra({ ...extra, type: event.target.value })}>
+          <option value="percent">Desconto em porcentagem</option>
+          <option value="fixed">Desconto em valor fixo (R$)</option>
+        </select>
+        {extra.type === 'fixed'
+          ? <input value={extra.amount} onChange={(event) => onExtra({ ...extra, amount: event.target.value.replace(/[^\d,.]/g, '') })} placeholder="Valor do desconto em R$" inputMode="decimal" />
+          : <input value={discount} onChange={(event) => onDiscount(event.target.value.replace(/\D/g, ''))} placeholder="Desconto %" inputMode="numeric" />}
+        <input value={extra.maxUses} onChange={(event) => onExtra({ ...extra, maxUses: event.target.value.replace(/\D/g, '') })} placeholder="Limite de usos (vazio = sem limite)" inputMode="numeric" />
+        <input type="date" value={extra.validUntil} onChange={(event) => onExtra({ ...extra, validUntil: event.target.value })} title="Válido até (vazio = sem prazo)" />
+        <input value={extra.months} onChange={(event) => onExtra({ ...extra, months: event.target.value.replace(/\D/g, '') })} placeholder="Mensalidades com desconto (vazio = todas)" inputMode="numeric" />
         <button type="button" onClick={onCreate}>Criar cupom</button>
       </div>
       <div className="couponList">
         {coupons.length ? coupons.map((coupon) => (
           <article className="couponCard" key={coupon.id}>
             <div><strong>{coupon.code}</strong><span>{coupon.name}</span></div>
-            <b>{coupon.discountPercent}%</b>
-            <span>{coupon.usageCount} uso(s)</span>
+            <b>{coupon.discountType === 'fixed' && coupon.discountAmountCents ? `R$ ${(coupon.discountAmountCents / 100).toFixed(2).replace('.', ',')}` : `${coupon.discountPercent}%`}</b>
+            <span>{coupon.usageCount} uso(s){coupon.maxRedemptions ? ` de ${coupon.maxRedemptions}` : ''}{coupon.validUntil ? ` · até ${new Date(coupon.validUntil).toLocaleDateString('pt-BR')}` : ''}</span>
             <span>{coupon.active ? 'Ativo' : 'Inativo'}</span>
             <button className="secondaryButton" type="button" onClick={() => onToggle(coupon)}>{coupon.active ? 'Desativar' : 'Ativar'}</button>
             {coupon.redemptions?.length ? <small>{coupon.redemptions.slice(0, 3).map((item) => item.student.name).join(', ')}</small> : <small>Sem vendas/uso ainda.</small>}

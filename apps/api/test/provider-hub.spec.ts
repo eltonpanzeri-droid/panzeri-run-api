@@ -283,7 +283,7 @@ describe('rotina de processamento e isolamento dos provedores existentes', () =>
   it('Polar, Wahoo, Strava e o pipeline de atividades NAO dependem da Central (nenhum import)', () => {
     for (const dir of ['polar', 'wahoo', 'strava', 'activity-execution', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', dir);
-      for (const file of require('fs').readdirSync(base).filter((f: string) => f.endsWith('.ts') && !(dir === 'health-connect' && /^health-connect-(consent|health)/.test(f)))) {
+      for (const file of require('fs').readdirSync(base).filter((f: string) => f.endsWith('.ts') && !(dir === 'health-connect' && /^(health-connect-(consent|health)|health-record-persist)/.test(f)) && !(dir === 'apple-health' && /^apple-health-(consent|records)/.test(f)))) {
         // Health Connect (22/10/2026): so' os arquivos de AUTORIZACAO usam os auxiliares de consentimento da Central; a fila de eventos e o fluxo de dados continuam fora dela.
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/provider-hub|ProviderInboundEvent/);
       }
