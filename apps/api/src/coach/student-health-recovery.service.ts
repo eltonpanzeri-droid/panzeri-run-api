@@ -23,6 +23,8 @@ const CATEGORY_ID: Record<string, Record<Category, string>> = {
   health_connect: { sleep: 'sleep', hrv: 'hrv', restingHr: 'resting_hr', daily: 'daily' },
   // Polar (23/10/2026): a Polar nao tem serie diaria de FC de repouso; essa categoria nunca e' autorizada para ela.
   polar: { sleep: 'sleep', hrv: 'hrv', restingHr: 'resting_heart_rate_unavailable', daily: 'daily_activity' },
+  // Apple Saude (30/10/2026): grupos do consentimento v2.x (a FC de repouso vem no grupo 'heart'). Sem esta entrada o sono, a HRV e o dia da aluna chegavam ao servidor e eram descartados aqui.
+  apple_health: { sleep: 'sleep', hrv: 'hrv', restingHr: 'heart', daily: 'daily' },
 };
 const INDICATOR_CATEGORY: Record<IndicatorId, Category> = { sleep: 'sleep', hrv: 'hrv', restingHr: 'restingHr', steps: 'daily', activeKcal: 'daily' };
 const INDICATOR_LABEL: Record<IndicatorId, { label: string; unit: string }> = {
@@ -90,7 +92,7 @@ export interface HealthRecoveryResult {
 
 export interface HealthRecoveryQuery { from?: string; to?: string; source?: string; compareFrom?: string; compareTo?: string }
 
-const SOURCE_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', health_connect: 'Health Connect', polar: 'Polar' };
+const SOURCE_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', health_connect: 'Health Connect', polar: 'Polar', apple_health: 'Apple Saúde' };
 const ORIGIN_NAME: Record<string, string> = { 'com.sec.android.app.shealth': 'Samsung Health', 'com.google.android.apps.fitness': 'Google Fit', 'fi.polar.polarflow': 'Polar Flow', 'com.garmin.android.apps.connectmobile': 'Garmin Connect', 'com.strava': 'Strava' };
 export function sourceDisplayName(key: string): string {
   if (!key.startsWith('health_connect:')) return SOURCE_NAME[key] ?? key;
@@ -101,6 +103,8 @@ const METHOD_NOTE: Record<IndicatorId, (key: string) => string | null> = {
   sleep: () => null,
   hrv: (key) => (key === 'polar'
     ? 'HRV (RMSSD, em milissegundos) das primeiras horas de sono, calculado pela Polar no Nightly Recharge. A unidade é a do RMSSD; a documentação da API não a declara, mas as faixas observadas são compatíveis. Não é a mesma medida da Zepp (média da noite) nem do Health Connect (média do dia): compare apenas com a própria aluna nesta mesma fonte.'
+    : key === 'apple_health'
+    ? 'HRV do Apple Saúde: média do dia de SDNN, em milissegundos. SDNN não é a mesma medida do RMSSD (Polar e Health Connect): compare apenas com a própria aluna nesta mesma fonte.'
     : key === 'zepp'
     ? 'Média de HRV da noite anterior informada pela Zepp. A Zepp não especifica a unidade; compare apenas com a própria aluna nesta mesma fonte.'
     : key.startsWith('health_connect')
