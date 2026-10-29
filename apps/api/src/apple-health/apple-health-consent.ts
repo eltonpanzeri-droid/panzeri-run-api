@@ -1,6 +1,7 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
 
-// Autorizacoes do Apple Saude (iPhone) — versao 2.0 (29/10/2026). Mesmo modelo do Health Connect (grupos independentes, nada marcado, texto versionado com hash, revogacao na hora e auditada).
+// Autorizacoes do Apple Saude (iPhone) — versao 2.1 (29/10/2026; a 2.0 ainda nao tinha chegado a nenhum aluno em aplicativo publicado). A 2.1 passou a NOMEAR o fornecedor externo de IA e a transferencia
+// internacional na propria tela de autorizacao (exigencia de transparencia da App Store para dados compartilhados com IA de terceiros), sem criar uma autorizacao de IA separada. Mesmo modelo do Health Connect (grupos independentes, nada marcado, texto versionado com hash, revogacao na hora e auditada).
 // A 1.0 (28/10) cobria so' treinos de corrida, medidas do treino e percurso; a 2.0 acrescenta TODA a saude do dia a dia que o HealthKit entrega (decisao do Elton: coletar tudo o que o aluno
 // autorizar). A autorizacao do iOS (folha do HealthKit, no aparelho) e este consentimento (registrado no servidor) sao coisas DIFERENTES: o primeiro permite ao app LER o dado no aparelho; este
 // autoriza o Panzeri Run a GUARDAR e USAR o dado que chega. O servidor so' guarda o que este registro autoriza.
@@ -15,7 +16,7 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 export const APPLE_HEALTH_PROVIDER_ID = 'apple_health';
 
 export const APPLE_HEALTH_CONSENT: ConsentCapability = {
-  version: '2.0',
+  version: '2.1',
   dateLabel: '29/10/2026',
   title: 'Compartilhe seus dados do app Saúde (iPhone)',
   intro: 'O app Saúde do iPhone guarda os treinos e as medições do Apple Watch, do iPhone e de outros aplicativos. Escolha o que você quer compartilhar com o Panzeri Run.',
@@ -24,7 +25,8 @@ export const APPLE_HEALTH_CONSENT: ConsentCapability = {
       heading: null,
       paragraphs: [
         'Com sua autorização, o Panzeri Run poderá receber do app Saúde, dos últimos 3 anos e depois a cada sincronização: os seus treinos (tipo, data e horário, duração, distância, velocidade, calorias, ambiente e o aplicativo e o aparelho que registraram), as medidas guardadas junto do treino e o percurso GPS, e a sua saúde do dia a dia — atividade (passos, distância, escadas, calorias, minutos de exercício e de pé), sono, frequência cardíaca, variabilidade da frequência cardíaca (HRV), VO₂ máximo, peso e composição corporal, oxigenação, temperatura, respiração, mobilidade, hábitos (luz do dia, atenção plena, ruído), nutrição e hidratação, pressão arterial, glicemia e ciclo menstrual.',
-        'Essas informações serão utilizadas para mostrar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Seu treinador também verá esses dados. Os dados de saúde que você autorizar também podem compor o contexto das análises de inteligência artificial descritas na Política de Privacidade; o percurso GPS, a pressão arterial, a glicemia e o ciclo menstrual não são enviados à inteligência artificial. Nada disso substitui avaliação médica.',
+        'Essas informações serão utilizadas para mostrar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Seu treinador também verá esses dados. Com sua autorização, o Panzeri Run poderá usar os dados de atividade física, saúde e recuperação que você escolher compartilhar para acompanhar sua evolução, analisar seus treinos e oferecer orientações personalizadas com auxílio de inteligência artificial. Seus dados individuais não serão vendidos nem divulgados publicamente, e não são usados para publicidade. Nada disso substitui avaliação médica.',
+        'Sobre a inteligência artificial: para gerar essas análises, os dados necessários dos grupos que você autorizar são enviados à Anthropic, empresa fornecedora da tecnologia de inteligência artificial usada pelo Panzeri Run, o que pode envolver transferência internacional de dados, conforme a Política de Privacidade. O percurso GPS, a pressão arterial, a glicemia e o ciclo menstrual não são enviados à inteligência artificial. Se você retirar um grupo, os dados dele deixam de ser usados nas análises seguintes. As análises automáticas podem apresentar limitações.',
       ],
     },
     {
@@ -69,7 +71,7 @@ export const APPLE_HEALTH_CONSENT: ConsentCapability = {
   purposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view'],
   // Nenhuma finalidade opcional (a analise por IA dos dados do Apple Saude nao tem autorizacao propria: segue o uso das demais fontes, conforme o texto).
   optionalPurposes: [],
-  acknowledgementText: 'Autorizo o Panzeri Run a guardar e utilizar os dados do app Saúde que eu selecionar, para acompanhamento e gestão do meu treinamento e da minha recuperação.',
+  acknowledgementText: 'Autorizo o Panzeri Run a guardar e utilizar os dados do app Saúde que eu selecionar, para acompanhamento e gestão do meu treinamento e da minha recuperação, incluindo análises com inteligência artificial e o envio dos dados necessários à Anthropic, como descrito acima.',
   confirmButtonLabel: 'Salvar minhas autorizações',
 };
 

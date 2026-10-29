@@ -15,7 +15,7 @@ export function AppUpdateBanner() {
       accessibilityLabel="Nova versão disponível. Atualizar"
       style={{ position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999, paddingTop: insets.top + 6, paddingBottom: 8, paddingHorizontal: 12, backgroundColor: '#0F172A', alignItems: 'center' }}
     >
-      <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Nova versão disponível — Atualizar</Text>
+      <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '600' }}>Nova versão disponível, Atualizar</Text>
     </Pressable>
   );
 }

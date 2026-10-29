@@ -43,7 +43,7 @@ export function externalAiUnlockedFor(provider: string, config: { get<T = string
 }
 
 // Categorias de saude e recuperacao (autorizadas uma a uma pelo aluno). Cada par provedor:categoria e' avaliado separadamente no escopo de IA.
-export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition'] as const; // Apple Saude tambem usa esta lista (29/10/2026)
+export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition', 'heart_rate', 'mobility', 'lifestyle_load'] as const; // Apple Saude tambem usa esta lista (29/10/2026); pressao, glicemia e ciclo ficam de fora
 
 export const AI_PURPOSE_BY_DESTINATION: Record<AiDestination, string> = { internal_ai: 'ai_internal', external_ai: 'ai_external' };
 

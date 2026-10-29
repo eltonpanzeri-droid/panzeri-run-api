@@ -311,7 +311,7 @@ interface AlternativeActivity {
   activityLogId: string | null;
   provider: string | null;
   modality: string | null;
-  isoDate: string; // 'YYYY-MM-DD', dia local ja calculado pelo backend — usar pra agrupar com a sessao do dia
+  isoDate: string; // 'YYYY-MM-DD', dia local ja calculado pelo backend, usar pra agrupar com a sessao do dia
   startedAt: string;
   distanceKm: number | null;
   durationMin: number | null;
@@ -559,7 +559,7 @@ interface CompletionDraft {
   postMentalFatigue: string;
   emotionalExperienceDuring: string;
   mentalStateChangePrePost: string;
-  feedbackVersion: number; // 1 ou 2 — determina quais perguntas foram respondidas nesta sessao
+  feedbackVersion: number; // 1 ou 2, determina quais perguntas foram respondidas nesta sessao
   // Metricas de execucao
   durationMin: string;
   distanceKm: string;
@@ -812,7 +812,7 @@ async function captureAndStoreAttribution(): Promise<AcquisitionAttribution | nu
         const refOrigin = new URL(ref.trim()).origin;
         const currentOrigin = browserWindow?.location?.origin ?? '';
         if (refOrigin && refOrigin !== currentOrigin) attr.referrer = ref.trim().slice(0, 1000);
-      } catch { /* referrer malformado — ignora */ }
+      } catch { /* referrer malformado, ignora */ }
     }
 
     const hasAny = Object.values(attr).some(Boolean);
@@ -881,7 +881,7 @@ if (Platform.OS === 'web') {
       clean.searchParams.delete('journey_id');
       browser.history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
     }
-  } catch { /* sem history/URL API — segue sem limpar */ }
+  } catch { /* sem history/URL API, segue sem limpar */ }
 }
 let journeyPromise: Promise<string> | null = null;
 let journeyAliasFrom: string | null = null;
@@ -1050,6 +1050,7 @@ const goalOptions = [
   'Melhorar meu tempo nos 21 km',
   'Completar 42 km',
   'Melhorar meu tempo nos 42 km',
+  'Correr ultramaratona',
 ];
 
 const defaultRoutineDays: RoutineDay[] = [
@@ -1204,8 +1205,9 @@ const interviewQuestions: InterviewQuestion[] = [
   { key: 'objective', module: 'Objetivo', prompt: 'Qual e seu principal objetivo?', type: 'dropdown_single', condition: (a) => a.objective === undefined, options: [
     option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
-    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'), option('Correr ultramaratona'),
   ] },
+  { key: 'ultra_distance_km', module: 'Objetivo', prompt: 'Qual a distancia da ultramaratona, em quilometros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 43, wheelMax: 999, wheelUnit: 'km', help: 'Escolha a distancia da prova ou do desafio que voce quer correr. Pode ser acima de 100 km.', condition: (a) => a.objective === 'Correr ultramaratona' },
   { key: 'running_experience', module: 'Experiencia com corrida', prompt: 'Qual opcao melhor descreve sua experiencia com corrida?', type: 'single', help: 'Preste atencao no tempo verbal: "corria" = voce parou; "corro" = voce ainda esta correndo hoje.', options: [
     option('Nunca tentei correr.'), option('Ja tentei correr, mas nunca consegui manter uma rotina.'),
     option('Corria regularmente, mas parei ha mais de 2 anos.'), option('Corria regularmente, mas parei entre 1 e 2 anos atras.'),
@@ -1355,7 +1357,9 @@ const quickIntakeQuestions: InterviewQuestion[] = [
     ackOption('Melhorar meu tempo nos 21 km', 'Melhorar meu tempo nos 21 km', 'Boa, ja tem historico na meia. Isso ajuda bastante a calibrar o treino certo pra melhorar seu tempo.'),
     ackOption('Completar 42 km', 'Completar 42 km', 'A maratona e um projeto marcante. Pra chegar bem aos 42 km, vamos construir isso com bastante cuidado e organizacao.'),
     ackOption('Melhorar meu tempo nos 42 km', 'Melhorar meu tempo nos 42 km', 'Ja correu uma maratona, isso e uma baita referencia. Vamos usar essa experiencia pra buscar seu proximo tempo.'),
+    ackOption('Correr ultramaratona', 'Correr ultramaratona', 'Uma ultramaratona pede paciencia e muita construcao de base. Vamos planejar cada etapa com cuidado.'),
   ] },
+  { key: 'ultra_distance_km', module: 'Objetivo', prompt: 'Qual a distancia da ultramaratona, em quilometros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 43, wheelMax: 999, wheelUnit: 'km', help: 'Escolha a distancia da prova ou do desafio que voce quer correr. Pode ser acima de 100 km.', condition: (a) => a.objective === 'Correr ultramaratona' },
   { key: 'quick_current_stage', module: 'Estagio atual', prompt: 'E hoje, como esta sua relacao com a corrida?', type: 'single', options: [
     ackOption('Ainda nao consigo correr continuamente', 'nao_continuo', 'Entendi. Vamos trabalhar a adaptacao aos poucos, misturando caminhada e corrida ate seu corpo aguentar mais tempo seguido.'),
     ackOption('Estou comecando e alterno corrida e caminhada', 'comecando_alterno', 'Boa, esse e o processo certo pra quem esta comecando. Vamos aumentar o tempo de corrida continua de forma segura.'),
@@ -1401,6 +1405,7 @@ const QUICK_INTAKE_OBJECTIVE_PHRASES: Record<string, string> = {
   'Melhorar meu tempo nos 21 km': 'melhorar seu tempo na meia maratona',
   'Completar 42 km': 'completar sua maratona',
   'Melhorar meu tempo nos 42 km': 'melhorar seu tempo na maratona',
+  'Correr ultramaratona': 'correr sua ultramaratona',
 };
 
 function joinNaturalList(items: string[]): string {
@@ -1458,8 +1463,9 @@ const reassessmentQuestions: InterviewQuestion[] = [
   { key: 'objective', module: 'Objetivo', prompt: 'Qual e o seu novo objetivo principal?', type: 'dropdown_single', condition: (a) => a.objective_still_current === 'no', options: [
     option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
     option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
-    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+    option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'), option('Correr ultramaratona'),
   ] },
+  { key: 'ultra_distance_km', module: 'Objetivo', prompt: 'Qual a distancia da ultramaratona, em quilometros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 43, wheelMax: 999, wheelUnit: 'km', help: 'Escolha a distancia da prova ou do desafio que voce quer correr. Pode ser acima de 100 km.', condition: (a) => a.objective_still_current === 'no' && a.objective === 'Correr ultramaratona' },
   { key: 'weekly_running_km', module: 'Rotina', prompt: 'Em media, somando todos os treinos de corrida da semana, quantos quilometros voce corre por semana atualmente?', type: 'wheel_number', wheelDigits: 3, wheelMin: 0, wheelMax: 300, wheelUnit: 'km', help: 'Soma aproximada de uma semana normal recente. Se for menos de 1km, escolha 0.' },
   { key: 'reassessment_routine_change', module: 'Rotina', prompt: 'Sua rotina (trabalho, tempo disponivel, dias livres) mudou desde a ultima avaliacao?', type: 'single', options: [option('Nao mudou', 'no'), option('Mudou um pouco', 'a_little'), option('Mudou bastante', 'a_lot')] },
   { key: 'rating_intro', module: 'Autoavaliacao', prompt: 'Nas proximas perguntas, de uma nota de 1 a 10.\n\n1 representa uma condicao muito ruim.\n10 representa uma condicao excelente.', type: 'notice' },
@@ -2321,7 +2327,7 @@ function Login({
         setStatus('Se este e-mail estiver cadastrado, voce podera criar uma nova senha agora.');
       }
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     }
   }
 
@@ -2349,7 +2355,7 @@ function Login({
       setPassword('');
       setStatus('Senha criada. Entre com sua nova senha.');
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsResetting(false);
     }
@@ -2493,7 +2499,7 @@ function Login({
       onEnter({ email: data.user?.email ?? cleanEmail, name: data.user?.name ?? name.trim(), accessToken, refreshToken });
     } catch {
       trackFunnel('signup_error', { metadata: { errorMessage: 'network_error' } });
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -2643,7 +2649,7 @@ function ExerciseResponsibility({ accessToken, onAccepted }: { accessToken: stri
       <Text style={styles.titleSmall}>Termo de responsabilidade</Text>
       <View style={styles.coachBox}>
         <Text style={styles.coachTitle}>Antes de iniciar seus treinos</Text>
-        <Text style={styles.coachText}>O Panzeri Run e um servico de acompanhamento remoto: nao ha supervisao presencial nem monitoramento em tempo real durante a pratica dos exercicios. Os treinos sao preparados com base nas informacoes fornecidas por voce, e responsabilidade sua avaliar suas condicoes a cada sessao. Diante de dor, tontura, falta de ar anormal, desconforto no peito ou qualquer sinal de risco, interrompa a atividade imediatamente e procure atendimento medico de emergencia (192/SAMU ou pronto-socorro) — nao e possivel ao Panzeri Run identificar ou intervir numa emergencia ocorrida durante o treino.</Text>
+        <Text style={styles.coachText}>O Panzeri Run e um servico de acompanhamento remoto: nao ha supervisao presencial nem monitoramento em tempo real durante a pratica dos exercicios. Os treinos sao preparados com base nas informacoes fornecidas por voce, e responsabilidade sua avaliar suas condicoes a cada sessao. Diante de dor, tontura, falta de ar anormal, desconforto no peito ou qualquer sinal de risco, interrompa a atividade imediatamente e procure atendimento medico de emergencia (192/SAMU ou pronto-socorro), nao e possivel ao Panzeri Run identificar ou intervir numa emergencia ocorrida durante o treino.</Text>
       </View>
       <View style={styles.termsRow}>
         <Switch value={confirmed} onValueChange={setConfirmed} />
@@ -3094,7 +3100,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         headers: { Authorization: `Bearer ${accessToken}` },
       });
     } catch {
-      setStatus('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setStatus('Não consegui conectar. Verifique sua internet e tente novamente.');
       setSaving(false);
       return;
     }
@@ -3111,7 +3117,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
         if (targetIndex >= 0) {
           setStep(targetIndex);
           setHelpOpen(false);
-          setStatus('Faltou responder a pergunta abaixo — te levamos direto pra ela.');
+          setStatus('Faltou responder a pergunta abaixo, te levamos direto pra ela.');
         } else {
           setStatus(message);
         }
@@ -3385,11 +3391,11 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {(question?.type === 'number' || question?.type === 'number_or_unknown') ? <Pressable style={styles.decimalButton} onPress={() => { const current = String(value === 'unknown' || value === 'automatic' ? '' : value ?? ''); if (!current.includes(',') && !current.includes('.')) setAnswers({ ...answers, [question.key]: `${current},` }); }}><Text style={styles.decimalButtonText}>Inserir virgula</Text></Pressable> : null}
       {/* 04/09: pedido do Elton — a roda de numeros so conta como respondida depois que a pessoa
           realmente mexe nela (de proposito, pra nao salvar o valor de mostruario como se fosse
-          resposta real — ver bug historico documentado mais abaixo). Sem avisar isso ANTES, quem
+          resposta real, ver bug historico documentado mais abaixo). Sem avisar isso ANTES, quem
           nao sabe que precisa tocar/arrastar a roda fica parado sem entender por que "Continuar"
           nao libera. Aviso proativo, nao so' depois de errar. */}
       {question && ['wheel_number', 'wheel_pace', 'wheel_duration_hms', 'wheel_date'].includes(question.type) && value === undefined ? (
-        <Text style={styles.formHint}>👆 Deslize a roda abaixo com o dedo até o número certo — a resposta só conta depois que você mexer nela.</Text>
+        <Text style={styles.formHint}>👆 Deslize a roda abaixo com o dedo até o número certo, a resposta só conta depois que você mexer nela.</Text>
       ) : null}
       {question?.type === 'wheel_number' ? (() => {
         const digits = question.wheelDigits ?? 2;
@@ -3465,7 +3471,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
       {/* 06/09: toda pergunta (exceto CPF e telefone) tem saida — o aluno nunca fica travado.
           Para perguntas obrigatorias (CPF, telefone), nao ha botao de pular.
           Para todas as demais, inclusive as que eram "obrigatorias" antes, o aluno pode escolher
-          nao responder — a IA recebe o campo como ausente e o treinador ve no painel. */}
+          nao responder, a IA recebe o campo como ausente e o treinador ve no painel. */}
       {question && !['cpf', 'phone'].includes(question.type) && question.type !== 'notice' && !question.skipDisabled ? (
         <Pressable style={styles.skipButton} onPress={skip} disabled={saving}>
           <Text style={styles.skipButtonText}>Prefiro não responder · Pular esta pergunta</Text>
@@ -3474,7 +3480,7 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
       {/* 10/09: em fixModule no passo 0, "Voltar" vai para a lista de categorias (onLater),
-          nao fica desabilitado — o aluno precisa conseguir sair sem ter que concluir. */}
+          nao fica desabilitado, o aluno precisa conseguir sair sem ter que concluir. */}
       <View style={styles.interviewActions}><Pressable style={[styles.secondaryButton, (step === 0 && mode !== 'fixModule') && styles.disabledButton]} disabled={step === 0 && mode !== 'fixModule'} onPress={() => { if (step === 0 && mode === 'fixModule') { onLater(); return; } setStep(Math.max(0, step - 1)); setStatus(''); }}><Text style={styles.secondaryButtonText}>Voltar</Text></Pressable><Pressable style={[styles.primaryButton, saving && styles.disabledButton]} disabled={saving} onPress={next}><Text style={styles.primaryButtonText}>{step === visibleQuestions.length - 1 ? 'Concluir' : 'Continuar'}</Text></Pressable></View>
     </View>
   );
@@ -3798,8 +3804,8 @@ function ReturnAfterGapModal({
             <Text style={styles.formSectionTitle}>Que bom te ver de volta! 👋</Text>
             <Text style={styles.copyTight}>
               {daysSinceLastObserved != null
-                ? `Faz ${daysSinceLastObserved} dias que não recebemos nenhum registro seu. Antes de continuar, conte rapidamente o que aconteceu — isso ajuda a calibrar seus próximos treinos.`
-                : 'Antes de continuar, conte rapidamente o que aconteceu nesse período — isso ajuda a calibrar seus próximos treinos.'}
+                ? `Faz ${daysSinceLastObserved} dias que não recebemos nenhum registro seu. Antes de continuar, conte rapidamente o que aconteceu, isso ajuda a calibrar seus próximos treinos.`
+                : 'Antes de continuar, conte rapidamente o que aconteceu nesse período, isso ajuda a calibrar seus próximos treinos.'}
             </Text>
 
             <Text style={styles.formSectionTitle}>Durante esse período, você treinou?</Text>
@@ -3954,16 +3960,16 @@ function WeeklyCheckInModal({
                 {showExplanation ? (
                   <Text style={styles.formHint}>Registrar ajuda a próxima semana a ser montada com base no que realmente aconteceu, não só no que estava previsto.</Text>
                 ) : null}
-                <Text style={styles.copyTight}>Você já registrou tudo — inclusive os treinos que não conseguiu fazer?</Text>
+                <Text style={styles.copyTight}>Você já registrou tudo, inclusive os treinos que não conseguiu fazer?</Text>
                 <View style={styles.checkInOptionsColumn}>
                   <Pressable style={styles.primaryButton} onPress={onConfirmYes}>
-                    <Text style={styles.primaryButtonText}>Sim, já registrei — pode gerar novos treinos</Text>
+                    <Text style={styles.primaryButtonText}>Sim, já registrei, pode gerar novos treinos</Text>
                   </Pressable>
                   <Pressable style={styles.secondaryOutlineButton} onPress={onConfirmNo}>
                     <Text style={styles.secondaryOutlineButtonText}>Não, preciso registrar ainda</Text>
                   </Pressable>
                   <Pressable style={styles.checkInSkipButton} onPress={onSkip}>
-                    <Text style={styles.checkInSkipButtonText}>Não quero registrar — pode gerar assim mesmo</Text>
+                    <Text style={styles.checkInSkipButtonText}>Não quero registrar, pode gerar assim mesmo</Text>
                   </Pressable>
                 </View>
               </>
@@ -4337,7 +4343,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         Object.fromEntries(fullPlan.sessions.filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
       );
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
       setPlanLoadError(true);
     } finally {
       setIsLoading(false);
@@ -4409,7 +4415,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         setWeekOffset(targetOffset);
       }
     } catch {
-      setExtraMessage('Nao foi possivel conectar com a API.');
+      setExtraMessage('Não foi possível conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setExtraSaving(false);
     }
@@ -4460,7 +4466,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         Object.fromEntries((data.sessions ?? []).filter((session) => session.completion).map((session) => [session.id, completionDraftFromSession(session)])),
       );
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
       setPlanLoadError(true);
     } finally {
       setIsLoading(false);
@@ -4489,7 +4495,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
       setPlan(data);
       setStatus('Programa detalhado da semana gerado.');
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsLoading(false);
     }
@@ -4631,7 +4637,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
             setStatus('Seu treino desta semana ja foi gerado.');
             await loadPlan();
           } else if (data.reason === 'aguardar_intervalo') {
-            setStatus('Espera so um instante — sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 10 minutos.');
+            setStatus('Espera so um instante, sua ultima tentativa ainda pode estar em andamento. Tente novamente apos 10 minutos.');
           } else if (data.reason === 'falha_pode_tentar_de_novo') {
             setStatus('Nao conseguimos montar seu treino dessa vez. Aguarde 10 minutos e tente novamente.');
           } else if (data.reason === 'tentativas_esgotadas') {
@@ -4648,7 +4654,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
             // no botao de novo, o que já refaz a consulta de status do zero.
             setStatus('Toque em "Gerar treino da semana" de novo pra continuar.');
           } else {
-            setStatus('Ainda nao deu pra gerar sua semana — tente novamente em instantes.');
+            setStatus('Ainda nao deu pra gerar sua semana, tente novamente em instantes.');
           }
           return;
         }
@@ -4803,7 +4809,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
       if (weekOffset === 0) await loadPlan();
       else await loadWeekForOffset(weekOffset);
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     }
   }
 
@@ -4957,7 +4963,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
     } catch {
-      setBillingMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setBillingMessage('Não consegui conectar. Verifique sua internet e tente novamente.');
       setIsCheckingOut(false);
       return;
     }
@@ -5005,7 +5011,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         body: JSON.stringify({ code: couponCode }),
       });
     } catch {
-      setBillingMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setBillingMessage('Não consegui conectar. Verifique sua internet e tente novamente.');
       return;
     }
     try {
@@ -5290,7 +5296,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
           <View style={styles.coachBox}>
             <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
             <Text style={styles.coachTitle}>{isGeneratingWeek ? 'Montando seu treino da semana...' : 'Montando seu programa de treinos...'}</Text>
-            <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
+            <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular, quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular, quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
           </View>
         ) : notGeneratedRange && !notGeneratedRange.hasEverHadPlan ? (
           <View style={styles.coachBox}>
@@ -5350,7 +5356,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
             <View style={styles.coachBox}>
               <ActivityIndicator size="large" color={PRColors.limestone} style={{ marginBottom: 16 }} />
               <Text style={styles.coachTitle}>{isGeneratingWeek ? 'Montando seu treino da semana...' : 'Montando seu programa de treinos...'}</Text>
-              <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular — quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
+              <Text style={[styles.coachText, { color: PRColors.limestone }]}>{isGeneratingWeek ? 'Isso pode levar até 10 minutos. Pode continuar usando o celular, quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.' : 'Isso pode levar alguns minutos. Voce pode continuar usando o celular, quando estiver pronto voce recebe uma notificacao e os treinos aparecem aqui.'}</Text>
             </View>
           ) : (
             <View style={styles.coachBox}>
@@ -5403,7 +5409,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         <View style={styles.generatingBanner}>
           <ActivityIndicator size="large" color={PRColors.pulse} style={{ marginBottom: 12 }} />
           <Text style={styles.generatingBannerTitle}>Montando seu treino da semana</Text>
-          <Text style={styles.generatingBannerText}>Isso pode levar até 10 minutos. Pode continuar usando o celular — quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.</Text>
+          <Text style={styles.generatingBannerText}>Isso pode levar até 10 minutos. Pode continuar usando o celular, quando estiver pronto você recebe uma notificação e os treinos aparecem aqui.</Text>
         </View>
       ) : null}
 
@@ -5627,7 +5633,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
           <Pressable style={[styles.appMenuSheet, { maxHeight: '90%' }]} onPress={(e) => e.stopPropagation()}>
             <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 32, gap: 16 }}>
               <Text style={styles.sectionLabel}>Registrar treino extra</Text>
-              <Text style={styles.formHint}>Fez um treino fora do programa? Registre aqui — os km contam na sua evolucao.</Text>
+              <Text style={styles.formHint}>Fez um treino fora do programa? Registre aqui, os km contam na sua evolucao.</Text>
 
               <Text style={styles.inputLabel}>Por que voce esta adicionando este treino?</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -5710,7 +5716,7 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
                 placeholder="Como foi? Algo a registrar?"
               />
 
-              <Text style={styles.inputLabel}>RPE — percepcao de dificuldade (opcional)</Text>
+              <Text style={styles.inputLabel}>RPE, percepção de esforço (opcional)</Text>
               <View style={styles.completionStatusRow}>
                 {['1','2','3','4','5','6','7','8','9','10'].map((v) => (
                   <Pressable
@@ -5957,7 +5963,7 @@ function ThreeKmTest({
       setSaveStatus('Teste salvo. Abrindo seu programa personalizado...');
       onSaved();
     } catch {
-      setSaveStatus('Nao consegui conectar com a API agora.');
+      setSaveStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsSaving(false);
     }
@@ -6456,7 +6462,7 @@ function Progress({ accessToken }: { accessToken: string }) {
           {adherence?.lowCoverageWarning ? (
             <View style={{ backgroundColor: '#fefce8', borderRadius: 10, padding: 10, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#fde047' }}>
               <Text style={{ fontSize: 12, color: '#92400e' }}>
-                ⚠ Aderência calculada sobre {adherence.coveragePercent}% dos treinos — registre mais para um número preciso.
+                ⚠ Aderência calculada sobre {adherence.coveragePercent}% dos treinos, registre mais para um número preciso.
               </Text>
             </View>
           ) : null}
@@ -6942,7 +6948,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         <>
           {editingId ? <Text style={styles.statusMessage}>Editando a meta "{name || 'sem nome'}". Altere o que precisar e toque em "Salvar alteracoes".</Text> : null}
           <Text style={styles.copyTight}>
-            Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino — mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
+            Registre a prova que voce esta buscando. Vamos usar isso como norte para montar seu treino, mas fatores que nao controlamos diretamente (sua rotina, alimentacao, sono e dedicacao) tambem influenciam o resultado final. Por isso, escolha uma meta realista com aquilo que voce esta disposto a se comprometer a treinar ate la. Nao garantimos o resultado, mas vamos trabalhar para chegar o mais perto possivel dele com seguranca.
           </Text>
           <View style={styles.formSection}>
         <Text style={styles.formSectionTitle}>Nova meta</Text>
@@ -6966,7 +6972,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         </View>
 
         <Text style={styles.copyTight}>
-          Essas respostas ajudam a gente a montar seu treino do jeito certo pra voce — uma prova de diversao com os amigos merece um preparo diferente de uma meta pessoal seria, e queremos acertar isso desde o inicio. Todas sao opcionais.
+          Essas respostas ajudam a gente a montar seu treino do jeito certo pra voce, uma prova de diversao com os amigos merece um preparo diferente de uma meta pessoal seria, e queremos acertar isso desde o inicio. Todas sao opcionais.
         </Text>
 
         <Text style={styles.inputLabel}>E a primeira vez que voce vai correr essa distancia?</Text>
@@ -7013,7 +7019,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
 const QUICK_EDIT_OBJECTIVE_OPTIONS = [
   option('Comecar a correr'), option('Completar 5 km'), option('Melhorar meu tempo nos 5 km'), option('Completar 10 km'),
   option('Melhorar meu tempo nos 10 km'), option('Completar 21 km'), option('Melhorar meu tempo nos 21 km'),
-  option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'),
+  option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'), option('Correr ultramaratona'),
 ];
 
 // 09/09: tela de visão geral da rotina semanal — exibe tabela de modalidades × dias
@@ -7274,7 +7280,7 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
       {firstTime ? <Text style={styles.titleSmall}>Quais dias e quanto tempo voce tem para treinar?</Text> : null}
       <Text style={[styles.reportText, { marginBottom: 12 }]}>
         {firstTime
-          ? 'Esta e a ultima etapa antes do seu primeiro programa: ele e montado com base nos dias e no tempo que voce informar aqui. Escolha o que voce realmente consegue cumprir — voce pode mudar a rotina depois, quando quiser, em "Rotina de treinos" no menu.'
+          ? 'Esta e a ultima etapa antes do seu primeiro programa: ele e montado com base nos dias e no tempo que voce informar aqui. Escolha o que voce realmente consegue cumprir, voce pode mudar a rotina depois, quando quiser, em "Rotina de treinos" no menu.'
           : 'Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use o campo de observacao abaixo.'}
       </Text>
       <RoutineEditor routineDays={days} onChange={setDays} />
@@ -7356,6 +7362,7 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
   const [objectiveStep, setObjectiveStep] = useState(0);
   const [savingObjective, setSavingObjective] = useState(false);
   const [objectiveMessage, setObjectiveMessage] = useState('');
+  const [ultraKm, setUltraKm] = useState('');
   // 10/09: fica recolhido por padrão — o aluno expande só se quiser alterar o objetivo.
   const [showObjectiveEdit, setShowObjectiveEdit] = useState(false);
 
@@ -7390,6 +7397,28 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
       });
       if (!response.ok) throw new Error('save');
       setObjective(value);
+      setObjectiveMessage(value === 'Correr ultramaratona' ? 'Informe a distancia da ultramaratona abaixo.' : 'Objetivo atualizado.');
+    } catch {
+      setObjectiveMessage('Nao consegui salvar. Tente novamente.');
+    } finally {
+      setSavingObjective(false);
+    }
+  }
+
+  async function saveUltraDistance() {
+    const km = Number(ultraKm.trim().replace(',', '.'));
+    if (!Number.isFinite(km) || km < 43 || km > 999) {
+      setObjectiveMessage('Informe uma distancia de 43 a 999 km.');
+      return;
+    }
+    setSavingObjective(true);
+    try {
+      const response = await fetch(`${API_URL}/me/onboarding/answer`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'ultra_distance_km', value: km, currentStep: objectiveStep }),
+      });
+      if (!response.ok) throw new Error('save');
       setObjectiveMessage('Objetivo atualizado.');
     } catch {
       setObjectiveMessage('Nao consegui salvar. Tente novamente.');
@@ -7455,7 +7484,7 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
       <Text style={styles.sectionLabel}>Corrigir respostas anteriores</Text>
       <Text style={styles.titleSmall}>Errou alguma resposta? Corrija aqui</Text>
       <Text style={styles.copyTight}>
-        Escolha qual entrevista voce quer corrigir. Ao corrigir, suas respostas dessa entrevista especifica sao substituidas — isso e diferente de fazer uma nova reavaliacao periodica, que fica guardada como um novo registro para acompanhar sua evolucao.
+        Escolha qual entrevista voce quer corrigir. Ao corrigir, suas respostas dessa entrevista especifica sao substituidas, isso e diferente de fazer uma nova reavaliacao periodica, que fica guardada como um novo registro para acompanhar sua evolucao.
       </Text>
 
       {loading ? <Text style={styles.statusMessage}>Carregando...</Text> : null}
@@ -7484,6 +7513,14 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
                       </Pressable>
                     ))}
                   </View>
+                  {objective.startsWith('Correr ultramaratona') ? (
+                    <View style={styles.couponRow}>
+                      <TextInput style={[styles.input, styles.couponInput]} value={ultraKm} onChangeText={setUltraKm} placeholder="Distancia em km (ex.: 100)" keyboardType="numeric" />
+                      <Pressable style={styles.couponButton} onPress={saveUltraDistance} disabled={savingObjective}>
+                        <Text style={styles.couponButtonText}>Salvar</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                   {objectiveMessage ? <Text style={styles.statusMessage}>{objectiveMessage}</Text> : null}
                 </>
               ) : (
@@ -7495,7 +7532,7 @@ function FixAnswersMenu({ accessToken, onOpenOnboarding, onOpenReassessment, onO
                   o treino ativo). O GuidedInterview filtrado salva via PUT /me/onboarding/answer
                   da mesma forma que durante o onboarding, sem alterar o completedAt. */}
               <Text style={styles.inputLabel}>Corrigir por secao</Text>
-              <Text style={styles.formHint}>Toque na secao que quer corrigir. Suas respostas ficam pre-preenchidas — basta atualizar o que mudou.</Text>
+              <Text style={styles.formHint}>Toque na secao que quer corrigir. Suas respostas ficam pre-preenchidas, basta atualizar o que mudou.</Text>
               <View style={{ gap: 8, marginTop: 4 }}>
                 {INTERVIEW_MODULES_FOR_FIX.map((mod) => (
                   <Pressable key={mod} style={styles.secondaryButton} onPress={() => onOpenModule(mod)}>
@@ -7637,7 +7674,7 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
       setPreviousPainStatus('');
       setResolvedRegions([]);
       setComment('');
-      setMessage('Relato enviado. Obrigado por avisar — vamos considerar isso no seu proximo treino.');
+      setMessage('Relato enviado. Obrigado por avisar, vamos considerar isso no seu proximo treino.');
       await loadContext();
     } catch {
       setMessage('Nao consegui enviar o relato.');
@@ -7825,10 +7862,10 @@ function ObservationsScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.sectionLabel}>Relatar observação</Text>
       <Text style={styles.titleSmall}>Avise sobre algo que pode afetar seus próximos treinos</Text>
       <Text style={styles.copyTight}>
-        Use isto para contar alguma circunstância pessoal que talvez seu treinador e o sistema que monta seus treinos precisem saber — por exemplo, uma viagem chegando, uma mudança de rotina, uma prova na faculdade, ou qualquer coisa parecida que não seja dor (para dor, use a tela "Relatar dor").
+        Use isto para contar alguma circunstância pessoal que talvez seu treinador e o sistema que monta seus treinos precisem saber, por exemplo, uma viagem chegando, uma mudança de rotina, uma prova na faculdade, ou qualquer coisa parecida que não seja dor (para dor, use a tela "Relatar dor").
       </Text>
       <Text style={styles.copyTight}>
-        Isso não é um pedido garantido — é um contexto que será levado em conta quando fizer sentido, na medida do possível, mas não obriga a mudar nada. Escreva com clareza: diga o que vai acontecer, quando, e o que isso pode significar para o seu treino. Não precisa se justificar, só avisar.
+        Isso não é um pedido garantido, é um contexto que será levado em conta quando fizer sentido, na medida do possível, mas não obriga a mudar nada. Escreva com clareza: diga o que vai acontecer, quando, e o que isso pode significar para o seu treino. Não precisa se justificar, só avisar.
       </Text>
       <Text style={styles.copyTight}>
         Exemplo bom: "Vou viajar do dia 10 ao dia 17, provavelmente sem lugar para correr." Exemplo vago (evite): "Semana que vem vai ser corrida."
@@ -7994,7 +8031,7 @@ function MonthCalendar({ overview, onDayPress }: { overview: CycleOverviewRespon
         <View style={mcStyles.legendItem}><View style={[mcStyles.legendDot, mcStyles.dayPredictedUncertain]} /><Text style={mcStyles.legendText}>Pouco confiável</Text></View>
       </View>
       {overview.maturity === 'moderate' && (
-        <Text style={mcStyles.maturityHint}>Ainda poucos ciclos registrados — a previsão vai ficar mais precisa conforme você registrar mais.</Text>
+        <Text style={mcStyles.maturityHint}>Ainda poucos ciclos registrados, a previsão vai ficar mais precisa conforme você registrar mais.</Text>
       )}
     </View>
   );
@@ -8071,7 +8108,7 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
     Alert.alert(
       'Como calculamos esta previsão',
       overview.predictedNextPeriod
-        ? `Baseado em ${overview.predictedNextPeriod.basedOnCycles} ciclo(s) que você já registrou, calculamos o intervalo mais comum entre suas menstruações. A janela mostrada (${dateLabelShort(overview.predictedNextPeriod.windowStart)} a ${dateLabelShort(overview.predictedNextPeriod.windowEnd)}) reflete a variação real do seu histórico — não é uma data fixa, é uma estimativa que fica mais precisa quanto mais ciclos você registrar.`
+        ? `Baseado em ${overview.predictedNextPeriod.basedOnCycles} ciclo(s) que você já registrou, calculamos o intervalo mais comum entre suas menstruações. A janela mostrada (${dateLabelShort(overview.predictedNextPeriod.windowStart)} a ${dateLabelShort(overview.predictedNextPeriod.windowEnd)}) reflete a variação real do seu histórico, não é uma data fixa, é uma estimativa que fica mais precisa quanto mais ciclos você registrar.`
         : 'Ainda não há histórico suficiente pra estimar.',
       [{ text: 'Entendi' }],
     );
@@ -8092,7 +8129,7 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
                     Janela estimada: {dateLabelShort(overview.predictedNextPeriod.windowStart)} a {dateLabelShort(overview.predictedNextPeriod.windowEnd)} · baseado em {overview.predictedNextPeriod.basedOnCycles} ciclo(s)
                   </Text>
                   {overview.maturity !== 'established' && (
-                    <Text style={[styles.copyTight, { color: '#C97B6E', marginTop: 4, fontSize: 11 }]}>Estimativa ainda pouco confiável — poucos ciclos registrados até agora.</Text>
+                    <Text style={[styles.copyTight, { color: '#C97B6E', marginTop: 4, fontSize: 11 }]}>Estimativa ainda pouco confiável, poucos ciclos registrados até agora.</Text>
                   )}
                   <Pressable onPress={explainPrediction} style={{ marginTop: 10 }}>
                     <Text style={[styles.copyTight, { color: PRColors.ocean }]}>ⓘ Entenda esta previsão</Text>
@@ -8231,7 +8268,7 @@ function MenstrualProfileSettings({ accessToken }: { accessToken: string }) {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify(patch),
       });
-    } catch { /* silencioso — configuracao complementar, nunca bloqueia o resto da tela */ }
+    } catch { /* silencioso, configuracao complementar, nunca bloqueia o resto da tela */ }
     finally { setSaving(false); }
   }
 
@@ -8326,7 +8363,7 @@ function MedicationsSection({ accessToken }: { accessToken: string }) {
         medications ? (
           <View style={{ marginTop: 12 }}>
             <Text style={[styles.copyTight, { fontSize: 11, color: '#94a3b8', marginBottom: 8 }]}>
-              Fica registrado como contexto — nunca usado pra decidir seu treino automaticamente, e nunca compartilhado como diagnóstico.
+              Fica registrado como contexto, nunca usado pra decidir seu treino automaticamente, e nunca compartilhado como diagnóstico.
             </Text>
             {medications.filter((m) => m.status === 'ongoing').map((m) => (
               <View key={m.id} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -8399,7 +8436,7 @@ function PendingCheckBanner({ pending, accessToken, onResolved, onOpenDay }: {
         });
       }
       onResolved();
-    } catch { /* silencioso — ela pode corrigir manualmente pelo calendario */ }
+    } catch { /* silencioso, ela pode corrigir manualmente pelo calendario */ }
     finally { setSaving(false); }
   }
 
@@ -8438,7 +8475,7 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
       if (overviewRes.ok) setOverview(await overviewRes.json() as CycleOverviewResponse);
       if (dailyRes.ok) setDailyLogs(await dailyRes.json() as DailyLog[]);
       if (pendingRes.ok) setPendingCheck(await pendingRes.json() as PendingCycleCheck | null);
-    } catch { /* silencioso — dados de contexto, nao criticos */ }
+    } catch { /* silencioso, dados de contexto, nao criticos */ }
     finally { setLoading(false); }
   }
 
@@ -8451,7 +8488,7 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.sectionLabel}>Ciclo menstrual</Text>
       <Text style={styles.titleSmall}>Seu calendário de acompanhamento</Text>
       <Text style={styles.copyTight}>
-        Toque em qualquer dia pra registrar ou corrigir. Isso não altera sua prescrição de treino diretamente — é contexto de acompanhamento.
+        Toque em qualquer dia pra registrar ou corrigir. Isso não altera sua prescrição de treino diretamente, é contexto de acompanhamento.
       </Text>
 
       {pendingCheck && (
@@ -8619,7 +8656,7 @@ function StravaSync({ accessToken }: { accessToken: string }) {
       }
       setMessage('Strava desconectado. Nenhuma nova atividade sera recebida e os dados do Strava foram apagados do Panzeri Run.');
     } catch {
-      setMessage('Nao consegui conectar com o servidor para desconectar.');
+      setMessage('Não consegui desconectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setDisconnecting(false);
       void loadStatus();
@@ -8796,7 +8833,7 @@ function PolarConnect({ accessToken, variant = 'profile' }: { accessToken: strin
         setSyncResult({ ok: false, text: apiMessage || `A sincronizacao falhou (status ${response.status}).` });
       }
     } catch {
-      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para sincronizar.' });
+      setSyncResult({ ok: false, text: 'Não consegui sincronizar agora. Verifique sua internet e tente novamente.' });
     } finally {
       setSyncing(false);
       void loadStatus();
@@ -8819,7 +8856,7 @@ function PolarConnect({ accessToken, variant = 'profile' }: { accessToken: strin
       }
       setSyncResult({ ok: true, text: 'Polar desconectada. Nenhuma nova sincronizacao sera feita; o historico ja importado foi mantido.' });
     } catch {
-      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para desconectar.' });
+      setSyncResult({ ok: false, text: 'Não consegui desconectar agora. Verifique sua internet e tente novamente.' });
     } finally {
       setDisconnecting(false);
       void loadStatus();
@@ -8860,7 +8897,7 @@ function PolarConnect({ accessToken, variant = 'profile' }: { accessToken: strin
         text: `Dados importados da Polar excluidos (${body?.activities ?? 0} atividade(s)).${kept > 0 ? ` ${kept} treino(s) com informacoes que voce mesmo registrou foram mantidos, sem os valores que vieram da Polar.` : ''}`,
       });
     } catch {
-      setSyncResult({ ok: false, text: 'Nao consegui conectar com o servidor para excluir.' });
+      setSyncResult({ ok: false, text: 'Não consegui excluir agora. Verifique sua internet e tente novamente.' });
     } finally {
       setDeleting(false);
     }
@@ -9065,7 +9102,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
         setMessage({ ok: true, text: imported > 0 ? `Sincronizacao concluida: ${imported} atividade(s) importada(s).` : 'Sincronizacao concluida: nenhuma atividade nova.' });
       }
     } catch {
-      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para sincronizar.' });
+      setMessage({ ok: false, text: 'Não consegui sincronizar agora. Verifique sua internet e tente novamente.' });
     } finally {
       setSyncing(false);
       void loadStatus();
@@ -9083,7 +9120,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
       }
       setMessage({ ok: true, text: 'Wahoo desconectada. Nenhuma nova atividade sera importada; o historico ja importado foi mantido.' });
     } catch {
-      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para desconectar.' });
+      setMessage({ ok: false, text: 'Não consegui desconectar agora. Verifique sua internet e tente novamente.' });
     } finally {
       setDisconnecting(false);
       void loadStatus();
@@ -9124,7 +9161,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
         text: `Dados importados da Wahoo excluidos (${body?.activities ?? 0} atividade(s)).${kept > 0 ? ` ${kept} treino(s) com informacoes que voce mesmo registrou foram mantidos, sem os valores da Wahoo.` : ''}`,
       });
     } catch {
-      setMessage({ ok: false, text: 'Nao consegui conectar com o servidor para excluir.' });
+      setMessage({ ok: false, text: 'Não consegui excluir agora. Verifique sua internet e tente novamente.' });
     } finally {
       setDeleting(false);
     }
@@ -9469,7 +9506,7 @@ function Anamnese({
       onSavedMeChange(savedResponse);
       setStatus('Seus dados foram atualizados com sucesso.');
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsSaving(false);
     }
@@ -9482,7 +9519,7 @@ function Anamnese({
       {/* BLOCO 3 (04/10/2026): nome/nascimento sairam deste formulario — agora sao editados em
           "Conta" (PUT /me/profile). Continuam sendo enviados aqui (via savedMe, sem edicao), pois
           PUT /me/anamnese exige profile.name/birthDate/sex no mesmo payload (DTO existente, nao
-          alterado) — nunca sao reescritos por este formulario. */}
+          alterado), nunca sao reescritos por este formulario. */}
 
       <View style={styles.formGrid}>
         <TextInput
@@ -9738,7 +9775,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         body: JSON.stringify({ cpf: cpf.replace(/\D/g, '') }),
       });
     } catch {
-      setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setMessage('Não consegui conectar. Verifique sua internet e tente novamente.');
       setIsCheckingOut(false);
       return;
     }
@@ -9794,7 +9831,7 @@ function Billing({ accessToken }: { accessToken: string }) {
         body: JSON.stringify({ code: couponCode }),
       });
     } catch {
-      setMessage('Nao consegui conectar ao servidor. Verifique sua internet e tente novamente.');
+      setMessage('Não consegui conectar. Verifique sua internet e tente novamente.');
       return;
     }
     try {
@@ -10010,7 +10047,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       {cancelStep === 'feedback' ? (
         <View style={styles.formSection}>
           <Text style={styles.formSectionTitle}>O que poderia ter sido diferente?</Text>
-          <Text style={styles.formHint}>Campo opcional — escreva o que quiser ou deixe em branco.</Text>
+          <Text style={styles.formHint}>Campo opcional, escreva o que quiser ou deixe em branco.</Text>
           <TextInput
             style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
             value={cancelFeedbackText}
@@ -10070,7 +10107,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       {details?.storeManaged ? (
         <Text style={styles.formHint}>A assinatura e cobrada pela {Platform.OS === 'ios' ? 'App Store' : Platform.OS === 'android' ? 'Google Play' : 'loja de aplicativos'} e renovada automaticamente todo mes. Para cancelar, use o botao acima.</Text>
       ) : iosStoreBuild() ? null : (
-        <Text style={styles.formHint}>O pagamento e processado em ambiente seguro pelo Asaas via cartao de credito. A cobranca e renovada automaticamente todo mes.</Text>
+        <Text style={styles.formHint}>O pagamento é feito com cartão de crédito, em ambiente seguro. A cobrança é renovada automaticamente todo mês.</Text>
       )}
 
       {history.length > 0 && !iosStoreBuild() && !details?.storeManaged ? (
@@ -10186,7 +10223,7 @@ function ContaScreen({
       onSavedMeChange(await loadSavedMe(accessToken));
       setStatus('Seus dados foram atualizados com sucesso.');
     } catch {
-      setStatus('Nao consegui conectar com a API agora.');
+      setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     } finally {
       setIsSaving(false);
     }
@@ -11031,7 +11068,7 @@ function ExecutionReportCard({ title, lines, updating }: { title: string; lines?
   return (
     <View style={{ gap: 4, padding: 12, borderRadius: 10, backgroundColor: '#eff6ff', marginVertical: 6 }}>
       <Text style={{ fontSize: 12, fontWeight: '700', color: '#1e3a8a' }}>{title.toUpperCase()}</Text>
-      {updating ? <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400e' }}>Em atualização — uma correção recente ainda está sendo processada.</Text> : null}
+      {updating ? <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400e' }}>Em atualização, uma correção recente ainda está sendo processada.</Text> : null}
       {hasLines ? lines!.map((line, index) => <Text key={index} style={{ fontSize: 14, color: '#0f172a' }}>{line}</Text>) : null}
     </View>
   );
@@ -11817,8 +11854,8 @@ const RPE_GRADIENT_10 = ['#E03E2D', '#E35020', '#E66214', '#F0823A', '#F5A300', 
 // Sub-opcoes quando o aluno precisou caminhar/parar em treino continuo
 const WALKING_SUBOPTIONS: { label: string; value: string }[] = [
   { label: 'Caminhei apenas o pedido no treino', value: 'caminhou_conforme_prescrito' },
-  { label: 'Caminhei pouco — esforco estava alto', value: 'caminhou_pouco_esforco' },
-  { label: 'Caminhei bastante — esforco estava alto', value: 'caminhou_muito_esforco' },
+  { label: 'Caminhei pouco, esforco estava alto', value: 'caminhou_pouco_esforco' },
+  { label: 'Caminhei bastante, esforco estava alto', value: 'caminhou_muito_esforco' },
   { label: 'Caminhei por outros motivos', value: 'caminhou_outros' },
   { label: 'Parei para beber agua', value: 'parou_agua' },
   { label: 'Parei para ir ao banheiro', value: 'parou_banheiro' },
@@ -11924,7 +11961,7 @@ function ShoePickerField({ accessToken, value, onChange, locked }: { accessToken
     }
   }
 
-  if (shoes === null) return null; // carregando — nunca bloqueia o resto do formulario
+  if (shoes === null) return null; // carregando, nunca bloqueia o resto do formulario
 
   const selected = shoes.find((shoe) => shoe.id === value) ?? null;
 
@@ -12159,7 +12196,7 @@ function CompletionForm({
         {(isRun || isAerobic) && (
           <View>
             {/* Execucao objetiva (03/10/2026): quando ha' ActivityLog correspondente, tempo/
-                distancia/pace vem do relogio — mostrado so' leitura, nunca pedindo redigitacao.
+                distancia/pace vem do relogio, mostrado so' leitura, nunca pedindo redigitacao.
                 draft.durationMin/distanceKm/avgPace ja' vem preenchidos com o dado objetivo (ver
                 realizedExecMetrics); aqui so' decidimos COMO exibir, nunca recalculamos o valor. */}
             {session.realized ? (
@@ -12182,7 +12219,7 @@ function CompletionForm({
                     <Text style={{ fontSize: 13 }}>Cadencia media: {session.realized.cadenceAvg} passos/min</Text>
                   ) : null}
                 </View>
-                <Text style={[styles.formHint, { marginTop: 4 }]}>Dados do seu relogio/app conectado — nao precisa digitar de novo.</Text>
+                <Text style={[styles.formHint, { marginTop: 4 }]}>Dados do seu relogio/app conectado, nao precisa digitar de novo.</Text>
               </View>
             ) : (
               <>
@@ -12294,7 +12331,7 @@ function CompletionForm({
           <Ionicons name="checkmark-circle" size={15} color="#187A55" />
           <Text style={styles.completionRegisteredText}>
             {draft.status === 'done' ? (isExtraSession(session) ? 'Treino extra' : 'Feito como planejado') : draft.status === 'adjusted' ? 'Fiz, mas mudei o treino' : 'Nao feito'}
-            {draft.completedDate ? ` em ${draft.completedDate}` : ''} — treinador pode acompanhar.
+            {draft.completedDate ? ` em ${draft.completedDate}` : ''}, treinador pode acompanhar.
           </Text>
         </View>
       )}
@@ -12394,7 +12431,7 @@ function CompletionForm({
 
               {sleepAlreadyRegistered ? (
                 <View style={{ backgroundColor: '#eef2ff', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😴 Sono desta noite ja registrado — pode alterar abaixo se quiser.</Text>
+                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😴 Sono desta noite ja registrado, pode alterar abaixo se quiser.</Text>
                 </View>
               ) : null}
               <QuestionLabel n={3} total={17} />
@@ -12429,7 +12466,7 @@ function CompletionForm({
 
               {stressAlreadyRegistered ? (
                 <View style={{ backgroundColor: '#eef2ff', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😰 Voce ja respondeu sobre estresse nas ultimas 24h — pode manter ou atualizar abaixo.</Text>
+                  <Text style={{ fontSize: 13, color: '#3730a3', fontWeight: '600' }}>😰 Voce ja respondeu sobre estresse nas ultimas 24h, pode manter ou atualizar abaixo.</Text>
                 </View>
               ) : null}
               <QuestionLabel n={9} total={17} />
@@ -12480,7 +12517,7 @@ function CompletionForm({
 
               {/* Feedback de Atividade Alternativa (02/10/2026): "elaboracao do treino" e' sobre a
                   prescricao do treinador, e "execucao em relacao ao prescrito" pressupoe que existe
-                  uma prescricao — nenhuma das duas se aplica a uma atividade alternativa. Nunca
+                  uma prescricao, nenhuma das duas se aplica a uma atividade alternativa. Nunca
                   preenchidas automaticamente (ver validacao acima e forcamento a null no backend). */}
               {!session.isAlternative ? (
                 <>
@@ -12561,7 +12598,7 @@ function CompletionForm({
 
             {/* Meus Tenis (04/10/2026) — so' faz sentido quando houve corrida de verdade (isRun).
                 Este bloco inteiro ja' esta' dentro da secao exibida so' pra status done/adjusted
-                (nunca 'missed' — "nao fiz o treino" nao tem tenis nenhum pra perguntar). */}
+                (nunca 'missed', "nao fiz o treino" nao tem tenis nenhum pra perguntar). */}
             {isRun && (
               <>
                 <View style={{ height: 1, backgroundColor: '#E2DDD5', marginVertical: 16 }} />
@@ -12576,7 +12613,7 @@ function CompletionForm({
 
             {/* Correcao definitiva do ciclo de vida da prescricao (25/09/2026) — so aparece quando
                 o aluno escolheu "Fiz, mas mudei o treino". A prescricao original (o que estava
-                planejado) NUNCA e alterada por essas respostas — isso so descreve o PORQUE a
+                planejado) NUNCA e alterada por essas respostas, isso so descreve o PORQUE a
                 execucao foi diferente. */}
             {draft.status === 'adjusted' && (
               <View>
@@ -13348,7 +13385,7 @@ async function saveRoutineAvailability(accessToken: string, routineDays: Routine
     }
     const data = (await response.json().catch(() => null)) as { status?: string; revision?: number; availability?: SavedAvailabilityDay[]; firstTime?: boolean; generationStarted?: boolean } | null;
     if (!data || (data.status !== 'saved' && data.status !== 'unchanged') || typeof data.revision !== 'number' || !Array.isArray(data.availability)) {
-      return { ok: false, saved: false, message: 'O servidor nao confirmou a gravacao. Sua rotina NAO foi dada como salva: recarregue a tela e confira.' };
+      return { ok: false, saved: false, message: 'Não foi possível confirmar que sua rotina foi salva. Recarregue a tela e confira.' };
     }
     const snapshot: RoutineSnapshot = { configured: true, revision: data.revision, allRest: data.availability.every((day) => day.noTraining), availability: data.availability };
     if (routineSignatureOf(data.availability) !== routineSignatureOf(sent)) {
@@ -13360,7 +13397,7 @@ async function saveRoutineAvailability(accessToken: string, routineDays: Routine
     if (data.firstTime) return { ok: true, saved: true, snapshot, message: 'Rotina salva. Seu primeiro programa sera montado assim que a entrevista estiver concluida e o acesso estiver liberado.' };
     return { ok: true, saved: true, snapshot, message: 'Rotina salva. Ela sera considerada na proxima geracao do seu programa, liberada aos domingos a partir das 12h. Os treinos que voce ja recebeu nao mudam.' };
   } catch {
-    return { ok: false, saved: false, message: 'Nao consegui conectar com a API agora. A rotina NAO foi salva.' };
+    return { ok: false, saved: false, message: 'Não consegui conectar agora. Verifique sua internet e tente novamente. A rotina NAO foi salva.' };
   }
 }
 
@@ -13448,7 +13485,7 @@ async function saveAnamneseWithLegacyApi(input: {
         return { ok: false, status: response.status, message: await readApiError(response) };
       }
     } catch {
-      return { ok: false, status: 0, message: 'nao consegui conectar com a API.' };
+      return { ok: false, status: 0, message: 'não consegui conectar agora. Verifique sua internet e tente novamente.' };
     }
   }
 

@@ -80,7 +80,7 @@ export const REASSESSMENT_RATING_KEYS = RATING_DEFS.map((d) => d.key);
 const OBJECTIVE_OPTIONS = [
   'Comecar a correr', 'Completar 5 km', 'Melhorar meu tempo nos 5 km', 'Completar 10 km',
   'Melhorar meu tempo nos 10 km', 'Completar 21 km', 'Melhorar meu tempo nos 21 km',
-  'Completar 42 km', 'Melhorar meu tempo nos 42 km',
+  'Completar 42 km', 'Melhorar meu tempo nos 42 km', 'Correr ultramaratona',
 ];
 
 function toNumber(value: unknown): number | null {
@@ -208,6 +208,8 @@ export function buildReassessmentTrajectories(
 }
 
 function asCanonicalObjective(value: unknown): string | null {
+  // ultramaratona carrega a distancia no texto ("Correr ultramaratona de 100 km"): a trajetoria do objetivo usa a categoria
+  if (typeof value === 'string' && value.startsWith('Correr ultramaratona')) return 'Correr ultramaratona';
   return typeof value === 'string' && OBJECTIVE_OPTIONS.includes(value) ? value : null;
 }
 

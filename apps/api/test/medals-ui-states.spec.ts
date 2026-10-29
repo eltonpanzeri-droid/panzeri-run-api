@@ -48,7 +48,7 @@ describe('MedalsScreen: estados das conquistas', () => {
 describe('App: relatorio de treino em atualizacao', () => {
   it('o cartao do relatorio marca "Em atualizacao" e o plano traz os treinos pendentes', () => {
     expect(app).toContain('sessionReportsUpdating?: string[]');
-    expect(app).toContain('Em atualização — uma correção recente ainda está sendo processada.');
+    expect(app).toContain('Em atualização, uma correção recente ainda está sendo processada.');
     expect(app).toContain('updating={Boolean(plan?.sessionReportsUpdating?.includes(session.id))}');
   });
 });

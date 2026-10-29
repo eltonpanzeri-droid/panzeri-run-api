@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
+import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, RACE_CALENDAR_INSTRUCTION, HEALTH_INDICATORS_INSTRUCTION, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
 import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from '../src/training-plans/panzeri-developmental-directive';
 import {
@@ -38,7 +38,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
     // 1.2b: REASONING_INSTRUCTION (3 prompts) | 2.1: EXECUTION_REPORT_INSTRUCTION (so no prompt da semana) | 15/10/2026: LINK_CORRECTION_INSTRUCTION (3 prompts,
     // precedencia da informacao corrigida sobre interpretacao historica). Removidos os blocos, voltam ao original.
-    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '');
+    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + RACE_CALENDAR_INSTRUCTION, '').replace('\n\n' + HEALTH_INDICATORS_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '');
     const stable = service.buildSystemPromptStable();
     const run = service.buildRunSessionSystemPrompt();
     const strength = service.buildSingleStrengthSystemPrompt();
@@ -77,9 +77,9 @@ describe('injecao e protecao', () => {
     const types = Reflect.getMetadata('design:paramtypes', TrainingPlansService) as unknown[];
     // 2.1 acrescentou ExecutionAnalysisService (opcional) DEPOIS da rastreabilidade: a trilha continua a ultima dependencia OBRIGATORIA.
     const traceIndex = types.indexOf(PrescriptionTraceService);
-    expect(traceIndex).toBe(types.length - 4); // depois dela, os opcionais: ExecutionAnalysisService (2.1), TrainingAnalystService (2.2) e AiDataEligibility (Central Universal, Lote 1)
+    expect(traceIndex).toBe(types.length - 6); // depois dela, os opcionais: ExecutionAnalysisService (2.1), TrainingAnalystService (2.2), AiDataEligibility (Central Universal, Lote 1), TargetRaceCalendarService e HealthIndicatorsService (29/10/2026)
     expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService) ?? []).not.toContain(traceIndex);
-    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2, types.length - 3]));
+    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2, types.length - 3, types.length - 4, types.length - 5]));
     expect(Reflect.getMetadata('__guards__', PrescriptionTraceController)).toHaveLength(2); // JWT + RolesGuard
     expect(Reflect.getMetadata('roles', PrescriptionTraceController)).toEqual(['coach', 'admin']);
     expect(Reflect.getMetadata('path', PrescriptionTraceController)).toBe('coach');

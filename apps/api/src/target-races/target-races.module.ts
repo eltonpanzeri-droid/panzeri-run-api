@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TargetRacesController } from './target-races.controller';
 import { TargetRacesService } from './target-races.service';
+import { TargetRaceCalendarService } from './target-race-calendar.service';
 import { TelegramService } from '../billing/telegram.service';
 import { PainReportsModule } from '../pain-reports/pain-reports.module';
 import { StudentProfileModule } from '../training-plans/student-profile.module';
@@ -15,7 +16,7 @@ import { StudentProfileModule } from '../training-plans/student-profile.module';
   // StudentProfileModule e' isolado (sem ciclo): o Prontuario recebe toda meta cadastrada.
   imports: [PainReportsModule, StudentProfileModule],
   controllers: [TargetRacesController],
-  providers: [TargetRacesService, TelegramService],
-  exports: [TargetRacesService],
+  providers: [TargetRacesService, TargetRaceCalendarService, TelegramService],
+  exports: [TargetRacesService, TargetRaceCalendarService],
 })
 export class TargetRacesModule {}

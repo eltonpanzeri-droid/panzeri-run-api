@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
@@ -7,6 +7,7 @@ import {
   describeRaceChanges, formatRaceChangeForProfile, formatRaceChangeForTelegram, formatRaceForProfile, formatRaceForTelegram, formatRaceRemovalForProfile, formatRaceRemovalForTelegram,
   RaceState, RaceSummary,
 } from './target-race-messages';
+import { TargetRaceCalendarService } from './target-race-calendar.service';
 import { CreateTargetRaceDto } from './dto/create-target-race.dto';
 import { UpdateTargetRaceDto } from './dto/update-target-race.dto';
 
@@ -21,6 +22,8 @@ export class TargetRacesService {
     private readonly telegram: TelegramService,
     private readonly painReports: PainReportsService,
     private readonly studentProfile: StudentProfileService,
+    // Prova alvo entra no calendario da semana sozinha (29/10/2026). Opcional so' para testes que constroem o servico sem Nest.
+    @Optional() private readonly calendar?: TargetRaceCalendarService,
   ) {}
 
   async list(userId: string) {
@@ -59,6 +62,7 @@ export class TargetRacesService {
     await this.studentProfile
       .recordEvent(userId, ProfileEventCode.TARGET_RACE_REGISTERED, formatRaceForProfile(race as RaceSummary))
       .catch((error) => this.logger.warn(`Registro de nova meta no Prontuario falhou para ${userId}: ${(error as Error).message?.slice(0, 160)}`));
+    await this.calendar?.syncUser(userId);
     return withComputedPace(race);
   }
 
@@ -93,6 +97,7 @@ export class TargetRacesService {
     // data ou distancia mudaram. A aluna nao recebe mensagem. Falhas aqui nunca desfazem a edicao.
     const changes = describeRaceChanges(existing as RaceState, race as RaceState);
     if (changes.length) await this.announceRaceChange(userId, existing as RaceState, race as RaceState & { id: string }, changes);
+    await this.calendar?.syncUser(userId); // data, distancia, nome ou status mudaram: a sessao da prova acompanha (sem duplicar)
     return withComputedPace(race);
   }
 
@@ -101,6 +106,7 @@ export class TargetRacesService {
     if (!existing || existing.userId !== userId) throw new NotFoundException('Meta nao encontrada.');
     await this.prisma.targetRace.delete({ where: { id: raceId } });
     await this.announceRaceRemoval(userId, existing as RaceState);
+    await this.calendar?.syncUser(userId); // a sessao vinculada sai do calendario
     return { removed: true };
   }
 

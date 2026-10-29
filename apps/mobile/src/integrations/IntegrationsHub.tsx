@@ -39,7 +39,7 @@ function currentPlatform(): IntegrationPlatform {
 function availabilityLabel(entry: IntegrationCatalogEntry) {
   if (entry.availability === 'preparing') return 'Em validação';
   if (entry.availability === 'unavailable') return 'Indisponível no momento';
-  if (entry.connection.state === 'connected') return entry.pendingAuthorizations?.length ? 'Conectado — falta autorizar' : 'Conectado';
+  if (entry.connection.state === 'connected') return entry.pendingAuthorizations?.length ? 'Conectado, falta autorizar' : 'Conectado';
   return 'Não conectado';
 }
 

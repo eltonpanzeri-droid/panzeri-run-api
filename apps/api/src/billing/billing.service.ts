@@ -9,10 +9,11 @@ import { MetaCapiService } from '../meta/meta-capi.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { fetchAppleSubscriptionVerdict, readAppleCredentials } from './apple-store-status';
+import { discountedPrice, formatBRL, partialCouponProblem, priceLabelWithDiscount } from './coupon-pricing';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
-type AsaasSubscription = { id: string; status: string; nextDueDate?: string | null; deleted?: boolean };
+type AsaasSubscription = { id: string; status: string; value?: number; nextDueDate?: string | null; deleted?: boolean };
 type AsaasSubscriptionList = { data: AsaasSubscription[] };
 type AsaasPayment = {
   id: string;
@@ -222,6 +223,7 @@ function formatDateBR(isoDate: string): string {
 }
 
 const ACTIVE_STATUSES = new Set(['received', 'confirmed', 'received_in_cash']);
+
 const OVERDUE_STATUSES = new Set(['overdue', 'refunded', 'refund_requested', 'chargeback_requested', 'chargeback_dispute']);
 const ACTIVE_EVENTS = new Set(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED']);
 const OVERDUE_EVENTS = new Set(['PAYMENT_OVERDUE', 'PAYMENT_REFUNDED', 'PAYMENT_REFUND_REQUESTED', 'PAYMENT_CHARGEBACK_REQUESTED', 'PAYMENT_CHARGEBACK_DISPUTE']);
@@ -383,6 +385,7 @@ export class BillingService {
     // 05/09: subscriptionContext derivado dos campos atuais (pos-sync quando aplicavel) — additive,
     // preserva todos os campos existentes para compatibilidade com versoes antigas do app.
     const latestBilling = billing ? await this.prisma.billingSubscription.findUnique({ where: { userId } }) : null;
+    const couponDiscount = (await this.activeCouponDiscount(userId))?.percent ?? null;
     const subscriptionContext = deriveSubscriptionContext(
       { subscriptionStatus: appStatus, subscriptionCancelRequestedAt: user.subscriptionCancelRequestedAt, studentCode: user.studentCode },
       latestBilling ? { overdueInvoiceUrl: latestBilling.overdueInvoiceUrl ?? null, nextChargeAt: latestBilling.nextChargeAt ?? null } : null,
@@ -394,7 +397,8 @@ export class BillingService {
       // Assinatura da loja (Apple/Google): so' a loja cancela. O app abre a gestao da loja em vez de chamar /billing/cancel.
       storeManaged: user.subscriptionProvider === 'revenuecat',
       planName: PLAN_DESCRIPTION,
-      priceLabel: 'R$ 19,90 por mes',
+      priceLabel: priceLabelWithDiscount(PLAN_PRICE, couponDiscount),
+      discountPercent: couponDiscount,
       status: appStatus,
       providerStatus,
       hasCpf: Boolean(user.cpf),
@@ -525,9 +529,20 @@ export class BillingService {
     const existingSubscriptions = await this.asaasRequest<AsaasSubscriptionList>(`/subscriptions?customer=${customerId}&status=ACTIVE`);
     const reusableSubscription = existingSubscriptions.data?.[0] ?? null;
 
+    // Cupom parcial: o valor COBRADO e' o valor com desconto (lido do cupom ativo no momento do checkout, nunca de um preco guardado pelo aplicativo).
+    const couponDiscount = await this.activeCouponDiscount(userId);
+    const chargeValue = couponDiscount ? discountedPrice(PLAN_PRICE, couponDiscount.percent) : PLAN_PRICE;
     let subscriptionId: string;
     if (reusableSubscription) {
       subscriptionId = reusableSubscription.id;
+      if (couponDiscount && Number(reusableSubscription.value) !== chargeValue) {
+        // assinatura pendente criada antes do cupom: ajusta o valor no Asaas. Se o Asaas recusar, falha com clareza (nunca mostra desconto que nao sera cobrado).
+        try {
+          await this.asaasRequest<AsaasSubscription>(`/subscriptions/${reusableSubscription.id}`, { method: 'PUT', body: JSON.stringify({ value: chargeValue, updatePendingPayments: true }) });
+        } catch {
+          throw new BadGatewayException('Nao foi possivel aplicar o desconto na sua assinatura agora. Tente novamente em instantes ou fale com o suporte.');
+        }
+      }
     } else {
       const nextDueDate = formatDate(new Date(Date.now() + 24 * 60 * 60 * 1000));
       const subscription = await this.asaasRequest<AsaasSubscription>('/subscriptions', {
@@ -535,7 +550,7 @@ export class BillingService {
         body: JSON.stringify({
           customer: customerId,
           billingType: 'CREDIT_CARD',
-          value: PLAN_PRICE,
+          value: chargeValue,
           nextDueDate,
           cycle: 'MONTHLY',
           description: PLAN_DESCRIPTION,
@@ -628,7 +643,7 @@ export class BillingService {
 
     if (isGenuinelyNewSubscription) {
       const title = isReactivation ? 'Assinatura reativada no Panzeri Run' : 'Nova assinatura gerada no Panzeri Run';
-      await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (R$ 19,90/mes)`);
+      await this.telegram.notifyCoach(`${title}\n\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nE-mail: ${user.email}\nStatus: aguardando pagamento (${formatBRL(chargeValue)}/mes${couponDiscount ? `, cupom ${couponDiscount.code} com ${couponDiscount.percent}% de desconto` : ''})`);
     }
     this.recentCheckouts.set(userId, { checkoutUrl, at: Date.now() });
     this.pruneRecentCheckouts();
@@ -643,6 +658,20 @@ export class BillingService {
     const prisma = this.prisma as any;
     const coupon = await prisma.coupon.findUnique({ where: { code: normalized } });
     if (coupon && !coupon.active) throw new BadRequestException('Cupom inativo.');
+
+    if (coupon && coupon.discountPercent < 100) {
+      // Desconto parcial so' vale onde ele pode ser cobrado de verdade (assinatura pelo Asaas, cartao). Valida ANTES de registrar o resgate: nao confirma cupom sem efeito.
+      const problem = partialCouponProblem(PLAN_PRICE, coupon.discountPercent);
+      if (problem) throw new BadRequestException(problem);
+      const [account, billing] = await Promise.all([
+        this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true, subscriptionStatus: true } }),
+        this.prisma.billingSubscription.findUnique({ where: { userId }, select: { providerStatus: true } }),
+      ]);
+      if (account?.subscriptionProvider === 'revenuecat') throw new BadRequestException('Sua assinatura e feita pela loja de aplicativos. Este cupom vale apenas para assinatura pelo site.');
+      if (['active', 'manual_active', 'grace'].includes(account?.subscriptionStatus ?? '') || ACTIVE_STATUSES.has(billing?.providerStatus ?? '')) {
+        throw new BadRequestException('Este cupom vale para novas assinaturas. Sua assinatura ja esta ativa.');
+      }
+    }
 
     if (coupon) {
       const alreadyUsed = await prisma.couponRedemption.findUnique({
@@ -666,7 +695,8 @@ export class BillingService {
       return {
         status: 'pending',
         discountPercent: coupon.discountPercent,
-        message: `Cupom aplicado: ${coupon.discountPercent}% de desconto. Finalize o pagamento para liberar o acesso.`,
+        finalPrice: discountedPrice(PLAN_PRICE, coupon.discountPercent),
+        message: `Cupom aplicado: ${coupon.discountPercent}% de desconto. Sua mensalidade passa a ser ${formatBRL(discountedPrice(PLAN_PRICE, coupon.discountPercent))} (de ${formatBRL(PLAN_PRICE)}), em todas as mensalidades. Finalize o pagamento para liberar o acesso.`,
       };
     }
 
@@ -676,6 +706,18 @@ export class BillingService {
 
     await this.activateCouponAccess(userId, normalized);
     return { status: 'manual_active', discountPercent: 100, message: 'Cupom aplicado. Acesso liberado.' };
+  }
+
+  // Cupom parcial ativo (1% a 99%) resgatado por este aluno; o mais recente vale. Cupom desativado deixa de valer no proximo checkout.
+  private async activeCouponDiscount(userId: string): Promise<{ percent: number; code: string } | null> {
+    let rows: Array<{ coupon?: { code: string; discountPercent: number } }> = [];
+    try {
+      rows = await (this.prisma as any).couponRedemption.findMany({ where: { userId, coupon: { active: true, discountPercent: { gte: 1, lt: 100 } } }, orderBy: { createdAt: 'desc' }, take: 1, select: { coupon: { select: { code: true, discountPercent: true } } } });
+    } catch {
+      rows = [];
+    }
+    const coupon = rows[0]?.coupon;
+    return coupon ? { percent: coupon.discountPercent, code: coupon.code } : null;
   }
 
   // 18/08: studentCode agora so e atribuido aqui, na hora em que a pessoa realmente vira aluna de

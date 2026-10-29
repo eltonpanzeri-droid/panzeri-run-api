@@ -506,7 +506,7 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
           {doc.groups.filter((group) => !group.required).map((group) => {
             const dependsOn = group.requires ?? [];
             const blockedBy = dependsOn.some((id) => !selectedGroups.includes(id));
-            return <Check key={group.id} checked={selectedGroups.includes(group.id)} onPress={() => toggle(group.id)} disabled={blockedBy} label={`${group.label} — ${group.description}`} />;
+            return <Check key={group.id} checked={selectedGroups.includes(group.id)} onPress={() => toggle(group.id)} disabled={blockedBy} label={`${group.label}, ${group.description}`} />;
           })}
           <Text style={styles.permLabel}>Autorização obrigatória para importar os dados selecionados</Text>
           <Check checked={acknowledged} onPress={() => setAcknowledged(!acknowledged)} label={doc.acknowledgementText} />

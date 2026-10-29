@@ -47,6 +47,11 @@ export function isProviderBlockedForAi(provider: string | null | undefined): boo
 
 // Dado de saude de um provedor numa categoria pode entrar na IA? Fora de escopo (telas, painel) nada muda. Dentro de escopo: bloqueado se o provedor inteiro esta bloqueado, se o par
 // provedor:categoria esta bloqueado ou se o escopo nao avaliou saude (fail-closed).
+// Ha escopo de IA ativo? Consultas que alimentam a IA sem escopo devem falhar fechado (nada sai).
+export function hasAiScope(): boolean {
+  return storage.getStore() !== undefined;
+}
+
 export function isHealthBlockedForAi(provider: string, category: string): boolean {
   const scope = storage.getStore();
   if (!scope) return false;

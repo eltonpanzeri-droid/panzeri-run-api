@@ -27,6 +27,8 @@ import {
 import { PrescriptionAgentService, PaceEvidence, AiFailureInfo } from './prescription-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
+import { TargetRaceCalendarService } from '../target-races/target-race-calendar.service';
+import { HealthIndicatorsService } from '../training-intelligence/health-indicators.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
 import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
@@ -222,6 +224,10 @@ export class TrainingPlansService {
     // Governanca de dados para IA (Central Universal, Lote 1): define quais provedores NAO podem alimentar os agentes deste aluno. Opcional so' para os testes
     // que constroem o servico sem Nest; no app o modulo sempre injeta, e sem escopo as chamadas de IA com dado de dispositivo falham fechadas (AiEgressGuard).
     @Optional() private readonly aiEligibility?: AiDataEligibility,
+    // Prova alvo no calendario (29/10/2026): depois de cada geracao, a prova entra/substitui a corrida do dia sem tocar nas outras modalidades. Opcional so' para testes sem Nest.
+    @Optional() private readonly raceCalendar?: TargetRaceCalendarService,
+    // Indicadores de saude autorizados alem das 5 variaveis do snapshot (29/10/2026): resumo seletivo no contexto da IA. Opcional: nunca bloqueia a geracao.
+    @Optional() private readonly healthIndicators?: HealthIndicatorsService,
   ) {}
 
   // Executa `fn` dentro do escopo de IA deste aluno: leitores que alimentam prompts passam a tratar como inexistentes os dados dos provedores nao autorizados.
@@ -1060,8 +1066,14 @@ export class TrainingPlansService {
       });
     // menstrualCycleContext (calculado acima, ja com fallback null em falha) entra no MESMO objeto
     // compacto que chega ao agente — nunca um campo solto separado (secao 7 do pedido de 26/09).
+    // Demais indicadores de saude/recuperacao/comportamento autorizados (VO2 max, composicao, SpO2, temperatura, respiracao, mobilidade, FC do dia, habitos, nutricao...): resumo seletivo, so do que
+    // existe e foi autorizado; falha nunca bloqueia a geracao.
+    const healthIndicatorsContext = this.healthIndicators ? await this.healthIndicators.summary(userId).catch((error) => {
+      this.logger.warn(`Resumo de indicadores de saude indisponivel para ${userId}: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
+      return null;
+    }) : null;
     const athleteStateContext = athleteStateContextBase
-      ? { ...athleteStateContextBase, menstrualCycle: menstrualCycleContext ?? undefined }
+      ? { ...athleteStateContextBase, menstrualCycle: menstrualCycleContext ?? undefined, ...(healthIndicatorsContext ? { indicadoresDeSaudeAutorizados: healthIndicatorsContext } : {}) }
       : null;
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
@@ -1649,6 +1661,9 @@ export class TrainingPlansService {
       }
       return createdPlan;
     });
+
+    // Prova alvo da semana: entra no calendario (substitui so' a corrida do dia) e nunca duplica em regeneracoes. Best-effort: falha aqui nao desfaz a semana gerada.
+    await this.raceCalendar?.syncUser(userId);
 
     // Copia em texto da prescricao numerica que acabou de ser decidida — puro codigo, sem custo
     // de IA (a criacao do texto em si nao chama nenhum modelo). Vira insumo pro agente do

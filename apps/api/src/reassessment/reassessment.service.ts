@@ -11,6 +11,7 @@ import { AthleteStateSnapshotService } from '../training-intelligence/athlete-st
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { MedalEvaluationService } from '../medals/medal-evaluation.service';
+import { composeObjective } from '../me/objective';
 import {
   buildReassessmentTrajectories,
   buildFitnessTestTrajectory,
@@ -235,7 +236,7 @@ export class ReassessmentService {
   private async resolveObjective(userId: string, reassessmentId: string, answers: Record<string, Prisma.InputJsonValue>, previousGoal: string | null): Promise<Record<string, Prisma.InputJsonValue>> {
     const chosen = typeof answers.objective === 'string' ? answers.objective.trim() : '';
     // 'yes' = o objetivo atual continua. Qualquer outra resposta com um objetivo escolhido (inclusive o app antigo, que sempre perguntava o objetivo) vale como o objetivo atual.
-    const effective = answers.objective_still_current === 'yes' ? previousGoal : chosen || null;
+    const effective = answers.objective_still_current === 'yes' ? previousGoal : composeObjective(chosen, answers.ultra_distance_km);
     if (!effective) return answers;
     const resolved: Record<string, Prisma.InputJsonValue> = { ...answers, objective: effective, ...(previousGoal ? { objective_previous: previousGoal } : {}) };
     await this.prisma.reassessment.update({ where: { id: reassessmentId }, data: { answers: resolved } });

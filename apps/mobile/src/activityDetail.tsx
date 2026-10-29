@@ -476,7 +476,7 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
               </View>
             );
           })}
-          <Text style={{ fontSize: 12, color: MUTED }}>Diferença não é erro nem falta de aderência — é só o que aconteceu.</Text>
+          <Text style={{ fontSize: 12, color: MUTED }}>Diferença não é erro nem falta de aderência, é só o que aconteceu.</Text>
         </View>
       ) : null}
 

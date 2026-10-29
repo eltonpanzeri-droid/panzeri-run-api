@@ -6,10 +6,11 @@ import { LongitudinalDynamicsService } from './longitudinal-dynamics.service';
 import { TrainingIntelligenceQueryService } from './training-intelligence-query.service';
 import { AthleteStateSnapshotService } from './athlete-state-snapshot.service';
 import { ContextEventsModule } from '../context-events/context-events.module';
+import { HealthIndicatorsService } from './health-indicators.service';
 
 @Module({
   imports: [EvolutionModule, ContextEventsModule],
-  providers: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService],
-  exports: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService],
+  providers: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService, HealthIndicatorsService],
+  exports: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService, HealthIndicatorsService],
 })
 export class TrainingIntelligenceModule {}

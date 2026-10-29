@@ -61,7 +61,10 @@ describe('documento de consentimento do Apple Saude', () => {
     expect(text).toContain('últimos 3 anos');
     expect(text).toContain('não são enviados à inteligência artificial');
     expect(text).not.toContain('não importa sono');
-    expect(doc.version).toBe('2.0');
+    expect(doc.version).toBe('2.1');
+    expect(text).toContain('Anthropic');
+    expect(text).toContain('transferência internacional');
+    expect(text).toContain('não serão vendidos nem divulgados publicamente');
     expect(doc.optionalPurposes).toHaveLength(0);
   });
 });

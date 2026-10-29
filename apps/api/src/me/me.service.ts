@@ -12,6 +12,7 @@ import { TelegramService, formatStudentCode } from '../billing/telegram.service'
 import { TrainingPlansService, hasSubscriptionAccess } from '../training-plans/training-plans.service';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { ONBOARDING_INTERVIEW_VERSION } from '../reassessment/reassessment-trajectory';
+import { ULTRA_DISTANCE_KEY, composeObjective, isUltraObjective, parseUltraKm } from './objective';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 
@@ -83,6 +84,7 @@ export class MeService {
     }
     const current = await this.prisma.onboardingInterview.findUnique({ where: { userId } });
     const answers = asAnswerObject(current?.answers);
+    if (dto.key === ULTRA_DISTANCE_KEY && parseUltraKm(dto.value) === null) throw new BadRequestException({ code: 'invalid_ultra_distance', message: 'Informe a distancia da ultramaratona em quilometros (de 43 a 999).' });
     answers[dto.key] = JSON.parse(JSON.stringify(dto.value)) as Prisma.InputJsonValue;
     const result = await this.prisma.onboardingInterview.upsert({
       where: { userId },
@@ -108,7 +110,8 @@ export class MeService {
     // Mesma ideia para as demais preferencias operacionais que a entrevista inicial projeta (experiencia, atividades atuais/preferidas): so' o campo editado, so' se
     // as preferencias ja existem (depois da primeira conclusao) — nunca recalcula os outros a partir do JSON inteiro.
     const preferencesPatch: Prisma.UserPreferencesUpdateInput | null =
-      dto.key === 'objective' && typeof dto.value === 'string' && dto.value.trim() ? { mainGoal: dto.value.trim() }
+      dto.key === 'objective' && typeof dto.value === 'string' && dto.value.trim() ? { mainGoal: composeObjective(dto.value, answers[ULTRA_DISTANCE_KEY]) ?? dto.value.trim() }
+        : dto.key === ULTRA_DISTANCE_KEY && isUltraObjective(answers.objective) ? { mainGoal: composeObjective(answers.objective, dto.value) ?? String(answers.objective) }
         : dto.key === 'running_experience' && typeof dto.value === 'string' && dto.value.trim() ? { experienceLevel: dto.value.trim() }
           : dto.key === 'current_activities' && Array.isArray(dto.value) ? { preferredModalities: stringArray(dto.value) }
             : dto.key === 'favorite_activities' && Array.isArray(dto.value) ? { otherModalities: stringArray(dto.value) }
@@ -327,7 +330,7 @@ export class MeService {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
-            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
+            mainGoal: composeObjective(answers.objective, answers[ULTRA_DISTANCE_KEY]) ?? 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
           // (10/2026) Reconclusao da entrevista NAO reescreve as preferencias operacionais (objetivo, experiencia, modalidades, locais): elas podem ter sido
@@ -337,7 +340,7 @@ export class MeService {
             preferredModalities,
             otherModalities: stringArray(answers.favorite_activities),
             trainingLocations: ['Corrida na rua'],
-            mainGoal: answers.objective != null ? String(answers.objective) : 'Nao informado',
+            mainGoal: composeObjective(answers.objective, answers[ULTRA_DISTANCE_KEY]) ?? 'Nao informado',
             experienceLevel: answers.running_experience != null ? String(answers.running_experience) : null,
           },
         });
