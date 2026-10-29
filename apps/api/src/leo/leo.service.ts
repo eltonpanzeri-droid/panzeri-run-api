@@ -26,6 +26,15 @@ export const LEO_JOURNEY_EVENTS = [
   'first_plan_generated',
 ] as const;
 
+// Qualquer um destes 4 botões da landing conta como "clicou para assinar" nas agregações do Leo
+// (getLandingSummary). Os outros 3 foram adicionados 23/09 e ficaram de fora desta lista até agora.
+export const CTA_CLICK_EVENTS = [
+  'landing_cta_click',
+  'how_it_works_cta_click',
+  'final_cta_click',
+  'mobile_sticky_cta_click',
+] as const;
+
 // Somente estes campos de origem saem do metadata. fbclid/gclid/_fbp/_fbc/sessionId sao identificadores
 // tecnicos de plataformas externas e nao sao necessarios a analise comercial: nunca sao expostos.
 const ORIGIN_KEYS = ['source', 'medium', 'campaign', 'content', 'term', 'referrer'] as const;
@@ -470,14 +479,14 @@ export class LeoService {
 
     for (const ids of chunk([...firstAtByJourney.keys()], 1000)) {
       const follow = await this.prisma.funnelEvent.findMany({
-        where: { journeyId: { in: ids }, event: { in: ['landing_cta_click', 'app_opened', 'signup_completed', 'journey_linked'] } },
+        where: { journeyId: { in: ids }, event: { in: [...CTA_CLICK_EVENTS, 'app_opened', 'signup_completed', 'journey_linked'] } },
         select: { journeyId: true, event: true, createdAt: true, userId: true, metadata: true },
       });
       for (const f of follow) {
         if (!f.journeyId) continue;
         const first = firstAtByJourney.get(f.journeyId);
         if (!first || f.createdAt < first) continue; // so' o que aconteceu NA/DEPOIS da 1a visita da coorte
-        if (f.event === 'landing_cta_click') ctaClicked.add(f.journeyId);
+        if ((CTA_CLICK_EVENTS as readonly string[]).includes(f.event)) ctaClicked.add(f.journeyId);
         else if (f.event === 'app_opened') appOpened.add(f.journeyId);
         else if (f.event === 'signup_completed') signedUp.add(f.journeyId);
         else if (f.event === 'journey_linked' && f.userId) {
