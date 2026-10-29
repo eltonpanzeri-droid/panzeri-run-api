@@ -7,6 +7,8 @@ import { EXTERNAL_AI_APPROVED_PROVIDERS } from '../ai-governance/ai-data-eligibi
 import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
 import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
 import { HEALTH_CONNECT_CONSENT } from '../health-connect/health-connect-consent';
+import { APPLE_HEALTH_CONSENT } from '../apple-health/apple-health-consent';
+import { metricKindsOfCategory } from '../apple-health/apple-health-records';
 import { LEGACY_CONSENT_DOCUMENTS } from '../legacy-consent/legacy-consent';
 import { grantedPolarHealthCategories, POLAR_HEALTH_CONSENT, type PolarHealthRow } from '../polar/polar-health-consent';
 
@@ -112,6 +114,9 @@ export interface IntegrationsRaw {
   // Health Connect (22/10/2026): autorizacoes gravadas no servidor (a conexao em si e' do aparelho) e o que chegou, por CATEGORIA de consentimento. Ausente => so' o que ja' existia (dados sem registro).
   healthConnect?: { createdAt: Date; disconnectedAt: Date | null; grantedCategories: unknown; grantedPurposes: unknown; purposeConsents: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
   hcReceipts?: Record<string, ReceiptStat>;
+  // Apple Saude (30/10/2026): autorizacoes por grupo registradas no servidor + o que chegou por categoria (mesmo desenho do Health Connect).
+  appleHealth?: { createdAt: Date; disconnectedAt: Date | null; grantedCategories: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
+  appleReceipts?: Record<string, ReceiptStat>;
   // Decisao da aluna sobre o Atlas para Polar/Wahoo ja' conectadas (so' existe depois que ela responde).
   legacyConsent?: Partial<Record<'polar' | 'wahoo', { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown } | null>>;
   // Saude e recuperacao da Polar (23/10/2026): autorizacao por categoria (linha propria 'polar_health') e o que chegou. Ausente => a aluna ainda nao escolheu.
@@ -364,6 +369,44 @@ function healthConnectEntry(raw: IntegrationsRaw, externalAiUnlocked: boolean): 
   };
 }
 
+// Apple Saude: mostra cada GRUPO autorizado e o que chegou, como a Polar e o Health Connect. So' aparece com o registro por grupo quando a aluna ja' autorizou algo no aplicativo novo; antes disso segue o
+// caso "dados sem registro de conexao" (aplicativo antigo). O percurso, a pressao, a glicemia e o ciclo nunca vao a IA (texto do consentimento).
+function appleHealthEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
+  const h = raw.appleHealth;
+  if (!h) return null;
+  const active = !h.disconnectedAt;
+  const granted = new Set<string>(Array.isArray(h.grantedCategories) ? (h.grantedCategories as unknown[]).filter((c): c is string => typeof c === 'string') : []);
+  const consentCurrent = isConnectionConsentCurrent(APPLE_HEALTH_CONSENT, h);
+  const receipts = raw.appleReceipts ?? {};
+  const activity = raw.activityByProvider.apple_health ?? EMPTY;
+  const categories: IntegrationCategoryView[] = APPLE_HEALTH_CONSENT.groups.map((group) => {
+    const stats = group.categories.map((c) => (c === 'activity' ? activity : stat(receipts[c])));
+    const lastAt = stats.reduce<Date | null>((latest, st) => (st.lastAt && (!latest || st.lastAt > latest) ? st.lastAt : latest), null);
+    return {
+      id: group.id, label: group.label, direction: 'recebe' as const,
+      authorized: active && consentCurrent && group.categories.every((c) => granted.has(c)),
+      lastAt: iso(lastAt), count: stats.reduce((sum, st) => sum + st.count, 0),
+    };
+  });
+  const lastAt = categories.reduce<string | null>((latest, c) => (c.lastAt && (!latest || c.lastAt > latest) ? c.lastAt : latest), null);
+  const warnings: string[] = ['A autorização do Apple Saúde é feita no celular da aluna (duas etapas: a folha do iPhone e a tela de grupos do Panzeri Run). Aqui aparecem os grupos registrados no servidor e os dados que de fato chegaram.'];
+  if (active && !consentCurrent) warnings.push('O texto das autorizações mudou: o compartilhamento está suspenso até a aluna confirmar o texto atualizado no aplicativo.');
+  if (active && consentCurrent && !categories.some((c) => c.authorized)) warnings.push('A aluna não autorizou nenhum grupo no Panzeri Run: nada novo é recebido.');
+  const pending = categories.filter((c) => c.authorized && c.count === 0).map((c) => c.label);
+  if (pending.length > 0) warnings.push(`Autorizados, mas ainda sem dados recebidos: ${pending.join('; ')}. Pode ser que a sincronização ainda não tenha rodado, que o iPhone não tenha liberado a leitura ou que o dado não exista no app Saúde (o iPhone não informa o que foi negado).`);
+  const state: IntegrationState = active ? 'connected' : 'disconnected';
+  return {
+    provider: 'apple_health', name: PROVIDER_NAME.apple_health, state, stateLabel: active ? 'Autorizações registradas' : STATE_LABEL.disconnected,
+    connectedSince: iso(h.createdAt), disconnectedAt: iso(h.disconnectedAt), lastSyncAt: lastAt, lastSyncBasis: lastAt ? 'ultimo_dado_recebido' : null,
+    categories,
+    atlas: {
+      applies: true, authorized: active && consentCurrent, needsNewAuthorization: Boolean(active && !consentCurrent), since: null, systemEnabled: null,
+      note: active && consentCurrent ? 'O uso pela IA segue os grupos autorizados (sem autorização separada). Percurso GPS, pressão arterial, glicemia e ciclo menstrual nunca são enviados.' : 'Sem autorização vigente: nenhum dado do Apple Saúde é enviado à IA.',
+    },
+    failures: [], warnings,
+  };
+}
+
 function stravaEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
   if (!raw.strava) return null;
   return {
@@ -377,7 +420,7 @@ function stravaEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
 }
 
 export function buildStudentIntegrations(studentId: string, raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean, healthConnectAiUnlocked = false): StudentIntegrationsResult {
-  const entries = [zeppEntry(raw, now, externalAiUnlocked), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), legacyEntry('apple_health', raw, now), healthConnectEntry(raw, healthConnectAiUnlocked) ?? legacyEntry('health_connect', raw, now)]
+  const entries = [zeppEntry(raw, now, externalAiUnlocked), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), appleHealthEntry(raw) ?? legacyEntry('apple_health', raw, now), healthConnectEntry(raw, healthConnectAiUnlocked) ?? legacyEntry('health_connect', raw, now)]
     .filter((entry): entry is StudentIntegrationView => entry !== null);
   return { studentId, generatedAt: now.toISOString(), integrations: entries };
 }
@@ -448,6 +491,35 @@ export class StudentIntegrationsService {
       vo2_max: metricStat('vo2_max'), body_composition: metricStat('body_composition'), pulse_ox: metricStat('pulse_ox'), skin_temperature: metricStat('skin_temperature'), respiratory_rate: metricStat('respiratory_rate'), nutrition: metricStat('nutrition', 'hydration'),
     };
 
+    // Apple Saude: autorizacoes por grupo (so' colunas de estado) e o que chegou por categoria.
+    const apWhere = { userId, provider: 'apple_health' };
+    const apSensorsWhere = { userId, provider: 'apple_health', OR: [{ avgHeartRateBpm: { not: null } }, { cadenceAvg: { not: null } }, { powerAvgWatts: { not: null } }, { elevationGainMeters: { not: null } }] };
+    const [apRow, apSensorsRow, apSensorsCount, apRouteCount, apSleep, apDaily, apResting, apHrv, apMetrics] = await Promise.all([
+      this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'apple_health', userId } }, select: { createdAt: true, disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true } }),
+      this.prisma.activityLog.findFirst({ where: apSensorsWhere, orderBy: { startedAt: 'desc' }, select: { rawActivity: { select: { receivedAt: true } } } }),
+      this.prisma.activityLog.count({ where: apSensorsWhere }),
+      this.prisma.activityLog.count({ where: { ...apWhere, hasRoute: true } }),
+      agg(this.prisma.wearableSleepSummary.aggregate({ where: apWhere, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableDailySummary.aggregate({ where: { ...apWhere, OR: [{ steps: { not: null } }, { distanceMeters: { not: null } }, { activeKilocalories: { not: null } }] }, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableDailySummary.aggregate({ where: { ...apWhere, restingHeartRateBpm: { not: null } }, _max: { receivedAt: true }, _count: true })),
+      agg(this.prisma.wearableHrvSummary.aggregate({ where: apWhere, _max: { receivedAt: true }, _count: true })),
+      this.prisma.wearableMetricRecord.groupBy({ by: ['metricKind'], where: apWhere, _max: { receivedAt: true }, _count: { _all: true } }),
+    ]);
+    const appleMetric = (category: string): ReceiptStat => {
+      const kinds = metricKindsOfCategory(category);
+      const rows = apMetrics.filter((m) => kinds.includes(m.metricKind));
+      return { lastAt: rows.reduce<Date | null>((latest, m) => (m._max.receivedAt && (!latest || m._max.receivedAt > latest) ? m._max.receivedAt : latest), null), count: rows.reduce((sum, m) => sum + m._count._all, 0) };
+    };
+    const appleReceipts: Record<string, ReceiptStat> = {
+      activity_sensors: { lastAt: apSensorsRow?.rawActivity.receivedAt ?? null, count: apSensorsCount },
+      activity_route: { lastAt: null, count: apRouteCount },
+      sleep: apSleep, daily_activity: { lastAt: [apDaily.lastAt, appleMetric('daily_activity').lastAt].reduce<Date | null>((latest, at) => (at && (!latest || at > latest) ? at : latest), null), count: apDaily.count + appleMetric('daily_activity').count },
+      resting_heart_rate: apResting, hrv: apHrv,
+      heart_rate: appleMetric('heart_rate'), vo2_max: appleMetric('vo2_max'), body_composition: appleMetric('body_composition'), pulse_ox: appleMetric('pulse_ox'), skin_temperature: appleMetric('skin_temperature'),
+      respiratory_rate: appleMetric('respiratory_rate'), mobility: appleMetric('mobility'), lifestyle_load: appleMetric('lifestyle_load'), nutrition: appleMetric('nutrition'), clinical_vitals: appleMetric('clinical_vitals'),
+      menstrual_cycle: appleMetric('menstrual_cycle'),
+    };
+
     // Decisao sobre o Atlas (so' colunas de estado): existe apenas depois que a aluna respondeu.
     const [polarConsentRow, wahooConsentRow] = await Promise.all([
       this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: 'polar', userId } }, select: { disconnectedAt: true, grantedPurposes: true, purposeConsents: true } }),
@@ -477,7 +549,7 @@ export class StudentIntegrationsService {
       zepp_activity_sensors: { lastAt: sensorsRow?.rawActivity.receivedAt ?? null, count: sensorsCount },
       zepp_activity_route: { lastAt: routeRow?.rawActivity.receivedAt ?? null, count: routeCount },
       zepp_sleep: sleep, zepp_daily: daily, zepp_resting_hr: restingHr, zepp_hrv: hrv,
-      healthConnect: hcRow, hcReceipts, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
+      healthConnect: hcRow, hcReceipts, appleHealth: apRow, appleReceipts, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
       polarHealth: { row: polarHealthRow as PolarHealthRow | null, receipts: { sleep: polarSleep, hrv: polarHrv, daily_activity: polarDaily } },
       zeppLastProcessedEventAt: lastEvent?.processedAt ?? null,
       zeppWorkoutLastAcceptedAt: acceptedAt,

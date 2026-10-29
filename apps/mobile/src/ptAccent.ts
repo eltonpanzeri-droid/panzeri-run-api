@@ -191,7 +191,7 @@ const WORDS: Record<string, string> = {
   memoria: 'memória',
   saudavel: 'saudável',
   possiveis: 'possíveis',
-  fisica: 'física',
+  medio: 'médio', fisica: 'física',
   fisico: 'físico',
   fisicas: 'físicas',
   fisicos: 'físicos',
@@ -239,9 +239,9 @@ function fixWord(match: string): string {
 }
 
 const PHRASES: Array<[RegExp, string | ((...args: string[]) => string)]> = [
-  [/(Qual|Quando|Onde|Quem|Como|O que|Isso|Esse|Essa|Este|Esta|Aqui|Tudo|Ela|Ele|Que|Nada|Algo) e (o|a|um|uma|seu|sua|muito|mais|menos|importante|possivel|necessario|obrigatorio|opcional|recomendado|hora|seguro|normal|comum|essencial|melhor|pior|fundamental|igual|diferente)/g, (_m, a, b) => `${a} é ${b}`],
-  [/(e|E) (importante|possivel|necessario|obrigatorio|recomendado|essencial|fundamental|normal|comum|seguro|hora de|feito|feita|calculado|calculada|processado|processada|renovada|renovado|liberado|liberada|gerado|gerada|salvo|salva|enviado|enviada|usado|usada|mostrado|mostrada|registrado|registrada)/g, (_m, _a, b) => `é ${b}`],
-  [/por mes/g, 'por mês'], [/todo mes/g, 'todo mês'], [/o que e/g, 'o que é'],
+  [/\b(Qual|Quando|Onde|Quem|Como|O que|Isso|Esse|Essa|Este|Esta|Aqui|Tudo|Ela|Ele|Que|Nada|Algo) e (o|a|um|uma|seu|sua|muito|mais|menos|importante|possivel|necessario|obrigatorio|opcional|recomendado|hora|seguro|normal|comum|essencial|melhor|pior|fundamental|igual|diferente)\b/g, (_m, a, b) => `${a} é ${b}`],
+  [/\b(e|E) (importante|possivel|necessario|obrigatorio|recomendado|essencial|fundamental|normal|comum|seguro|hora de|feito|feita|calculado|calculada|processado|processada|renovada|renovado|liberado|liberada|gerado|gerada|salvo|salva|enviado|enviada|usado|usada|mostrado|mostrada|registrado|registrada)\b/g, (_m, _a, b) => `é ${b}`],
+  [/\bpor mes\b/g, 'por mês'], [/\btodo mes\b/g, 'todo mês'], [/\bo que e\b/g, 'o que é'],
 ];
 
 const cache = new Map<string, string>();
@@ -249,7 +249,7 @@ export function accentPt(text: string): string {
   if (!text || !/[A-Za-z]/.test(text)) return text;
   const hit = cache.get(text);
   if (hit !== undefined) return hit;
-  let out = text.replace(/[A-Za-zÀ-ÿ]+/g, (word) => (/[À-ÿ]/.test(word) ? word : fixWord(word)));
+  let out = text.replace(/\b[A-Za-zÀ-ÿ]+\b/g, (word) => (/[À-ÿ]/.test(word) ? word : fixWord(word)));
   for (const [re, rep] of PHRASES) out = out.replace(re, rep as never);
   if (cache.size > 2000) cache.clear();
   cache.set(text, out);
