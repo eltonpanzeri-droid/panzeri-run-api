@@ -24,6 +24,9 @@ export const LEO_JOURNEY_EVENTS = [
   'interview_completed',
   'routine_configured',
   'first_plan_generated',
+  // 29/10: clique num link que vai direto pra loja (Play Store/App Store), sem passar pela landing.
+  // Disparado pelo redirect server-side em /ir/:destino (app.controller.ts) — nunca pelo cliente.
+  'store_redirect_click',
 ] as const;
 
 // Qualquer um destes 4 botões da landing conta como "clicou para assinar" nas agregações do Leo

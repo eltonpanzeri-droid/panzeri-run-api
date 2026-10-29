@@ -1,14 +1,19 @@
-import { Body, Controller, Get, Headers, Param, Post, Redirect, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, Redirect, Res } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { LEGAL_PATHS, LEGAL_SUMMARY } from './legal/legal-content';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { TelegramService } from './billing/telegram.service';
+import { FunnelService } from './funnel/funnel.service';
 import { LANDING_PAGE_HTML } from './landing-page';
 import { LINKS_PAGE_HTML } from './links-page';
 
 @Controller()
 export class AppController {
-  constructor(private readonly telegram: TelegramService) {}
+  constructor(
+    private readonly telegram: TelegramService,
+    private readonly funnel: FunnelService,
+  ) {}
 
   // The public landing stays in the API; app authentication and billing are unchanged.
   @Get()
@@ -21,6 +26,60 @@ export class AppController {
   @Get('links')
   linksPage(@Res() response: { type: (value: string) => { send: (value: string) => void } }) {
     response.type('html').send(LINKS_PAGE_HTML);
+  }
+
+  // Nem a Play Store nem a App Store avisam o Leo quando alguem clica num link externo — esse
+  // endpoint e' a unica forma de contar esses cliques antes da pessoa sair do nosso dominio.
+  // So conta o CLIQUE, nunca a instalacao (isso exigiria SDK de attribution de terceiro, tipo
+  // Adjust/AppsFlyer — fora de escopo pro volume atual). sessionId e' gerado na hora: cada clique
+  // e' uma visita nova, sem jornada anterior pra vincular (quem clica aqui esta saindo do site).
+  private static readonly STORE_URLS: Record<string, string> = {
+    play: 'https://play.google.com/store/apps/details?id=com.panzerirun.app',
+    apple: 'https://apps.apple.com/br/app/panzeri-run/id6805618958',
+  };
+
+  @Get('ir/:destino')
+  @Redirect()
+  async storeRedirect(
+    @Param('destino') destino: string,
+    @Query('utm_source') source?: string,
+    @Query('utm_medium') medium?: string,
+    @Query('utm_campaign') campaign?: string,
+    @Query('utm_content') content?: string,
+  ) {
+    const base = AppController.STORE_URLS[destino];
+    if (!base) return { url: '/', statusCode: 302 };
+
+    const utmPairs: [string, string][] = [];
+    if (source) utmPairs.push(['utm_source', source.slice(0, 300)]);
+    if (medium) utmPairs.push(['utm_medium', medium.slice(0, 300)]);
+    if (campaign) utmPairs.push(['utm_campaign', campaign.slice(0, 300)]);
+    if (content) utmPairs.push(['utm_content', content.slice(0, 300)]);
+
+    // leo.service.ts (originOf) le source/medium/campaign/content SEM prefixo utm_ do metadata —
+    // nomes diferentes aqui fariam a origem sair sempre vazia no Intelligence.
+    await this.funnel.record({
+      sessionId: randomUUID(),
+      event: 'store_redirect_click',
+      metadata: {
+        destino,
+        source: source?.slice(0, 300) ?? null,
+        medium: medium?.slice(0, 300) ?? null,
+        campaign: campaign?.slice(0, 300) ?? null,
+        content: content?.slice(0, 300) ?? null,
+      },
+    });
+
+    const url = new URL(base);
+    if (destino === 'play') {
+      // Play Install Referrer: a Play Store entrega esse valor pro app na instalacao, se o app ler.
+      const referrer = utmPairs.map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+      if (referrer) url.searchParams.set('referrer', referrer);
+    } else {
+      // Apple ignora esses parametros (sem attribution nativa) — ficam so' de registro.
+      utmPairs.forEach(([k, v]) => url.searchParams.set(k, v));
+    }
+    return { url: url.href, statusCode: 302 };
   }
 
   @Get('landing-assets/:filename')
