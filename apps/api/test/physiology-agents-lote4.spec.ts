@@ -296,9 +296,10 @@ describe('zonas como faixas estimadas e FC só para avaliar (30/10/2026)', () =>
     const day = String(agent.buildRunSessionSystemPrompt());
     expect(weekly).toContain('A FC NAO e usada para prescrever');
     expect(weekly).not.toContain('FC alvo, em vez de valores genericos');
-    expect(weekly).toContain('NAO acontecem todas ao mesmo tempo');
-    expect(weekly).toContain('leve em zona 3 em vez de zona 2');
+    expect(weekly).toContain('tendem a ocorrer juntas na maioria dos casos');
+    expect(weekly).toContain('NAO e estimativa');
+    expect(weekly).toContain('leve em zona 3 em vez de 2');
     expect(day).toContain('A FC serve so para avaliar a repercussao do treino');
-    expect(day).toContain('leve em zona 3');
+    expect(day).toContain('qualquer zona diferente da esperada');
   });
 });
