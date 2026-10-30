@@ -131,6 +131,8 @@ export class ActivityDetailService {
         maxHeartRateBpm: log.maxHeartRateBpm,
         cadenceAvg,
         caloriesKcal: log.caloriesKcal,
+        powerAvgWatts: log.powerAvgWatts,
+        elevationGainMeters: log.elevationGainMeters,
       },
       prescribed: link
         ? {

@@ -13,6 +13,8 @@ import { ProfilePhotoService } from '../profile-photo/profile-photo.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { settlePendingReevaluation, viewOf } from '../activity-execution/pending-reevaluation';
+import { buildRecoverySummary } from './recovery-summary';
+import { sourceDisplayName } from '../coach/student-health-recovery.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('me')
@@ -25,6 +27,23 @@ export class MeController {
     // Comando unico de gravacao da rotina (26/10/2026). Ultimo e opcional so' para testes antigos que constroem o controlador por posicao; em producao e' sempre injetado.
     private readonly routine?: RoutineService,
   ) {}
+
+  // "Minha recuperação" (30/10/2026): o aluno vê os próprios dados de recuperação e saúde que autorizou compartilhar, de onde vêm e por que são usados. SOMENTE os dele (id sempre do token).
+  @Get('recovery-summary')
+  async recoverySummary(@CurrentUser() user: CurrentUserPayload) {
+    const now = new Date();
+    const days = 30;
+    const cutoff = new Date(now.getTime() - (days + 1) * 86_400_000);
+    const cutoffDate = cutoff.toISOString().slice(0, 10);
+    const where = { userId: user.sub, calendarDate: { gte: cutoffDate } };
+    const [sleep, hrv, daily, metrics] = await Promise.all([
+      this.prisma.wearableSleepSummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, durationSec: true } }),
+      this.prisma.wearableHrvSummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, lastNightAvg: true, hrvValues: true } }),
+      this.prisma.wearableDailySummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, steps: true, activeKilocalories: true, restingHeartRateBpm: true } }),
+      this.prisma.wearableMetricRecord.findMany({ where: { userId: user.sub, metricKind: { in: ['vo2_max', 'pulse_ox', 'respiratory_rate', 'nutrition', 'hydration'] }, startTimeSec: { gte: Math.floor(cutoff.getTime() / 1000) } }, select: { provider: true, providerSummaryId: true, metricKind: true, calendarDate: true, startTimeSec: true, values: true } }),
+    ]);
+    return buildRecoverySummary({ sleep, hrv, daily, metrics, now, days, sourceName: sourceDisplayName });
+  }
 
   // Foto de perfil (21/10/2026): o aluno gerencia SOMENTE a propria (id sempre do token, nunca da URL).
   @Get('photo')

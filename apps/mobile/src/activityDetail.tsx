@@ -83,6 +83,9 @@ export interface ActivityDetail {
     maxHeartRateBpm: number | null;
     cadenceAvg: number | null;
     caloriesKcal: number | null;
+    // Potência e subida registradas pelo relógio (aparecem só quando o aparelho as registrou)
+    powerAvgWatts?: number | null;
+    elevationGainMeters?: number | null;
   };
   prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
   prescribedSegments?: ActivityDetailSegment[];
@@ -428,6 +431,8 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
         {s.avgPaceSecondsKm != null ? <Text style={{ fontSize: 15 }}>Ritmo médio: {formatPace(s.avgPaceSecondsKm)}/km</Text> : null}
         {s.avgHeartRateBpm != null ? <Text style={{ fontSize: 15 }}>FC média: {s.avgHeartRateBpm} bpm{s.maxHeartRateBpm != null ? ` (máx ${s.maxHeartRateBpm})` : ''}</Text> : null}
         {s.cadenceAvg != null ? <Text style={{ fontSize: 15 }}>Cadência média: {s.cadenceAvg} passos/min</Text> : null}
+        {s.powerAvgWatts != null ? <Text style={{ fontSize: 15 }}>Potência média: {s.powerAvgWatts} W</Text> : null}
+        {s.elevationGainMeters != null ? <Text style={{ fontSize: 15 }}>Ganho de elevação: {Math.round(s.elevationGainMeters)} m</Text> : null}
         {s.caloriesKcal != null ? <Text style={{ fontSize: 15 }}>Calorias: {s.caloriesKcal} kcal</Text> : null}
       </View>
 

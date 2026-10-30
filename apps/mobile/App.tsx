@@ -8,6 +8,7 @@ import Constants from 'expo-constants';
 import { AppleHealthSyncCard } from './src/appleHealthSync/AppleHealthSyncCard';
 import { accentPt, localizeQuestion } from './src/ptAccent';
 import { InfoTip } from './src/InfoTip';
+import { RecoveryScreen } from './src/recovery/RecoveryScreen';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
@@ -77,7 +78,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1975,6 +1976,7 @@ function AppInner() {
               </View>
             )}
             {activeTab === 'progress' && <Progress accessToken={accessToken} />}
+            {activeTab === 'recovery' && <RecoveryScreen accessToken={accessToken} apiUrl={API_URL} onOpenIntegrations={() => setActiveTab('devices')} />}
             {activeTab === 'history' && (
               <HistoryCalendar
                 accessToken={accessToken}
@@ -10571,6 +10573,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'painReport', label: 'Relatar dor', icon: 'medkit' },
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolução', icon: 'stats-chart' },
+    { id: 'recovery', label: 'Minha recuperação', icon: 'pulse-outline' },
     { id: 'history', label: 'Calendário de treinos', icon: 'calendar-outline' },
     // 06/10/2026: porta unica para Polar, Strava e Apple (mesmos componentes ja usados em Perfil/Strava/Privacidade).
     { id: 'devices', label: 'Dispositivos e integrações', icon: 'watch-outline' },

@@ -245,7 +245,7 @@ describe('segundo plano: salvaguardas do codigo', () => {
 
   it('o texto das autorizacoes (v1.2) e a Politica descrevem segundo plano e percurso GPS', () => {
     const consent = readFileSync(join(__dirname, '..', 'src', 'health-connect', 'health-connect-consent.ts'), 'utf8');
-    expect(consent).toContain("version: '1.2'");
+    expect(consent).toContain("version: '1.3'");
     expect(consent).toContain('Seu treinador também verá esses dados no painel dele');
     expect(consent).toContain('em segundo plano');
     const legal = readFileSync(join(__dirname, '..', 'src', 'legal', 'legal-content.ts'), 'utf8');

@@ -45,7 +45,7 @@ describe('categorias autorizadas -> permissoes do Android (so o que a aluna auto
   it('cada categoria do consentimento do servidor tem entrada no mapa do app; pedir permissao so inclui as categorias autorizadas', () => {
     for (const category of HEALTH_CONNECT_CATEGORIES) expect(Object.keys(HC_CATEGORY_RECORD_TYPES)).toContain(category);
     expect(recordTypesFor(['sleep'])).toEqual(['SleepSession']);
-    expect(recordTypesFor(['activity', 'daily_activity'])).toEqual(['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned', 'TotalCaloriesBurned', 'Steps']); // sem repeticao
+    expect(recordTypesFor(['activity', 'daily_activity'])).toEqual(['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned', 'Steps']); // sem repeticao
     expect(recordTypesFor([])).toEqual([]);
     expect(permissionsFor(['sleep'], true)).toEqual([{ accessType: 'read', recordType: 'SleepSession' }, { accessType: 'read', recordType: 'ReadHealthDataHistory' }]);
   });

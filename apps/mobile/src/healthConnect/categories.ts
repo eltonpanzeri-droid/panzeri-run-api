@@ -5,15 +5,16 @@
 // sessao): a autorizacao ja' e' perguntada, mas nada e' pedido ao Android para elas ate' a leitura existir.
 
 export const HC_CATEGORY_RECORD_TYPES: Readonly<Record<string, readonly string[]>> = {
-  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
+  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned'],
   activity_sensors: ['HeartRate', 'Power', 'StepsCadence', 'ElevationGained'],
   activity_route: [],
   sleep: ['SleepSession'],
-  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
+  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned'],
   resting_heart_rate: ['RestingHeartRate'],
   hrv: ['HeartRateVariabilityRmssd'],
   vo2_max: ['Vo2Max'],
-  body_composition: ['Weight', 'BodyFat', 'LeanBodyMass', 'BoneMass', 'BodyWaterMass'],
+  // Composicao corporal (peso, gordura, massa magra/ossea/de agua) e calorias totais: NAO pedidos ao Android nesta versao (30/10/2026, Play: acesso minimo). O peso do aluno vem da entrevista e da reavaliacao.
+  body_composition: [],
   pulse_ox: ['OxygenSaturation'],
   skin_temperature: [],
   respiratory_rate: ['RespiratoryRate'],

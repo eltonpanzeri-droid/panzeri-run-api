@@ -11,15 +11,15 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 export const HEALTH_CONNECT_PROVIDER_ID = 'health_connect';
 
 export const HEALTH_CONNECT_CONSENT: ConsentCapability = {
-  version: '1.2',
-  dateLabel: '23/10/2026',
+  version: '1.3',
+  dateLabel: '30/10/2026',
   title: 'Compartilhe seus dados de saúde e treino pelo Health Connect',
   intro: 'O Health Connect reúne, no seu celular Android, os dados do Samsung Health, do Galaxy Watch e de outros aplicativos. Escolha o que você quer compartilhar com o Panzeri Run.',
   sections: [
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, o Panzeri Run poderá receber, quando o seu relógio ou aplicativo os disponibilizar, os seus exercícios (tipo, horário, duração, distância, velocidade, frequência cardíaca, potência, cadência, elevação, calorias e percurso GPS), o seu sono, a sua saúde diária (passos, distância, calorias e frequência cardíaca de repouso), a variabilidade da frequência cardíaca (HRV), o VO₂ máximo, a composição corporal e outros indicadores como saturação de oxigênio, temperatura da pele, respiração e nutrição.',
+        'Com sua autorização, o Panzeri Run poderá receber, quando o seu relógio ou aplicativo os disponibilizar, os seus exercícios (tipo, horário, duração, distância, velocidade, frequência cardíaca, potência, cadência, elevação, calorias e percurso GPS), o seu sono, a sua saúde diária (passos, distância, calorias e frequência cardíaca de repouso), a variabilidade da frequência cardíaca (HRV), o VO₂ máximo e outros indicadores como saturação de oxigênio, temperatura da pele, respiração e nutrição.',
         'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Seu treinador também verá esses dados no painel dele (por exemplo, seu sono, sua frequência cardíaca de repouso, sua variabilidade e seus passos) para acompanhar sua recuperação e ajustar seu treino. Elas não substituem avaliação médica.',
       ],
     },
@@ -53,7 +53,6 @@ export const HEALTH_CONNECT_CONSENT: ConsentCapability = {
     { id: 'resting_hr', label: 'Frequência cardíaca de repouso', description: 'Sua frequência cardíaca em repouso, quando o seu relógio a medir.', required: false, categories: ['resting_heart_rate'] },
     { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', description: 'HRV medida pelo seu relógio, quando disponível.', required: false, categories: ['hrv'] },
     { id: 'fitness', label: 'VO₂ máximo', description: 'Estimativa de capacidade aeróbica feita pelo seu relógio ou aplicativo, quando disponível.', required: false, categories: ['vo2_max'] },
-    { id: 'body', label: 'Composição corporal', description: 'Peso, percentual de gordura, massa magra e outras medidas corporais, quando registradas.', required: false, categories: ['body_composition'] },
     { id: 'vitals', label: 'Saturação de oxigênio, temperatura da pele e respiração', description: 'Indicadores de recuperação medidos pelo seu relógio, quando disponíveis.', required: false, categories: ['pulse_ox', 'skin_temperature', 'respiratory_rate'] },
     { id: 'nutrition', label: 'Nutrição e hidratação', description: 'Refeições, calorias consumidas e hidratação, quando registradas em algum aplicativo.', required: false, categories: ['nutrition'] },
   ],
@@ -80,7 +79,7 @@ export const HEALTH_CONNECT_CONSENT: ConsentCapability = {
         paragraphs: [
           'O Atlas é a inteligência artificial utilizada pelo Panzeri Run para ajudar a analisar seu treinamento e orientar a personalização das próximas sessões.',
           'Com sua autorização, o Atlas poderá utilizar as informações que você autorizou compartilhar pelo Health Connect — exercícios, sono, HRV, frequência cardíaca de repouso, saúde diária e demais grupos — para avaliar como você respondeu às sessões planejadas e como está se recuperando.',
-          'Essa análise poderá considerar distância, ritmo, frequência cardíaca, potência, cadência, elevação, sono e sua evolução, HRV, frequência cardíaca de repouso, VO₂ máximo, composição corporal, histórico de treinamento e outros indicadores disponíveis e autorizados. Só entram os grupos de dados que você autorizou; o que você não autorizou não é usado.',
+          'Essa análise poderá considerar distância, ritmo, frequência cardíaca, potência, cadência, elevação, sono e sua evolução, HRV, frequência cardíaca de repouso, VO₂ máximo, histórico de treinamento e outros indicadores disponíveis e autorizados. Só entram os grupos de dados que você autorizou; o que você não autorizou não é usado.',
           'Para realizar essas análises, o Panzeri Run poderá transmitir os dados necessários à Anthropic, empresa fornecedora da tecnologia de inteligência artificial utilizada pelo Atlas. Esse processamento poderá envolver transferência internacional de dados, conforme descrito na Política de Privacidade.',
           'Os resultados serão utilizados para apoiar o acompanhamento da sua evolução e as decisões de treinamento. As análises automatizadas podem apresentar limitações e não substituem avaliação médica.',
           'A recusa desta autorização não impede você de compartilhar dados pelo Health Connect nem de usar as funcionalidades que não dependam do processamento externo por inteligência artificial. Se você não autorizar, seus dados do Health Connect não serão enviados à Anthropic, nem diretamente nem por meio de relatórios ou informações derivados deles.',

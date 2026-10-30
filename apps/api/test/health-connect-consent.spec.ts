@@ -63,7 +63,9 @@ describe('documento de consentimento do Health Connect', () => {
     expect(ids.size).toBe(doc.groups.length);
     for (const group of doc.groups) { expect(group.required).toBe(false); for (const r of group.requires ?? []) expect(ids.has(r)).toBe(true); }
     // Todas as categorias pedidas pelo treinador estao no documento.
-    for (const wanted of ['activity', 'activity_sensors', 'activity_route', 'sleep', 'daily_activity', 'resting_heart_rate', 'hrv', 'vo2_max', 'body_composition']) expect(HEALTH_CONNECT_CATEGORIES).toContain(wanted);
+    for (const wanted of ['activity', 'activity_sensors', 'activity_route', 'sleep', 'daily_activity', 'resting_heart_rate', 'hrv', 'vo2_max']) expect(HEALTH_CONNECT_CATEGORIES).toContain(wanted);
+    // 30/10/2026 (Play: acesso minimo): composicao corporal nao e mais pedida ao Android.
+    expect(HEALTH_CONNECT_CATEGORIES).not.toContain('body_composition');
     // Texto honesto: promete "quando disponibilizar", nunca que o dado ja' esta sendo recebido.
     expect(JSON.stringify(doc)).toContain('quando o seu relógio ou aplicativo os disponibilizar');
     expect(doc.optionalPurposes.find((p) => p.id === 'ai_external')?.screen?.version).toBe('1.0');
@@ -178,17 +180,17 @@ describe('registros de saude: so o autorizado e guardado, sem estimar nada', () 
     expect(HEALTH_RECORD_CATEGORY.daily_energy).toBe('daily_activity');
   });
 
-  it('indicadores (VO2 max, composicao corporal, SpO2...) ficam com os campos ORIGINAIS e a origem (app/dispositivo) preservada', async () => {
+  it('indicadores (VO2 max, SpO2...) ficam com os campos ORIGINAIS e a origem (app/dispositivo) preservada', async () => {
     const { prisma, tables } = fakeDb();
     const consent = new HealthConnectConsentService(prisma, config());
-    await consent.updateGroups('u1', { grant: ['fitness', 'body'], ...ack });
+    await consent.updateGroups('u1', { grant: ['fitness'], ...ack });
     await new HealthConnectHealthService(consent).importRecords('u1', { records: [
       { kind: 'vo2_max', recordId: 'v1', dataOrigin: 'com.sec.android.app.shealth', device: { manufacturer: 'Samsung', model: 'Galaxy Watch' }, startTime: '2026-10-21T03:00:00.000Z', values: { vo2MillilitersPerMinuteKilogram: 48.5, measurementMethod: 1 } },
       { kind: 'body_composition', recordId: 'b1', startTime: '2026-10-21T03:00:00.000Z', values: { weightKg: 70.5, bodyFatPercentage: 14.2 } },
     ] });
-    expect(tables.metric).toHaveLength(2);
+    // composicao corporal nao esta mais no consentimento do Health Connect: sem grupo autorizado, nada e guardado
+    expect(tables.metric).toHaveLength(1);
     expect(tables.metric[0]).toMatchObject({ metricKind: 'vo2_max', values: { vo2MillilitersPerMinuteKilogram: 48.5, _origin: { dataOrigin: 'com.sec.android.app.shealth', device: { manufacturer: 'Samsung', model: 'Galaxy Watch' } } } });
-    expect(tables.metric[1].values).toMatchObject({ weightKg: 70.5, bodyFatPercentage: 14.2 });
   });
 });
 
