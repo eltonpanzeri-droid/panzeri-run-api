@@ -22,6 +22,8 @@ interface Profile {
   reference: { assessmentId: string; method: string; methodLabel: string; performedAt: string; label: string } | null;
   indicators: Indicator[]; zones: Zone[] | null; limitations: string[]; nextReassessmentDueAt: string | null;
   assessments: Array<{ id: string; method: string; methodLabel: string; performedAt: string }>;
+  // Referência operacional vigente (camada 3). Quando vem de ajuste feito pela análise dos treinos, o aluno vê o que mudou e por quê.
+  operationalReference?: { version: number; source: string; justification: string; createdAt: string; payload?: { zones?: Zone[] | null; adjustment?: { changes: Array<{ key: string; from: number; to: number }> } } } | null;
 }
 
 const COLORS = { ink: '#071827', muted: '#4a5560', soft: '#6b7783', line: '#d6dee6', brand: '#246F91', brandSoft: '#8fc3d9', danger: '#b91c1c', ok: '#1f7a4d' };
@@ -312,6 +314,22 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
               ))}
             </View>
           ) : <Text style={styles.hint}>As zonas aparecem quando existem velocidades de L1, L2 e VO₂máx.</Text>}
+          {profile.operationalReference && profile.operationalReference.source !== 'tests' && profile.operationalReference.payload?.adjustment ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Referências em uso no seu programa</Text>
+              <Text style={styles.hint}>{profile.operationalReference.source === 'coach_adjustment' ? 'Ajustadas pelo seu treinador' : 'Ajustadas com base nos seus treinos'} em {brDateFromIso(profile.operationalReference.createdAt.slice(0, 10))}. Os resultados originais dos seus testes continuam guardados.</Text>
+              {profile.operationalReference.payload.adjustment.changes.map((c) => (
+                <Text key={c.key} style={styles.label}>{INDICATOR_LABELS[c.key]?.label ?? c.key}: {formatIndicatorValue(c.key, c.from, unit)} → {formatIndicatorValue(c.key, c.to, unit)}</Text>
+              ))}
+              <Text style={styles.hint}>Motivo: {profile.operationalReference.justification}</Text>
+              {profile.operationalReference.payload.zones ? profile.operationalReference.payload.zones.map((z) => (
+                <View key={z.id} style={styles.zoneRow}>
+                  <Text style={styles.label}>{z.id}: {z.label}</Text>
+                  <Text style={styles.hint}>{zoneSpeedText(z, unit)}</Text>
+                </View>
+              )) : null}
+            </View>
+          ) : null}
           {profile.limitations.length > 0 ? (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Limitações destes valores</Text>

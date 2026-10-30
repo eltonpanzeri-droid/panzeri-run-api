@@ -20,7 +20,7 @@
 //               endpoint que ja existe (GET /coach/students/:id/observations/:variableId) pra quem
 //               precisar do registro original.
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
 import type { AdherenceSummary, ConsistencyStreak, ModalityBreakdown, WeeklyVolume } from '../evolution/evolution.types';
@@ -29,6 +29,9 @@ import { ContextEventsService } from '../context-events/context-events.service';
 import { EXECUTION_ANALYSIS_VARIABLE_IDS } from './variable-registry';
 import { buildPairedEvidence, EMPTY_PAIRED_EVIDENCE, type PairedEvidence } from './paired-evidence';
 import { MAX_SECONDARY_SOURCES } from './wearable-source';
+import { OperationalReferenceService } from '../physiology/operational-reference.service';
+import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
+import type { AgentReferenceView } from '../physiology/operational-reference';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -103,6 +106,8 @@ export interface TargetRaceSummary {
 
 export interface PerformanceCapacityDomainState extends BaseDomainState {
   latestFitnessTest: FitnessTestSummary | null;
+  /** Referencia fisiologica operacional vigente (mesma que a IA de prescricao, o Gerente Tecnico e o Agente de Evolucao leem). null = sem avaliacao. */
+  physiologicalReference?: AgentReferenceView | null;
   fitnessTestHistoryCount: number;
   upcomingTargetRaces: TargetRaceSummary[];
   /** Reassessment existe mas o conteudo relevante (evolutionSummary) e' narrativo — nao extraido deterministicamente nesta V1. */
@@ -301,6 +306,8 @@ export class AthleteStateSnapshotService {
     private readonly trainingIntelligenceQuery: TrainingIntelligenceQueryService,
     private readonly evolutionMetric: EvolutionMetricService,
     private readonly contextEvents: ContextEventsService,
+    // Referencia fisiologica operacional (Testes fisicos, Lote 4): FONTE UNICA dos indicadores fisiologicos; opcional so' para testes sem Nest.
+    @Optional() private readonly physiologyReference?: OperationalReferenceService,
   ) {}
 
   async getSnapshot(athleteId: string): Promise<AthleteStateSnapshotV1> {
@@ -533,7 +540,11 @@ export class AthleteStateSnapshotService {
     ]);
 
     const latest = tests[0];
-    const availability: DomainAvailability = tests.length > 0 || races.length > 0 ? (tests.length > 0 ? 'available' : 'partial') : 'unavailable';
+    const reference = await this.physiologyReference?.getAgentView(athleteId).catch(() => null) ?? null;
+    const hasPhysicalEvidence = tests.length > 0 || reference !== null;
+    const availability: DomainAvailability = hasPhysicalEvidence || races.length > 0 ? (hasPhysicalEvidence ? 'available' : 'partial') : 'unavailable';
+    // Com referencia valida, o VO2 vem dela (modelo vigente); a coluna antiga so' vale para quem ainda nao tem referencia.
+    const referenceVo2 = reference?.indicadores.find((i) => i.indicador === 'vo2max')?.valor ?? null;
 
     return {
       availability,
@@ -543,9 +554,10 @@ export class AthleteStateSnapshotService {
             testType: latest.testType,
             totalSeconds: latest.totalSeconds,
             paceSecondsPerKm: latest.paceSecondsPerKm,
-            vo2maxEstimated: latest.vo2maxEstimated,
+            vo2maxEstimated: referenceVo2 ?? calculateThreeKmMetrics(latest.totalSeconds).vo2maxEstimated,
           }
         : null,
+      physiologicalReference: reference,
       fitnessTestHistoryCount: tests.length,
       upcomingTargetRaces: races.map((r) => ({
         name: r.name,
@@ -721,6 +733,14 @@ export class AthleteStateSnapshotService {
       performanceCapacity: {
         availability: domains.performanceCapacity.availability,
         latestTestPaceSecondsPerKm: domains.performanceCapacity.latestFitnessTest?.paceSecondsPerKm ?? null,
+        physiologicalReference: domains.performanceCapacity.physiologicalReference
+          ? {
+              versao: domains.performanceCapacity.physiologicalReference.versao,
+              origemDaVersao: domains.performanceCapacity.physiologicalReference.origemDaVersao,
+              avaliacaoDeReferencia: domains.performanceCapacity.physiologicalReference.avaliacaoDeReferencia,
+              indicadores: domains.performanceCapacity.physiologicalReference.indicadores.map((i) => ({ indicador: i.indicador, valor: i.valor, pace: i.pace ?? null, origem: i.origem, confianca: i.confianca })),
+            }
+          : null,
         upcomingRaceCount: domains.performanceCapacity.upcomingTargetRaces.length,
       },
       behavior: {

@@ -1,3 +1,5 @@
+import { OperationalReferenceService } from '../physiology/operational-reference.service';
+import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
 import { runWithAiScope } from '../ai-governance/ai-scope';
 import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
 import { neutralizePlansForAi } from '../ai-governance/ai-session-filter';
@@ -34,6 +36,8 @@ export class ReassessmentService {
     private readonly medalEvaluation: MedalEvaluationService,
     // Governanca de dados para IA (Central Universal, Lote 1). Opcional so' para os testes que constroem o servico sem Nest; no app o modulo sempre injeta.
     @Optional() private readonly aiEligibility?: AiDataEligibility,
+    // Referencia fisiologica operacional (Testes fisicos, Lote 4): trajetoria fisica completa para o Agente de Evolucao.
+    @Optional() private readonly physiologyReference?: OperationalReferenceService,
   ) {}
 
   async state(userId: string) {
@@ -164,7 +168,9 @@ export class ReassessmentService {
       onboarding ? { answers: asAnswerObject(onboarding.answers), completedAt: onboarding.completedAt, interviewVersion: onboarding.interviewVersion } : null,
       allCompleted.map((r) => ({ id: r.id, answers: asAnswerObject(r.answers), completedAt: r.completedAt, reassessmentVersion: r.reassessmentVersion })),
     );
-    const fitnessTrajectory = buildFitnessTestTrajectory(fitnessTests);
+    // O VO2 do legado e recalculado NA LEITURA pelo modelo vigente (a coluna antiga pode ter sido gravada pela equacao anterior); o tempo original e' o dado.
+    const physiologicalTests = await this.physiologyReference?.evolutionInput(userId).catch(() => null) ?? null;
+    const fitnessTrajectory = physiologicalTests ? [] : buildFitnessTestTrajectory(fitnessTests.map((test) => ({ ...test, vo2maxEstimated: calculateThreeKmMetrics(test.totalSeconds).vo2maxEstimated })));
 
     // Central Universal (Lote 1): tudo que alimenta o Agente de Evolucao (retrato do estado + historico de execucao) e' montado dentro do escopo de IA.
     const aiScope = this.aiEligibility ? await this.aiEligibility.scopeFor(userId, 'external_ai') : null;
@@ -178,6 +184,7 @@ export class ReassessmentService {
       goal: user.preferences?.mainGoal ?? '',
       variableTrajectories: trajectories,
       fitnessTests: fitnessTrajectory,
+      physiologicalTests,
       latestReassessmentExclusiveAnswers: extractExclusiveAnswers(asAnswerObject(completed.answers)),
       athleteStateSnapshot: snapshot?.compact ?? null,
       executionHistory: aiPlans.map((plan) => ({

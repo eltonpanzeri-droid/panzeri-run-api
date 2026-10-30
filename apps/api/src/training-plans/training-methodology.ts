@@ -97,7 +97,7 @@ export const PANZERI_PRESCRIPTION_PRINCIPLES = [
   'Respeitar a rotina real e reduzir forca quando ela conflitar com corrida intensa ou longa.',
   'Usar fortalecimento com volume compativel, boa execucao e intensidade progressiva.',
   'Reduzir carga e recomendar avaliacao profissional diante de dor importante, limitacao, lesao recente ou doenca aguda.',
-  'Ajustar o pace prescrito pela evolucao real, aderencia e percepcao do aluno ao longo do tempo — nunca mencionar nem sugerir teste de 3km ao aluno, feature suspensa pelo treinador.',
+  'Ajustar o pace prescrito pela evolucao real, aderencia e percepcao do aluno ao longo do tempo — usar a referencia fisiologica operacional (testes fisicos) como ponto de partida individual, sem trata-la como limite, e sem convidar nem cobrar teste nos textos do treino.',
   'Reavaliar semanalmente o que foi prescrito, realizado e registrado pelo aluno antes de manter, aumentar ou reduzir carga.',
 ] as const;
 
@@ -147,6 +147,8 @@ export interface MethodologyInput {
   // campos acima — pense nele como "o que um treinador ja sabe de cor sobre esse aluno", enquanto
   // history/studentDirectives/activeObservations continuam sendo a fonte primaria e mais recente.
   studentProfileSummary?: string;
+  // Referencia fisiologica operacional atual (Testes fisicos, Lote 4); null/ausente = aluno sem avaliacao.
+  physiologicalReference?: import('../physiology/operational-reference').AgentReferenceView | null;
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
   // Data a partir da qual gerar treinos (YYYY-MM-DD, exclusive das datas anteriores). Definida
@@ -377,6 +379,8 @@ export interface WeeklyMethodologyDecision {
   // como fora da rotina. Pedido explicito do treinador 03/08: aviso ao aluno + pedido de feedback
   // por sessao, nunca bloqueio.
   sessionMismatches?: Record<string, string>;
+  // Lote 4: proposta opcional da IA de ajustar a referencia operacional (validada e registrada depois pelo OperationalReferenceService).
+  physiologicalReferenceAdjustment?: { indicadores: Array<{ chave: string; novoValor: number }>; evidencias: Array<{ data: string; descricao: string }>; justificativa: string } | null;
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {

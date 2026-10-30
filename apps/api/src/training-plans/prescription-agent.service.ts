@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
 import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
+import type { AgentReferenceView } from '../physiology/operational-reference';
 import { z } from 'zod';
 import {
   MethodologyInput,
@@ -198,6 +199,15 @@ export const AiWeeklyDecisionSchema = z.object({
   // rejeitada por causa de UM bullet, desperdicando a chamada cara de IA por um detalhe cosmetico.
   // Itens vazios sao filtrados e itens longos sao truncados depois de parsear (ver attemptDecision).
   rationale: z.array(z.string()).min(1).max(8),
+  // Lote 4 (30/10/2026): proposta OPCIONAL e quase sempre null de ajuste da referencia fisiologica operacional. Sem limites aqui de proposito
+  // (um campo secundario nunca pode derrubar a semana inteira, ver os comentarios acima): o servidor valida estrutura e evidencia depois.
+  ajusteDeReferenciaFisiologica: z
+    .object({
+      indicadores: z.array(z.object({ chave: z.string(), novoValor: z.number() })),
+      evidencias: z.array(z.object({ data: z.string(), descricao: z.string() })),
+      justificativa: z.string(),
+    })
+    .nullish(),
 });
 
 // Trunca campos de texto livre gerados pela IA em vez de rejeitar a resposta inteira quando um
@@ -235,6 +245,14 @@ export const INTEGRATED_SOURCES_INSTRUCTION =
 export const LINK_CORRECTION_INSTRUCTION =
   'EVENTOS CORRETIVOS DO PRONTUARIO (codigo EXECUTION_LINK_CORRECTED em eventosDoProntuarioAindaNaoCondensados, ou trechos "Antes/agora" no resumo prontuarioDoAluno): registram que o aluno ou o treinador CORRIGIU o vinculo de uma atividade com um treino prescrito (ou o treinador editou um treino que ja tinha feedback). REGRA: a informacao corrigida (o "agora" / "Passa a valer") PREVALECE sobre qualquer interpretacao historica incompativel — achado antigo do Analista, trecho do prontuarioDoAluno, capacidade ou aderencia que dependiam da atribuicao anterior. O registro antigo continua existindo como HISTORICO (o que se acreditava ate a data da correcao), mas nao e fato atual: nao cite o estado anterior como se ainda valesse. Os dados estruturados atuais (historicoSemanal, athleteStateContext, relatorioDeExecucaoDaSemanaAnterior, analiseTecnicaDoAnalistaDeTreinos) JA refletem a correcao e sao a referencia factual: em conflito com texto, vale o dado estruturado; se analiseTecnicaDoAnalistaDeTreinos trouxer correcaoDeVinculo, os achados ja foram recalculados com a correcao. A correcao NAO e queixa, dor, desmotivacao nem mudanca de condicao fisica e, por si so, NAO e motivo para mudar volume ou intensidade; mantenha a ponderacao temporal habitual (informacao antiga, mesmo corrigida, pesa conforme a sua idade). Se varias correcoes se sucederam sobre a mesma atividade, vale a mais recente. Cite em rationale somente se a correcao mudou uma decisao sua.';
 
+// 30/10/2026 (Testes fisicos, Lote 4): blocos nomeados, como os demais, para o teste de congelamento dos prompts poder remove-los e provar que o texto original nao mudou.
+export const PHYSIOLOGICAL_REFERENCE_INSTRUCTION =
+  'referenciaFisiologicaOperacional (quando presente) traz as referencias fisiologicas ATUAIS do aluno vindas de avaliacoes fisicas (ergoespirometria, teste de campo de 3 km ou resultado informado): VO2max, velocidade no VO2max, FC maxima, L1 e L2 (velocidade, pace e FC) e zonas, cada indicador com origem (medido, informado, estimado ou ajustado pela analise dos treinos), confianca e faixa. USE como referencia INDIVIDUAL de intensidade ao decidir ritmos e FC alvo, em vez de valores genericos, e confronte SEMPRE com o que o aluno de fato executa (ritmos realizados, FC, RPE, recuperacao, tendencia em historicoSemanal e athleteStateContext). NAO e limite rigido nem ordem: a avaliacao pode estar velha, o aluno pode ter evoluido ou o esforco do teste pode nao ter sido maximo; quando os treinos recentes divergirem, siga a evidencia dos treinos e explique no reasoning (basis.source "referenciaFisiologicaOperacional"). Peso: medido > informado > estimado; confianca baixa pesa menos; avaliacao antiga (diasDesdeAAvaliacao alto) pesa menos do que treinos recentes e consistentes. Os indicadores ja incluem os ajustes listados em ajustesDaIADesdeAUltimaAvaliacao. Campo ausente = o aluno nao tem avaliacao: nao presuma valores e nao mencione isso ao aluno.';
+export const PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION =
+  'ajusteDeReferenciaFisiologica (campo de SAIDA, quase sempre null): preencha SOMENTE quando houver evidencia consistente nos treinos de que uma referencia operacional esta desatualizada (por exemplo, o aluno sustenta com folga, por semanas, ritmos e FC acima do L2, ou nao consegue sustentar o que a referencia indica). Informe indicadores [{chave, novoValor}] (chaves permitidas: vvo2max_kmh, hrmax_bpm, l1_speed_kmh, l1_hr_bpm, l2_speed_kmh, l2_hr_bpm; velocidades em km/h), evidencias [{data AAAA-MM-DD, descricao}] com AO MENOS 3 observacoes reais em datas diferentes cobrindo AO MENOS 14 dias (treinos concretos do historicoSemanal) e uma justificativa objetiva. NUNCA proponha por uma unica sessao, por oscilacao isolada, por um dia ruim, nem por dor ou doenca (isso e conduta de seguranca, nao recalibragem). Mantenha L1 abaixo de L2 e L2 abaixo da velocidade no VO2max. O servidor valida e registra o ajuste sem alterar o resultado original do teste; propostas sem evidencia suficiente sao descartadas e NAO mudam o treino desta semana.';
+export const PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION =
+  'referenciaFisiologicaOperacional (quando presente) traz referencias individuais de intensidade vindas de avaliacoes fisicas (VO2max, velocidade no VO2max, FC maxima, L1, L2 e zonas, cada uma com origem, confianca e faixa). Use como REFERENCIA, nunca como limite: confronte com os ritmos e a FC que o aluno realmente executa e com o que ele relatou. Campo ausente = sem avaliacao: nao presuma valores.';
+
 export const REASONING_INSTRUCTION =
   'RACIOCINIO PARA AUDITORIA (campo reasoning de cada sessao; NAO e texto para o aluno): registre de forma OBJETIVA por que voce decidiu este treino. intent = o objetivo desta sessao em UMA frase (ate 160 caracteres). expected = o que voce espera obter/observar com ela (ate 160 caracteres). basis = ate 3 itens {source, note, decides}: source e o NOME do campo do contexto que mais pesou nesta decisao (use "outro" se nao houver um), note e UMA frase curta (ate 100 caracteres) dizendo como ele pesou e decides e a variavel da prescricao que esse fundamento sustentou (intensidade, volume, recuperacao, progressao, estrutura, manutencao ou outra; null se nao se aplica). E uma declaracao sua, nao uma prova: cite so o que realmente considerou, sem copiar relatos nem repetir numeros longos. Se nao houver o que declarar, devolva reasoning = null. Isto NAO muda nada no treino: prescreva exatamente como prescreveria sem este campo.';
 
@@ -261,6 +279,8 @@ export interface RunSessionParams {
   contextGaps?: MethodologyInput['contextGaps'];
   // Etapa 3: achados do Analista (retrato entregue com o programa); null/ausente = sem dados.
   trainingAnalysis?: Record<string, unknown> | null;
+  // Lote 4: referencia fisiologica operacional atual (Testes fisicos); null/ausente = aluno sem avaliacao.
+  physiologicalReference?: AgentReferenceView | null;
 }
 
 export interface PaceEvidence {
@@ -373,12 +393,13 @@ export class PrescriptionAgentService {
       'O treino e uma sequencia ORDENADA de "parts" (normalmente 1 so, mas pode ter varias se fizer sentido pra este dia — ex: um trecho de caminhada, depois um bloco intervalado, depois mais caminhada). Cada parte e uma destas duas formas: (1) kind "continua" (distanceKm + paceSecondsPerKmMin + paceSecondsPerKmMax — use o mesmo numero nos dois quando o ritmo for constante, ou numeros diferentes quando o ritmo variar de proposito ao longo da parte); (2) kind "intervalada" (repeatCount, stimulusLabel/stimulusStepKm/stimulusPaceSecondsPerKm, recoveryLabel/recoveryStepKm/recoveryPaceSecondsPerKm) — cobre tanto um estimulo forte com recuperacao quanto uma alternancia caminhada/corrida; escreva em stimulusLabel/recoveryLabel o que cada trecho e de verdade pro aluno (ex: "Correr forte"/"Trotar", ou "Caminhar"/"Correr").',
       'NAO EXISTE NENHUMA TABELA OU FORMULA CALCULANDO DISTANCIA A PARTIR DE DURACAO/PACE — voce decide a distancia e o pace de cada parte diretamente, pensando no que faz sentido pra este aluno neste dia. Voce sabe matematica: some o tempo de todas as partes e confira que cabe dentro de durationMinDisponivel — nao existe checagem de conta em codigo depois, a responsabilidade e inteiramente sua.',
       'Voce recebe evidencias de pace (autoRelatoRecente) — use a mais recente e mais confiavel, nunca uma proporcao fixa entre elas (tipo "pace_teste vezes 0.95").',
-      'PROIBICAO ABSOLUTA — TESTE DE 3KM: As expressoes "teste de 3km", "teste oficial", "3 km", "avaliacao fisica", "ainda nao fez o teste", "quando fizer o teste" e qualquer variante NAO PODEM APARECER EM NENHUM CAMPO GERADO — nem notes, nem rationale, nem recommendation, nem titulo de sessao. Isso inclui qualquer frase que explique por que voce escolheu uma fonte de pace em vez de outra ("como voce ainda nao fez o teste, usamos X" e PROIBIDO). O aluno nao sabe que essa feature existiu. Se nao tiver evidencia de pace forte, calcule normalmente e nao explique a origem da estimativa — nunca mencione o que esta "faltando".',
+      'REGRA SOBRE TESTES FISICOS: nunca convide, cobre nem lembre o aluno de fazer um teste (o aplicativo cuida disso em telas e lembretes proprios) e nunca explique uma escolha de pace pela ausencia de teste ("como voce ainda nao fez o teste..." e PROIBIDO). Quando existir referenciaFisiologicaOperacional, use-a no seu raciocinio; nos textos que o aluno le (notes, recommendation, titulo de sessao) NAO cite siglas nem valores de limiar (VO2max, L1, L2, vVO2): descreva o esforco em linguagem simples (confortavel, moderado, forte) e o ritmo em min/km. Se nao tiver evidencia de pace forte, calcule normalmente e nao explique a origem da estimativa — nunca mencione o que esta "faltando".',
       'Se diretrizesEspecificasDoTreinadorParaEsteAluno mencionar algo que se aplique a este dia especifico, aplique literalmente (prioridade quase absoluta). observacoesRegistradasPeloProprioAluno sao informais, considere quando fizer sentido sem sacrificar seguranca. sinalDeSeguranca e motivoDoSinalDeSeguranca sao so informacao de contexto (o aluno relatou dor) — use seu julgamento sobre o que isso muda no treino de hoje, nao existe uma trava automatica aqui.',
       'INFORMACOES DO ALUNO POR TEXTO: relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       WATCH_RECOVERY_INSTRUCTION,
       REASONING_INSTRUCTION,
       LINK_CORRECTION_INSTRUCTION,
+      PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION,
       ANALYST_DAY_INSTRUCTION,
     ].join('\n\n');
   }
@@ -387,7 +408,13 @@ export class PrescriptionAgentService {
     return JSON.stringify(
       {
         durationMinDisponivel: params.durationMin,
-        evidenciasDePace: params.evidence,
+        // Lote 4: so o auto-relato entra como evidencia de pace; o pace medio do 3 km antigo saiu (a fonte agora e a referencia operacional).
+        evidenciasDePace: {
+          autoRelatoRecente: params.evidence.selfReportedPace
+            ? { paceSegundosPorKm: params.evidence.selfReportedPace.secondsPerKm, paceLegivel: formatSecondsPerKm(params.evidence.selfReportedPace.secondsPerKm), origem: params.evidence.selfReportedPace.source }
+            : null,
+        },
+        referenciaFisiologicaOperacional: params.physiologicalReference ?? null,
         diretrizesEspecificasDoTreinadorParaEsteAluno: params.studentDirectives,
         observacoesRegistradasPeloProprioAluno: params.activeObservations,
         sinalDeSeguranca: params.painTier !== 'normal',
@@ -579,6 +606,7 @@ export class PrescriptionAgentService {
         recommendation: truncateText(parsed.recommendation.trim() || 'Sem observacoes adicionais para esta semana.', 1320),
         rationale: rationale.length > 0 ? rationale : ['Decisao gerada pelo agente de IA.'],
         safetyAdjustment,
+        physiologicalReferenceAdjustment: parsed.ajusteDeReferenciaFisiologica ?? null,
         routineMismatch: validated.routineMismatch,
         routineMismatchMissingRunWeekdays: validated.missingRunWeekdays,
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
@@ -852,7 +880,7 @@ export class PrescriptionAgentService {
       '- CONDICOES DE SAUDE CRONICAS declaradas (ex: historico de problema cardiaco — do proprio aluno ou familiar direto —, pressao alta): NENHUMA zona de intensidade e proibida e NENHUM tipo de treino e proibido so por causa disso (a excecao e uma ordem medica explicita relatada pelo aluno, que ai sim deve ser respeitada literalmente). O que muda e o RITMO: tempo de exposicao em intensidades mais altas fica maior/mais gradual, a densidade do treino favorece mais recuperacao entre estimulos (pausas relativamente mais longas), e a progressao de carga de treinamento ao longo das semanas e mais lenta que o padrao. Isso e orientacao pra voce pesar com julgamento, do jeito que um treinador real pesaria — nunca uma trava automatica de codigo.',
       'SOBRE DISTANCIA E PACE: nao existe uma unica avaliacao de pace pra semana inteira nem uma categoria unica de sessao pra escolher antes — cada dia e descrito como uma SEQUENCIA ORDENADA de "parts" (o campo parts de cada sessao). Um treino pode ser simples (1 parte so, a grande maioria dos dias) ou misto (varias partes diferentes em sequencia — ex: uma parte de caminhada, depois um bloco intervalado, depois mais caminhada — pedido explicito do treinador 10/08: use quantas partes fizerem sentido pra ESTE dia, na ordem real). Cada parte e uma destas duas formas: (1) kind "continua" (distanceKm + paceSecondsPerKmMin/paceSecondsPerKmMax — mesmo numero nos dois quando o ritmo for constante, numeros diferentes quando variar de proposito ao longo da parte); (2) kind "intervalada" (repeatCount + estimulo/recuperacao com seus proprios label/distancia/pace) — cobre tanto um estimulo forte com recuperacao quanto uma alternancia caminhada/corrida, use stimulusLabel/recoveryLabel pra descrever o que cada trecho e de verdade (ex: "Correr forte"/"Trotar", ou "Caminhar"/"Correr"). Nao existe tabela ou formula calculando isso — pense como um treinador real pensaria pra ESTE dia: a condicao do aluno, o que ele fez essa semana, se esse estimulo vem logo apos um esforco forte, a proximidade de uma prova. Voce sabe matematica: some a duracao de todas as partes e confira que cabe dentro do durationMin disponivel — nao existe checagem de conta em codigo depois.',
       'Voce recebe evidencias de pace no contexto (autoRelatoRecente), cada uma com sua origem e idade — use-as como ponto de partida do que este aluno e capaz de sustentar, mas a decisao final de cada dia e sua, olhando o dia especifico (sequencia da semana, fadiga acumulada, fase da periodizacao, proximidade de prova). Nao existe uma regra fixa de qual evidencia vale mais — RACIOCINE, do jeito que um treinador humano faria. Exemplo real de raciocinio esperado, dado pelo proprio treinador Elton: "a aluna relatou um pace confortavel de 6:45/km numa corrida longa de 18km reais — ou seja, ela SUSTENTA esse pace numa distancia longa de verdade, nao so numa avaliacao curta e isolada."',
-      'PROIBICAO ABSOLUTA — TESTE DE 3KM: As expressoes "teste de 3km", "teste oficial", "3 km", "avaliacao fisica", "ainda nao fez o teste", "quando fizer o teste" e qualquer variante NAO PODEM APARECER EM NENHUM CAMPO GERADO — nem notes, nem rationale, nem recommendation, nem titulo de sessao. Isso inclui qualquer frase que explique por que voce escolheu uma fonte de pace em vez de outra ("como voce ainda nao fez o teste, usamos X" e PROIBIDO). O aluno nao sabe que essa feature existiu. Se nao tiver evidencia de pace forte, calcule normalmente e nao explique a origem da estimativa — nunca mencione o que esta "faltando".',
+      'REGRA SOBRE TESTES FISICOS: nunca convide, cobre nem lembre o aluno de fazer um teste (o aplicativo cuida disso em telas e lembretes proprios) e nunca explique uma escolha de pace pela ausencia de teste ("como voce ainda nao fez o teste..." e PROIBIDO). Quando existir referenciaFisiologicaOperacional, use-a no seu raciocinio; nos textos que o aluno le (notes, recommendation, titulo de sessao) NAO cite siglas nem valores de limiar (VO2max, L1, L2, vVO2): descreva o esforco em linguagem simples (confortavel, moderado, forte) e o ritmo em min/km. Se nao tiver evidencia de pace forte, calcule normalmente e nao explique a origem da estimativa — nunca mencione o que esta "faltando".',
       'Outros pontos de raciocinio: um teste antigo que contradiz um desempenho recente mais forte deve pesar MENOS — prefira sempre a evidencia mais recente. Mas "recente e curta" NAO significa "menos relevante": uma corrida curta e rapida (ex: 5km em 20min) revela capacidade de velocidade/limiar tanto quanto — ou mais — do que uma corrida longa e lenta revela resistencia aerobica; sao evidencias de coisas DIFERENTES, nenhuma mais valida que a outra por padrao. Pese cada evidencia pelo que ela realmente responde (pra decidir pace de prova longa, um longao consistente pesa mais; pra decidir se o aluno aguenta um tiro mais forte, um teste curto recente pesa mais). O que reduz o peso de uma evidencia e ser isolada/pontual — um dado que se repete de forma consistente (curto ou longo) sempre pesa mais que uma ocorrencia unica, mesmo que essa ocorrencia unica seja mais longa. mediaSemanalKmAtualRelatada e mais uma evidencia desse tipo — informacao pra voce pesar, nao um piso que a soma da semana tem que respeitar.',
       'Cuidado ao interpretar texto livre escrito pelo proprio aluno (respostas de entrevista/reavaliacao, comentarios): muitos alunos escrevem de forma informal, como numa conversa entre pessoas, com ironia, hiperbole ou exagero comico (ex: "corri e quase morri" ou "foi moleza" nao sao relatos medicos literais). Nunca leve essas frases ao pe da letra como se fossem um dado objetivo.',
       'VARIEDADE: nao repita o mesmo padrao de estimulo semana apos semana pro mesmo aluno so por inercia (mesmo volume, mesma estrutura, mesmo ritmo de progressao) — pense em como um treinador real varia o treino ao longo do tempo pra continuar desafiando e evoluindo o aluno. Isso vale pro treino em si, nao so pra redacao do titulo/notes.',
@@ -876,6 +904,8 @@ export class PrescriptionAgentService {
       INTEGRATED_SOURCES_INSTRUCTION,
       RACE_CALENDAR_INSTRUCTION,
       HEALTH_INDICATORS_INSTRUCTION,
+      PHYSIOLOGICAL_REFERENCE_INSTRUCTION,
+      PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION,
       'SOBRE OS DIAS DE FORCA/FORTALECIMENTO (campo strengthSessions): voce tambem decide os exercicios de musculacao e fortalecimento para corredores, com o mesmo julgamento real que aplica a corrida.',
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
@@ -896,13 +926,13 @@ export class PrescriptionAgentService {
         experiencia: input.experience,
         classificadoComoIniciante: novice,
         evidenciasDePace: {
-          // "teste oficial" (teste de 3km) foi suspenso pelo treinador (09/08) — nao mande mais
-          // esse dado pro agente, pra ele nem saber que essa fonte existe (ver instrucao no
-          // system prompt: nunca sugerir/mencionar teste de 3km ao aluno).
+          // Lote 4: a evidencia de teste agora chega por referenciaFisiologicaOperacional (abaixo), nao por aqui.
           autoRelatoRecente: evidence.selfReportedPace
             ? { paceSegundosPorKm: evidence.selfReportedPace.secondsPerKm, paceLegivel: formatSecondsPerKm(evidence.selfReportedPace.secondsPerKm), origem: evidence.selfReportedPace.source }
             : null,
         },
+        // Referencia fisiologica operacional atual (Testes fisicos, Lote 4): dado rotulado, nunca limite. null = aluno sem avaliacao.
+        referenciaFisiologicaOperacional: input.physiologicalReference ?? null,
         respostasEntrevista: input.answers,
         avisoSobreRespostasEntrevista: 'Estas respostas vem da entrevista inicial, que pode ter sido feita ha muito tempo. Se reavaliacaoMaisRecente estiver preenchida abaixo, ela reflete a situacao mais atual do aluno e deve ter prioridade sempre que contradizer a entrevista inicial (ex: quilometragem semanal, sensacao nos treinos, objetivo, dor nova, peso).',
         reavaliacaoMaisRecente: input.recentReassessment ? {

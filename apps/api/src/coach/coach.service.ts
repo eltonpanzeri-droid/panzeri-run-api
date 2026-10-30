@@ -1,3 +1,4 @@
+import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
 ﻿import { completedMetrics, objectiveExecutionOf } from './objective-execution';
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { ActivityDetailService } from '../activity-execution/activity-detail.service';
@@ -388,11 +389,13 @@ export class CoachService {
   // student() principal usa (esse existe pra nao pesar a tela padrao do aluno). Preserva o
   // historico inteiro pra trajetoria de FitnessTest e pra Timeline.
   async allFitnessTests(studentId: string) {
-    return this.prisma.fitnessTest.findMany({
+    const tests = await this.prisma.fitnessTest.findMany({
       where: { userId: studentId, testType: '3km' },
       orderBy: { createdAt: 'asc' },
       select: { id: true, testType: true, totalSeconds: true, paceSecondsPerKm: true, vo2maxEstimated: true, environment: true, createdAt: true },
     });
+    // Mesmo modelo em toda leitura (Daniels e Gilbert): o painel nunca mostra a equacao anterior, mesmo antes do recalculo definitivo dos registros.
+    return tests.map((test) => ({ ...test, vo2maxEstimated: calculateThreeKmMetrics(test.totalSeconds).vo2maxEstimated }));
   }
 
   // Passo 5 (continuacao) — "Populacao por variavel": mesma matematica do individual
@@ -1749,7 +1752,7 @@ export class CoachService {
         date: test.createdAt.toISOString(),
         totalSeconds: test.totalSeconds,
         pace: formatPace(test.paceSecondsPerKm),
-        vo2max: test.vo2maxEstimated,
+        vo2max: calculateThreeKmMetrics(test.totalSeconds).vo2maxEstimated,
       })),
       reassessments: student.reassessments.map((reassessment: any) => ({
         completedAt: reassessment.completedAt,

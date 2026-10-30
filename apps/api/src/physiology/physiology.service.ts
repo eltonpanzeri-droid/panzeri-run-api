@@ -186,7 +186,8 @@ export class PhysiologyService {
       indicators, zones, limitations, modelVersion: MODEL_VERSION,
       nextReassessmentDueAt: due ? dateKey(due) : null,
     };
-    const signature = JSON.stringify([ref.id, indicators.map((i) => [i.key, i.value, i.from.assessmentId]), MODEL_VERSION]);
+    // A assinatura inclui o motivo da escolha e todas as avaliacoes existentes: uma avaliacao nova gera nova versao mesmo quando a referencia continua a mesma (a IA precisa do motivo atual).
+    const signature = JSON.stringify([ref.id, choice.reason, choice.gapDays, rows.map((r) => r.id).sort(), indicators.map((i) => [i.key, i.value, i.from.assessmentId]), MODEL_VERSION]);
     return { profile, signature, referenceLabel, reasonText };
   }
 

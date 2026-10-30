@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, RACE_CALENDAR_INSTRUCTION, HEALTH_INDICATORS_INSTRUCTION, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
+import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, RACE_CALENDAR_INSTRUCTION, HEALTH_INDICATORS_INSTRUCTION, PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_INSTRUCTION, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
 import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from '../src/training-plans/panzeri-developmental-directive';
 import {
@@ -24,11 +24,13 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
     // 25/10/2026 (diretriz desenvolvimentista, texto do Elton): a regua de dor da metodologia ficou SUBORDINADA a secao de dor da diretriz (unico trecho alterado no texto da metodologia, prompts stable e strength);
     // o bloco PANZERI_DEVELOPMENTAL_DIRECTIVE e' removivel (so no prompt semanal). Hash anterior do stable: 365deae3...0535.
     // 27/10/2026 (ordem do Elton): removida a recomendacao do piso de 8:30/km do prompt (semana e corrida por sessao); a nova instrucao WATCH_RECOVERY_INSTRUCTION (recuperacao ativa/caminhada lenta por causa dos relogios) e' removivel no teste. Hashes anteriores: stable a6697590...faa5b, run 857b1ae5...d762. Depois, o trecho do 8:30/km foi tirado tambem do texto de metodologia (prompts stable e strength).
-    stable: 'd8f398d90e3a1c7aa3a729d5a424bcb1bc119bf8027b528b24a850799813e320',
+    // 30/10/2026 (Testes fisicos, Lote 4, ordem do Elton): a 'PROIBICAO ABSOLUTA - TESTE DE 3KM' (feature suspensa) virou 'REGRA SOBRE TESTES FISICOS' nos prompts da semana e do dia de corrida, porque a funcionalidade voltou.
+    // Os blocos novos de referencia fisiologica sao nomeados e removidos pelo teste abaixo. Hashes anteriores: stable d8f398d9...e320, run fd6058c9...f4c.
+    stable: '20ddd69f9eb20efc2369507468a3d290739f9f0ab661ea1d2d4e68edf6100e0d',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
-    run: 'fd6058c913f102421f936c7a238c9e10a186e6e98853a93ec1cca96c69159f4c',
+    run: 'c94e21887a5935b4cf1e393320e859657a59704d4b430a07098078358ae95242',
     strength: 'a0da89959385c84ac9f1b6436dd5965d7e93ccd5519b5f97d1f959339388bcaa', // 27/10/2026: tirado o trecho do 8:30/km da metodologia (hash anterior: c895e9a1...3711) // 25/10/2026: mesma subordinacao da regua de dor (hash anterior: f1ed5573...7351)
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;
@@ -38,7 +40,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
     // 1.2b: REASONING_INSTRUCTION (3 prompts) | 2.1: EXECUTION_REPORT_INSTRUCTION (so no prompt da semana) | 15/10/2026: LINK_CORRECTION_INSTRUCTION (3 prompts,
     // precedencia da informacao corrigida sobre interpretacao historica). Removidos os blocos, voltam ao original.
-    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + RACE_CALENDAR_INSTRUCTION, '').replace('\n\n' + HEALTH_INDICATORS_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '');
+    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + RACE_CALENDAR_INSTRUCTION, '').replace('\n\n' + HEALTH_INDICATORS_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '');
     const stable = service.buildSystemPromptStable();
     const run = service.buildRunSessionSystemPrompt();
     const strength = service.buildSingleStrengthSystemPrompt();
@@ -77,9 +79,9 @@ describe('injecao e protecao', () => {
     const types = Reflect.getMetadata('design:paramtypes', TrainingPlansService) as unknown[];
     // 2.1 acrescentou ExecutionAnalysisService (opcional) DEPOIS da rastreabilidade: a trilha continua a ultima dependencia OBRIGATORIA.
     const traceIndex = types.indexOf(PrescriptionTraceService);
-    expect(traceIndex).toBe(types.length - 6); // depois dela, os opcionais: ExecutionAnalysisService (2.1), TrainingAnalystService (2.2), AiDataEligibility (Central Universal, Lote 1), TargetRaceCalendarService e HealthIndicatorsService (29/10/2026)
+    expect(traceIndex).toBe(types.length - 7); // depois dela, os opcionais: ExecutionAnalysisService (2.1), TrainingAnalystService (2.2), AiDataEligibility (Central Universal, Lote 1), TargetRaceCalendarService e HealthIndicatorsService (29/10/2026) e OperationalReferenceService (Testes fisicos, Lote 4, 30/10/2026)
     expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService) ?? []).not.toContain(traceIndex);
-    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2, types.length - 3, types.length - 4, types.length - 5]));
+    expect(Reflect.getMetadata('optional:paramtypes', TrainingPlansService)).toEqual(expect.arrayContaining([types.length - 1, types.length - 2, types.length - 3, types.length - 4, types.length - 5, types.length - 6]));
     expect(Reflect.getMetadata('__guards__', PrescriptionTraceController)).toHaveLength(2); // JWT + RolesGuard
     expect(Reflect.getMetadata('roles', PrescriptionTraceController)).toEqual(['coach', 'admin']);
     expect(Reflect.getMetadata('path', PrescriptionTraceController)).toBe('coach');

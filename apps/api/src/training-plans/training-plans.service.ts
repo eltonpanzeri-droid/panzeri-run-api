@@ -29,6 +29,7 @@ import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
 import { TargetRaceCalendarService } from '../target-races/target-race-calendar.service';
 import { HealthIndicatorsService } from '../training-intelligence/health-indicators.service';
+import { OperationalReferenceService } from '../physiology/operational-reference.service';
 import { TelegramService, formatStudentCode } from '../billing/telegram.service';
 import { PrescriptionTraceService } from './prescription-trace.service';
 import { ExecutionAnalysisService, WeeklyReportDraft } from '../activity-execution/execution-analysis.service';
@@ -228,7 +229,36 @@ export class TrainingPlansService {
     @Optional() private readonly raceCalendar?: TargetRaceCalendarService,
     // Indicadores de saude autorizados alem das 5 variaveis do snapshot (29/10/2026): resumo seletivo no contexto da IA. Opcional: nunca bloqueia a geracao.
     @Optional() private readonly healthIndicators?: HealthIndicatorsService,
+    // Referencia fisiologica operacional (Testes fisicos, 30/10/2026): leitura e ajustes. Opcional: aluno sem avaliacao ou falha na leitura nunca bloqueia a geracao.
+    @Optional() private readonly operationalReference?: OperationalReferenceService,
   ) {}
+
+  // Referencia fisiologica operacional atual para os agentes de IA (null = aluno sem avaliacao). Nunca lanca: contexto adicional nao bloqueia a geracao.
+  private async referenceForAgents(userId: string) {
+    try {
+      return (await this.operationalReference?.getAgentView(userId)) ?? null;
+    } catch (error) {
+      this.logger.warn(`Referencia fisiologica indisponivel para o aluno ${userId}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  // Aplica a proposta de ajuste da referencia feita pela IA de prescricao (depois de o programa estar salvo). Falha ou descarte nunca afetam o programa.
+  private async applyReferenceAdjustment(userId: string, studentName: string, studentCode: number | null | undefined, proposal: { indicadores: Array<{ chave: string; novoValor: number }>; evidencias: Array<{ data: string; descricao: string }>; justificativa: string } | null | undefined) {
+    if (!proposal || !this.operationalReference) return;
+    try {
+      const result = await this.operationalReference.proposeAdjustment(userId, { ...proposal, proposedBy: 'prescription_agent' });
+      const who = `${studentName} (Cod. ${formatStudentCode(studentCode ?? null)})`;
+      if (result.accepted) {
+        await this.telegram.notifyCoach(`🎯 A IA ajustou a referencia fisiologica de um aluno com base nos treinos.\nAluno: ${who}\nJustificativa: ${proposal.justificativa}\nOs resultados originais dos testes foram preservados.`);
+      } else {
+        this.logger.warn(`Proposta de ajuste de referencia descartada (aluno ${userId}): ${result.reasons.join('; ')}`);
+        await this.telegram.notifyCoach(`ℹ️ A IA propos ajustar a referencia fisiologica de um aluno, mas a proposta foi descartada pelas salvaguardas.\nAluno: ${who}\nMotivo: ${result.reasons.join('; ')}\nNada foi alterado.`);
+      }
+    } catch (error) {
+      this.logger.warn(`Falha ao registrar ajuste de referencia (aluno ${userId}): ${(error as Error).message}`);
+    }
+  }
 
   // Executa `fn` dentro do escopo de IA deste aluno: leitores que alimentam prompts passam a tratar como inexistentes os dados dos provedores nao autorizados.
   private async withAiScope<T>(userId: string, fn: () => Promise<T>): Promise<T> {
@@ -528,6 +558,12 @@ export class TrainingPlansService {
       return { needsUpdate: true, reason: 'Programa ativo nao e da semana atual.' };
     }
     if (!planMatchesLatestTest(plan.inputSnapshot, latestTest?.id ?? null)) return { needsUpdate: true, reason: 'Ha um teste de 3km mais recente do que o usado no programa.' };
+    // Lote 4: avaliacao fisica nova (qualquer metodo) depois do programa. So compara quando o programa ja registrou a versao usada (programas antigos nao disparam aviso em massa).
+    const usedReference = (plan.inputSnapshot as { physiologicalReference?: { testsVersion?: number | null } | null } | null)?.physiologicalReference;
+    if (usedReference !== undefined && this.operationalReference) {
+      const current = await this.operationalReference.versions(userId).catch(() => null);
+      if (current && (current.fromTests ?? null) !== (usedReference?.testsVersion ?? null)) return { needsUpdate: true, reason: 'Ha uma avaliacao fisica mais recente do que a usada no programa.' };
+    }
     // (26/10/2026) Sem rotina cadastrada ou em pausa nao ha o que regenerar. Com rotina: compara a REVISAO usada na geracao (ou, em planos antigos sem revisao, a agenda).
     if (!routine.configured || routine.allRest) return { needsUpdate: false, reason: null };
     if (!planMatchesRoutine(plan.inputSnapshot, routine.revision, routine.activeDays)) return { needsUpdate: true, reason: 'A disponibilidade real do aluno mudou desde a ultima geracao.' };
@@ -884,7 +920,9 @@ export class TrainingPlansService {
     // diasDisponiveisParaCorrida/Forca (WA). ORDEM EXECUTIVA Dr. Vanzao, 09/09/2026.
     const answers = stripRoutineKeysFromAnswers(sanitizeInterviewAnswers(jsonObject(onboarding.answers)));
     const paceFallback = estimatePaceFromAnswers(answers);
-    const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest ? 'test' : paceFallback?.source ?? 'default';
+    const physiologicalReference = await this.referenceForAgents(userId);
+    const referenceVersions = await this.operationalReference?.versions(userId).catch(() => null);
+    const paceSource: 'test' | 'self_report_5k' | 'qualitative' | 'default' = latestTest || physiologicalReference ? 'test' : paceFallback?.source ?? 'default';
 
     const initialWeekStart = startOfWeek(referenceDate);
     // (26/10/2026) A UNICA base da geracao e' a rotina vigente (WeeklyAvailability). Sem override enviado pelo cliente e sem dias fixos de reserva.
@@ -1077,6 +1115,7 @@ export class TrainingPlansService {
       : null;
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+      physiologicalReference,
       experience: user.preferences?.experienceLevel ?? '',
       answers,
       availability: availableDays.map((day) => ({
@@ -1520,6 +1559,8 @@ export class TrainingPlansService {
               stress: user.healthProfile?.stressLevel,
             },
             latestTestId: latestTest?.id,
+            // Versao da referencia fisiologica usada (Lote 4): permite avisar o treinador quando uma avaliacao nova chegar depois deste programa.
+            physiologicalReference: referenceVersions ? { version: referenceVersions.latest, testsVersion: referenceVersions.fromTests, source: referenceVersions.source } : null,
             paceSource,
             paceEvidence,
             painTier: painSafety.tier,
@@ -1743,6 +1784,9 @@ export class TrainingPlansService {
         `✅ Treino da semana gerado.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nSemana: ${weekStartFmt} a ${weekEndFmt}\n${sessionLines}`,
       ).catch(() => null);
     }
+
+    // Lote 4: proposta da IA de ajustar a referencia fisiologica, registrada SO depois de o programa estar salvo. Falha ou descarte nao afetam o programa.
+    await this.applyReferenceAdjustment(userId, user.name, user.studentCode, aiDecision.physiologicalReferenceAdjustment);
 
     return this.withExecutionReports(userId, plan, this.presentPlan(plan, hasSubscriptionAccess(user.subscriptionStatus), Boolean(latestTest)), undefined);
   }
@@ -2218,6 +2262,7 @@ export class TrainingPlansService {
       const runDecision = await this.prescriptionAgent.proposeRunSession({
         durationMin,
         evidence: paceEvidence,
+        physiologicalReference: await this.referenceForAgents(userId),
         studentDirectives: activeDirectives.map(formatDirectiveForAgent),
         activeObservations: activeObservations.map(formatObservationForAgent),
         painTier: painSafety.tier,

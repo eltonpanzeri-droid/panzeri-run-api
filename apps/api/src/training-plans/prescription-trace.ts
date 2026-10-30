@@ -145,6 +145,14 @@ export function buildEvidenceIndex(p: EvidenceBuildInput): EvidenceItem[] {
     storage: 'complete',
     excerpt: input.availability.map((day) => `${WEEKDAYS[day.weekday] ?? day.weekday}:${day.modalities.join('+')}${day.availableMin ? `/${day.availableMin}min` : ''}`).join(' '),
   }));
+  if (input.physiologicalReference) {
+    const reference = input.physiologicalReference;
+    items.push(item({
+      ref: 'physiology:reference', kind: 'physiological_reference', source: 'OperationalReference', label: 'Referencia fisiologica operacional',
+      asOf: reference.avaliacaoDeReferencia?.data ?? null, storage: 'complete',
+      excerpt: `versao ${reference.versao ?? 'legado'} | ${reference.avaliacaoDeReferencia?.metodo ?? 'sem avaliacao'} | origem ${reference.origemDaVersao} | ${reference.indicadores.length} indicadores`,
+    }));
+  }
   if (p.paceSource) items.push(item({ ref: 'pace:evidence', kind: 'pace_evidence', source: 'FitnessTest|OnboardingInterview', label: 'Evidencia de pace', storage: 'complete', excerpt: p.paceSource }));
 
   for (const d of p.directives) {
@@ -443,6 +451,8 @@ function derivationParts(derivation: ExecutionDerivation & { providers?: string[
 export type PromptFieldClass = 'independent' | 'device_aggregate' | 'device_execution' | 'device_narrative';
 export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
   objetivo: 'independent', experiencia: 'independent', classificadoComoIniciante: 'independent', evidenciasDePace: 'independent',
+  // 30/10/2026 (Testes fisicos, Lote 4): vem de avaliacoes digitadas pelo aluno ou pelo treinador e de modelos do servidor, nao de dado de provedor de dispositivo.
+  referenciaFisiologicaOperacional: 'independent',
   respostasEntrevista: 'independent', avisoSobreRespostasEntrevista: 'independent', mediaSemanalKmAtualRelatada: 'independent',
   diretrizesEspecificasDoTreinadorParaEsteAluno: 'independent', observacoesRegistradasPeloProprioAluno: 'independent',
   relatosEstruturadosDoAluno: 'independent', relatosAindaNaoInterpretadosDoAluno: 'independent', lacunasDeContexto: 'independent',
@@ -464,6 +474,8 @@ export const BASIS_SOURCES = [
   'historicoSemanal', 'athleteStateContext', 'relatosEstruturadosDoAluno', 'relatosAindaNaoInterpretadosDoAluno', 'diretrizesEspecificasDoTreinadorParaEsteAluno',
   'observacoesRegistradasPeloProprioAluno', 'prontuarioDoAluno', 'eventosDoProntuarioAindaNaoCondensados', 'autoavaliacaoDaSemanaPeloAluno', 'respostasEntrevista',
   'reavaliacaoMaisRecente', 'relatorioDeEvolucao', 'maiorLongaoJaRegistrado', 'sessoesRecentesPertoDoRecorde', 'metasDeProva', 'evidenciasDePace', 'sinalDeSeguranca',
+  // Lote 4 (30/10/2026): referencia fisiologica operacional (avaliacoes fisicas e ajustes da analise dos treinos).
+  'referenciaFisiologicaOperacional',
   // Etapas 2.1/2.2: o Prescritor passou a poder citar o que o Analista de Treinos e o relatorio de execucao trouxeram.
   'analiseTecnicaDoAnalistaDeTreinos', 'relatorioDeExecucaoDaSemanaAnterior', 'outro',
 ] as const;
@@ -507,7 +519,7 @@ const EVIDENCE_KINDS_BY_SOURCE: Record<BasisSource, string[]> = {
   relatosEstruturadosDoAluno: ['report'], relatosAindaNaoInterpretadosDoAluno: ['report_pending'], diretrizesEspecificasDoTreinadorParaEsteAluno: ['directive'],
   observacoesRegistradasPeloProprioAluno: ['observation'], prontuarioDoAluno: ['profile_summary'], eventosDoProntuarioAindaNaoCondensados: ['profile_event_pending'],
   autoavaliacaoDaSemanaPeloAluno: ['checkin'], respostasEntrevista: ['interview'], reavaliacaoMaisRecente: ['reassessment'], relatorioDeEvolucao: ['evolution_report'],
-  maiorLongaoJaRegistrado: ['record_run'], sessoesRecentesPertoDoRecorde: ['record_run'], metasDeProva: ['target_race'], evidenciasDePace: ['pace_evidence'],
+  maiorLongaoJaRegistrado: ['record_run'], sessoesRecentesPertoDoRecorde: ['record_run'], metasDeProva: ['target_race'], evidenciasDePace: ['pace_evidence'], referenciaFisiologicaOperacional: ['physiological_reference'],
   sinalDeSeguranca: ['pain_safety'], analiseTecnicaDoAnalistaDeTreinos: ['training_analysis'], relatorioDeExecucaoDaSemanaAnterior: ['weekly_execution_report'], outro: [],
 };
 

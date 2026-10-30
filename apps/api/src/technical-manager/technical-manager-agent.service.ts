@@ -11,6 +11,7 @@ import { sanitizeInterviewAnswers, stripRoutineKeysFromAnswers } from '../traini
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
+import { OperationalReferenceService } from '../physiology/operational-reference.service';
 
 const MAX_TOOL_ITERATIONS = 6;
 const HISTORY_LIMIT = 40;
@@ -33,6 +34,8 @@ export class TechnicalManagerAgentService {
     private readonly studentProfile: StudentProfileService,
     // Governanca de dados para IA (Central Universal, Lote 1). Opcional so' para os testes que constroem o servico sem Nest; no app o modulo sempre injeta.
     @Optional() private readonly aiEligibility?: AiDataEligibility,
+    // Referencia fisiologica operacional (Testes fisicos, Lote 4): a mesma fonte da IA de prescricao, do Agente de Evolucao e do resumo do atleta.
+    @Optional() private readonly operationalReference?: OperationalReferenceService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
@@ -218,7 +221,7 @@ export class TechnicalManagerAgentService {
       {
         spec: {
           name: 'get_student_context',
-          description: 'Retorna o contexto completo do aluno: respostas da entrevista, preferencias, historico de testes de 3 km, resumo do plano de treino ativo (aderencia, km) e as diretrizes especificas ja ativas para este aluno.',
+          description: 'Retorna o contexto completo do aluno: respostas da entrevista, preferencias, historico de testes de 3 km (resultado original), a referencia fisiologica operacional atual (VO2max, velocidade no VO2max, FC maxima, L1, L2 e zonas, com origem, confianca e ajustes feitos pela analise dos treinos), resumo do plano de treino ativo (aderencia, km) e as diretrizes especificas ja ativas para este aluno.',
           input_schema: { type: 'object', properties: {} },
         },
         run: async () => JSON.stringify(await this.gatherStudentContext(studentId), null, 2),
@@ -269,6 +272,26 @@ export class TechnicalManagerAgentService {
       },
       {
         spec: {
+          name: 'adjust_physiological_reference',
+          description: 'Ajusta a referencia fisiologica OPERACIONAL deste aluno (zonas e limiares que a IA de prescricao usa), por decisao do treinador. NAO altera o resultado original de nenhum teste nem os indicadores calculados a partir deles: grava uma nova versao da referencia operacional, com data, origem e justificativa. So use depois que o treinador pedir e confirmar explicitamente, em mensagem anterior, o que quer mudar. Indicadores permitidos: vvo2max_kmh, hrmax_bpm, l1_speed_kmh, l1_hr_bpm, l2_speed_kmh, l2_hr_bpm (velocidades em km/h; se o treinador falar em pace, converta: km/h = 3600 / segundos por km). L1 deve ficar abaixo de L2 e L2 abaixo da velocidade no VO2max.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              indicadores: { type: 'array', description: 'Lista de mudancas.', items: { type: 'object', properties: { chave: { type: 'string' }, novoValor: { type: 'number' } }, required: ['chave', 'novoValor'] } },
+              justificativa: { type: 'string', description: 'Motivo objetivo informado pelo treinador (ex: evolucao observada nos treinos das ultimas semanas).' },
+            },
+            required: ['indicadores', 'justificativa'],
+          },
+        },
+        run: async (input) => {
+          if (!this.operationalReference) return 'Erro: a referencia fisiologica nao esta disponivel neste ambiente.';
+          const indicadores = Array.isArray(input.indicadores) ? (input.indicadores as Array<Record<string, unknown>>).map((item) => ({ chave: String(item.chave ?? ''), novoValor: Number(item.novoValor) })) : [];
+          const result = await this.operationalReference.proposeAdjustment(studentId, { indicadores, evidencias: [], justificativa: String(input.justificativa ?? ''), proposedBy: 'technical_manager', coachInitiated: true });
+          return result.accepted ? `Referencia operacional ajustada com sucesso (versao ${result.version}). Os resultados originais dos testes foram preservados. A IA usa a nova referencia na proxima geracao ou atualizacao do programa; nada foi regenerado agora.` : `Nao foi possivel ajustar: ${result.reasons.join('; ')}.`;
+        },
+      },
+      {
+        spec: {
           name: 'deactivate_directive',
           description: 'Desativa uma diretriz existente deste aluno, por exemplo quando o treinador pede para revogar ou substituir uma regra anterior.',
           input_schema: {
@@ -291,7 +314,7 @@ export class TechnicalManagerAgentService {
   }
 
   private async gatherStudentContext(studentId: string) {
-    const [user, onboarding, tests, directives, activePlan, weeklyAvailability] = await Promise.all([
+    const [user, onboarding, tests, directives, activePlan, weeklyAvailability, physiologicalReference] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({ where: { id: studentId }, include: { preferences: true, healthProfile: true } }),
       this.prisma.onboardingInterview.findUnique({ where: { userId: studentId }, select: { answers: true } }),
       this.prisma.fitnessTest.findMany({ where: { userId: studentId, testType: '3km' }, orderBy: { createdAt: 'desc' }, take: 5 }),
@@ -302,6 +325,7 @@ export class TechnicalManagerAgentService {
         include: { sessions: { include: { completion: true } } },
       }),
       this.prisma.weeklyAvailability.findMany({ where: { userId: studentId }, orderBy: { weekday: 'asc' } }),
+      this.operationalReference?.getAgentView(studentId).catch(() => null) ?? Promise.resolve(null),
     ]);
 
     return {
@@ -321,6 +345,8 @@ export class TechnicalManagerAgentService {
         modalidades: day.noTraining ? [] : day.modalities,
         minutosPorModalidade: day.noTraining ? {} : day.modalityDurations ?? {},
       })),
+      // Fonte dos indicadores fisiologicos: a referencia operacional abaixo (nao a coluna antiga de VO2 do teste). Aqui ficam so os resultados ORIGINAIS dos 3 km.
+      referenciaFisiologicaOperacional: physiologicalReference,
       historicoTestes3km: tests.map((test) => ({
         data: test.createdAt.toISOString().slice(0, 10),
         paceSegundosPorKm: test.paceSecondsPerKm,
@@ -354,6 +380,7 @@ export class TechnicalManagerAgentService {
       'Voce e o agente gerente tecnico da Panzeri Run.',
       'Pense na estrutura como uma academia: existe um agente que monta o treino da semana (o "professor"). Voce e a ponte entre o treinador e esse agente — o gerente tecnico que recebe orientacoes especificas sobre um aluno e garante que elas sejam seguidas.',
       'Voce pode consultar o contexto completo do aluno (get_student_context) para responder com informacao real, nunca invente dados.',
+      'REFERENCIA FISIOLOGICA: referenciaFisiologicaOperacional (no contexto do aluno) traz VO2max, velocidade no VO2max, FC maxima, L1, L2 e zonas, cada indicador com origem (medido, informado, estimado ou ajustado pela analise dos treinos), confianca e faixa. Sao REFERENCIAS rotuladas, nao limites: ao opinar sobre intensidade, confronte-as com os ritmos e a FC que o aluno realmente executa. Estimativas de limiar tem incerteza; diga isso quando for relevante. Nunca invente valores quando o campo estiver ausente (aluno sem avaliacao). Para mudar a referencia por decisao do treinador, use adjust_physiological_reference, so depois da confirmacao explicita dele, e lembre que o resultado original dos testes nunca e alterado.',
       'Quando o treinador pedir sua opiniao, de uma opiniao tecnica real baseada nos dados, como um profissional experiente faria — nao seja generico ou evasivo.',
       'REGRA MAIS IMPORTANTE sobre diretrizes permanentes: quando o treinador pedir para voce criar uma regra fixa/permanente para este aluno especifico, primeiro responda em texto confirmando exatamente o que sera salvo (ex: "Entendido, vou aplicar isso para a Juliana a partir de agora: ..."). So chame a ferramenta save_directive depois que o treinador confirmar explicitamente numa mensagem seguinte (ex: "sim", "pode salvar", "confirmado"). Nunca chame save_directive na mesma resposta em que voce esta pedindo a confirmacao.',
       'O agente que gera os treinos (tanto na geracao automatica semanal quanto quando o treinador pede para regenerar a semana) NAO participa desta conversa e NAO tem acesso a ela — a UNICA forma de qualquer combinado aqui realmente virar treino de verdade e voce salvar isso com save_directive. Se o treinador combinar algo especifico com voce (datas, distancias, paces, taper, etc) e voce nao salvar, isso sera perdido e o proximo treino gerado vai ignorar tudo o que foi conversado — isso e um erro grave, entao nunca diga para o treinador "editar a sessao manualmente" ou "regenerar o treino" como se isso fosse aplicar o combinado sozinho; regenerar so aplica o que estiver salvo como diretriz.',
