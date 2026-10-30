@@ -26,11 +26,12 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
     // 27/10/2026 (ordem do Elton): removida a recomendacao do piso de 8:30/km do prompt (semana e corrida por sessao); a nova instrucao WATCH_RECOVERY_INSTRUCTION (recuperacao ativa/caminhada lenta por causa dos relogios) e' removivel no teste. Hashes anteriores: stable a6697590...faa5b, run 857b1ae5...d762. Depois, o trecho do 8:30/km foi tirado tambem do texto de metodologia (prompts stable e strength).
     // 30/10/2026 (Testes fisicos, Lote 4, ordem do Elton): a 'PROIBICAO ABSOLUTA - TESTE DE 3KM' (feature suspensa) virou 'REGRA SOBRE TESTES FISICOS' nos prompts da semana e do dia de corrida, porque a funcionalidade voltou.
     // Os blocos novos de referencia fisiologica sao nomeados e removidos pelo teste abaixo. Hashes anteriores: stable d8f398d9...e320, run fd6058c9...f4c.
-    stable: '20ddd69f9eb20efc2369507468a3d290739f9f0ab661ea1d2d4e68edf6100e0d',
+    // 30/10/2026: regra de testes fisicos agora permite citar zonas e limiares ao aluno (ele ve as proprias zonas); hashes anteriores 20ddd69f... (stable) e c94e2188... (run)
+    stable: '3593da143696dc0fcee040446cdaece45cbc4fe0f3dd6a99b4e82aca724b2036',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
-    run: 'c94e21887a5935b4cf1e393320e859657a59704d4b430a07098078358ae95242',
+    run: '2994004d2ce5e85c744d038cbc79ebb65be6eae5cd48414375db5e3201eb84b6',
     strength: 'a0da89959385c84ac9f1b6436dd5965d7e93ccd5519b5f97d1f959339388bcaa', // 27/10/2026: tirado o trecho do 8:30/km da metodologia (hash anterior: c895e9a1...3711) // 25/10/2026: mesma subordinacao da regua de dor (hash anterior: f1ed5573...7351)
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;

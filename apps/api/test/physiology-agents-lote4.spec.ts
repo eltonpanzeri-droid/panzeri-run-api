@@ -301,5 +301,9 @@ describe('zonas como faixas estimadas e FC só para avaliar (30/10/2026)', () =>
     expect(weekly).toContain('leve em zona 3 em vez de 2');
     expect(day).toContain('A FC serve so para avaliar a repercussao do treino');
     expect(day).toContain('qualquer zona diferente da esperada');
+    expect(weekly).toContain('Com honestidade, clareza e transparencia');
+    expect(day).toContain('honesto, claro e transparente');
+    expect(weekly).toContain('PODE citar a zona (Z1 a Z6)');
+    expect(weekly).not.toContain('NAO cite siglas');
   });
 });

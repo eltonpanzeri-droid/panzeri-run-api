@@ -4,7 +4,7 @@ import Svg, { Line, Path, Rect, Circle, Text as SvgText } from 'react-native-svg
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '../PtText';
 import { InfoTip } from '../InfoTip';
-import { HOW_WE_USE, REPEAT_TESTS_BODY, REPEAT_TESTS_TITLE, THREE_KM_HOW_TO, THREE_KM_SAFETY, ZONE_HELP } from './texts';
+import { HOW_WE_USE, REPEAT_TESTS_BODY, REPEAT_TESTS_TITLE, THREE_KM_HOW_TO, THREE_KM_SAFETY, ZONE_HELP, ZONES_USE_CARD } from './texts';
 import {
   CONFIDENCE_LABELS, INDICATOR_LABELS, METHOD_OPTIONS, ORIGIN_LABELS, RAW_THREE_KM_TIME, brDateFromIso, buildSeries, describeRawResults, formatIndicatorValue, formatMinSec,
   formatRange, formatSpeed, isoFromBrDate, maskBrDate, methodLabel, nextDueText, paceLabelFromKmh, parseDecimal, parseMinSec, parseMinSecParts, todayBrDate, xPositions,
@@ -305,6 +305,7 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Zonas de treinamento</Text>
               <InfoTip label="Como ler as zonas?">{ZONE_HELP}</InfoTip>
+              <Text style={styles.hint}>{ZONES_USE_CARD}</Text>
               {profile.zones.map((z) => (
                 <View key={z.id} style={styles.zoneRow}>
                   <Text style={styles.label}>{zoneTitle(z)}</Text>
