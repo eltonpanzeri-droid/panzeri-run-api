@@ -176,3 +176,60 @@ describe('GET /me/integrations: destaca autorizacoes opcionais pendentes (22/10/
     expect((await catalogFor({ disconnectedAt: null, grantedPurposes: ['watch_delivery'], purposeConsents: { watch_delivery: { ...record, version: '0.1' } } })).pendingAuthorizations).toEqual(['envio de treinos ao relógio', 'análise com o Atlas']);
   });
 });
+
+describe('perfil padrao de cada integracao (30/10/2026)', () => {
+  const byId = (id: string) => INTEGRATION_PROVIDERS.find((p) => p.id === id)!;
+
+  it('toda integracao tem perfil com nota de envio de treinos nao vazia, e o perfil nunca promete o que a capacidade nega', () => {
+    for (const provider of INTEGRATION_PROVIDERS) {
+      expect(provider.profile.workoutDeliveryNote.trim().length).toBeGreaterThan(10);
+      if (provider.profile.workoutDelivery === 'available') expect(provider.capabilities.sendWorkouts).toBe(true);
+      if (!provider.capabilities.sendWorkouts) expect(provider.profile.workoutDelivery).not.toBe('available');
+    }
+  });
+
+  it('Samsung usa os mesmos canais do Health Connect e NAO afirma envio de treinos ao Galaxy Watch', () => {
+    expect(byId('samsung').profile.workoutDelivery).toBe('not_available');
+    expect(byId('samsung').profile.workoutDeliveryNote).toContain('parceria');
+    expect(byId('samsung').capabilities.sendWorkouts).toBe(false);
+  });
+
+  it('COROS: em preparacao, sem conexao nem pedido de dados hoje; o envio de treinos aparece como "em preparacao", nunca disponivel', () => {
+    const coros = byId('coros');
+    expect(coros.availability).toBe('unavailable');
+    expect(coros.summary).toContain('nenhum dado seu é solicitado');
+    expect(coros.profile.workoutDelivery).toBe('preparing');
+    expect(coros.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
+  });
+
+  it('Strava nunca alimenta a IA; Zepp so com autorizacao propria', () => {
+    expect(byId('strava').profile.aiUse).toBe('not_used');
+    expect(byId('zepp').profile.aiUse).toBe('with_consent');
+  });
+
+  it('o catalogo entregue ao app leva o perfil de cada integracao', () => {
+    const catalog = buildIntegrationsCatalog({ configuredEnv: new Set(), connectedProviderIds: new Set() });
+    for (const entry of catalog) expect(entry.profile).toBeDefined();
+  });
+});
+
+describe('roteiro padrao no app (StandardDeviceInfo)', () => {
+  const source = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'mobile', 'src', 'integrations', 'StandardDeviceInfo.tsx'), 'utf8') as string;
+
+  it('o app tem texto para todos os grupos de dados que o catalogo pode oferecer', () => {
+    const used = new Set(INTEGRATION_PROVIDERS.flatMap((p) => p.profile.dataGroups));
+    for (const group of used) expect(source).toContain(`  ${group}: { label:`);
+  });
+
+  it('o roteiro cobre as secoes combinadas, inclusive o envio de treinos e a regra do Strava (nunca na IA)', () => {
+    for (const phrase of ['Quais informações podem ser compartilhadas', 'Como utilizamos essas informações', 'Envio de treinos ao dispositivo', 'Suas autorizações', 'não são enviados à inteligência artificial', 'Nenhum dado seu é solicitado enquanto ela não for liberada']) {
+      expect(source).toContain(phrase);
+    }
+  });
+
+  it('o hub mostra o roteiro para qualquer integracao e abre sozinho quando nao ha tela propria ou a integracao nao esta disponivel', () => {
+    const hub = require('fs').readFileSync(require('path').join(__dirname, '..', '..', 'mobile', 'src', 'integrations', 'IntegrationsHub.tsx'), 'utf8') as string;
+    expect(hub).toContain('<StandardDeviceInfo');
+    expect(hub).toContain("defaultOpen={!render || selected.availability !== 'available'}");
+  });
+});

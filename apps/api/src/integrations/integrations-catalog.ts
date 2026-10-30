@@ -11,6 +11,23 @@ export type IntegrationAvailability = 'available' | 'preparing' | 'unavailable';
 export type IntegrationPlatform = 'web' | 'android' | 'ios_native';
 export type IntegrationConnectionState = 'connected' | 'disconnected' | 'not_applicable';
 
+// Perfil PADRAO de cada integracao (30/10/2026): o app mostra o mesmo roteiro para todas (o que pode ser compartilhado, uso, envio de treinos, quem pede a autorizacao) e so'
+// os valores mudam por fabricante. Fonte unica: nada disso e' escrito no app. So' entra aqui o que e' FATO conferido; o que a fabricante nao confirmou fica como 'not_available'
+// com a nota dizendo isso, e nunca como promessa.
+export type DataGroupId = 'activities' | 'performance' | 'sleep' | 'recovery' | 'daily' | 'route' | 'other_health';
+export type WorkoutDeliveryStatus = 'available' | 'preparing' | 'not_available';
+export interface IntegrationProfile {
+  // grupos de informacao que a integracao pode oferecer (a aluna escolhe quando a integracao permitir essa escolha)
+  dataGroups: DataGroupId[];
+  workoutDelivery: WorkoutDeliveryStatus;
+  // frase curta e verdadeira sobre o envio de treinos ao relogio desta integracao (motivo, estado ou limite)
+  workoutDeliveryNote: string;
+  // quem pede a autorizacao: o fabricante/sistema (OAuth, permissao do Android/iOS), o Panzeri Run (consentimento proprio) ou os dois
+  authorizedBy: 'manufacturer' | 'panzeri' | 'both';
+  // uso dos dados dessa integracao pela IA: 'allowed' = indicadores podem entrar nas analises; 'with_consent' = so' com autorizacao propria da aluna; 'not_used' = nunca (ex.: regra do Strava)
+  aiUse: 'allowed' | 'with_consent' | 'not_used';
+}
+
 export interface IntegrationProvider {
   id: string;
   name: string;
@@ -24,6 +41,7 @@ export interface IntegrationProvider {
   requiresEnv?: string | string[];
   // Integracao em validacao: so' aparece como disponivel para quem foi habilitado (ou ja esta conectado, para poder desconectar).
   requiresAllowlist?: boolean;
+  profile: IntegrationProfile;
 }
 
 const ALL_PLATFORMS: IntegrationPlatform[] = ['web', 'android', 'ios_native'];
@@ -37,6 +55,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: false },
     requiresEnv: 'POLAR_CLIENT_ID',
+    profile: { dataGroups: ['activities', 'performance', 'sleep', 'recovery'], workoutDelivery: 'not_available', workoutDeliveryNote: 'A Polar não aceita receber treinos do Panzeri Run.', authorizedBy: 'both', aiUse: 'allowed' },
   },
   {
     id: 'strava',
@@ -46,6 +65,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: false },
     requiresEnv: 'STRAVA_CLIENT_ID',
+    profile: { dataGroups: ['activities', 'performance'], workoutDelivery: 'not_available', workoutDeliveryNote: 'O Strava não recebe treinos prescritos.', authorizedBy: 'manufacturer', aiUse: 'not_used' },
   },
   {
     id: 'apple_watch',
@@ -54,6 +74,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'preparing',
     platforms: ['ios_native'],
     capabilities: { receiveActivities: true, sendWorkouts: true },
+    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'preparing', workoutDeliveryNote: 'O envio de treinos ao Apple Watch está em validação.', authorizedBy: 'both', aiUse: 'allowed' },
   },
   {
     id: 'health_connect',
@@ -64,6 +85,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'available',
     platforms: ['android'],
     capabilities: { receiveActivities: true, sendWorkouts: false },
+    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'not_available', workoutDeliveryNote: 'O Health Connect não permite enviar treinos ao relógio.', authorizedBy: 'both', aiUse: 'allowed' },
   },
   {
     id: 'samsung',
@@ -73,6 +95,9 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'available',
     platforms: ['android'],
     capabilities: { receiveActivities: true, sendWorkouts: false },
+    // Os dados chegam pelo Health Connect (confirmado pela Samsung em 22/10/2026), entao os grupos sao os mesmos dele. A Samsung respondeu (23/10/2026) que o acesso direto ao Samsung Health
+    // exige o programa de parceiros dela e que nem todos os tipos de dado sincronizam com o Health Connect; o envio de treinos ao Galaxy Watch NAO foi confirmado.
+    profile: { dataGroups: ['activities', 'performance', 'sleep', 'recovery', 'daily'], workoutDelivery: 'not_available', workoutDeliveryNote: 'O envio de treinos ao Galaxy Watch ainda não está disponível: a Samsung exige um programa de parceria para o acesso direto, que ainda não foi concluído.', authorizedBy: 'both', aiUse: 'allowed' },
   },
   {
     id: 'garmin',
@@ -81,14 +106,18 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'unavailable',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: false, sendWorkouts: false },
+    profile: { dataGroups: [], workoutDelivery: 'not_available', workoutDeliveryNote: 'Integração ainda não disponível.', authorizedBy: 'manufacturer', aiUse: 'with_consent' },
   },
   {
     id: 'coros',
     name: 'COROS',
-    summary: 'Integração ainda não disponível.',
+    // 30/10/2026: a COROS liberou o COROS MCP (OAuth 2.0, autoatendimento, sem aprovacao): le atividades (com FIT), sono, saude diaria e condicionamento e ESCREVE treinos e planos
+    // (corrida de rua, trilha e ciclismo) no calendario do atleta. Ainda NAO ha conexao no Panzeri Run: nenhum dado e' pedido hoje. Webhook so' pela Partner API (em fila).
+    summary: 'Integração em preparação: ainda não é possível conectar o COROS, e nenhum dado seu é solicitado.',
     availability: 'unavailable',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: false, sendWorkouts: false },
+    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'preparing', workoutDeliveryNote: 'A COROS permite enviar treinos de corrida e ciclismo ao calendário do atleta. O Panzeri Run ainda não usa esse recurso.', authorizedBy: 'manufacturer', aiUse: 'with_consent' },
   },
   {
     id: 'wahoo',
@@ -98,6 +127,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'available',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: false },
+    profile: { dataGroups: ['activities', 'performance'], workoutDelivery: 'not_available', workoutDeliveryNote: 'O envio de treinos à Wahoo ainda não está disponível.', authorizedBy: 'manufacturer', aiUse: 'allowed' },
     requiresEnv: ['WAHOO_CLIENT_ID', 'WAHOO_CLIENT_SECRET', 'WAHOO_REDIRECT_URI', 'WAHOO_TOKEN_ENCRYPTION_KEY'],
     requiresAllowlist: true,
   },
@@ -109,6 +139,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     availability: 'available',
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: true },
+    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'available', workoutDeliveryNote: 'Treinos de corrida podem ser enviados à sua conta Zepp, com autorização própria.', authorizedBy: 'panzeri', aiUse: 'with_consent' },
     requiresEnv: ['ZEPP_CLIENT_ID', 'ZEPP_CLIENT_SECRET', 'ZEPP_REDIRECT_URI', 'ZEPP_TOKEN_ENCRYPTION_KEY'],
     requiresAllowlist: true,
   },

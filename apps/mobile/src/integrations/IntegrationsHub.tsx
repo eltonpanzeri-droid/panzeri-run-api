@@ -3,6 +3,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-
 import { Text } from '../PtText';
 import { Ionicons } from '@expo/vector-icons';
 import { PRColors } from '../../theme/tokens';
+import { StandardDeviceInfo, type IntegrationProfile } from './StandardDeviceInfo';
 
 // Hub central de "Dispositivos e integracoes" (Etapa 2, 08/10/2026).
 // Nao ha navegacao por fabricante: lista e detalhe sao genericos e dirigidos pelo catalogo do backend
@@ -21,6 +22,8 @@ export interface IntegrationCatalogEntry {
   availability: IntegrationAvailability;
   platforms: IntegrationPlatform[];
   capabilities: { receiveActivities: boolean; sendWorkouts: boolean };
+  // Roteiro padrao (30/10/2026): grupos de dados, envio de treinos, quem autoriza e uso pela IA; vem do catalogo do servidor.
+  profile?: IntegrationProfile;
   connection: { state: 'connected' | 'disconnected' | 'not_applicable' };
 }
 
@@ -155,6 +158,8 @@ export function IntegrationsHub({
             <Text style={styles.hint}>Disponível somente no {selected.platforms.map((item) => PLATFORM_LABEL[item]).join(' ou ')}.</Text>
           ) : null}
         </View>
+        {/* Roteiro padrao de toda integracao; aberto quando a integracao nao tem tela propria de conexao (ex.: COROS, Garmin). */}
+        <StandardDeviceInfo name={selected.name} profile={selected.profile} operational={selected.availability === 'available'} defaultOpen={!render || selected.availability !== 'available'} />
         {selected.availability !== 'unavailable' && platformOk && render ? render() : null}
       </View>
     );
