@@ -13,6 +13,7 @@ import { PhysicalTestsScreen } from './src/physicalTests/PhysicalTestsScreen';
 import { PHYSICAL_TESTS_ENABLED } from './src/physicalTests/config';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
+import { ZeppWatchPrompt } from './src/zepp/ZeppWatchPrompt';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
@@ -1488,6 +1489,9 @@ function AppInner() {
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  // Fabricante que o hub de Dispositivos abre de cara (ex.: o convite da Zepp na tela de Treinos); undefined = lista normal.
+  const [devicesProvider, setDevicesProvider] = useState<string | undefined>(undefined);
+  useEffect(() => { if (activeTab !== 'devices') setDevicesProvider(undefined); }, [activeTab]); // sair do hub zera o atalho
   // 17/10/2026 (Apple 1.4.1): temas que a tela de fontes cientificas deve destacar ao abrir por link contextual (vazio = todos).
   const [sourcesThemeIds, setSourcesThemeIds] = useState<string[]>([]);
   useEffect(() => {
@@ -1945,6 +1949,7 @@ function AppInner() {
                 onOpenInterview={() => setActiveTab('interview')}
                 onOpenTest={() => setActiveTab(PHYSICAL_TESTS_ENABLED ? 'physicalTests' : 'week')}
                 onOpenPainReport={() => setActiveTab('painReport')}
+                onOpenZepp={() => { setDevicesProvider('zepp'); setActiveTab('devices'); }}
               />
             )}
             {activeTab === 'notifications' && (
@@ -1979,7 +1984,7 @@ function AppInner() {
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {/* Etapa 2 (08/10/2026): 'strava' e rota antiga; abre o hub ja na tela do Strava (Privacidade ainda usa setActiveTab('strava')). */}
             {(activeTab === 'devices' || activeTab === 'strava') && (
-              <DevicesIntegrationsScreen key={activeTab} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : undefined} />
+              <DevicesIntegrationsScreen key={`${activeTab}-${devicesProvider ?? ''}`} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : devicesProvider} />
             )}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} onOpenBilling={() => setActiveTab('billing')} onAccountDeleted={logout} />}
@@ -4088,7 +4093,7 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
+function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, onOpenZepp, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onOpenZepp?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
@@ -5404,6 +5409,9 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
       {plan?.generatedAt ? <Text style={styles.metaText}>Gerado em {formatDayMonth(new Date(plan.generatedAt))} as {new Date(plan.generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.</Text> : null}
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
+
+      {/* Convite para quem conectou a Zepp e ainda nao autorizou o envio de treinos ao relogio (30/10/2026). */}
+      {onOpenZepp ? <ZeppWatchPrompt accessToken={accessToken} apiUrl={API_URL} onOpen={onOpenZepp} /> : null}
 
       {/* Teste de 3km desativado temporariamente (pedido do treinador, 2026-07-28) — a tela e o
           endpoint continuam existindo, so o convite pra fazer o teste ficou escondido daqui. */}
