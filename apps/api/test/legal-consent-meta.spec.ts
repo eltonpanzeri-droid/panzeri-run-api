@@ -38,7 +38,7 @@ describe('versao juridica aceita no cadastro', () => {
   });
 
   it('LEGAL_VERSION e o mesmo valor impresso nos documentos publicados (versao dos textos exibidos no aceite)', () => {
-    expect(LEGAL_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(LEGAL_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}(\.\d+)?$/); // data da versao, com sufixo de revisao quando o texto muda mais de uma vez no mesmo dia
     const alteracoes = PRIVACY_SECTIONS.find((s) => s.id === 'alteracoes')!.paragraphs.join(' ');
     expect(alteracoes).toContain(LEGAL_UPDATED_LABEL);
   });

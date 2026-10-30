@@ -8,8 +8,11 @@
 // legal, nao inventa prazo, base legal nem garantia de fornecedor. O que depende de contrato ou de
 // configuracao externa e' dito como tal.
 
-export const LEGAL_VERSION = '2026-10-30';
-export const LEGAL_UPDATED_LABEL = '28 de outubro de 2026';
+// 30/10/2026 (2a revisao do dia): texto geral reorganizado (compromisso, idade minima, compromissos sobre compartilhamento, declaracoes de uso dos dados de saude exigidas pelas lojas,
+// Google Analytics na lista de terceiros, identificacao do responsavel). A versao muda porque o texto mudou (quem aceitar daqui em diante registra esta).
+export const LEGAL_VERSION = '2026-10-30.2';
+export const LEGAL_UPDATED_LABEL = '30 de outubro de 2026';
+export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
 
@@ -28,6 +31,7 @@ export const DATA_CATEGORIES = [
   '- Feedback de treino: esforço percebido, dor, sono, estresse, motivação, cansaço físico e mental, e suas observações.',
   '- Relatos e registros opcionais: dores, observações escritas, testes de desempenho, prova alvo, tênis cadastrados e, para quem optar, registro do ciclo menstrual.',
   '- Treino: programa de treino, sessões prescritas e realizadas, histórico, métricas de evolução (como volume e aderência) e conquistas.',
+  '- Dados de dispositivos e serviços que você conectar, só dos grupos que você autorizar: atividades e desempenho, sono, recuperação e atividade diária (o que cada serviço pode oferecer está descrito nas seções 3 a 5A e, no aplicativo, em Dispositivos e integrações).',
 ];
 
 export const WEARABLE_INTRO =
@@ -99,6 +103,7 @@ export const THIRD_PARTIES = [
   '- Cloudflare (R2): armazenamento das cópias de segurança do banco de dados, que são criptografadas antes de sair do servidor.',
   '- Expo: entrega de notificações no aplicativo.',
   '- Telegram: canal interno de avisos do treinador sobre o acompanhamento dos alunos.',
+  '- Google (Google Analytics 4): só no site e no aplicativo aberto no navegador, o Panzeri Run mede o uso por páginas acessadas e por eventos agregados, como as etapas do cadastro. Os eventos não levam seus dados de saúde nem informações que identifiquem você, e o endereço da página só mantém os parâmetros de campanha (como utm_source). Não é usado no aplicativo instalado no celular.',
   '- Meta (Facebook): quando configurado, o servidor do Panzeri Run envia à Meta eventos de conversão para medir o resultado de campanhas de divulgação: um ao criar a conta e outro quando um pagamento é confirmado (com valor e moeda). Cada evento leva seu e-mail convertido em código (hash), os identificadores de navegador da Meta (quando existem) e um identificador do evento; o evento de cadastro leva também o endereço IP e o navegador usados. No fluxo atual, não são enviados à Meta dados de saúde, feedbacks, relatos nem conteúdo ou métricas de treino. Cadastros feitos pelo aplicativo para iPhone não geram nenhum envio à Meta.',
   '- ViaCEP: ao preencher o CEP na entrevista, o aplicativo consulta esse serviço público para completar rua, bairro, cidade e estado; o CEP digitado é enviado a ele.',
   '- Infraestrutura de hospedagem do aplicativo e do banco de dados.',
@@ -120,11 +125,28 @@ const REQUEST_PARAGRAPHS = [
 
 export const PRIVACY_SECTIONS: LegalSection[] = [
   {
+    id: 'compromisso',
+    heading: 'Nosso compromisso com a sua privacidade',
+    paragraphs: [
+      'O Panzeri Run utiliza informações pessoais, esportivas e de saúde para oferecer um programa de treinamento individualizado, acompanhar a sua evolução e ajudar você a tomar decisões mais conscientes sobre a sua prática de exercícios físicos.',
+      'Sabemos que algumas dessas informações são sensíveis. Por isso, tratamos seus dados com responsabilidade, transparência e medidas de segurança adequadas, respeitando as suas escolhas, a legislação aplicável e as autorizações que você conceder.',
+      'Este é o texto geral sobre como usamos os dados. As particularidades de cada dispositivo ou serviço que você conectar estão nas seções 3 a 5A abaixo e, no aplicativo, na tela de cada integração (Dispositivos e integrações), onde você também concede as autorizações específicas. Nem todas as informações descritas são necessárias para usar o Panzeri Run: o que é recebido depende das funcionalidades que você usa, dos registros existentes e das autorizações que você der.',
+    ],
+  },
+  {
     id: 'quem-somos',
     heading: '1. Quem é o responsável',
     paragraphs: [
-      'Elton Panzeri é o responsável pelo Panzeri Run e o controlador dos dados pessoais tratados pelo aplicativo (versões para iPhone, Android e navegador).',
-      `Contato para qualquer assunto de privacidade: ${LEGAL_CONTACT}.`,
+      `${LEGAL_CONTROLLER_NAME} é o responsável pelo Panzeri Run e o controlador dos dados pessoais tratados pelo aplicativo (versões para iPhone, Android e navegador).`,
+      `Contato para qualquer assunto de privacidade, inclusive para exercer os seus direitos: ${LEGAL_CONTACT}. Esse é o canal direto com o responsável pelo tratamento. Poderemos pedir informações adicionais para confirmar a sua identidade e proteger os seus dados contra pedidos não autorizados.`,
+    ],
+  },
+  {
+    id: 'idade-minima',
+    heading: '1A. Quem pode usar',
+    paragraphs: [
+      'O Panzeri Run é destinado a pessoas com 18 anos ou mais. O aplicativo não é voltado a crianças nem a adolescentes e não deve ser usado por menores de 18 anos.',
+      `Se você tiver conhecimento de uso do Panzeri Run por uma pessoa menor de 18 anos, avise pelo e-mail ${LEGAL_CONTACT} para que o caso seja analisado e os dados sejam tratados conforme a lei.`,
     ],
   },
   { id: 'dados', heading: '2. Dados que tratamos', paragraphs: ['Dados fornecidos por você ou gerados pelo uso do aplicativo:', ...DATA_CATEGORIES, 'Dados de pagamento são processados pelo Asaas ou pela loja de aplicativos; não armazenamos dados de cartão.'] },
@@ -168,13 +190,43 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   { id: 'zepp-amazfit', heading: '5A. Zepp/Amazfit: importar atividades e enviar treinos ao relógio', paragraphs: ZEPP_PARAGRAPHS },
   {
+    id: 'saude-lojas',
+    heading: '5B. Dados de saúde recebidos do Health Connect e do Apple Saúde: limites de uso',
+    paragraphs: [
+      'O uso e a transferência, para qualquer outro aplicativo, das informações recebidas do Health Connect pelo Panzeri Run aderirão à Política de Permissões do Health Connect, incluindo os requisitos de Uso Limitado. As informações recebidas do Apple Saúde seguem as regras da Apple para dados de saúde.',
+      'Esses dados são usados somente para oferecer e melhorar as funções do Panzeri Run voltadas a você: mostrar suas atividades, comparar treinos prescritos e realizados, acompanhar sua evolução e personalizar seu treinamento, incluindo as análises descritas na seção 7.',
+      'Não usamos esses dados para publicidade nem para marketing, não os vendemos e não os transferimos a corretores de dados ou a plataformas de anúncios. Só os compartilhamos com fornecedores que executam as funções descritas neste documento (como a tecnologia de inteligência artificial e a infraestrutura), com o seu treinador, no painel de acompanhamento, quando necessário para segurança ou para cumprir a lei, ou quando você autorizar. O Panzeri Run não usa esses dados para treinar modelos de inteligência artificial próprios.',
+    ],
+  },
+  {
     id: 'finalidades',
     heading: '6. Para que usamos',
-    paragraphs: ['Personalizar a prescrição de treinos; acompanhar evolução e segurança do aluno; processar pagamento da assinatura; comunicação sobre o serviço (e-mail, notificações).'],
+    paragraphs: [
+      'Utilizamos os dados para:',
+      '- criar programas de treinamento compatíveis com os seus objetivos, a sua experiência e a sua disponibilidade;',
+      '- individualizar as sessões de exercício e acompanhar a sua execução, comparando os treinos planejados com as atividades realizadas;',
+      '- analisar tendências de desempenho, condicionamento físico e evolução, e acompanhar indicadores de esforço, fadiga, recuperação e prontidão para o treinamento;',
+      '- considerar a sua rotina, o seu sono e as suas percepções pessoais na interpretação dos resultados, e identificar mudanças relevantes em relação ao seu próprio histórico;',
+      '- produzir relatórios, gráficos e informações que facilitem a compreensão da sua evolução, e apoiar ajustes progressivos na prescrição de exercícios;',
+      '- manter o histórico necessário à continuidade do acompanhamento;',
+      '- prestar suporte, processar o pagamento da assinatura, enviar comunicações sobre o serviço (e-mail e notificações) e manter a segurança e o funcionamento do serviço.',
+      'As análises consideram a disponibilidade, a qualidade e a consistência das informações recebidas. Nenhum indicador isolado determina necessariamente uma alteração no treinamento: sempre que pertinente, diferentes informações são consideradas em conjunto.',
+    ],
   },
   { id: 'ia', heading: '7. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
   { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit', paragraphs: ATLAS_PARAGRAPHS },
   { id: 'terceiros', heading: '8. Compartilhamento e serviços de terceiros', paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
+  {
+    id: 'compromissos',
+    heading: '8A. Nossos compromissos sobre o compartilhamento',
+    paragraphs: [
+      'Cada fornecedor recebe ou processa somente as informações relacionadas às funções que efetivamente executa, conforme a necessidade, as autorizações aplicáveis e as condições contratuais.',
+      'Não comercializamos seus dados pessoais de saúde ou de treinamento. Não utilizamos informações individuais de saúde para direcionar publicidade comportamental.',
+      'Buscamos limitar a circulação de informações diretamente identificáveis sempre que elas não forem necessárias à finalidade do tratamento, preferindo indicadores derivados ou resumos quando eles bastarem.',
+      'O tratamento por fornecedores externos pode envolver infraestrutura localizada fora do Brasil. Nesses casos, observamos os requisitos legais aplicáveis às transferências internacionais de dados pessoais.',
+      'A presença de um serviço na lista de integrações não significa que ele esteja recebendo os seus dados: o compartilhamento só ocorre quando houver uma conexão efetiva autorizada por você.',
+    ],
+  },
   { id: 'desconexao', heading: '9. Desconectar um serviço e excluir os dados importados', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS] },
   { id: 'backup', heading: '10. Cópias de segurança', paragraphs: BACKUP_PARAGRAPHS },
   {
@@ -186,7 +238,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     id: 'direitos',
     heading: '12. Seus direitos',
     paragraphs: [
-      'A Lei Geral de Proteção de Dados (LGPD) garante a você, entre outros direitos: confirmar que tratamos seus dados; acessar e corrigir seus dados; pedir a anonimização, o bloqueio ou a eliminação de dados desnecessários, excessivos ou tratados em desconformidade; pedir a portabilidade; pedir a eliminação dos dados tratados com base no seu consentimento; saber com quem compartilhamos seus dados; saber que pode não dar o consentimento e quais as consequências; e revogar o consentimento a qualquer momento.',
+      'A Lei Geral de Proteção de Dados (LGPD) garante a você, entre outros direitos: confirmar que tratamos seus dados; acessar e corrigir seus dados; pedir a anonimização, o bloqueio ou a eliminação de dados desnecessários, excessivos ou tratados em desconformidade; pedir a portabilidade; pedir a eliminação dos dados tratados com base no seu consentimento; saber com quem compartilhamos seus dados; saber que pode não dar o consentimento e quais as consequências; e revogar o consentimento a qualquer momento; pedir informações sobre decisões tomadas unicamente com base em tratamento automatizado e a revisão delas, nos termos da lei; e apresentar reclamações à autoridade competente (a Autoridade Nacional de Proteção de Dados).',
       `Como exercer: parte do controle já está no aplicativo, na área Privacidade e dados e, para a Zepp/Amazfit, em Privacidade e permissões. Para os demais pedidos, escreva para ${LEGAL_CONTACT}, do mesmo e-mail cadastrado, que é o canal do responsável pelo tratamento.`,
     ],
   },
@@ -206,9 +258,9 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   {
     id: 'alteracoes',
     heading: '14. Alterações e versão',
-    paragraphs: [`Esta é a versão de ${LEGAL_UPDATED_LABEL}. Alterações relevantes serão comunicadas dentro do aplicativo.`],
+    paragraphs: [`Esta é a versão de ${LEGAL_UPDATED_LABEL}. Este documento pode ser atualizado para refletir mudanças nas funcionalidades, integrações, fornecedores, práticas de segurança ou exigências legais. Alterações relevantes serão comunicadas dentro do aplicativo e, quando exigirem nova autorização, solicitaremos a autorização correspondente.`],
   },
-  { id: 'contato', heading: '15. Contato', paragraphs: [LEGAL_CONTACT] },
+  { id: 'contato', heading: '15. Contato', paragraphs: [`${LEGAL_CONTROLLER_NAME} — ${LEGAL_CONTACT}`] },
 ];
 // ─── Termos de Uso ─────────────────────────────────────────────────────────────────────────────
 
@@ -256,6 +308,11 @@ export const TERMS_SECTIONS: LegalSection[] = [
       'O Atlas é a inteligência artificial que apoia a prescrição e a análise do treinamento no Panzeri Run, sob supervisão técnica do treinador responsável.',
       'As recomendações e análises do Atlas têm limitações, podem conter erros e não substituem avaliação médica nem o seu julgamento sobre como você se sente a cada sessão. O uso dos seus dados da Zepp/Amazfit pelo Atlas depende de uma autorização específica, que você pode conceder ou não e retirar quando quiser.',
     ],
+  },
+  {
+    id: 'idade',
+    heading: '7A. Quem pode usar',
+    paragraphs: ['O Panzeri Run é destinado a pessoas com 18 anos ou mais e não deve ser usado por menores de 18 anos. Mais detalhes na Política de Privacidade.'],
   },
   { id: 'alteracoes', heading: '8. Alterações', paragraphs: [`Estes termos podem ser atualizados; alterações relevantes serão comunicadas dentro do aplicativo. Versão de ${LEGAL_UPDATED_LABEL}.`] },
   { id: 'contato', heading: '9. Contato', paragraphs: [`Dúvidas: ${LEGAL_CONTACT}`] },

@@ -45,7 +45,7 @@ describe('fonte canonica unica e URLs preservadas', () => {
   });
 
   it('o resumo do app e servido pela mesma fonte e reaproveita as MESMAS frases da Politica (IA e terceiros)', () => {
-    const controller = new AppController({} as never);
+    const controller = new AppController({} as never, {} as never);
     expect(controller.legalSummary()).toBe(LEGAL_SUMMARY);
     const ai = PRIVACY_SECTIONS.find((s) => s.id === 'ia')!.paragraphs;
     expect(LEGAL_SUMMARY.sections.find((s) => s.id === 'ia')!.paragraphs).toEqual(ai);
@@ -163,5 +163,36 @@ describe('tela Privacidade e dados (app)', () => {
     expect(polar).toContain('Serão removidos os dados que vieram exclusivamente da Polar');
     expect(polar).toContain('podem ser preservadas, sem os valores da Polar');
     expect(polar).toContain('Ação diferente de desconectar');
+  });
+});
+
+describe('texto geral de privacidade reorganizado (30/10/2026, 2a revisao)', () => {
+  it('traz o compromisso, a idade minima (18+), os compromissos de compartilhamento e os limites de uso dos dados de saude', () => {
+    for (const id of ['compromisso', 'quem-somos', 'idade-minima', 'saude-lojas', 'compromissos']) expect(PRIVACY_SECTIONS.some((s) => s.id === id)).toBe(true);
+    expect(PRIVACY).toContain('Nosso compromisso com a sua privacidade');
+    expect(PRIVACY).toContain('destinado a pessoas com 18 anos ou mais');
+    expect(TERMS).toContain('destinado a pessoas com 18 anos ou mais');
+    expect(PRIVACY).toContain('Não comercializamos seus dados pessoais de saúde ou de treinamento');
+    expect(PRIVACY).toContain('Buscamos limitar a circulação de informações diretamente identificáveis');
+  });
+
+  it('declaracoes exigidas pelas lojas: Uso Limitado do Health Connect, sem publicidade, sem venda, sem corretores de dados e sem treinar IA propria', () => {
+    expect(PRIVACY).toContain('Política de Permissões do Health Connect, incluindo os requisitos de Uso Limitado');
+    expect(PRIVACY).toContain('não os vendemos e não os transferimos a corretores de dados');
+    expect(PRIVACY).toContain('não usa esses dados para treinar modelos de inteligência artificial próprios');
+    expect(PRIVACY).toContain('Strava'); // o paragrafo proprio do Strava continua: so' voce ve, nao vai a IA nem ao treinador, guardado por ate 7 dias
+    expect(PRIVACY).toContain('não são enviados à inteligência artificial');
+  });
+
+  it('fornecedores completos (incluindo o Google Analytics, so no navegador) e o responsavel identificado sem expor CPF nem telefone', () => {
+    for (const name of ['Anthropic', 'Resend', 'Asaas', 'RevenueCat', 'Expo', 'Telegram', 'Meta', 'ViaCEP', 'Cloudflare', 'Google Analytics 4', 'Google Play']) expect(PRIVACY).toContain(name);
+    expect(PRIVACY).toContain('Elton Almeida Panzeri é o responsável pelo Panzeri Run');
+    for (const doc of [PRIVACY, TERMS, SUMMARY]) expect(doc).not.toMatch(/060\.?903\.?666|06090366617|992538375/);
+  });
+
+  it('continua sem afirmar conformidade legal, sem Garmin e sem a promessa antiga sobre publicidade', () => {
+    expect(PRIVACY).not.toMatch(/em conformidade com a lgpd|compliant/i);
+    expect(PRIVACY).not.toMatch(/garmin/i);
+    expect(PRIVACY).not.toContain('Não vendemos nem compartilhamos dados com terceiros para fins de publicidade');
   });
 });
