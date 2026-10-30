@@ -6,10 +6,10 @@ import { INDICATOR_UNITS, METHOD_LABELS, parsePerformedAt, type CanonicalKey } f
 export const ADJUSTABLE_KEYS = ['vvo2max_kmh', 'hrmax_bpm', 'l1_speed_kmh', 'l1_hr_bpm', 'l2_speed_kmh', 'l2_hr_bpm'] as const;
 export type AdjustableKey = (typeof ADJUSTABLE_KEYS)[number];
 
-// Salvaguardas de PROCESSO para alterar a referência (não limitam a evolução do aluno nem o treino):
-export const MIN_EVIDENCE_ITEMS = 3; // observações distintas nos treinos
-export const MIN_EVIDENCE_SPAN_DAYS = 14; // período coberto pelas observações
-export const MIN_DAYS_BETWEEN_AI_ADJUSTMENTS = 14; // evita oscilar a referência semana a semana
+// Salvaguarda de PROCESSO para alterar a referência (30/10/2026, decisão de Elton): mínimo de observações em datas diferentes para a IA PODER propor.
+// Não há cobertura mínima de dias nem intervalo entre ajustes: a qualidade, a consistência e a comparabilidade das observações são avaliadas pela IA.
+// Único freio entre ajustes sucessivos: uma nova proposta precisa trazer ao menos uma observação posterior ao ajuste anterior (evidência nova, nunca a mesma reaproveitada).
+export const MIN_EVIDENCE_ITEMS = 3;
 
 export interface PayloadIndicator {
   key: string; value: number; unit: string; origin: string; confidence: string; rangeLow?: number | null; rangeHigh?: number | null;
@@ -124,8 +124,7 @@ export function validateAdjustment(base: ReferencePayload, proposal: AdjustmentP
     const valid = (proposal.evidencias ?? []).filter((e) => e && typeof e.descricao === 'string' && e.descricao.trim().length > 0 && parsePerformedAt(e.data, now));
     const dates = [...new Set(valid.map((e) => e.data))].sort();
     if (valid.length < MIN_EVIDENCE_ITEMS || dates.length < MIN_EVIDENCE_ITEMS) reasons.push(`evidencia insuficiente: sao necessarias ao menos ${MIN_EVIDENCE_ITEMS} observacoes dos treinos em datas diferentes (recebidas: ${dates.length})`);
-    else if (daysBetween(new Date(`${dates[0]}T00:00:00Z`), new Date(`${dates[dates.length - 1]}T00:00:00Z`)) < MIN_EVIDENCE_SPAN_DAYS) reasons.push(`evidencia concentrada demais: as observacoes precisam cobrir ao menos ${MIN_EVIDENCE_SPAN_DAYS} dias`);
-    if (lastAiAdjustmentAt && daysBetween(lastAiAdjustmentAt, now) < MIN_DAYS_BETWEEN_AI_ADJUSTMENTS) reasons.push(`ja houve ajuste da IA ha menos de ${MIN_DAYS_BETWEEN_AI_ADJUSTMENTS} dias`);
+    if (lastAiAdjustmentAt && !dates.some((d) => d > dateKey(lastAiAdjustmentAt))) reasons.push('evidencia ja usada: depois de um ajuste anterior, a nova proposta precisa de ao menos uma observacao posterior a ele');
   }
   if (reasons.length > 0) return { ok: false, reasons };
   const merged = [...next.values()];

@@ -2,7 +2,6 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { PhysiologyService } from '../src/physiology/physiology.service';
 import { OperationalReferenceService } from '../src/physiology/operational-reference.service';
-import { MIN_DAYS_BETWEEN_AI_ADJUSTMENTS } from '../src/physiology/operational-reference';
 import { PrescriptionAgentService, AiWeeklyDecisionSchema, type RunSessionParams } from '../src/training-plans/prescription-agent.service';
 import { fakeDb } from './helpers/fake-physiology-db';
 
@@ -116,7 +115,6 @@ describe('7 a 9. ajustes da referência pela IA', () => {
     const cases: Array<[string, any]> = [
       ['uma observação', GOOD({ evidencias: evidence(['2026-10-24']) })],
       ['mesma data repetida', GOOD({ evidencias: evidence(['2026-10-24', '2026-10-24', '2026-10-24']) })],
-      ['evidência concentrada em poucos dias', GOOD({ evidencias: evidence(['2026-10-20', '2026-10-22', '2026-10-24']) })],
       ['data futura', GOOD({ evidencias: evidence(['2026-10-01', '2026-10-12', '2026-12-24']) })],
       ['sem justificativa', GOOD({ justificativa: '' })],
       ['L2 acima da velocidade no VO2máx', GOOD({ indicadores: [{ chave: 'l2_speed_kmh', novoValor: 29 }] })],
@@ -131,13 +129,15 @@ describe('7 a 9. ajustes da referência pela IA', () => {
       expect({ name, accepted: r.accepted }).toEqual({ name, accepted: false });
     }
     expect(t.ref).toHaveLength(1);
-    // aceito uma vez, o segundo ajuste da IA dentro de 14 dias é recusado; depois do intervalo, passa
-    expect((await ref.proposeAdjustment(A, GOOD(), NOW)).accepted).toBe(true);
-    const again = await ref.proposeAdjustment(A, GOOD({ indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }] }), NOW);
-    expect(again.accepted).toBe(false);
-    expect(again.reasons.join(' ')).toContain(`${MIN_DAYS_BETWEEN_AI_ADJUSTMENTS} dias`);
-    const later = new Date(NOW.getTime() + (MIN_DAYS_BETWEEN_AI_ADJUSTMENTS + 1) * 86_400_000);
-    expect((await ref.proposeAdjustment(A, GOOD({ indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }], evidencias: evidence(['2026-10-12', '2026-10-24', '2026-11-10']) }), later)).accepted).toBe(true);
+    // sem cobertura mínima de dias nem intervalo: observações em 3 dias seguidos bastam para PODER propor
+    expect((await ref.proposeAdjustment(A, GOOD({ evidencias: evidence(['2026-10-20', '2026-10-21', '2026-10-22']) }), NOW)).accepted).toBe(true);
+    // ajuste seguinte no mesmo dia: não há bloqueio de tempo, mas a mesma evidência não pode ser reaproveitada
+    const reuse = await ref.proposeAdjustment(A, GOOD({ indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }], evidencias: evidence(['2026-10-20', '2026-10-21', '2026-10-22']) }), NOW);
+    expect(reuse.accepted).toBe(false);
+    expect(reuse.reasons.join(' ')).toContain('evidencia ja usada');
+    // com observação nova (posterior ao ajuste), passa logo no dia seguinte
+    const next = new Date(NOW.getTime() + 2 * 86_400_000);
+    expect((await ref.proposeAdjustment(A, GOOD({ indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }], evidencias: evidence(['2026-10-21', '2026-10-22', '2026-11-02']) }), next)).accepted).toBe(true);
   });
 
   it('ajuste do treinador (Gerente Técnico) dispensa a evidência, mas continua validando estrutura e justificativa, e fica identificado', async () => {
