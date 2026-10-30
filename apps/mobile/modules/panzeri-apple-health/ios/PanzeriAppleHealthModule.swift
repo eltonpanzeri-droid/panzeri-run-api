@@ -372,7 +372,32 @@ public class PanzeriAppleHealthModule: Module {
     ]
     // Medidas associadas ao treino (so' as que o iOS entregar: sem autorizacao ou sem dado, a chave simplesmente nao existe).
     item.merge(Self.workoutMeasures(workout)) { _, new in new }
+    // Frequencia cardiaca: treinos gravados por aplicativos de terceiros (ex.: Garmin Connect) muitas vezes NAO trazem a estatistica propria, embora as medicoes de FC existam no app Saude no mesmo
+    // intervalo. Nesse caso le as medicoes REAIS dentro do intervalo do treino (media e maxima) e marca a base, para nunca confundir com a estatistica do proprio treino. Sem medicao: nada e' enviado.
+    if item["avgHeartRateBpm"] != nil {
+      item["heartRateBasis"] = "workout_statistics"
+    } else if let window = await self.heartRateInWorkoutWindow(workout) {
+      item["avgHeartRateBpm"] = window.avg
+      item["maxHeartRateBpm"] = window.max
+      item["heartRateBasis"] = "time_window"
+    }
     return item
+  }
+
+  private func heartRateInWorkoutWindow(_ workout: HKWorkout) async -> (avg: Double, max: Double)? {
+    guard let type = HKObjectType.quantityType(forIdentifier: .heartRate) else { return nil }
+    let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate, options: [.strictStartDate, .strictEndDate])
+    let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
+    return await withCheckedContinuation { (continuation: CheckedContinuation<(avg: Double, max: Double)?, Never>) in
+      let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: predicate, options: [.discreteAverage, .discreteMax]) { _, statistics, _ in
+        guard let avg = statistics?.averageQuantity()?.doubleValue(for: unit), let max = statistics?.maximumQuantity()?.doubleValue(for: unit) else {
+          continuation.resume(returning: nil)
+          return
+        }
+        continuation.resume(returning: (avg: avg, max: max))
+      }
+      self.healthStore.execute(query)
+    }
   }
 
   private func workoutItems(_ workouts: [HKWorkout]) async -> [[String: Any]] {

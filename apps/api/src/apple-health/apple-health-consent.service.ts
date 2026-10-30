@@ -21,7 +21,7 @@ const asStrings = (value: unknown): string[] => (Array.isArray(value) ? (value a
 export type AppleConsentAccess = { mode: 'legacy' | 'recorded' | 'blocked'; allowed: Set<string> };
 
 // Chaves de medidas de sensor guardadas em providerMetrics / payload bruto: saem quando o grupo e' retirado.
-export const APPLE_SENSOR_KEYS = ['avgHeartRateBpm', 'maxHeartRateBpm', 'stepCount', 'cadenceBasis', 'powerAvgWatts', 'elevationGainMeters', 'avgStrideLengthMeters', 'avgGroundContactTimeMs', 'avgVerticalOscillationCm'] as const;
+export const APPLE_SENSOR_KEYS = ['avgHeartRateBpm', 'maxHeartRateBpm', 'heartRateBasis', 'stepCount', 'cadenceBasis', 'powerAvgWatts', 'elevationGainMeters', 'avgStrideLengthMeters', 'avgGroundContactTimeMs', 'avgVerticalOscillationCm'] as const;
 
 @Injectable()
 export class AppleHealthConsentService {

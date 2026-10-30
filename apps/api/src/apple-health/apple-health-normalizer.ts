@@ -136,6 +136,9 @@ export function normalizeAppleHealthWorkout(input: unknown, options: NormalizeOp
   const energy = inRange(w.activeEnergyKcal, 0, 20_000);
   const avgHr = sensorsAllowed ? inRange(w.avgHeartRateBpm, 20, 260) : null;
   const maxHr = sensorsAllowed ? inRange(w.maxHeartRateBpm, 20, 260) : null;
+  // Base da FC: 'workout_statistics' (estatistica do proprio treino) ou 'time_window' (medicoes reais dentro do intervalo do treino). Outro valor e' ignorado.
+  const hrBasisRaw = asString(w.heartRateBasis, 30);
+  const hrBasis = avgHr !== null && (hrBasisRaw === 'workout_statistics' || hrBasisRaw === 'time_window') ? hrBasisRaw : null;
   const power = sensorsAllowed ? inRange(w.powerAvgWatts, 1, 3000) : null;
   const elevation = sensorsAllowed ? inRange(w.elevationGainMeters, 0, 20_000) : null;
   const extra = {
@@ -179,6 +182,7 @@ export function normalizeAppleHealthWorkout(input: unknown, options: NormalizeOp
         activeEnergyKcal: energy,
         avgHeartRateBpm: avgHr,
         maxHeartRateBpm: maxHr,
+        heartRateBasis: hrBasis,
         stepCount,
         powerAvgWatts: power,
         elevationGainMeters: elevation,
@@ -217,6 +221,7 @@ export function normalizeAppleHealthWorkout(input: unknown, options: NormalizeOp
         distanceLimitation: distanceStatus === 'zero_reported' ? 'zero_informado_pela_origem_sem_evidencia_de_distancia_medida' : null,
         stepCount,
         cadenceBasis: stepCount !== null && durationForCadence !== null ? 'steps_over_duration' : null,
+        heartRateBasis: hrBasis,
         ...extra,
       },
     },

@@ -29,6 +29,8 @@ export interface AppleRunningWorkout {
   workoutPlanId: string | null;
   // Medidas associadas ao treino no app Saude (28/10/2026). So' existem quando o iOS as entregou: sem autorizacao ou sem dado, o campo falta (nunca zero).
   avgHeartRateBpm?: number;
+  // 'workout_statistics' = estatistica do proprio treino; 'time_window' = medicoes de FC dentro do intervalo do treino (treinos de terceiros sem estatistica propria).
+  heartRateBasis?: 'workout_statistics' | 'time_window';
   maxHeartRateBpm?: number;
   activeEnergyKcal?: number;
   stepCount?: number;
