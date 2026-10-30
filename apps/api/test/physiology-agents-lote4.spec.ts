@@ -288,3 +288,17 @@ describe('laudo de ergoespirometria com VO₂ dos limiares em % do máximo e 6 z
     expect(((await phys.profile(A)) as any).operationalReference.payload.zones).toHaveLength(5);
   });
 });
+
+describe('zonas como faixas estimadas e FC só para avaliar (30/10/2026)', () => {
+  it('as instruções dizem que FC não prescreve, que as zonas são faixas estimadas e que a IA pode prescrever outra zona explicando o motivo', () => {
+    const agent: any = new PrescriptionAgentService({ get: () => undefined } as any, {} as any);
+    const weekly = String(agent.buildSystemPromptStable().map?.((p: any) => (typeof p === 'string' ? p : p.text)).join('\n') ?? agent.buildSystemPromptStable());
+    const day = String(agent.buildRunSessionSystemPrompt());
+    expect(weekly).toContain('A FC NAO e usada para prescrever');
+    expect(weekly).not.toContain('FC alvo, em vez de valores genericos');
+    expect(weekly).toContain('NAO acontecem todas ao mesmo tempo');
+    expect(weekly).toContain('leve em zona 3 em vez de zona 2');
+    expect(day).toContain('A FC serve so para avaliar a repercussao do treino');
+    expect(day).toContain('leve em zona 3');
+  });
+});

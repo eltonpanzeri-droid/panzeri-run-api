@@ -309,7 +309,7 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
                 <View key={z.id} style={styles.zoneRow}>
                   <Text style={styles.label}>{zoneTitle(z)}</Text>
                   <Text style={styles.hint}>{zoneSpeedText(z, unit)}</Text>
-                  <Text style={styles.hint}>{z.heartRate ? `Frequência cardíaca: ${z.heartRate[0] === 0 ? 'até' : `${z.heartRate[0]} a`} ${z.heartRate[1]} bpm` : 'Frequência cardíaca: sem dados suficientes'}</Text>
+                  <Text style={styles.hint}>{z.heartRate ? `Frequência cardíaca observada no teste: ${z.heartRate[0] === 0 ? 'até' : `${z.heartRate[0]} a`} ${z.heartRate[1]} bpm` : 'Frequência cardíaca: sem dados suficientes'}</Text>
                 </View>
               ))}
             </View>
