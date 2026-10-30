@@ -504,7 +504,7 @@ describe('Motor de Reconciliacao Prescricao x Execucao V1', () => {
     const result = await service.materializeExtraActivityAsStudent('user-a', activity.id);
 
     expect(result).not.toBeNull();
-    expect(result!.session).toMatchObject({ origin: 'device_extra', modality: 'bike' });
+    expect(result && 'session' in result ? result.session : null).toMatchObject({ origin: 'device_extra', modality: 'bike' });
   });
 
   it('materializeExtraActivityAsStudent rejeita (NotFoundException) quando a ActivityLog pertence a OUTRO aluno (protecao contra IDOR)', async () => {

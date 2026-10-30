@@ -78,6 +78,34 @@ export const correctionHooks = {
   },
 };
 
+// Atualizacao do relatorio semanal apos mudanca de vinculos (Conciliacao, 30/10/2026). Registro unico (como os ganchos): o ExecutionAnalysisService registra a funcao ao subir;
+// quem altera vinculos (correcao do aluno, reconciliacao ao importar atividade) so' pede a atualizacao, sem depender do servico. Falha nunca propaga.
+type WeeklyReportRefresher = (userId: string, dates: string[]) => Promise<void>;
+let weeklyReportRefresher: WeeklyReportRefresher | null = null;
+export const weeklyReportRefresh = {
+  set(fn: WeeklyReportRefresher | null): void { weeklyReportRefresher = fn; },
+  async run(userId: string, dates: string[]): Promise<void> {
+    if (!weeklyReportRefresher || dates.length === 0) return;
+    try { await weeklyReportRefresher(userId, dates); } catch (error) { logger.error(`Atualizacao do relatorio semanal falhou (aluno ${userId}): ${error instanceof Error ? error.message : String(error)}`); }
+  },
+};
+
+// Atividades que chegam em lote (primeira sincronizacao de um historico) mudam varios vinculos da mesma semana: o relatorio e' recalculado UMA vez, apos uma pausa curta,
+// em vez de uma vez por atividade. Correcao feita por pessoa chama weeklyReportRefresh.run direto (imediato).
+const PENDING_REFRESH_DELAY_MS = 20_000;
+const pendingRefresh = new Map<string, Set<string>>();
+export function scheduleWeeklyReportRefresh(userId: string, date: string): void {
+  const already = pendingRefresh.get(userId);
+  if (already) { already.add(date); return; }
+  pendingRefresh.set(userId, new Set([date]));
+  const timer = setTimeout(() => {
+    const dates = [...(pendingRefresh.get(userId) ?? [])];
+    pendingRefresh.delete(userId);
+    void weeklyReportRefresh.run(userId, dates);
+  }, PENDING_REFRESH_DELAY_MS);
+  timer.unref?.();
+}
+
 const MS_DAY = 86_400_000;
 
 /** Segunda-feira (YYYY-MM-DD) da semana de uma data YYYY-MM-DD. */

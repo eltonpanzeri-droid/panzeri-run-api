@@ -223,6 +223,26 @@ export class IdentityConfirmationService {
     return { status: 'resolved' as const, decision: kind, decisionId: decision.id, activityLogIds: [...ids].sort(), reevaluated: ok, applied: ok, retried };
   }
 
+  // O aluno declara que DUAS atividades suas sao a mesma execucao (registro duplicado), mesmo sem pendencia aberta (Conciliacao, 30/10/2026). Mesmo mecanismo de
+  // decisao humana 'same' (nada e' apagado; a execucao passa a contar uma vez, pela observacao canonica). Se a avaliacao de identidade mantiver as duas separadas
+  // (ex.: modalidades incompativeis ou horarios sem sobreposicao), a decisao fica registrada mas 'applied' vem false e o app diz isso, sem fingir que juntou.
+  async declareSameAsStudent(userId: string, activityLogIds: unknown) {
+    const ids = Array.isArray(activityLogIds) ? [...new Set((activityLogIds as unknown[]).filter((id): id is string => typeof id === 'string' && id.length > 0))] : [];
+    if (ids.length !== 2) throw new BadRequestException('Informe as duas atividades.');
+    const { decision, retried } = await this.locked(userId, async (tx) => {
+      const owned = await tx.activityLog.findMany({ where: { userId, id: { in: ids } }, select: { id: true } });
+      if (owned.length !== ids.length) throw new NotFoundException('Atividade nao encontrada.');
+      const key = pairKey(ids[0], ids[1]);
+      const already = unprocessedDecisions(await this.rowsWithDecisions(tx, userId)).find((d) => d.status === 'active' && d.actorRole === 'student' && d.kind === 'same' && d.pairs.some(([a, b]) => pairKey(a, b) === key));
+      if (already) return { decision: already, retried: true };
+      const created = decisionOf(allPairs(ids), { id: randomUUID(), kind: 'same', actorRole: 'student', actorId: userId, decidedAt: new Date().toISOString(), note: 'student_declared_duplicate' });
+      await this.appendDecision(tx, userId, ids, created);
+      return { decision: created, retried: false };
+    });
+    const { ok } = await this.processDecision(userId, decision);
+    return { status: 'resolved' as const, decision: 'same' as const, decisionId: decision.id, activityLogIds: [...ids].sort(), reevaluated: ok, applied: ok, retried };
+  }
+
   // O TREINADOR resolve (qualquer tamanho de conjunto). 'same': todo o conjunto e' uma execucao so'. 'distinct': ESTA observacao e' diferente das demais
   // do conjunto (as demais seguem sendo avaliadas entre si). Nunca cria/move/altera sessoes prescritas. Repetir enquanto o efeito nao foi concluido e' idempotente.
   async resolveAsCoach(studentId: string, coach: { id: string }, activityLogId: string, kind: HumanDecisionKind, note?: string | null) {

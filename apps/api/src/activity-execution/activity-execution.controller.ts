@@ -50,9 +50,30 @@ export class ActivityExecutionController {
     return this.sessionExecutionLinkService.linkableSessionsAsStudent(user.sub, activityLogId);
   }
 
+  // Conciliacao (30/10/2026): body { trainingSessionId, confirmIncompatible?, role?: 'primary'|'part', keepFeedback?: 'session'|'activity' }.
+  // 400 com code 'needs_confirmation' (dados parecem diferentes: o app mostra os motivos e reenvia com confirmIncompatible) ou 'feedback_choice_required'.
   @Post(':activityLogId/link')
-  link(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('trainingSessionId') trainingSessionId: string) {
-    return this.sessionExecutionLinkService.linkActivityToSessionAsStudent(user.sub, activityLogId, String(trainingSessionId ?? ''));
+  link(
+    @CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('trainingSessionId') trainingSessionId: string,
+    @Body('confirmIncompatible') confirmIncompatible?: boolean, @Body('role') role?: string, @Body('keepFeedback') keepFeedback?: string,
+  ) {
+    return this.sessionExecutionLinkService.linkActivityToSessionAsStudent(user.sub, activityLogId, String(trainingSessionId ?? ''), {
+      confirmIncompatible: confirmIncompatible === true,
+      role: role === 'part' ? 'part' : 'primary',
+      keepFeedback: keepFeedback === 'session' || keepFeedback === 'activity' ? keepFeedback : undefined,
+    });
+  }
+
+  // "Treino extra" ou "Rotina cotidiana": body { kind: 'extra' | 'daily' }. Ambas contam como exercicio extra; desfaz o vinculo (historico e feedback preservados).
+  @Post(':activityLogId/classify')
+  classify(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('kind') kind: string) {
+    return this.sessionExecutionLinkService.classifyActivityAsStudent(user.sub, activityLogId, kind === 'daily' ? 'daily' : 'extra');
+  }
+
+  // "Registro duplicado": body { otherActivityLogId }. A execucao passa a contar uma vez (decisao humana de identidade); nada e' apagado.
+  @Post(':activityLogId/duplicate')
+  duplicate(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('otherActivityLogId') otherActivityLogId: string) {
+    return this.identityConfirmation.declareSameAsStudent(user.sub, [activityLogId, String(otherActivityLogId ?? '')]);
   }
 
   @Post(':activityLogId/unlink')
@@ -65,7 +86,8 @@ export class ActivityExecutionController {
   // mobile abrir o MESMO formulario de feedback (POST /workout-completions) ja' usado pra sessoes
   // normais. Nunca cria um segundo sistema de feedback.
   @Post(':activityLogId/materialize')
-  materialize(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
-    return this.sessionExecutionLinkService.materializeExtraActivityAsStudent(user.sub, activityLogId);
+  materialize(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('force') force?: boolean) {
+    // Sem 'force', se ha' treino prescrito plausivel no mesmo dia a resposta e' { needsLinkQuestion, candidates }: o app pergunta 'Esta atividade foi o treino X?' antes de criar um segundo feedback.
+    return this.sessionExecutionLinkService.materializeExtraActivityAsStudent(user.sub, activityLogId, { force: force === true });
   }
 }

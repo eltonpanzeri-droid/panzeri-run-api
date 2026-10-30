@@ -10871,10 +10871,19 @@ function confirmAsync(title: string, message: string): Promise<boolean> {
   });
 }
 
+type LinkOption = {
+  id: string; title: string; modality: string; isoDate: string; durationMin: number | null; distanceKm: number | null; hasFeedback: boolean;
+  linkedToThisActivity: boolean; linkedToAnotherActivity: boolean; compatibility: { needsConfirmation: boolean; reasons: string[] };
+};
+type LinkExtra = { role?: 'part'; confirmIncompatible?: boolean; keepFeedback?: 'session' | 'activity' };
+
+// Conciliacao (30/10/2026): TODA atividade tem a opcao de vincular, a qualquer treino prescrito de qualquer semana. Quando os dados nao parecem compativeis o app
+// mostra o aviso e a aluna confirma; quando o treino e a atividade ja tem feedback, ela escolhe qual manter (o outro fica guardado). Nunca apaga nada.
 function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }: { activityLogId: string; linked: boolean; accessToken: string; onChanged: () => void }) {
-  const [options, setOptions] = React.useState<Array<{ id: string; title: string; modality: string; isoDate: string; linkedToThisActivity: boolean; linkedToAnotherActivity: boolean }> | null>(null);
+  const [options, setOptions] = React.useState<LinkOption[] | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState('');
+  const [feedbackChoice, setFeedbackChoice] = React.useState<{ option: LinkOption; extra: LinkExtra } | null>(null);
   const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
   // Na web/PWA a confirmacao e' feita DENTRO do app (window.confirm no PWA do iPhone pode deixar a tela sem responder ao toque depois do dialogo nativo).
   const [pendingConfirm, setPendingConfirm] = React.useState<{ title: string; message: string; resolve: (ok: boolean) => void } | null>(null);
@@ -10893,9 +10902,9 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     try {
       const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/linkable-sessions`, { headers });
       if (!response.ok) throw new Error();
-      const list = (await response.json()) as NonNullable<typeof options>;
+      const list = (await response.json()) as LinkOption[];
       setOptions(list);
-      if (list.length === 0) setMessage('Não há treino prescrito desta semana compatível com esta atividade.');
+      if (list.length === 0) setMessage('Não encontrei treinos prescritos perto da data desta atividade.');
     } catch {
       setMessage('Não foi possível carregar os treinos agora.');
     } finally {
@@ -10903,7 +10912,7 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     }
   }
 
-  async function post(path: 'link' | 'unlink', body: Record<string, unknown>) {
+  async function post(path: 'unlink' | 'classify', body: Record<string, unknown>) {
     setBusy(true);
     setMessage('');
     try {
@@ -10922,10 +10931,36 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     }
   }
 
-  async function choose(option: NonNullable<typeof options>[number]) {
-    const replaces = option.linkedToAnotherActivity ? '\n\nEsse treino já tinha outra atividade vinculada; ela passará a ser uma atividade extra.' : '';
-    const ok = await ask('Vincular atividade', `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback desse treino será mantido.${replaces}`);
-    if (ok) await post('link', { trainingSessionId: option.id });
+  async function link(option: LinkOption, extra: LinkExtra = {}) {
+    setBusy(true);
+    setMessage('');
+    let ok = false;
+    let payload: { code?: string; message?: string; reasons?: string[] } | null = null;
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/link`, { method: 'POST', headers, body: JSON.stringify({ trainingSessionId: option.id, ...extra }) });
+      ok = response.ok;
+      if (!ok) payload = await response.json().catch(() => null);
+    } catch {
+      setMessage('Não foi possível salvar agora.');
+      setBusy(false);
+      return;
+    }
+    setBusy(false);
+    if (ok) { setOptions(null); setFeedbackChoice(null); onChanged(); return; }
+    if (payload?.code === 'needs_confirmation') {
+      const confirmed = await ask('Os dados parecem diferentes', `${(payload.reasons ?? []).join('\n')}\n\nConfirma que esta atividade foi este treino?`);
+      if (confirmed) await link(option, { ...extra, confirmIncompatible: true });
+      return;
+    }
+    if (payload?.code === 'feedback_choice_required') { setFeedbackChoice({ option, extra }); return; }
+    setMessage(payload?.message ?? 'Não foi possível salvar agora.');
+  }
+
+  async function choose(option: LinkOption, extra: LinkExtra = {}) {
+    const title = extra.role === 'part' ? 'Adicionar como parte do treino' : 'Vincular atividade';
+    const replaces = extra.role !== 'part' && option.linkedToAnotherActivity ? '\n\nEsse treino já tinha outra atividade vinculada; ela passará a ser uma atividade extra.' : '';
+    const ok = await ask(title, `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback será mantido.${replaces}`);
+    if (ok) await link(option, extra);
   }
 
   async function unlink() {
@@ -10944,25 +10979,59 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     );
   }
 
+  if (feedbackChoice) {
+    return (
+      <View style={{ gap: 8, marginTop: 6 }}>
+        <Text style={{ fontSize: 14, fontWeight: '700' }}>Qual feedback manter?</Text>
+        <Text style={{ fontSize: 13, color: '#475569' }}>Os dois registros têm feedback. Escolha qual fica como principal; o outro continua guardado, nada é apagado.</Text>
+        <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => link(feedbackChoice.option, { ...feedbackChoice.extra, keepFeedback: 'session' })}>
+          <Text style={styles.secondaryOutlineButtonText}>Manter o feedback do treino</Text>
+        </Pressable>
+        <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => link(feedbackChoice.option, { ...feedbackChoice.extra, keepFeedback: 'activity' })}>
+          <Text style={styles.secondaryOutlineButtonText}>Manter o feedback da atividade</Text>
+        </Pressable>
+        <Pressable onPress={() => setFeedbackChoice(null)}><Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>Cancelar</Text></Pressable>
+        {message ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{message}</Text> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={{ gap: 6, marginTop: 6 }}>
       {options == null ? (
         <>
           <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={openOptions}>
-            <Text style={styles.secondaryOutlineButtonText}>{busy ? 'Carregando...' : linked ? 'Trocar treino vinculado' : 'Vincular a treino prescrito'}</Text>
+            <Text style={styles.secondaryOutlineButtonText}>{busy ? 'Carregando...' : linked ? 'Trocar treino vinculado' : 'Vincular a um treino prescrito'}</Text>
           </Pressable>
           {linked ? (
             <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={unlink}>
               <Text style={styles.secondaryOutlineButtonText}>Desfazer vínculo</Text>
             </Pressable>
-          ) : null}
+          ) : (
+            <>
+              <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => post('classify', { kind: 'daily' })}>
+                <Text style={styles.secondaryOutlineButtonText}>É rotina do dia a dia</Text>
+              </Pressable>
+              <Text style={{ fontSize: 11, color: '#64748b' }}>Vale como exercício extra e entra na sua carga; só avisa o programa que faz parte da rotina.</Text>
+            </>
+          )}
         </>
       ) : (
         <>
+          <Text style={{ fontSize: 13, fontWeight: '700' }}>Escolha o treino:</Text>
           {options.map((option) => (
-            <Pressable key={option.id} style={[styles.secondaryOutlineButton, (busy || option.linkedToThisActivity) && styles.disabledButton]} disabled={busy || option.linkedToThisActivity} onPress={() => choose(option)}>
-              <Text style={styles.secondaryOutlineButtonText}>{`${option.isoDate.split('-').reverse().slice(0, 2).join('/')} · ${option.title}${option.linkedToThisActivity ? ' (atual)' : option.linkedToAnotherActivity ? ' (já vinculado a outra atividade)' : ''}`}</Text>
-            </Pressable>
+            <View key={option.id} style={{ gap: 4 }}>
+              <Pressable style={[styles.secondaryOutlineButton, (busy || option.linkedToThisActivity) && styles.disabledButton]} disabled={busy || option.linkedToThisActivity} onPress={() => choose(option)}>
+                <Text style={styles.secondaryOutlineButtonText}>{`${option.isoDate.split('-').reverse().slice(0, 2).join('/')} · ${option.title}${option.linkedToThisActivity ? ' (atual)' : option.linkedToAnotherActivity ? ' (já vinculado a outra atividade)' : ''}`}</Text>
+              </Pressable>
+              <Text style={{ fontSize: 11, color: '#64748b' }}>
+                {[option.durationMin ? `${Math.round(option.durationMin)} min` : null, option.distanceKm ? `${String(option.distanceKm).replace('.', ',')} km` : null, option.hasFeedback ? 'já tem feedback' : null].filter(Boolean).join(' · ')}
+                {option.compatibility.needsConfirmation ? '  ·  pode não corresponder' : ''}
+              </Text>
+              {option.linkedToAnotherActivity && !option.linkedToThisActivity ? (
+                <Pressable disabled={busy} onPress={() => choose(option, { role: 'part' })}><Text style={{ fontSize: 12, color: '#1769AA', fontWeight: '600' }}>Adicionar como parte deste treino</Text></Pressable>
+              ) : null}
+            </View>
           ))}
           <Pressable onPress={() => { setOptions(null); setMessage(''); }}><Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>Cancelar</Text></Pressable>
         </>
@@ -11081,8 +11150,10 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized, highli
   const durationMin = activity.durationMin != null ? Math.round(activity.durationMin) : null;
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState('');
+  // Conciliacao (30/10/2026): com treino prescrito plausivel no mesmo dia, a API pergunta antes de criar um segundo feedback.
+  const [question, setQuestion] = React.useState<Array<{ id: string; title: string; isoDate: string; hasFeedback: boolean }> | null>(null);
 
-  async function registerFeedback() {
+  async function registerFeedback(force = false) {
     if (!activity.activityLogId) return;
     setSubmitting(true);
     setError('');
@@ -11090,8 +11161,36 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized, highli
       const response = await fetch(`${API_URL}/me/activity-reconciliation/${activity.activityLogId}/materialize`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force }),
       });
       if (!response.ok) throw new Error();
+      const data = (await response.json().catch(() => null)) as { needsLinkQuestion?: boolean; candidates?: Array<{ id: string; title: string; isoDate: string; hasFeedback: boolean }> } | null;
+      if (data?.needsLinkQuestion && data.candidates) { setQuestion(data.candidates); return; }
+      setQuestion(null);
+      onMaterialized();
+    } catch {
+      setError('Não foi possível agora. Tente novamente em instantes.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function linkTo(sessionId: string) {
+    if (!activity.activityLogId) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activity.activityLogId}/link`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trainingSessionId: sessionId }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setError(payload?.message ?? 'Não foi possível agora. Tente novamente em instantes.');
+        return;
+      }
+      setQuestion(null);
       onMaterialized();
     } catch {
       setError('Não foi possível agora. Tente novamente em instantes.');
@@ -11112,9 +11211,24 @@ function AlternativeActivityCard({ activity, accessToken, onMaterialized, highli
           {[durationMin ? `${durationMin} min` : null, distanceKm ? `${distanceKm} km` : null].filter(Boolean).join(' · ')}
         </Text>
         <ProviderLabel provider={activity.provider} />
-        <Pressable style={[styles.secondaryOutlineButton, { marginTop: 8 }, submitting && styles.disabledButton]} disabled={submitting} onPress={registerFeedback}>
-          <Text style={styles.secondaryOutlineButtonText}>{submitting ? 'Abrindo...' : 'Registrar feedback'}</Text>
-        </Pressable>
+        {question ? (
+          <View style={{ gap: 6, marginTop: 8 }}>
+            <Text style={{ fontSize: 14, fontWeight: '700' }}>Esta atividade foi algum destes treinos?</Text>
+            <Text style={{ fontSize: 12, color: '#64748b' }}>Se foi, ela passa a fazer parte do treino e o feedback dele é mantido. Se foi um treino diferente, você registra o feedback dela separado.</Text>
+            {question.map((candidate) => (
+              <Pressable key={candidate.id} style={[styles.secondaryOutlineButton, submitting && styles.disabledButton]} disabled={submitting} onPress={() => linkTo(candidate.id)}>
+                <Text style={styles.secondaryOutlineButtonText}>{`Sim, foi ${candidate.title} de ${candidate.isoDate.split('-').reverse().slice(0, 2).join('/')}${candidate.hasFeedback ? ' (já tem feedback)' : ''}`}</Text>
+              </Pressable>
+            ))}
+            <Pressable style={[styles.secondaryOutlineButton, submitting && styles.disabledButton]} disabled={submitting} onPress={() => registerFeedback(true)}>
+              <Text style={styles.secondaryOutlineButtonText}>Não, foi um treino diferente (extra)</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable style={[styles.secondaryOutlineButton, { marginTop: 8 }, submitting && styles.disabledButton]} disabled={submitting} onPress={() => registerFeedback()}>
+            <Text style={styles.secondaryOutlineButtonText}>{submitting ? 'Abrindo...' : 'Registrar feedback'}</Text>
+          </Pressable>
+        )}
         {activity.activityLogId ? <ActivityLinkControls activityLogId={activity.activityLogId} linked={false} accessToken={accessToken} onChanged={onMaterialized} /> : null}
         {error ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{error}</Text> : null}
       </View>
@@ -11169,6 +11283,8 @@ function PendingActivityCard({ activity, accessToken, onConfirmed, highlighted }
             </Pressable>
           ))}
         </View>
+        {/* Conciliacao (30/10/2026): toda atividade tem a opcao de escolher OUTRO treino, de qualquer semana (as sugestoes acima sao so' as mais provaveis). */}
+        <ActivityLinkControls activityLogId={activity.activityLogId} linked={false} accessToken={accessToken} onChanged={onConfirmed} />
         {error ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{error}</Text> : null}
       </View>
     </View>

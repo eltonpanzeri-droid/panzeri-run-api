@@ -1,5 +1,5 @@
 import { parseEmailList } from '../common/staff-roles';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
@@ -41,6 +41,18 @@ export class WorkoutCompletionsService {
 
     if (!session) {
       throw new NotFoundException('Treino nao encontrado.');
+    }
+
+    // Conciliacao (30/10/2026): se uma atividade importada pode ser ESTE treino prescrito e o aluno ainda nao respondeu se corresponde, o feedback fica bloqueado ate
+    // ela responder (vincular ou dizer que foi um treino extra). Vale no servidor (app antigo em cache nao escapa) e so' para este treino; o feedback existente continua visivel.
+    if (!['device_extra', 'student_extra'].includes(session.origin ?? '') && this.sessionExecutionLink) {
+      const pending = await this.sessionExecutionLink.pendingQuestionsForSession(userId, session.id);
+      if (pending.length > 0) {
+        throw new ConflictException({
+          code: 'activity_question_pending', message: 'Antes de registrar o feedback, responda se a atividade importada corresponde a este treino.',
+          activityLogIds: pending.map((p) => p.activityLogId), linkIds: pending.map((p) => p.linkId),
+        });
+      }
     }
 
     // Feedback de Atividade Alternativa (02/10/2026) — a sessao e' sintetica (materializada por

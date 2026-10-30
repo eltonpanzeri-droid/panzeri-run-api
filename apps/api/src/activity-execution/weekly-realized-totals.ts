@@ -62,6 +62,8 @@ export interface TotalsActivityInput {
   elevationGainMeters?: number | null;
   caloriesKcal?: number | null;
   cadenceAvg?: number | null;
+  // rotulo dado pelo aluno ('daily' = rotina cotidiana, ex.: caminhada). Conta como exercicio extra (carga); so' informa a leitura contextual.
+  studentLabel?: string | null;
 }
 
 export interface TotalsEvent {
@@ -96,6 +98,8 @@ export interface TotalsExtraEvent extends TotalsEvent {
   origin: ExtraOrigin;
   perceivedEffort: number | null;
   measures: TotalsMeasures;
+  // o aluno marcou como rotina cotidiana (ex.: caminhada); continua extra e conta na carga
+  routine?: boolean;
 }
 
 export interface ModalityTotals { events: number; minutes: number; km: number | null }
@@ -258,7 +262,7 @@ export function buildWeeklyRealizedTotals(input: { weekStartDate: string; sessio
       continue;
     }
     const origin: ExtraOrigin = extraLink?.origin === 'student_extra' ? 'student_extra' : extraLink ? 'device_extra' : 'somente_atividade';
-    extraEvents.push({ ...toEvent(key, activity, extraLink), origin, perceivedEffort: extraLink?.perceivedEffort ?? null, measures: measuresOf(activity, extraLink) });
+    extraEvents.push({ ...toEvent(key, activity, extraLink), origin, perceivedEffort: extraLink?.perceivedEffort ?? null, measures: measuresOf(activity, extraLink), ...(activity?.studentLabel === 'daily' ? { routine: true } : {}) });
     claimed.add(key);
     for (const session of linked) claimed.add(`session:${session.sessionId}`);
   }
@@ -392,6 +396,7 @@ export function promptTotalsOf(totals: WeeklyRealizedTotals): Record<string, unk
         cadenciaMedia: event.measures.cadenceAvg,
         caloriasKcal: event.measures.caloriesKcal,
         esforcoPercebido: event.perceivedEffort,
+        rotinaCotidianaMarcadaPeloAluno: event.routine === true ? true : null,
       })),
     },
     aguardandoConfirmacaoDoAluno: {

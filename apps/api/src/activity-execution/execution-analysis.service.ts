@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { aiActivityWhere, aiBlockedProviders } from '../ai-governance/ai-scope';
@@ -12,6 +12,7 @@ import {
 } from './execution-analysis';
 import { loadWeeklyRealizedTotals } from './weekly-realized-totals.loader';
 import { promptTotalsOf, WeeklyRealizedTotals } from './weekly-realized-totals';
+import { weekStartOf, weeklyReportRefresh } from './correction-hooks';
 import { buildWeeklyExecutionIndicators, renderSessionReport, renderWeeklyReport, WeeklyExecutionIndicators, WeeklySessionInput } from './execution-report';
 
 // Persistencia e consolidacao da analise de execucao (Etapa 2.1). So' LE atividade, vinculo e serie; grava apenas INDICADORES derivados (nunca duplica a
@@ -39,10 +40,33 @@ export interface WeeklyReportDraft {
 }
 
 @Injectable()
-export class ExecutionAnalysisService {
+export class ExecutionAnalysisService implements OnModuleInit {
   private readonly logger = new Logger(ExecutionAnalysisService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit(): void {
+    weeklyReportRefresh.set((userId, dates) => this.refreshWeeklyReports(userId, dates));
+  }
+
+  // Conciliacao (30/10/2026): quando vinculos mudam (correcao do aluno, atividade que chega depois), o relatorio da semana afetada e' RECALCULADO. NAO reescreve o
+  // retrato: grava uma versao nova e marca a anterior como 'superseded' (preservada). Idempotente: sem diferenca nos indicadores, nada e' gravado. So' relatorios ativos.
+  async refreshWeeklyReports(userId: string, dates: string[]): Promise<void> {
+    for (const week of [...new Set(dates.map(weekStartOf))]) {
+      const start = new Date(`${week}T00:00:00.000Z`);
+      const rows = await this.prisma.weeklyExecutionReport.findMany({ where: { userId, status: 'active', weekStartDate: { gte: start, lt: new Date(start.getTime() + 86_400_000) } } });
+      for (const row of rows) {
+        if (!row.analyzedPlanId || !row.deliveredWithPlanId) continue;
+        const sessionIds = ((row.sources as { sessionIds?: unknown } | null)?.sessionIds ?? []) as string[];
+        const draft = await this.prepareWeeklyReport(userId, { startDate: row.weekStartDate, planId: row.analyzedPlanId, sessionIds });
+        if (!draft || JSON.stringify(draft.indicators) === JSON.stringify(row.indicators)) continue;
+        await this.prisma.$transaction(async (tx) => {
+          await tx.weeklyExecutionReport.update({ where: { id: row.id }, data: { status: 'superseded' } });
+          await this.persistWeeklyReport(tx, userId, draft, row.deliveredWithPlanId as string);
+        });
+      }
+    }
+  }
 
   private fingerprint(parts: unknown): string {
     return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 40);

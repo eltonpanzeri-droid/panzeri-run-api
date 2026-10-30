@@ -88,6 +88,7 @@ export async function loadWeeklyRealizedTotals(
     elevationGainMeters: row.elevationGainMeters,
     caloriesKcal: row.caloriesKcal,
     cadenceAvg: row.cadenceAvg,
+    studentLabel: representedBy.studentLabel ?? row.studentLabel ?? null,
   }));
 
   const sessions: TotalsSessionInput[] = visibleSessionRows.map((row) => ({

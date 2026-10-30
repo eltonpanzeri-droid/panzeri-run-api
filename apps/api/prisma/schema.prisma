@@ -1619,6 +1619,9 @@ model ActivityLog {
   // SessionExecutionLink quando existirem; para uma 'alternative' que nunca teve link, esta coluna
   // e' a unica proveniencia.
   executionClassifiedBy   String?
+  // Conciliacao de atividades (30/10/2026): rotulo dado pelo ALUNO a uma atividade extra ('daily' = rotina cotidiana, ex.: caminhada). Conta como exercicio extra e
+  // entra na carga (decisao de Elton); o rotulo so informa a IA e o treinador. Nunca altera a classificacao nem o resultado original.
+  studentLabel            String?
 
   // Identidade FISICA cross-provider (06/10/2026, Apple Etapa 2). Varios ActivityLog (Polar, HealthKit, Strava-via-HealthKit,
   // Garmin...) podem ser observacoes do MESMO evento fisico. Nenhum registro e apagado nem fundido: cada ActivityLog continua
@@ -1837,6 +1840,9 @@ model SessionExecutionLink {
   // o que e' CARACTERISTICA DA EXECUCAO, nao motivo pra recusar a correspondencia).
   matchMethod String?
   evidence    Json?
+
+  // Conciliacao (30/10/2026): null/'primary' = a atividade que cumpre a sessao; 'part' = parte complementar da MESMA sessao (ex.: corrida registrada em dois treinos do relogio).
+  role String?
 
   createdAt DateTime  @default(now())
   revokedAt DateTime?
@@ -2579,4 +2585,19 @@ model UserProfilePhoto {
   mimeType  String
   byteSize  Int
   updatedAt DateTime @updatedAt
+}
+
+// Conciliacao de atividades (30/10/2026): versoes do feedback de um treino. Quando duas respostas do aluno descrevem a mesma sessao (feedback do treino
+// prescrito e feedback de um treino extra depois vinculado), UMA fica como principal (WorkoutCompletion) e a outra e' PRESERVADA aqui, nunca apagada.
+model WorkoutFeedbackVersion {
+  id        String   @id @default(uuid())
+  userId    String
+  sessionId String
+  // copia integral do WorkoutCompletion que deixou de ser o principal
+  payload   Json
+  // 'merged_from_extra_session' | 'replaced_by_student_choice'
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([userId, sessionId])
 }
