@@ -4,7 +4,7 @@ import Svg, { Line, Path, Rect, Circle, Text as SvgText } from 'react-native-svg
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from '../PtText';
 import { InfoTip } from '../InfoTip';
-import { HOW_WE_USE, REPEAT_TESTS_BODY, REPEAT_TESTS_TITLE, THREE_KM_HOW_TO, THREE_KM_SAFETY, ZONE_HELP, ZONES_USE_CARD } from './texts';
+import { HOW_WE_USE, REPEAT_TESTS_BODY, REPEAT_TESTS_TITLE, THREE_KM_HOW_TO, THREE_KM_SAFETY, ZONE_CARD, ZONE_HELP, ZONES_USE_CARD } from './texts';
 import {
   CONFIDENCE_LABELS, INDICATOR_LABELS, METHOD_OPTIONS, ORIGIN_LABELS, RAW_THREE_KM_TIME, brDateFromIso, buildSeries, describeRawResults, formatIndicatorValue, formatMinSec,
   formatRange, formatSpeed, isoFromBrDate, maskBrDate, methodLabel, nextDueText, paceLabelFromKmh, parseDecimal, parseMinSec, parseMinSecParts, todayBrDate, xPositions,
@@ -306,13 +306,7 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
               <Text style={styles.cardTitle}>Zonas de treinamento</Text>
               <InfoTip label="Como ler as zonas?">{ZONE_HELP}</InfoTip>
               <Text style={styles.hint}>{ZONES_USE_CARD}</Text>
-              {profile.zones.map((z) => (
-                <View key={z.id} style={styles.zoneRow}>
-                  <Text style={styles.label}>{zoneTitle(z)}</Text>
-                  <Text style={styles.hint}>{zoneSpeedText(z, unit)}</Text>
-                  <Text style={styles.hint}>{z.heartRate ? `Frequência cardíaca observada no teste: ${z.heartRate[0] === 0 ? 'até' : `${z.heartRate[0]} a`} ${z.heartRate[1]} bpm` : 'Frequência cardíaca: sem dados suficientes'}</Text>
-                </View>
-              ))}
+              <ZoneCard zones={profile.zones} unit={unit} />
             </View>
           ) : <Text style={styles.hint}>As zonas aparecem quando existem velocidades de L1, L2 e VO₂máx.</Text>}
           {profile.operationalReference && profile.operationalReference.source !== 'tests' && profile.operationalReference.payload?.adjustment ? (
@@ -342,6 +336,40 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
       ) : null}
       <Pressable onPress={onEvolution} accessibilityRole="button"><Text style={styles.link}>Evolução dos testes físicos</Text></Pressable>
       <Pressable onPress={onHow} accessibilityRole="button"><Text style={styles.link}>Como utilizamos os resultados dos testes?</Text></Pressable>
+    </View>
+  );
+}
+
+// Card das zonas: uma faixa colorida por zona com a velocidade (ritmo ou km/h, conforme a escolha do aluno); a explicação breve abre ao tocar.
+function ZoneCard({ zones, unit }: { zones: Zone[]; unit: SpeedUnit }) {
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <View style={{ gap: 8, paddingTop: 6 }}>
+      {zones.map((z) => {
+        const meta = ZONE_CARD[z.id];
+        if (!meta) return null;
+        const isOpen = open === z.id;
+        const speed = zoneSpeedText(z, unit).replace(/^(Ritmo|Velocidade): /, '');
+        return (
+          <View key={z.id} style={{ borderRadius: 10, overflow: 'hidden', backgroundColor: meta.color + '33' }}>
+            <Pressable onPress={() => setOpen(isOpen ? null : z.id)} accessibilityRole="button" accessibilityState={{ expanded: isOpen }} accessibilityLabel={`${meta.name}, ${meta.title}, ${speed}`}
+              style={{ flexDirection: 'row', alignItems: 'center', minHeight: 52 }}>
+              <View style={{ backgroundColor: meta.color, alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: 10, width: 92 }}><Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{meta.name}</Text></View>
+              <View style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Text style={{ fontWeight: '800', fontSize: 14, color: COLORS.ink }}>{meta.title}</Text>
+                <Text style={{ fontSize: 13, color: COLORS.ink }}>{speed}</Text>
+              </View>
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.ink} style={{ marginRight: 10 }} />
+            </Pressable>
+            {isOpen ? (
+              <View style={{ paddingHorizontal: 12, paddingBottom: 10, gap: 4 }}>
+                <Text style={styles.hint}>{meta.text}</Text>
+                {z.heartRate ? <Text style={styles.hint}>Frequência cardíaca observada no teste (só para avaliar a resposta, não para definir o ritmo): {z.heartRate[0] === 0 ? 'até' : `${z.heartRate[0]} a`} {z.heartRate[1]} bpm.</Text> : null}
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
     </View>
   );
 }
