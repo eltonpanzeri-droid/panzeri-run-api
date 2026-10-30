@@ -9,6 +9,8 @@ import { AppleHealthSyncCard } from './src/appleHealthSync/AppleHealthSyncCard';
 import { accentPt, localizeQuestion } from './src/ptAccent';
 import { InfoTip } from './src/InfoTip';
 import { RecoveryScreen } from './src/recovery/RecoveryScreen';
+import { PhysicalTestsScreen } from './src/physicalTests/PhysicalTestsScreen';
+import { PHYSICAL_TESTS_ENABLED } from './src/physicalTests/config';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
@@ -78,7 +80,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'test' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery';
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1505,7 +1507,6 @@ function AppInner() {
   // o GuidedInterview filtrado para esse modulo em vez do menu de modulos.
   const [fixAnswersModule, setFixAnswersModule] = useState<string | null>(null);
   const [completedToday, setCompletedToday] = useState(false);
-  const [threeKmSeconds, setThreeKmSeconds] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -1518,7 +1519,6 @@ function AppInner() {
   // 09/09: controla se a aba 'routine' mostra a visão geral (false) ou a entrevista de configuração (true)
   const [routineSetupMode, setRoutineSetupMode] = useState(false);
 
-  const metrics = useMemo(() => calculateThreeKmMetrics(Number(threeKmSeconds)), [threeKmSeconds]);
   // Rotina cadastrada = o servidor diz que sim (uma semana inteira de pausa TAMBEM e' uma rotina cadastrada). So' cai no formato antigo se a API ainda nao devolve o estado.
   const routineConfigured = savedMe?.routine ? savedMe.routine.configured : (savedMe?.availability ?? savedMe?.weeklyAvailability ?? []).length > 0;
 
@@ -1731,10 +1731,6 @@ function AppInner() {
         if (me.email) {
           setUserEmail(me.email);
         }
-        const latestTestSeconds = me.tests?.[0]?.totalSeconds ?? me.fitnessTests?.[0]?.totalSeconds;
-        if (latestTestSeconds) {
-          setThreeKmSeconds(String(latestTestSeconds));
-        }
         const savedRoutine = routineFromSavedAvailability(me.availability ?? me.weeklyAvailability ?? []);
         if (savedRoutine.length) {
           setAnamneseRoutine(savedRoutine);
@@ -1939,26 +1935,15 @@ function AppInner() {
                 mode="fixModule"
               />
             )}
-            {activeTab === 'test' && (
-              <ThreeKmTest
-                threeKmSeconds={threeKmSeconds}
-                onChangeSeconds={setThreeKmSeconds}
-                metrics={metrics}
-                accessToken={accessToken}
-                latestTest={savedMe?.tests?.[0] ?? savedMe?.fitnessTests?.[0] ?? null}
-                onLater={() => setActiveTab('week')}
-                onSaved={() => setActiveTab('week')}
-              />
-            )}
+            {activeTab === 'physicalTests' && PHYSICAL_TESTS_ENABLED && <PhysicalTestsScreen accessToken={accessToken} apiUrl={API_URL} onBack={() => setActiveTab('week')} />}
             {activeTab === 'week' && (
               <Week
                 deepLink={weekDeepLink}
                 onDeepLinkHandled={() => setWeekDeepLink(null)}
                 accessToken={accessToken}
-                metrics={metrics}
                 initialWeekOffset={weekTabOffset}
                 onOpenInterview={() => setActiveTab('interview')}
-                onOpenTest={() => setActiveTab('test')}
+                onOpenTest={() => setActiveTab(PHYSICAL_TESTS_ENABLED ? 'physicalTests' : 'week')}
                 onOpenPainReport={() => setActiveTab('painReport')}
               />
             )}
@@ -4103,7 +4088,7 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; metrics: ThreeKmMetrics; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
+function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
@@ -5832,217 +5817,6 @@ function Week({ accessToken, metrics, initialWeekOffset, onOpenInterview, onOpen
         </Pressable>
       </Modal>
 
-    </View>
-  );
-}
-
-function ThreeKmTest({
-  threeKmSeconds,
-  onChangeSeconds,
-  metrics,
-  accessToken,
-  latestTest,
-  onLater,
-  onSaved,
-}: {
-  threeKmSeconds: string;
-  onChangeSeconds: (value: string) => void;
-  metrics: ThreeKmMetrics;
-  accessToken: string;
-  latestTest?: { id?: string; createdAt?: string | null } | null;
-  onLater: () => void;
-  onSaved: () => void;
-}) {
-  const [saveStatus, setSaveStatus] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [environment, setEnvironment] = useState<'rua' | 'esteira'>('rua');
-  const parsedSeconds = Number(threeKmSeconds);
-  const safeSeconds = Number.isFinite(parsedSeconds) && parsedSeconds > 0 ? parsedSeconds : 1200;
-  const selectedMinutes = Math.floor(safeSeconds / 60);
-  const selectedSeconds = safeSeconds % 60;
-
-  function updateTestTime(part: 'minutes' | 'seconds', value: string) {
-    const numeric = Number(value.replace(/[^0-9]/g, ''));
-    const minutes = part === 'minutes' ? Math.min(Math.max(numeric || 0, 0), 120) : selectedMinutes;
-    const seconds = part === 'seconds' ? Math.min(Math.max(numeric || 0, 0), 59) : selectedSeconds;
-    onChangeSeconds(String(minutes * 60 + seconds));
-  }
-
-  function saveTest() {
-    const totalSeconds = Number(threeKmSeconds);
-    setSaveStatus('');
-
-    if (!Number.isFinite(totalSeconds) || totalSeconds < 300 || totalSeconds > 7200) {
-      setSaveStatus('Informe um tempo válido entre 5 minutos e 2 horas.');
-      return;
-    }
-
-    if (!accessToken) {
-      setSaveStatus('Entre novamente na conta para salvar o teste.');
-      return;
-    }
-
-    const lastTestDate = latestTest?.id && latestTest.createdAt ? new Date(latestTest.createdAt) : null;
-    const daysSinceLastTest = lastTestDate ? (Date.now() - lastTestDate.getTime()) / 86400000 : null;
-
-    if (latestTest?.id && daysSinceLastTest !== null && daysSinceLastTest < 30) {
-      // Mesmo motivo do fix em correctOnboarding/applyRoutineAdjustment: Alert.alert nao tem
-      // garantia de aparecer na web. window.confirm so tem OK/Cancelar (nao da pra ter 3 botoes
-      // como no app nativo), entao pergunta em duas etapas pra chegar no mesmo resultado.
-      if (Platform.OS === 'web') {
-        if (window.confirm('Teste recente encontrado.\n\nSeu último teste foi há menos de 1 mês. Quer SUBSTITUIR esse teste? (Cancelar para ver a opção de adicionar um novo registro em vez de substituir)')) {
-          performSave('replace');
-        } else if (window.confirm('Quer ADICIONAR um novo registro no seu histórico, mantendo o teste anterior?')) {
-          performSave('create');
-        }
-        return;
-      }
-      Alert.alert(
-        'Teste recente encontrado',
-        'Seu ultimo teste foi ha menos de 1 mes. Quer substituir esse teste ou adicionar um novo registro no seu historico?',
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Adicionar novo', onPress: () => performSave('create') },
-          { text: 'Substituir', onPress: () => performSave('replace') },
-        ],
-      );
-      return;
-    }
-
-    performSave('create');
-  }
-
-  async function performSave(mode: 'create' | 'replace') {
-    const totalSeconds = Number(threeKmSeconds);
-    setIsSaving(true);
-    try {
-      const url = mode === 'replace' && latestTest?.id ? `${API_URL}/fitness-tests/3km/${latestTest.id}` : `${API_URL}/fitness-tests/3km`;
-      const response = await fetch(url, {
-        method: mode === 'replace' ? 'PUT' : 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          totalSeconds,
-          environment,
-          notes: `Teste de 3 km realizado ${environment === 'esteira' ? 'na esteira' : 'na rua'}.`,
-        }),
-      });
-
-      if (!response.ok) {
-        setSaveStatus(`Nao consegui salvar: ${await readApiError(response)}`);
-        return;
-      }
-
-      setSaveStatus('Teste salvo. Recalculando a semana...');
-      const planResponse = await fetch(`${API_URL}/training-plans/week`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-
-      if (!planResponse.ok) {
-        setSaveStatus('Teste salvo. Abrindo seu programa...');
-        onSaved();
-        return;
-      }
-
-      setSaveStatus('Teste salvo. Abrindo seu programa personalizado...');
-      onSaved();
-    } catch {
-      setSaveStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Teste físico</Text>
-      <Text style={styles.titleSmall}>Teste de 3 km</Text>
-
-      <View style={styles.formSection}>
-        <Text style={styles.formSectionTitle}>Como fazer</Text>
-        <Text style={styles.formHint}>Este teste deve ser realizado apenas se você estiver bem e sem dor, febre, tontura ou mal-estar.</Text>
-        <Text style={styles.prescriptionText}>1. Faca um breve aquecimento antes de iniciar.</Text>
-        <Text style={styles.prescriptionText}>2. Percorra exatamente 3 km no maior ritmo que consiga sustentar até o final. Comece controlado e aumente se estiver bem.</Text>
-        <Text style={styles.prescriptionText}>3. Cronometre apenas os 3 km do teste e registre o tempo total exato.</Text>
-        <Text style={styles.prescriptionText}>4. Caminhe ou trote leve por alguns minutos ao terminar.</Text>
-        <Text style={styles.formHint}>Interrompa imediatamente se sentir dor no peito, tontura, falta de ar anormal ou qualquer mal-estar.</Text>
-      </View>
-
-      <Text style={styles.inputLabel}>Onde você vai realizar o teste?</Text>
-      <View style={styles.optionRow}>
-        {(['rua', 'esteira'] as const).map((option) => {
-          const selected = environment === option;
-          return (
-            <Pressable key={option} style={[styles.optionChip, selected && styles.optionChipActive]} onPress={() => setEnvironment(option)}>
-              <Text style={[styles.optionChipText, selected && styles.optionChipTextActive]}>{option === 'rua' ? 'Rua ou pista' : 'Esteira'}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.noticeBox}>
-        <Text style={styles.noticeTitle}>{environment === 'rua' ? 'Orientacao para rua ou pista' : 'Orientacao para esteira'}</Text>
-        <Text style={styles.noticeText}>{environment === 'rua'
-          ? 'Use um percurso plano e seguro, com 3 km bem medidos por pista ou GPS. Evite cruzamentos, descidas fortes e locais movimentados.'
-          : 'Conte somente o tempo entre o inicio e o final dos 3 km. Para um resultado mais fiel, evite apoiar-se nas barras; se precisar delas para se sentir seguro, use-as, pois a seguranca vem primeiro. Ajuste a velocidade progressivamente.'}</Text>
-      </View>
-
-      <Text style={styles.copyTight}>Informe o tempo que levou para completar os 3 km. Exemplo: se fez em 20 minutos e 35 segundos, coloque 20 em minutos e 35 em segundos.</Text>
-
-      <View style={styles.testTimeRow}>
-        <View style={styles.testTimeField}>
-          <Text style={styles.inputLabel}>Minutos</Text>
-          <TextInput
-            style={styles.input}
-            value={String(selectedMinutes)}
-            onChangeText={(value) => updateTestTime('minutes', value)}
-            keyboardType="numeric"
-            placeholder="20"
-          />
-        </View>
-        <View style={styles.testTimeField}>
-          <Text style={styles.inputLabel}>Segundos</Text>
-          <TextInput
-            style={styles.input}
-            value={String(selectedSeconds).padStart(2, '0')}
-            onChangeText={(value) => updateTestTime('seconds', value)}
-            keyboardType="numeric"
-            placeholder="00"
-          />
-        </View>
-      </View>
-
-      <View style={styles.metricGrid}>
-        <Metric icon="speedometer" label="Pace medio" value={metrics.pace} />
-        <Metric icon="analytics" label="VO2max est." value={metrics.vo2max} />
-        <Metric icon="flash" label="vVO2max" value={metrics.vvo2} />
-      </View>
-
-      <View style={styles.zoneTable}>
-        <ZoneRow zone="Z1" label="Recuperação" pace={metrics.zones.z1} />
-        <ZoneRow zone="Z2" label="Base aerobica" pace={metrics.zones.z2} />
-        <ZoneRow zone="Z3" label="Moderado" pace={metrics.zones.z3} />
-        <ZoneRow zone="Z4" label="Forte" pace={metrics.zones.z4} />
-        <ZoneRow zone="Z5" label="Tiros curtos" pace={metrics.zones.z5} />
-      </View>
-
-      <Pressable style={[styles.primaryButton, isSaving && styles.disabledButton]} disabled={isSaving} onPress={saveTest}>
-        <Text style={styles.primaryButtonText}>{isSaving ? 'Salvando...' : 'Salvar teste e ver meu programa'}</Text>
-        <Ionicons name="cloud-upload" size={18} color={PRColors.mineral} />
-      </Pressable>
-
-      <Pressable style={styles.secondaryButton} onPress={onLater}>
-        <Text style={styles.secondaryButtonText}>Ainda não fiz o teste</Text>
-      </Pressable>
-
-      {saveStatus ? <Text style={styles.statusMessage}>{saveStatus}</Text> : null}
     </View>
   );
 }
@@ -10574,6 +10348,8 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolução', icon: 'stats-chart' },
     { id: 'recovery', label: 'Minha recuperação', icon: 'pulse-outline' },
+    // 30/10/2026: Testes físicos só no PWA por enquanto (PHYSICAL_TESTS_ENABLED); Android e iOS continuam sem a seção.
+    ...(PHYSICAL_TESTS_ENABLED ? [{ id: 'physicalTests' as Tab, label: 'Testes físicos', icon: 'speedometer-outline' as keyof typeof Ionicons.glyphMap }] : []),
     { id: 'history', label: 'Calendário de treinos', icon: 'calendar-outline' },
     // 06/10/2026: porta unica para Polar, Strava e Apple (mesmos componentes ja usados em Perfil/Strava/Privacidade).
     { id: 'devices', label: 'Dispositivos e integrações', icon: 'watch-outline' },
@@ -13597,49 +13373,6 @@ function timeLabel(value: string) {
     return 'Mais que 90 min';
   }
   return `0 a ${value} min`;
-}
-
-interface ThreeKmMetrics {
-  pace: string;
-  vo2max: string;
-  vvo2: string;
-  zones: {
-    z1: string;
-    z2: string;
-    z3: string;
-    z4: string;
-    z5: string;
-  };
-}
-
-function calculateThreeKmMetrics(totalSeconds: number): ThreeKmMetrics {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
-    return {
-      pace: 'Sem teste',
-      vo2max: '--',
-      vvo2: '--',
-      zones: { z1: '--', z2: '--', z3: '--', z4: '--', z5: '--' },
-    };
-  }
-
-  const safeSeconds = totalSeconds;
-  const timeMinutes = safeSeconds / 60;
-  const vo2max = 483 / timeMinutes + 3.5;
-  const vvo2 = 3 / (safeSeconds / 3600);
-  const paceSeconds = Math.round(safeSeconds / 3);
-
-  return {
-    pace: formatPace(paceSeconds),
-    vo2max: vo2max.toFixed(1),
-    vvo2: paceFromSpeed(vvo2),
-    zones: {
-      z1: paceFromSpeed(vvo2 * 0.55),
-      z2: `${paceFromSpeed(vvo2 * 0.65)} a ${paceFromSpeed(vvo2 * 0.55)}`,
-      z3: `${paceFromSpeed(vvo2 * 0.8)} a ${paceFromSpeed(vvo2 * 0.65)}`,
-      z4: `${paceFromSpeed(vvo2)} a ${paceFromSpeed(vvo2 * 0.8)}`,
-      z5: `mais rapido que ${paceFromSpeed(vvo2)}`,
-    },
-  };
 }
 
 function paceFromSpeed(speedKmh: number) {

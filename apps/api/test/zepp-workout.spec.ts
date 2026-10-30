@@ -464,7 +464,12 @@ describe('protecoes estruturais do envio', () => {
       }
     };
     walk(mobile);
-    expect(offenders).toEqual([]);
+    // 30/10/2026 (decisão do treinador nos Testes físicos): velocidade e pace são duas representações da mesma informação, então a seção
+    // Testes físicos pode mostrar km/h como representação secundária e aceitar km/h ao digitar resultados de laboratório. A exceção vale SÓ
+    // para essa pasta; o padrão da tela continua sendo min/km, e nenhum outro arquivo do app pode mostrar km/h.
+    const physical = join('src', 'physicalTests');
+    expect(offenders.filter((path) => !path.includes(physical))).toEqual([]);
+    expect(readFileSync(join(mobile, 'src', 'physicalTests', 'PhysicalTestsScreen.tsx'), 'utf8')).toContain("useState<SpeedUnit>('pace')");
   });
 
   it('o perfil real so tem o que a Zepp confirmou (metros e m/s); o resto continua nulo e nenhuma enumeracao foi inventada', () => {

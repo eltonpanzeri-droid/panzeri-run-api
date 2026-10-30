@@ -5,6 +5,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { MessagingService } from './messaging.service';
 import { REASSESSMENT_DUE_AFTER_DAYS, REASSESSMENT_WARNING_AFTER_DAYS } from '../reassessment/reassessment.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
+import { nextReassessmentDue, reminderDecision } from '../physiology/reference-selection';
 
 const REMINDER_COOLDOWN_DAYS = 3;
 // 25/09/2026 (Passo 3): fonte unica do ciclo de 105 dias e' ReassessmentService — NAO redefinir
@@ -41,6 +42,7 @@ export class NotificationTriggersService {
         await this.checkInterviewIncomplete(student);
         await this.checkReassessmentWarning(student);
         await this.checkReassessmentDue(student);
+        await this.checkPhysicalTestReminder(student);
       } catch (error) {
         this.logger.warn(`Falha ao checar avisos automaticos para ${student.id}: ${(error as Error).message}`);
       }
@@ -222,5 +224,30 @@ export class NotificationTriggersService {
       subject: 'Hora da sua reavaliacao periodica - Panzeri Run',
       content: `Ola ${student.name},\n\nJa se passaram 15 semanas desde sua ultima avaliacao. Responda a reavaliacao no aplicativo para atualizarmos seu treino e continuarmos gerando seus proximos treinos.\n\nPanzeri Run`,
     });
+  }
+
+  // Testes fisicos (30/10/2026): lembrete de reavaliacao 4 meses depois da avaliacao aerobica mais recente (data real do teste). Um aviso por
+  // avaliacao (externalRef), pelo sino do app e push. Nao bloqueia nada e nao exige o teste. Chave PHYSICAL_TESTS_REMINDERS: off (padrao), web
+  // (so quem nao tem push nativo, enquanto a secao existe so no PWA) ou all (depois da atualizacao nativa).
+  private async checkPhysicalTestReminder(student: { id: string; expoPushToken?: string | null }) {
+    const mode = process.env.PHYSICAL_TESTS_REMINDERS ?? 'off';
+    if (mode !== 'web' && mode !== 'all') return;
+    if (mode === 'web' && student.expoPushToken) return;
+    const latest = await this.prisma.physiologicalAssessment.findFirst({
+      where: { userId: student.id, domain: 'aerobic' },
+      orderBy: [{ performedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true, method: true, performedAt: true, createdAt: true },
+    });
+    if (!latest || reminderDecision(nextReassessmentDue([latest]), new Date()) !== 'enviar') return;
+    await this.notifications.notifyUserIfNotRecent(
+      student.id,
+      {
+        title: 'Hora de repetir seus testes físicos',
+        message: 'Já se passaram quatro meses desde a sua última avaliação. Repetir os testes ajuda a acompanhar sua evolução e a atualizar suas referências de intensidade e zonas de treino. Abra Testes físicos no menu quando quiser.',
+        type: 'physical_test_reminder',
+        externalRef: `physical-test-reminder:${latest.id}`,
+      },
+      0,
+    );
   }
 }

@@ -71,3 +71,15 @@ export function nextReassessmentDue(assessments: SelectableAssessment[]): Date |
   if (due.getUTCDate() !== latest.getUTCDate()) due.setUTCDate(0);
   return due;
 }
+
+// Lembrete de reavaliação (30/10/2026): dispara quando a data sugerida chega e só durante uma janela curta depois dela. Quem já passou
+// da janela (por exemplo, testes antigos recalculados) não recebe aviso surpresa: continua vendo a sugestão na tela e nada é bloqueado.
+export const REMINDER_WINDOW_DAYS = 30;
+export function reminderDecision(due: Date | null, now: Date): 'sem_avaliacao' | 'ainda_nao' | 'enviar' | 'fora_da_janela' {
+  if (!due) return 'sem_avaliacao';
+  const todayBrt = new Date(now.getTime() - 3 * 3_600_000);
+  const today = Math.floor(Date.UTC(todayBrt.getUTCFullYear(), todayBrt.getUTCMonth(), todayBrt.getUTCDate()) / 86_400_000);
+  const dueDay = Math.floor(due.getTime() / 86_400_000);
+  if (today < dueDay) return 'ainda_nao';
+  return today - dueDay <= REMINDER_WINDOW_DAYS ? 'enviar' : 'fora_da_janela';
+}
