@@ -101,6 +101,9 @@ model User {
   routineState          WeeklyRoutineState?
   routineChanges        WeeklyRoutineChange[]
   tests                 FitnessTest[]
+  physiologicalAssessments PhysiologicalAssessment[]
+  physiologicalIndicators  PhysiologicalIndicator[]
+  operationalReferences    OperationalReference[]
   plans                 TrainingPlan[]
   workouts              WorkoutCompletion[]
   achievements          UserAchievement[]
@@ -449,6 +452,76 @@ model FitnessTest {
   paceSecondsPerKm Int
   notes            String?
   createdAt        DateTime @default(now())
+  // 30/10/2026 (Testes fisicos): data REAL do teste (null = usar createdAt) e versao do modelo que gerou vo2maxEstimated/vvo2Kmh.
+  // totalSeconds, avgHeartRate, maxHeartRate e notes sao o RESULTADO ORIGINAL e nunca sao recalculados.
+  performedAt      DateTime? @db.Date
+  modelVersion     String?
+  assessment       PhysiologicalAssessment?
+}
+
+// Testes fisicos (30/10/2026) — camada 1: avaliacao aerobia, qualquer metodo. rawResults guarda EXATAMENTE o que foi informado.
+model PhysiologicalAssessment {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  domain          String   @default("aerobic")
+  // ergospirometry | lactate | cooper_12min | three_km | five_km | incremental | other | unknown
+  method          String
+  methodLabel     String?
+  performedAt     DateTime @db.Date
+  // student | coach
+  source          String
+  enteredByUserId String?
+  rawResults      Json
+  // limitacoes do metodo/estimativa mostradas ao aluno e repassadas a IA
+  limitations     Json?
+  notes           String?
+  fitnessTestId   String?  @unique
+  fitnessTest     FitnessTest? @relation(fields: [fitnessTestId], references: [id])
+  createdAt       DateTime @default(now())
+  indicators      PhysiologicalIndicator[]
+
+  @@index([userId, performedAt])
+}
+
+// Camada 2: indicadores fisiologicos de cada avaliacao, com origem (measured | reported | estimated), confianca e faixa.
+// Nunca guarda ajustes da IA: esses ficam em OperationalReference.
+model PhysiologicalIndicator {
+  id           String   @id @default(uuid())
+  assessmentId String
+  assessment   PhysiologicalAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  key          String
+  value        Float
+  unit         String
+  origin       String
+  confidence   String
+  rangeLow     Float?
+  rangeHigh    Float?
+  modelVersion String?
+  basis        Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([assessmentId, key])
+  @@index([userId, key])
+}
+
+// Camada 3: referencia operacional atual usada pela IA. Historico append-only (version cresce); a mais recente e a vigente.
+model OperationalReference {
+  id                    String   @id @default(uuid())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id])
+  version               Int
+  // tests (recalculada a partir das avaliacoes) | ai_adjustment (ajuste da IA com base nos treinos)
+  source                String
+  referenceAssessmentId String?
+  payload               Json
+  justification         String
+  createdAt             DateTime @default(now())
+
+  @@unique([userId, version])
 }
 
 model TrainingPlan {

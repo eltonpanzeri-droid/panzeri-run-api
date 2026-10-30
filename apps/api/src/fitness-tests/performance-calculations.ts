@@ -1,19 +1,19 @@
+import { danielsFromPerformance } from '../physiology/physiology-models';
+
 export interface ThreeKmMetrics {
   vo2maxEstimated: number;
   vvo2Kmh: number;
   paceSecondsPerKm: number;
 }
 
+// 30/10/2026: modelo de Daniels e Gilbert (1979) no lugar de 483/t + 3,5, que era a equacao do teste de 1,5 milha sem validacao para 3 km.
+// vvo2Kmh e a velocidade no VO2max do modelo (nao mais a velocidade media dos 3 km). Detalhes e limitacoes: TESTES_FISICOS_LOTE1_MODELOS.md.
 export function calculateThreeKmMetrics(totalSeconds: number): ThreeKmMetrics {
-  const timeMinutes = totalSeconds / 60;
-  const vo2maxEstimated = 483 / timeMinutes + 3.5;
-  const vvo2Kmh = 3 / (totalSeconds / 3600);
-  const paceSecondsPerKm = Math.round(totalSeconds / 3);
-
+  const { vdot, vvo2Kmh } = danielsFromPerformance(3000, totalSeconds);
   return {
-    vo2maxEstimated: round(vo2maxEstimated, 2),
+    vo2maxEstimated: round(vdot, 1),
     vvo2Kmh: round(vvo2Kmh, 2),
-    paceSecondsPerKm,
+    paceSecondsPerKm: Math.round(totalSeconds / 3),
   };
 }
 

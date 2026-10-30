@@ -1,4 +1,4 @@
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 export class CreateThreeKmTestDto {
   @IsInt()
@@ -24,4 +24,9 @@ export class CreateThreeKmTestDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // Data real em que o teste foi feito (AAAA-MM-DD). Sem ela, vale o dia do cadastro.
+  @IsOptional()
+  @Matches(/^d{4}-d{2}-d{2}$/, { message: 'performedAt deve estar no formato AAAA-MM-DD.' })
+  performedAt?: string;
 }

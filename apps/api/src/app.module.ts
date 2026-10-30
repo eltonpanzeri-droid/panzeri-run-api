@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { CoachModule } from './coach/coach.module';
 import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
+import { PhysiologyModule } from './physiology/physiology.module';
 import { MeModule } from './me/me.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -58,6 +59,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     MeModule,
     NotificationsModule,
     FitnessTestsModule,
+    PhysiologyModule,
     StravaModule,
     PolarModule,
     WahooModule,
