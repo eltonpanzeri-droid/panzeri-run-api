@@ -93,16 +93,23 @@ export interface Indicator {
   key: string; value: number; unit: string; origin: Origin; confidence: Confidence;
   rangeLow?: number; rangeHigh?: number; basis: Record<string, unknown>;
 }
-export interface Zone { id: 'Z1' | 'Z2' | 'Z3'; label: string; speedKmh: [number, number]; paceSecondsPerKm: [number, number | null]; heartRate?: [number, number] }
+// `open: 'fast'` = zona sem limite superior de velocidade (supramáximo): speedKmh e pace trazem o ponto em que ela começa.
+export interface Zone { id: 'Z1-Z2' | 'Z3' | 'Z4' | 'Z5' | 'Z6'; label: string; speedKmh: [number, number]; paceSecondsPerKm: [number, number | null]; heartRate?: [number, number]; open?: 'fast' }
 export interface PerformanceEstimate { indicators: Indicator[]; zones: Zone[]; limitations: string[]; modelVersion: string }
 
-// Zonas (modelo de tres zonas): abaixo de L1, entre L1 e L2, acima de L2 ate a velocidade no VO2max. Pace: [mais rapido, mais lento].
+// Zonas (30/10/2026, definicao de Elton, 6 zonas): abaixo de L1 = Z1 e Z2 (a IA separa recuperacao de aerobico leve pelo contexto do aluno, sem formula), entre L1 e L2 = Z3,
+// entre L2 e o VO2max = Z4, no VO2max = Z5 (margem de 3% para mais e para menos da velocidade no VO2max), acima = Z6 (supramaximo). Pace: [mais rapido, mais lento].
+export const Z5_MARGIN = 0.03;
 export function zonesFrom(p: { l1: number; l2: number; vvo2: number; l1Hr: number | null; l2Hr: number | null; hrMax: number | null }): Zone[] {
   const zone = (id: Zone['id'], label: string, from: number, to: number, hr?: [number, number]): Zone => ({ id, label, speedKmh: [round(from, 2), round(to, 2)], paceSecondsPerKm: [round(kmhToPaceSeconds(to), 0), from > 0 ? round(kmhToPaceSeconds(from), 0) : null], ...(hr ? { heartRate: hr } : {}) });
+  const z5Low = Math.max(p.l2, round(p.vvo2 * (1 - Z5_MARGIN), 2));
+  const z5High = round(p.vvo2 * (1 + Z5_MARGIN), 2);
   return [
-    zone('Z1', 'Abaixo de L1', 0, p.l1, p.l1Hr != null ? [0, p.l1Hr] : undefined),
-    zone('Z2', 'Entre L1 e L2', p.l1, p.l2, p.l1Hr != null && p.l2Hr != null ? [p.l1Hr, p.l2Hr] : undefined),
-    zone('Z3', 'Acima de L2', p.l2, p.vvo2, p.l2Hr != null && p.hrMax != null ? [p.l2Hr, p.hrMax] : undefined),
+    zone('Z1-Z2', 'Abaixo de L1 (Z1 e Z2)', 0, p.l1, p.l1Hr != null ? [0, p.l1Hr] : undefined),
+    zone('Z3', 'Entre L1 e L2', p.l1, p.l2, p.l1Hr != null && p.l2Hr != null ? [p.l1Hr, p.l2Hr] : undefined),
+    zone('Z4', 'Entre L2 e o VO₂máx', p.l2, z5Low, p.l2Hr != null && p.hrMax != null ? [p.l2Hr, p.hrMax] : undefined),
+    zone('Z5', 'No VO₂máx (3% para mais e para menos)', z5Low, z5High),
+    { ...zone('Z6', 'Acima do VO₂máx (supramáximo)', z5High, z5High), open: 'fast' as const },
   ];
 }
 

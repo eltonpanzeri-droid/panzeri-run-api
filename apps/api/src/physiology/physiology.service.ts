@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { withCurrentZones, type ReferencePayload } from './operational-reference';
 import { ageOn, estimateFromPerformance, estimateThresholdsAndZones, formatPaceSeconds, kmhToPaceSeconds, MODEL_VERSION, normalizeSex, resolveHrMax, zonesFrom, type Indicator, type Origin } from './physiology-models';
 import { ASSESSMENT_METHODS, INDICATOR_UNITS, METHOD_LABELS, normalizeExternalResults, parsePerformedAt, type CanonicalKey, type ExternalResultsInput } from './physiology-input';
 import { composeIndicators, nextReassessmentDue, selectReference } from './reference-selection';
@@ -198,7 +199,7 @@ export class PhysiologyService {
     return {
       ...(built?.profile ?? { reference: null, indicators: [], zones: null, limitations: [], modelVersion: MODEL_VERSION, nextReassessmentDueAt: null }),
       assessments: assessments.map((a) => ({ id: a.id, method: a.method, methodLabel: a.methodLabel ?? METHOD_LABELS[a.method] ?? a.method, performedAt: dateKey(a.performedAt), source: a.source, rawResults: a.rawResults, createdAt: a.createdAt })),
-      operationalReference: operational,
+      operationalReference: operational ? { ...operational, payload: withCurrentZones(operational.payload as unknown as ReferencePayload) } : operational,
     };
   }
 

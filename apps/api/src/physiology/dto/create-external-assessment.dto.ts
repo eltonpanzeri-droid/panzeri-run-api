@@ -12,10 +12,12 @@ export class ExternalResultsDto {
   @IsOptional() @IsNumber() l1_pace_seconds?: number;
   @IsOptional() @IsNumber() l1_hr_bpm?: number;
   @IsOptional() @IsNumber() l1_vo2?: number;
+  @IsOptional() @IsNumber() l1_vo2_pct?: number;
   @IsOptional() @IsNumber() l2_speed_kmh?: number;
   @IsOptional() @IsNumber() l2_pace_seconds?: number;
   @IsOptional() @IsNumber() l2_hr_bpm?: number;
   @IsOptional() @IsNumber() l2_vo2?: number;
+  @IsOptional() @IsNumber() l2_vo2_pct?: number;
   @IsOptional() @IsNumber() totalSeconds?: number;
   @IsOptional() @IsNumber() distanceMeters?: number;
 }

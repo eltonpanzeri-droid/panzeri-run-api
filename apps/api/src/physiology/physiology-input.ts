@@ -14,8 +14,8 @@ export interface ExternalResultsInput {
   vo2max?: number | null;
   vvo2max_kmh?: number | null; vvo2max_pace_seconds?: number | null;
   hrmax_bpm?: number | null;
-  l1_speed_kmh?: number | null; l1_pace_seconds?: number | null; l1_hr_bpm?: number | null; l1_vo2?: number | null;
-  l2_speed_kmh?: number | null; l2_pace_seconds?: number | null; l2_hr_bpm?: number | null; l2_vo2?: number | null;
+  l1_speed_kmh?: number | null; l1_pace_seconds?: number | null; l1_hr_bpm?: number | null; l1_vo2?: number | null; l1_vo2_pct?: number | null;
+  l2_speed_kmh?: number | null; l2_pace_seconds?: number | null; l2_hr_bpm?: number | null; l2_vo2?: number | null; l2_vo2_pct?: number | null;
   // desempenho bruto, quando o método é uma prova (3 km, 5 km, Cooper)
   totalSeconds?: number | null; distanceMeters?: number | null;
 }
@@ -66,6 +66,18 @@ export function normalizeExternalResults(method: string, input: ExternalResultsI
   speed('l2_speed_kmh', 'Velocidade no L2', input.l2_speed_kmh, input.l2_pace_seconds);
   plain('l2_hr_bpm', 'FC no L2', input.l2_hr_bpm, RANGES.hr);
   plain('l2_vo2', 'VO₂ no L2', input.l2_vo2, RANGES.l2_vo2);
+
+  // Laudos de ergoespirometria trazem o VO₂ dos limiares em % do máximo: converte para ml/kg/min com o VO₂máx do mesmo exame (o % informado fica no resultado original).
+  const pct = (key: 'l1_vo2' | 'l2_vo2', label: string, value: unknown) => {
+    if (!present(value)) return;
+    if (indicators[key] !== undefined) { errors.push(`${label}: informe em ml/kg/min ou em % do VO₂máx, não os dois.`); return; }
+    const v = check(`${label} (% do VO₂máx)`, value, [10, 100, '%']);
+    if (v === null) return;
+    if (indicators.vo2max === undefined) { errors.push(`${label}: para informar em % do VO₂máx, informe também o VO₂máx do exame.`); return; }
+    indicators[key] = Math.round(indicators.vo2max * v) / 100;
+  };
+  pct('l1_vo2', 'VO₂ no L1', input.l1_vo2_pct);
+  pct('l2_vo2', 'VO₂ no L2', input.l2_vo2_pct);
 
   // Estados impossíveis (estrutura, não prescrição): L1 abaixo de L2 abaixo do VO₂máx, e o mesmo para a FC.
   const ordered = (a: CanonicalKey, b: CanonicalKey, text: string) => { if (indicators[a] !== undefined && indicators[b] !== undefined && indicators[a]! >= indicators[b]!) errors.push(text); };

@@ -79,7 +79,7 @@ describe('estimativa a partir dos 3 km', () => {
     expect(ind(e, 'l1_speed_kmh')?.confidence).toBe('baixa');
     expect(ind(e, 'l2_speed_kmh')?.confidence).toBe('moderada');
     expect(ind(e, 'l2_speed_kmh')?.rangeLow).toBeLessThan(ind(e, 'l2_speed_kmh')!.value);
-    expect(e.zones.map((z) => z.id)).toEqual(['Z1', 'Z2', 'Z3']);
+    expect(e.zones.map((z) => z.id)).toEqual(['Z1-Z2', 'Z3', 'Z4', 'Z5', 'Z6']);
     expect(e.zones[1].speedKmh[0]).toBe(ind(e, 'l1_speed_kmh')?.value);
     expect(e.zones[1].speedKmh[1]).toBe(ind(e, 'l2_speed_kmh')?.value);
     expect(e.zones[2].heartRate?.[1]).toBe(185);
@@ -135,6 +135,6 @@ describe('estimativa a partir dos 3 km', () => {
   it('thresholds a partir de uma vVO2 medida', () => {
     const r = estimateThresholdsAndZones({ vvo2: 18, vo2: 60, hrMax: 190, hrIsReal: true, sex: 'M', lowBase: false });
     expect(r.indicators.map((i) => i.key).sort()).toEqual(['l1_hr_bpm', 'l1_speed_kmh', 'l2_hr_bpm', 'l2_speed_kmh']);
-    expect(r.zones[2].speedKmh[1]).toBe(18);
+    expect(r.zones[3].speedKmh).toEqual([17.46, 18.54]); // Z5: 3% para menos e para mais da velocidade no VO2max
   });
 });

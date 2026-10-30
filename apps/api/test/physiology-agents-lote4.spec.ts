@@ -48,7 +48,7 @@ describe('2 a 6. o que a IA recebe conforme as avaliações', () => {
     expect(by.hrmax_bpm.origem).toBe('informado pelo aluno');
     expect(by.l2_speed_kmh.faixa).toBeDefined();
     expect(by.l2_speed_kmh.pace).toMatch(/^\d:\d{2}\/km$/);
-    expect(view.zonas).toHaveLength(3);
+    expect(view.zonas).toHaveLength(5);
     expect(view.aviso).toMatch(/nao limites e nao ordens/);
   });
 
@@ -251,5 +251,40 @@ describe('12. compatibilidade com os registros históricos', () => {
     const tp = readFileSync(join(__dirname, '..', 'src', 'training-plans', 'training-plans.service.ts'), 'utf8');
     expect(tp).toContain('if (usedReference !== undefined && this.operationalReference)');
     expect(tp).toContain("'Ha uma avaliacao fisica mais recente do que a usada no programa.'");
+  });
+});
+
+describe('laudo de ergoespirometria com VO₂ dos limiares em % do máximo e 6 zonas (30/10/2026)', () => {
+  const LAB = { vo2max: 44.7, vvo2max_kmh: 15, hrmax_bpm: 168, l1_speed_kmh: 8, l1_hr_bpm: 109, l1_vo2_pct: 53, l2_speed_kmh: 13, l2_hr_bpm: 156, l2_vo2_pct: 88 };
+
+  it('converte o % em ml/kg/min com o VO₂máx do exame, guarda o % no resultado original e monta as 6 zonas (Z5 = ±3%)', async () => {
+    const { phys, ref, t } = setup();
+    await phys.recordExternal(A, { method: 'ergospirometry', performedAt: '2025-08-13', results: LAB }, COACH);
+    const view = (await ref.getAgentView(A, NOW))!;
+    const by = Object.fromEntries(view.indicadores.map((i) => [i.indicador, i]));
+    expect(by.l1_vo2.valor).toBe(23.69);
+    expect(by.l2_vo2.valor).toBe(39.34);
+    expect(t.assess[0].rawResults).toMatchObject({ l1_vo2_pct: 53, l2_vo2_pct: 88 });
+    expect(view.zonas!.map((z) => z.zona)).toEqual(['Z1-Z2', 'Z3', 'Z4', 'Z5', 'Z6']);
+    expect(view.zonas![0]).toMatchObject({ ritmoMaisRapido: '7:30/km', fcMaxima: 109 });
+    expect(view.zonas![1]).toMatchObject({ ritmoMaisLento: '7:30/km', ritmoMaisRapido: '4:37/km' });
+    expect(view.zonas![3]).toMatchObject({ ritmoMaisLento: '4:07/km', ritmoMaisRapido: '3:53/km' });
+    expect(view.zonas![4]).toMatchObject({ ritmoMaisRapido: 'sem limite', ritmoMaisLento: '3:53/km' });
+  });
+
+  it('% sem o VO₂máx do exame, ou informado junto com ml/kg/min, é recusado (nada é inventado)', async () => {
+    const { phys } = setup();
+    await expect(phys.recordExternal(A, { method: 'ergospirometry', performedAt: '2025-08-13', results: { l1_vo2_pct: 53, l1_speed_kmh: 8 } }, COACH)).rejects.toThrow();
+    await expect(phys.recordExternal(A, { method: 'ergospirometry', performedAt: '2025-08-13', results: { vo2max: 44.7, l1_vo2: 23, l1_vo2_pct: 53 } }, COACH)).rejects.toThrow();
+  });
+
+  it('versão gravada com 3 zonas (antes desta mudança) é lida com as 6 zonas, sem alterar o que está gravado', async () => {
+    const { phys, ref, t } = setup();
+    await phys.recordExternal(A, { method: 'ergospirometry', performedAt: '2025-08-13', results: LAB }, COACH);
+    t.ref[0].payload.zones = [{ id: 'Z1' }, { id: 'Z2' }, { id: 'Z3' }];
+    const view = (await ref.getAgentView(A, NOW))!;
+    expect(view.zonas).toHaveLength(5);
+    expect(t.ref[0].payload.zones).toHaveLength(3);
+    expect(((await phys.profile(A)) as any).operationalReference.payload.zones).toHaveLength(5);
   });
 });

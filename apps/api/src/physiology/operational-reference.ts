@@ -47,12 +47,20 @@ export interface AgentReferenceView {
 }
 
 const METHOD_PT = (m: string) => METHOD_LABELS[m] ?? m;
+// Versões gravadas antes das 6 zonas (30/10/2026) trazem 3 zonas: as zonas são DERIVADAS dos indicadores, então são recalculadas na leitura (nada gravado é alterado).
+export function withCurrentZones(payload: ReferencePayload): ReferencePayload {
+  if (!payload.zones || payload.zones.length !== 3) return payload;
+  const val = (k: string) => payload.indicators.find((i) => i.key === k)?.value ?? null;
+  const l1 = val('l1_speed_kmh'), l2 = val('l2_speed_kmh'), top = val('vvo2max_kmh');
+  return l1 != null && l2 != null && top != null ? { ...payload, zones: zonesFrom({ l1, l2, vvo2: top, l1Hr: val('l1_hr_bpm'), l2Hr: val('l2_hr_bpm'), hrMax: val('hrmax_bpm') }) } : payload;
+}
+
 const toZones = (zones: Zone[] | null): AgentReferenceView['zonas'] =>
-  zones ? zones.map((z) => ({ zona: z.id, descricao: z.label, ritmoMaisRapido: formatPaceSeconds(z.paceSecondsPerKm[0]) + '/km', ritmoMaisLento: z.paceSecondsPerKm[1] === null ? null : formatPaceSeconds(z.paceSecondsPerKm[1]) + '/km', ...(z.heartRate ? { fcMinima: z.heartRate[0], fcMaxima: z.heartRate[1] } : {}) })) : null;
+  zones ? zones.map((z) => ({ zona: z.id, descricao: z.label, ritmoMaisRapido: z.open === 'fast' ? 'sem limite' : formatPaceSeconds(z.paceSecondsPerKm[0]) + '/km', ritmoMaisLento: z.open === 'fast' ? formatPaceSeconds(z.paceSecondsPerKm[0]) + '/km' : z.paceSecondsPerKm[1] === null ? null : formatPaceSeconds(z.paceSecondsPerKm[1]) + '/km', ...(z.heartRate ? { fcMinima: z.heartRate[0], fcMaxima: z.heartRate[1] } : {}) })) : null;
 
 // Visão compacta para os agentes. `adjustments` = linhas de ajuste POSTERIORES à versão de avaliações vigente (as anteriores ficam só no histórico).
 export function buildAgentView(row: ReferenceRow, adjustments: ReferenceRow[], now: Date): AgentReferenceView {
-  const p = row.payload;
+  const p = withCurrentZones(row.payload);
   const origem: AgentReferenceView['origemDaVersao'] = row.source === 'ai_adjustment' ? 'ajuste_da_ia' : row.source === 'coach_adjustment' ? 'ajuste_do_treinador' : 'avaliacoes';
   const ref = p.reference;
   return {

@@ -24,7 +24,7 @@ describe('fluxo completo: 3 km → indicadores → referência → zonas → his
     // 3-4. referência operacional e zonas
     const v1 = (await ref.getAgentView(A, NOW))!;
     expect(v1).toMatchObject({ versao: 1, origemDaVersao: 'avaliacoes' });
-    expect(v1.zonas).toHaveLength(3);
+    expect(v1.zonas).toHaveLength(5);
 
     // 5. histórico e dados dos gráficos
     const hist: any = await phys.history(A, {});

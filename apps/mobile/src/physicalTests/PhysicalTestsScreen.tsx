@@ -17,7 +17,7 @@ import {
 
 type View_ = 'home' | 'aerobic' | 'threeKm' | 'external' | 'results' | 'evolution' | 'how';
 interface Indicator { key: string; value: number; unit: string; origin: string; confidence: string; rangeLow?: number | null; rangeHigh?: number | null; pace?: string; from: { assessmentId: string; method: string; performedAt: string; fromReference: boolean } }
-interface Zone { id: string; label: string; speedKmh: [number, number]; paceSecondsPerKm: [number, number | null]; heartRate?: [number, number] }
+interface Zone { id: string; label: string; speedKmh: [number, number]; paceSecondsPerKm: [number, number | null]; heartRate?: [number, number]; open?: 'fast' }
 interface Profile {
   reference: { assessmentId: string; method: string; methodLabel: string; performedAt: string; label: string } | null;
   indicators: Indicator[]; zones: Zone[] | null; limitations: string[]; nextReassessmentDueAt: string | null;
@@ -220,8 +220,8 @@ function ExternalForm({ apiUrl, token, onBack, onSaved }: { apiUrl: string; toke
     };
     num('vo2max', 'VO₂máx', 'vo2max'); num('hrmax', 'FC máxima', 'hrmax_bpm');
     speed('vvo2', 'Velocidade no VO₂máx', 'vvo2max_kmh', 'vvo2max_pace_seconds');
-    speed('l2speed', 'Velocidade no L2', 'l2_speed_kmh', 'l2_pace_seconds'); num('l2hr', 'FC no L2', 'l2_hr_bpm'); num('l2vo2', 'VO₂ no L2', 'l2_vo2');
-    speed('l1speed', 'Velocidade no L1', 'l1_speed_kmh', 'l1_pace_seconds'); num('l1hr', 'FC no L1', 'l1_hr_bpm'); num('l1vo2', 'VO₂ no L1', 'l1_vo2');
+    speed('l2speed', 'Velocidade no L2', 'l2_speed_kmh', 'l2_pace_seconds'); num('l2hr', 'FC no L2', 'l2_hr_bpm'); num('l2vo2', 'VO₂ no L2', 'l2_vo2'); num('l2vo2pct', 'VO₂ no L2 (% do máximo)', 'l2_vo2_pct');
+    speed('l1speed', 'Velocidade no L1', 'l1_speed_kmh', 'l1_pace_seconds'); num('l1hr', 'FC no L1', 'l1_hr_bpm'); num('l1vo2', 'VO₂ no L1', 'l1_vo2'); num('l1vo2pct', 'VO₂ no L1 (% do máximo)', 'l1_vo2_pct');
     if (method === 'three_km' || method === 'five_km') { const t = timeFromText('time'); if (f.time?.trim() && t === null) problems.push('Tempo: use o formato min:seg, por exemplo 25:40.'); else if (t !== null) results.totalSeconds = t; }
     if (method === 'cooper_12min') num('distance', 'Distância', 'distanceMeters');
     if (!method) problems.push('Escolha o método da avaliação ou "Não sei informar".');
@@ -265,9 +265,9 @@ function ExternalForm({ apiUrl, token, onBack, onSaved }: { apiUrl: string; toke
       {field('vvo2', `Velocidade no VO₂máx (${speedHint})`)}
       {field('hrmax', "Frequência cardíaca máxima (bpm)", "Ex.: 188")}
       <Text style={styles.label}>Limiar 2 (L2)</Text>
-      {field('l2speed', `Velocidade no L2 (${speedHint})`)}{field('l2hr', "Frequência cardíaca no L2 (bpm)")}{field('l2vo2', "VO₂ no L2 (ml/kg/min), se disponível")}
+      {field('l2speed', `Velocidade no L2 (${speedHint})`)}{field('l2hr', "Frequência cardíaca no L2 (bpm)")}{field('l2vo2', "VO₂ no L2 (ml/kg/min), se disponível")}{field('l2vo2pct', "ou VO₂ no L2 em % do máximo, como no laudo (ex.: 88)")}
       <Text style={styles.label}>Limiar 1 (L1)</Text>
-      {field('l1speed', `Velocidade no L1 (${speedHint})`)}{field('l1hr', "Frequência cardíaca no L1 (bpm)")}{field('l1vo2', "VO₂ no L1 (ml/kg/min), se disponível")}
+      {field('l1speed', `Velocidade no L1 (${speedHint})`)}{field('l1hr', "Frequência cardíaca no L1 (bpm)")}{field('l1vo2', "VO₂ no L1 (ml/kg/min), se disponível")}{field('l1vo2pct', "ou VO₂ no L1 em % do máximo, como no laudo (ex.: 53)")}
 
       {errors.map((e) => <Text key={e} style={styles.problem}>{e}</Text>)}
       <Pressable style={[styles.primary, saving && styles.disabled]} disabled={saving} onPress={() => void submit()} accessibilityRole="button"><Text style={styles.primaryText}>{saving ? 'Salvando...' : 'Salvar avaliação'}</Text></Pressable>
@@ -307,7 +307,7 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
               <InfoTip label="Como ler as zonas?">{ZONE_HELP}</InfoTip>
               {profile.zones.map((z) => (
                 <View key={z.id} style={styles.zoneRow}>
-                  <Text style={styles.label}>{z.id}: {z.label}</Text>
+                  <Text style={styles.label}>{zoneTitle(z)}</Text>
                   <Text style={styles.hint}>{zoneSpeedText(z, unit)}</Text>
                   <Text style={styles.hint}>{z.heartRate ? `Frequência cardíaca: ${z.heartRate[0] === 0 ? 'até' : `${z.heartRate[0]} a`} ${z.heartRate[1]} bpm` : 'Frequência cardíaca: sem dados suficientes'}</Text>
                 </View>
@@ -324,7 +324,7 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
               <Text style={styles.hint}>Motivo: {profile.operationalReference.justification}</Text>
               {profile.operationalReference.payload.zones ? profile.operationalReference.payload.zones.map((z) => (
                 <View key={z.id} style={styles.zoneRow}>
-                  <Text style={styles.label}>{z.id}: {z.label}</Text>
+                  <Text style={styles.label}>{zoneTitle(z)}</Text>
                   <Text style={styles.hint}>{zoneSpeedText(z, unit)}</Text>
                 </View>
               )) : null}
@@ -345,8 +345,11 @@ function Results({ profile, loading, unit, setUnit, onBack, onEvolution, onHow }
   );
 }
 
+const zoneTitle = (z: Zone) => (z.id === 'Z1-Z2' ? z.label : `${z.id}: ${z.label}`);
+
 function zoneSpeedText(z: Zone, unit: SpeedUnit): string {
   const [from, to] = z.speedKmh;
+  if (z.open === 'fast') return unit === 'pace' ? `Ritmo: mais rápido que ${formatMinSec(z.paceSecondsPerKm[0])}/km` : `Velocidade: acima de ${from.toFixed(1).replace('.', ',')} km/h`;
   if (unit === 'pace') {
     const [fast, slow] = z.paceSecondsPerKm;
     return slow === null ? `Ritmo: mais lento que ${formatMinSec(fast)}/km` : `Ritmo: ${formatMinSec(fast)} a ${formatMinSec(slow)}/km`;

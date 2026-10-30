@@ -59,7 +59,7 @@ describe('serviço de testes físicos', () => {
     expect(ind(t, A, 'l2_hr_bpm')).toBeDefined();
     expect(t.ref).toHaveLength(1);
     expect(t.ref[0]).toMatchObject({ source: 'tests', version: 1, userId: A });
-    expect(t.ref[0].payload.zones).toHaveLength(3);
+    expect(t.ref[0].payload.zones).toHaveLength(5);
     expect(t.ref[0].payload.reference.label).toBe('Avaliação de referência atual: Teste de 3 km | 20/10/2026');
   });
 
