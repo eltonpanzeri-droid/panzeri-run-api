@@ -349,15 +349,18 @@ function ZoneCard({ zones, unit }: { zones: Zone[]; unit: SpeedUnit }) {
         const meta = ZONE_CARD[z.id];
         if (!meta) return null;
         const isOpen = open === z.id;
-        const speed = zoneSpeedText(z, unit).replace(/^(Ritmo|Velocidade): /, '');
+        const strip = (t: string) => t.replace(/^(Ritmo|Velocidade): /, '');
+        const pace = strip(zoneSpeedText(z, 'pace')), kmh = strip(zoneSpeedText(z, 'kmh'));
+        const [speed, other] = unit === 'pace' ? [pace, kmh] : [kmh, pace]; // a unidade escolhida vem em destaque; a outra aparece logo abaixo
         return (
           <View key={z.id} style={{ borderRadius: 10, overflow: 'hidden', backgroundColor: meta.color + '33' }}>
-            <Pressable onPress={() => setOpen(isOpen ? null : z.id)} accessibilityRole="button" accessibilityState={{ expanded: isOpen }} accessibilityLabel={`${meta.name}, ${meta.title}, ${speed}`}
+            <Pressable onPress={() => setOpen(isOpen ? null : z.id)} accessibilityRole="button" accessibilityState={{ expanded: isOpen }} accessibilityLabel={`${meta.name}, ${meta.title}, ${speed}, ${other}`}
               style={{ flexDirection: 'row', alignItems: 'center', minHeight: 52 }}>
               <View style={{ backgroundColor: meta.color, alignSelf: 'stretch', justifyContent: 'center', paddingHorizontal: 10, width: 92 }}><Text style={{ color: '#fff', fontWeight: '800', fontSize: 13 }}>{meta.name}</Text></View>
               <View style={{ flex: 1, paddingHorizontal: 10, paddingVertical: 6 }}>
                 <Text style={{ fontWeight: '800', fontSize: 14, color: COLORS.ink }}>{meta.title}</Text>
-                <Text style={{ fontSize: 13, color: COLORS.ink }}>{speed}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: COLORS.ink }}>{speed}</Text>
+                <Text style={{ fontSize: 12, color: COLORS.muted }}>{other}</Text>
               </View>
               <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={18} color={COLORS.ink} style={{ marginRight: 10 }} />
             </Pressable>
