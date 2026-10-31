@@ -121,7 +121,8 @@ export interface OAuthCapability {
   // URL de autorizacao ja' com o state. Nenhum dado do aluno entra na URL.
   buildAuthorizationUrl(input: { state: string }): string;
   // Troca o codigo (de uso unico: nunca repetir) e identifica a conta externa.
-  exchangeCode(input: { code: string }): Promise<ProviderTokens & { externalAccountId: string }>;
+  // `state` (opcional) e' o mesmo da URL de autorizacao: provedores com PKCE (COROS) derivam o verifier dele; os demais ignoram.
+  exchangeCode(input: { code: string; state?: string }): Promise<ProviderTokens & { externalAccountId: string }>;
   // Renovacao. Nao e' chamada para provedores sem refresh token.
   refreshTokens(input: { refreshToken: string }): Promise<ProviderTokens>;
 }

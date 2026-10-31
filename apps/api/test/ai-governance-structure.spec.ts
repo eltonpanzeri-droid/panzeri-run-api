@@ -118,7 +118,7 @@ describe('todo leitor de ActivityLog dos modulos que alimentam IA aplica o escop
 describe('invariantes da trava de envio externo', () => {
   it('a lista de provedores liberados e a trava dupla existem no codigo e a lista so tem Zepp (21/10/2026) e Health Connect (22/10/2026)', () => {
     const text = read('ai-governance/ai-data-eligibility.service.ts');
-    expect(text).toMatch(/export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string\[\] = \['zepp', 'health_connect'\];/);
+    expect(text).toMatch(/export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string\[\] = \['zepp', 'health_connect', 'coros'\];/);
     expect(text).toContain('_EXTERNAL_AI_ENABLED');
   });
 

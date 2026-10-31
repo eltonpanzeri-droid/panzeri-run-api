@@ -30,7 +30,8 @@ import { AiDestination, AiScope } from './ai-scope';
 // politica de privacidade e consentimento tratados como resolvidos por ele). Continua valendo a SEGUNDA trava: a variavel ZEPP_EXTERNAL_AI_ENABLED precisa estar ligada no servidor, e cada aluno
 // so' entra com a autorizacao propria, separada, sobre o texto vigente. Alterar esta lista e' uma decisao de produto/juridica.
 // 'health_connect' LIBERADO por Elton em 22/10/2026 (Atlas com a autorizacao propria do aluno, tambem para o Health Connect); a segunda trava continua sendo HEALTH_CONNECT_EXTERNAL_AI_ENABLED.
-export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect'];
+// 'coros' LIBERADO por Elton em 30/10/2026 (Atlas com a autorizacao propria da aluna; a pagina do COROS MCP lista "aplicativos de coaching com IA que analisam treinos e prescrevem treinos" entre os usos previstos); a segunda trava continua sendo COROS_EXTERNAL_AI_ENABLED.
+export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect', 'coros'];
 
 // Provedores cuja conexao e' do APARELHO (sem OAuth/conector na Central) mas que tem consentimento por categoria/finalidade gravado em ProviderConnection. Para estes, o antigo atalho
 // "provedor legado = elegivel como antes" NAO vale: a IA so' recebe o que o aluno autorizou (Health Connect, 22/10/2026).

@@ -13,6 +13,7 @@ import { PhysicalTestsScreen } from './src/physicalTests/PhysicalTestsScreen';
 import { PHYSICAL_TESTS_ENABLED } from './src/physicalTests/config';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
+import { CorosIntegration } from './src/coros/CorosIntegration';
 import { ZeppWatchPrompt } from './src/zepp/ZeppWatchPrompt';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
@@ -9029,6 +9030,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     samsung: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
+    // COROS (30/10/2026): conexao pelo COROS MCP, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da Zepp.
+    coros: () => <CorosIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
   };
   return (
     <View style={styles.section}>
@@ -9087,6 +9090,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava, onOpenBilling, onAccount
           <PolarConnect accessToken={accessToken} variant="manage" />
           <WahooConnect accessToken={accessToken} variant="manage" />
           <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
+          <CorosIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
         </>
       ))}
 

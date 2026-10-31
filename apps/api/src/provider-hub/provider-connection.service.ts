@@ -172,14 +172,14 @@ export class ProviderConnectionService {
     if (!attempt) throw new BadRequestException('Autorizacao invalida.');
     // A partir daqui o dono da tentativa e' conhecido: falhas ficam na auditoria dele (so' o motivo, nunca codigo, state ou token).
     try {
-      return await this.finishAuthorization(provider, oauth, attempt.userId, attempt.consent as unknown as ValidConsent, { code, error });
+      return await this.finishAuthorization(provider, oauth, attempt.userId, attempt.consent as unknown as ValidConsent, { code, error, state });
     } catch (failure) {
       await this.audit(attempt.userId, provider, 'connect_failed', { reason: failureReason(failure) });
       throw failure;
     }
   }
 
-  private async finishAuthorization(provider: string, oauth: OAuthCapability, attemptUserId: string, consent: ValidConsent, result: { code?: unknown; error?: unknown }): Promise<'connected' | 'cancelled'> {
+  private async finishAuthorization(provider: string, oauth: OAuthCapability, attemptUserId: string, consent: ValidConsent, result: { code?: unknown; error?: unknown; state?: unknown }): Promise<'connected' | 'cancelled'> {
     const { code, error } = result;
     const user = await this.prisma.user.findUnique({ where: { id: attemptUserId }, select: { id: true } });
     if (!user) throw new BadRequestException('Usuario Panzeri Run nao encontrado.');
@@ -198,7 +198,7 @@ export class ProviderConnectionService {
 
     // O code e' de uso unico: nunca repetir a troca, inclusive apos erro de rede.
     const key = oauth.encryptionKey();
-    const token = await oauth.exchangeCode({ code });
+    const token = await oauth.exchangeCode({ code, state: typeof result.state === 'string' ? result.state : undefined });
 
     // Nos caminhos de recusa abaixo o token recem-emitido NAO e' revogado (revogar pode derrubar a conexao legitima da mesma conta externa): ele nunca e'
     // gravado e expira sozinho. Revogar fica restrito a desconexao explicita do dono da conexao.
@@ -540,6 +540,22 @@ export class ProviderConnectionService {
     await connector.dataDeletion?.deleteUserData({ userId });
     await this.audit(userId, provider, 'data_deleted', {});
     return result;
+  }
+
+  // Estado de sincronizacao por PULL (provedores sem webhook, como a COROS). So' leitura/escrita de datas: nunca expoe token (a tabela de conexoes so' e' lida por este servico e pelo de consentimento).
+  async syncState(provider: string, userId: string): Promise<{ connected: boolean; lastSyncCompletedAt: Date | null }> {
+    const row = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider, userId } }, select: { disconnectedAt: true, lastSyncCompletedAt: true } });
+    return { connected: !!row && !row.disconnectedAt, lastSyncCompletedAt: row?.lastSyncCompletedAt ?? null };
+  }
+
+  async markSyncCompleted(provider: string, userId: string, at: Date): Promise<void> {
+    await this.prisma.providerConnection.updateMany({ where: { provider, userId, disconnectedAt: null }, data: { lastSyncCompletedAt: at } });
+  }
+
+  // Alunos com conexao ATIVA no provedor (para as rotinas de consulta periodica).
+  async connectedUserIds(provider: string): Promise<string[]> {
+    const rows = await this.prisma.providerConnection.findMany({ where: { provider, disconnectedAt: null }, select: { userId: true } });
+    return rows.map((row) => row.userId);
   }
 
   // ── internos ────────────────────────────────────────────────────────────────────────────────────────────────────

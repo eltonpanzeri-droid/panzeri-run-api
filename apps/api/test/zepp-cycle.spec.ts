@@ -265,7 +265,7 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
   }
 
   it('Atlas liberado em 21/10/2026: a Zepp esta na lista, mas SEM a variavel ZEPP_EXTERNAL_AI_ENABLED no servidor o dado continua bloqueado (segunda trava)', async () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect']);
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect', 'coros']);
     const eligibility = setup(['history', 'ai_external'], {});
     expect(await eligibility.decide('u1', 'zepp', { category: 'activity', destination: 'external_ai' })).toEqual({ allowed: false, reason: 'provider_locked' });
     expect((await eligibility.scopeFor('u1', 'external_ai')).blocked).toEqual(['health_connect', 'zepp']);

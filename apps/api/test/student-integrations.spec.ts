@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { NotFoundException } from '@nestjs/common';
 import { buildStudentIntegrations, describeFailure, IntegrationsRaw, StudentIntegrationsService, STATE_LABEL } from '../src/coach/student-integrations.service';
 import { ZEPP_CONSENT } from '../src/zepp/zepp-consent';
+import { COROS_CONSENT } from '../src/coros/coros-consent';
 import { HEALTH_CONNECT_CONSENT } from '../src/health-connect/health-connect-consent';
 import { consentTextHash, purposeTextHash } from '../src/provider-hub/provider-consent.service';
 
@@ -330,5 +331,41 @@ describe('Health Connect no painel: autorizacoes registradas x dados que de fato
     const entry = hcEntry({ healthConnect: hcRow({ consentVersion: '0.9' }) as never })!;
     expect(entry.categories.every((c) => c.authorized === false)).toBe(true);
     expect(entry.warnings.join(' ')).toContain('suspenso');
+  });
+});
+
+// COROS no painel do treinador (30/10/2026)
+describe('COROS no painel do treinador', () => {
+  const corosWatch = COROS_CONSENT.optionalPurposes.find((p) => p.id === 'watch_delivery')!;
+  const corosAtlas = COROS_CONSENT.optionalPurposes.find((p) => p.id === 'ai_external')!;
+  const corosRow = (over: Record<string, unknown> = {}) => ({
+    createdAt: D('2026-10-30T10:00:00Z'), disconnectedAt: null, lastSyncCompletedAt: D('2026-10-30T14:00:00Z'), accessTokenExpiresAt: D('2026-11-29T10:00:00Z'), hasRefreshToken: true,
+    grantedCategories: ['profile', 'activity', 'activity_sensors'], grantedPurposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view', 'watch_delivery'],
+    purposeConsents: { watch_delivery: { version: corosWatch.screen!.version, textHash: purposeTextHash(corosWatch), grantedAt: '2026-10-30T10:05:00.000Z' } },
+    consentVersion: COROS_CONSENT.version, consentTextHash: consentTextHash(COROS_CONSENT), ...over,
+  });
+  const corosRaw = (over: Record<string, unknown> = {}, config = { syncEnabled: true, publishingEnabled: true, externalAiUnlocked: false }) => raw({
+    coros: { row: corosRow(over.row as Record<string, unknown>), activity: { lastAt: D('2026-10-30T13:00:00Z'), count: 3 }, sensors: { lastAt: D('2026-10-30T13:00:00Z'), count: 3 }, route: none, workoutLastSentAt: D('2026-10-30T11:00:00Z'), workoutFailures: [], removalPending: [], config, ...(over.coros as object) },
+  });
+
+  it('mostra a conexao, o que chegou por categoria, o envio de treinos e o Atlas; grupo nao autorizado (percurso) aparece como nao autorizado', () => {
+    const entry = find(buildStudentIntegrations('a1', corosRaw(), NOW, false), 'coros')!;
+    expect(entry).toMatchObject({ name: 'COROS', state: 'connected' });
+    expect(category(entry, 'activity')).toMatchObject({ authorized: true, count: 3, direction: 'recebe' });
+    expect(category(entry, 'activity_sensors')).toMatchObject({ authorized: true, count: 3 });
+    expect(category(entry, 'activity_route')).toMatchObject({ authorized: false, count: 0 });
+    expect(category(entry, 'watch_delivery')).toMatchObject({ authorized: true, direction: 'envia' });
+    expect(entry.atlas).toMatchObject({ authorized: false, systemEnabled: false });
+    expect(entry.categories.some((c) => /sono|HRV/i.test(c.label))).toBe(false); // so' o que existe
+  });
+
+  it('treinos que a COROS nao deixa apagar viram aviso ao treinador; servidor com importacao desligada tambem avisa', () => {
+    const entry = find(buildStudentIntegrations('a1', corosRaw({ coros: { removalPending: [{ date: '2026-11-02', reason: 'mudou_de_dia' }] } }, { syncEnabled: false, publishingEnabled: true, externalAiUnlocked: false }), NOW, false), 'coros')!;
+    expect(entry.warnings.join(' ')).toContain('02/11');
+    expect(entry.warnings.join(' ')).toContain('COROS_SYNC_ENABLED');
+  });
+
+  it('sem conexao nem dado: nao aparece (nada e inventado)', () => {
+    expect(find(buildStudentIntegrations('a1', raw({ coros: { row: null, activity: none, sensors: none, route: none, workoutLastSentAt: null, workoutFailures: [], removalPending: [], config: { syncEnabled: false, publishingEnabled: false, externalAiUnlocked: false } } }), NOW, false), 'coros')).toBeUndefined();
   });
 });

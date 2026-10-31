@@ -72,9 +72,20 @@ export const ZEPP_PARAGRAPHS = [
   'Retenção: hoje não há exclusão automática por prazo para os dados da Zepp. Eles ficam guardados enquanto a conexão estiver ativa e até você pedir a exclusão ou excluir a conta. Não definimos um prazo adicional de retenção; se isso mudar, esta política será atualizada.',
 ];
 
+// ─── COROS (30/10/2026) ────────────────────────────────────────────────────────────────────────────────
+// Descreve o que o codigo FAZ (conferido no catalogo de ferramentas do COROS MCP e nos testes). Nada de prazo ou garantia inventados.
+export const COROS_PARAGRAPHS = [
+  'A COROS é a fabricante dos relógios COROS, que você pode conectar ao Panzeri Run por escolha sua. A conexão está em validação e é opcional. Existem três autorizações separadas, cada uma com texto próprio, que você concede ou não: a conexão (importar atividades), o envio de treinos ao relógio e a análise com o Atlas.',
+  'Dados que recebemos da COROS, conforme os grupos que você autorizar e o que o seu relógio medir: o identificador da conta COROS (apenas para vincular a conexão); atividades (data e horário, distância, duração, ritmo, calorias e modalidade); se você autorizar, frequência cardíaca, cadência, potência e elevação; e, se você autorizar o percurso, o trajeto GPS. Lemos o arquivo da atividade na hora, guardamos apenas os dados extraídos dos grupos que você autorizou e descartamos o arquivo original. Sono, variabilidade da frequência cardíaca e saúde diária da COROS não são importados.',
+  'Dados que enviamos à COROS: somente se você autorizar o envio de treinos ao relógio, o Panzeri Run cria e atualiza no seu calendário da COROS os treinos de corrida programados — nome (tipo, distância e data), etapas, distâncias ou tempos e ritmos-alvo. Não enviamos seu nome, dados de saúde, relatos seus nem comentários do treinador.',
+  'A COROS não permite que o Panzeri Run apague ou mude de dia um treino já enviado. Se você retirar a autorização, desconectar a conta, ou se o treino mudar de dia ou sair do programa, os treinos que já estiverem no seu calendário da COROS permanecem lá e você pode apagá-los no aplicativo da COROS.',
+  'Como usamos esses dados: como as atividades das outras integrações (seção 5), para mostrar suas atividades, comparar o que foi prescrito com o que foi realizado, acompanhar sua evolução, personalizar seu treinamento e permitir que seu treinador acompanhe. A importação é feita por consulta periódica ao serviço da COROS (a cada 30 minutos), e a COROS limita o download a 50 arquivos por dia.',
+  'Seu controle: em Dispositivos e integrações > COROS você vê e retira cada autorização, desconecta a conta e pede a exclusão dos dados importados. Retenção: não há exclusão automática por prazo para os dados da COROS; eles ficam guardados enquanto a conexão estiver ativa e até você pedir a exclusão ou excluir a conta.',
+];
+
 export const ATLAS_PARAGRAPHS = [
   'O Atlas é o nome da inteligência artificial usada pelo Panzeri Run para apoiar a prescrição e a análise do seu treinamento (seção 7). A tecnologia é fornecida pela Anthropic.',
-  'Dados da Zepp/Amazfit só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas. Sem essa autorização, os dados Zepp não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
+  'Dados da Zepp/Amazfit e da COROS só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas de cada integração. Sem essa autorização, os dados Zepp não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
   'Com a autorização, o Panzeri Run envia à Anthropic os dados necessários à análise, sob a forma de resumos e indicadores derivados das suas atividades e dos seus dados de sono, HRV e saúde diária (como distância, ritmo, frequência cardíaca, cadência, potência, elevação, duração e pontuação do sono, HRV, frequência cardíaca de repouso e histórico), apenas nos grupos que você autorizou. O arquivo original, as séries completas de amostras, as etapas do sono minuto a minuto e as coordenadas do percurso não fazem parte do que o Panzeri Run envia à IA.',
   'As análises automatizadas podem apresentar limitações e erros, o acompanhamento é feito sob supervisão técnica do treinador e elas não substituem avaliação médica.',
   'A Anthropic é uma empresa estrangeira, e esse envio configura transferência internacional de dados. As regras da Anthropic sobre guardar essas informações ou usá-las para treinar modelos dependem dos termos do próprio fornecedor, e o Panzeri Run não as afirma por ele.',
@@ -97,6 +108,7 @@ export const DELETE_PARAGRAPHS = [
 export const THIRD_PARTIES = [
   '- Anthropic: tecnologia de inteligência artificial usada pelo Atlas e pelas demais funções de IA, descrita acima.',
   '- Polar, Strava e Wahoo: serviços que você conecta, com suas próprias políticas.',
+  '- COROS: serviço que você conecta para o Panzeri Run receber suas atividades e, se você autorizar, enviar treinos ao seu calendário e relógio, com política própria.',
   '- Zepp Health (Zepp/Amazfit): serviço que você conecta para o Panzeri Run receber suas atividades e, se você autorizar, enviar treinos ao seu relógio, com política própria.',
   '- Asaas, RevenueCat e as lojas de aplicativos (Google Play e App Store): cobrança e assinatura. Não armazenamos dados de cartão.',
   '- Resend: envio dos e-mails do serviço (como cadastro, recuperação de senha e avisos).',
@@ -189,13 +201,14 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     ],
   },
   { id: 'zepp-amazfit', heading: '5A. Zepp/Amazfit: importar atividades e enviar treinos ao relógio', paragraphs: ZEPP_PARAGRAPHS },
+  { id: 'coros', heading: '5C. COROS: importar atividades e enviar treinos ao relógio', paragraphs: COROS_PARAGRAPHS },
   {
     id: 'saude-lojas',
     heading: '5B. Dados de saúde recebidos do Health Connect e do Apple Saúde: limites de uso',
     paragraphs: [
       'O uso e a transferência, para qualquer outro aplicativo, das informações recebidas do Health Connect pelo Panzeri Run aderirão à Política de Permissões do Health Connect, incluindo os requisitos de Uso Limitado. As informações recebidas do Apple Saúde seguem as regras da Apple para dados de saúde.',
       'Esses dados são usados somente para oferecer e melhorar as funções do Panzeri Run voltadas a você: mostrar suas atividades, comparar treinos prescritos e realizados, acompanhar sua evolução e personalizar seu treinamento, incluindo as análises descritas na seção 7.',
-      'Não usamos esses dados para publicidade nem para marketing, não os vendemos e não os transferimos a corretores de dados ou a plataformas de anúncios. Só os compartilhamos com fornecedores que executam as funções descritas neste documento (como a tecnologia de inteligência artificial e a infraestrutura), com o seu treinador, no painel de acompanhamento, quando necessário para segurança ou para cumprir a lei, ou quando você autorizar. O Panzeri Run não usa esses dados para treinar modelos de inteligência artificial próprios.',
+      'Não usamos esses dados para publicidade nem para marketing, não os comercializamos e não os transferimos a corretores de dados ou a plataformas de anúncios. Só os compartilhamos com fornecedores que executam as funções descritas neste documento (como a tecnologia de inteligência artificial e a infraestrutura), com o seu treinador, no painel de acompanhamento, quando necessário para segurança ou para cumprir a lei, ou quando você autorizar. O Panzeri Run não usa esses dados para treinar modelos de inteligência artificial próprios.',
     ],
   },
   {
@@ -214,7 +227,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     ],
   },
   { id: 'ia', heading: '7. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
-  { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit', paragraphs: ATLAS_PARAGRAPHS },
+  { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit e da COROS', paragraphs: ATLAS_PARAGRAPHS },
   { id: 'terceiros', heading: '8. Compartilhamento e serviços de terceiros', paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
   {
     id: 'compromissos',
@@ -330,6 +343,7 @@ export const LEGAL_SUMMARY = {
     { id: 'integracoes', title: 'Dispositivos e integrações', paragraphs: [WEARABLE_INTRO, ...WEARABLE_FIELDS, ...RAW_AND_DERIVED, STRAVA_PARAGRAPH, WAHOO_PARAGRAPH] },
     { id: 'ia', title: 'Inteligência Artificial', paragraphs: AI_PARAGRAPHS },
     { id: 'zepp', title: 'Zepp/Amazfit', paragraphs: ZEPP_PARAGRAPHS },
+    { id: 'coros', title: 'COROS', paragraphs: COROS_PARAGRAPHS },
     { id: 'atlas', title: 'Atlas e Anthropic', paragraphs: ATLAS_PARAGRAPHS },
     { id: 'gerenciar', title: 'Gerenciar dados da integração', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS, ...BACKUP_PARAGRAPHS.slice(1, 2)] },
     { id: 'terceiros', title: 'Terceiros e processamento', paragraphs: ['O Panzeri Run usa estes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },

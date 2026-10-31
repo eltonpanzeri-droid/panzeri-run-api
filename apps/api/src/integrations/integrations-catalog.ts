@@ -111,13 +111,16 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'coros',
     name: 'COROS',
-    // 30/10/2026: a COROS liberou o COROS MCP (OAuth 2.0, autoatendimento, sem aprovacao): le atividades (com FIT), sono, saude diaria e condicionamento e ESCREVE treinos e planos
-    // (corrida de rua, trilha e ciclismo) no calendario do atleta. Ainda NAO ha conexao no Panzeri Run: nenhum dado e' pedido hoje. Webhook so' pela Partner API (em fila).
-    summary: 'Integração em preparação: ainda não é possível conectar o COROS, e nenhum dado seu é solicitado.',
-    availability: 'unavailable',
+    // 30/10/2026: integracao pelo COROS MCP (OAuth 2.0 com PKCE, autoatendimento, sem aprovacao): importa atividades (arquivo FIT, por consulta periodica: o webhook so' existe na Partner API,
+    // em analise) e ENVIA treinos de corrida ao calendario (createScheduledWorkout). A COROS nao permite apagar nem mudar de dia um treino enviado. Sono, HRV e saude diaria ainda NAO sao importados.
+    // Em validacao: so' aparece como disponivel para quem foi habilitado (COROS_ENABLED_USER_IDS) e com as variaveis COROS_* configuradas no servidor.
+    summary: 'Conecte seu relógio COROS para acompanhar seus treinos e, se quiser, receber seus treinos de corrida no calendário da COROS. Cada autorização é opcional e separada. Recurso em validação.',
+    availability: 'available',
     platforms: ALL_PLATFORMS,
-    capabilities: { receiveActivities: false, sendWorkouts: false },
-    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'preparing', workoutDeliveryNote: 'A COROS permite enviar treinos de corrida e ciclismo ao calendário do atleta. O Panzeri Run ainda não usa esse recurso.', authorizedBy: 'manufacturer', aiUse: 'with_consent' },
+    capabilities: { receiveActivities: true, sendWorkouts: true },
+    profile: { dataGroups: ['activities', 'performance', 'route'], workoutDelivery: 'available', workoutDeliveryNote: 'Treinos de corrida são criados no seu calendário da COROS, com autorização própria. A COROS não permite que o Panzeri Run apague um treino já enviado: se ele mudar de dia ou sair do programa, você o apaga no app da COROS.', authorizedBy: 'both', aiUse: 'with_consent' },
+    requiresEnv: ['COROS_CLIENT_ID', 'COROS_REDIRECT_URI', 'COROS_TOKEN_ENCRYPTION_KEY'],
+    requiresAllowlist: true,
   },
   {
     id: 'wahoo',

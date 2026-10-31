@@ -51,9 +51,9 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(entry.summary).toContain('Health Connect');
   });
 
-  it('Garmin e COROS: indisponiveis, sem capacidades nem conexao (mantidos assim por decisao de Elton em 22/10/2026)', () => {
+  it('Garmin: indisponivel, sem capacidades nem conexao (mantido assim por decisao de Elton em 22/10/2026; a COROS passou a ser integrada em 30/10/2026)', () => {
     const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['garmin']) });
-    for (const id of ['garmin', 'coros']) {
+    for (const id of ['garmin']) {
       const entry = byId(catalog, id);
       expect(entry.availability).toBe('unavailable');
       expect(entry.connection.state).toBe('not_applicable');
@@ -121,7 +121,7 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
     const service = new IntegrationsService(prisma, config);
     const result = await service.catalog('aluno-A');
-    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }, { provider_userId: { provider: 'polar', userId: 'aluno-A' } }, { provider_userId: { provider: 'wahoo', userId: 'aluno-A' } }]); // + decisoes sobre o Atlas (Polar/Wahoo), so' estado
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }, { provider_userId: { provider: 'polar', userId: 'aluno-A' } }, { provider_userId: { provider: 'wahoo', userId: 'aluno-A' } }, { provider_userId: { provider: 'coros', userId: 'aluno-A' } }]); // + decisoes sobre o Atlas (Polar/Wahoo), so' estado
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
     expect(calls[2].args.select).toEqual({ disconnectedAt: true });
@@ -194,12 +194,18 @@ describe('perfil padrao de cada integracao (30/10/2026)', () => {
     expect(byId('samsung').capabilities.sendWorkouts).toBe(false);
   });
 
-  it('COROS: em preparacao, sem conexao nem pedido de dados hoje; o envio de treinos aparece como "em preparacao", nunca disponivel', () => {
+  it('COROS (30/10/2026): em validacao como a Zepp: so' + "'" + ' aparece disponivel com as variaveis COROS_* no servidor E a aluna habilitada; envia treinos, mas avisa que nao consegue apagar', () => {
     const coros = byId('coros');
-    expect(coros.availability).toBe('unavailable');
-    expect(coros.summary).toContain('nenhum dado seu é solicitado');
-    expect(coros.profile.workoutDelivery).toBe('preparing');
-    expect(coros.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
+    expect(coros.requiresAllowlist).toBe(true);
+    expect(coros.requiresEnv).toEqual(['COROS_CLIENT_ID', 'COROS_REDIRECT_URI', 'COROS_TOKEN_ENCRYPTION_KEY']);
+    expect(coros.capabilities).toEqual({ receiveActivities: true, sendWorkouts: true });
+    expect(coros.profile.workoutDelivery).toBe('available');
+    expect(coros.profile.workoutDeliveryNote).toContain('não permite que o Panzeri Run apague');
+    expect(coros.profile.aiUse).toBe('with_consent');
+    const closed = buildIntegrationsCatalog({ configuredEnv: new Set(coros.requiresEnv as string[]), connectedProviderIds: new Set() }).find((entry) => entry.id === 'coros')!;
+    expect(closed.availability).toBe('unavailable'); // sem a porta de habilitacao
+    const open = buildIntegrationsCatalog({ configuredEnv: new Set(coros.requiresEnv as string[]), connectedProviderIds: new Set(), allowedProviderIds: new Set(['coros']) }).find((entry) => entry.id === 'coros')!;
+    expect(open.availability).toBe('available');
   });
 
   it('Strava nunca alimenta a IA; Zepp so com autorizacao propria', () => {

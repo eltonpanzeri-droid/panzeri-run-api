@@ -178,7 +178,7 @@ describe('texto geral de privacidade reorganizado (30/10/2026, 2a revisao)', () 
 
   it('declaracoes exigidas pelas lojas: Uso Limitado do Health Connect, sem publicidade, sem venda, sem corretores de dados e sem treinar IA propria', () => {
     expect(PRIVACY).toContain('Política de Permissões do Health Connect, incluindo os requisitos de Uso Limitado');
-    expect(PRIVACY).toContain('não os vendemos e não os transferimos a corretores de dados');
+    expect(PRIVACY).toContain('não os comercializamos e não os transferimos a corretores de dados');
     expect(PRIVACY).toContain('não usa esses dados para treinar modelos de inteligência artificial próprios');
     expect(PRIVACY).toContain('Strava'); // o paragrafo proprio do Strava continua: so' voce ve, nao vai a IA nem ao treinador, guardado por ate 7 dias
     expect(PRIVACY).toContain('não são enviados à inteligência artificial');

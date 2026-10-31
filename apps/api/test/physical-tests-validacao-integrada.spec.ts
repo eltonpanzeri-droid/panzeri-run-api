@@ -43,7 +43,7 @@ describe('fluxo completo: 3 km → indicadores → referência → zonas → his
     expect(await ref.proposeAdjustment(A, adj, NOW)).toMatchObject({ accepted: true, version: 2 });
     // sem bloqueio de tempo: outro ajuste logo depois, mas só com observação nova
     expect((await ref.proposeAdjustment(A, { ...adj, indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }] }, NOW)).accepted).toBe(false);
-    const fresh = await ref.proposeAdjustment(A, { ...adj, indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }], evidencias: ev(['2026-10-21', '2026-10-22', '2026-10-31']) }, new Date('2026-10-31T12:00:00Z'));
+    const fresh = await ref.proposeAdjustment(A, { ...adj, indicadores: [{ chave: 'l2_speed_kmh', novoValor: 14.1 }], evidencias: ev(['2026-10-21', '2026-10-22', '2026-11-02']) }, new Date('2026-11-03T12:00:00Z'));
     expect(fresh.accepted).toBe(true);
     expect(JSON.stringify([t.fitness, t.assess, t.ind])).toBe(original); // resultados e indicadores originais intactos
     expect(t.ref.map((r: any) => r.source)).toEqual(['tests', 'ai_adjustment', 'ai_adjustment']); // histórico completo preservado

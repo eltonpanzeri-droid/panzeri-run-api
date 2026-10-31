@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { ZEPP_CONSENT } from '../zepp/zepp-consent';
+import { COROS_CONSENT } from '../coros/coros-consent';
 import { EXTERNAL_AI_APPROVED_PROVIDERS } from '../ai-governance/ai-data-eligibility.service';
 import { profileIsConfirmed } from '../zepp/zepp-workout-publisher.service';
 import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
@@ -121,6 +122,15 @@ export interface IntegrationsRaw {
   legacyConsent?: Partial<Record<'polar' | 'wahoo', { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown } | null>>;
   // Saude e recuperacao da Polar (23/10/2026): autorizacao por categoria (linha propria 'polar_health') e o que chegou. Ausente => a aluna ainda nao escolheu.
   polarHealth?: { row: PolarHealthRow | null; receipts: Record<string, ReceiptStat> };
+  // COROS (30/10/2026): autorizacoes gravadas no servidor + o que chegou por categoria + estado do envio de treinos ao calendario. Ausente (testes antigos) => so' o que ja' existia.
+  coros?: {
+    row: { createdAt: Date; disconnectedAt: Date | null; lastSyncCompletedAt: Date | null; accessTokenExpiresAt: Date | null; hasRefreshToken: boolean; grantedCategories: unknown; grantedPurposes: unknown; purposeConsents: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
+    activity: ReceiptStat; sensors: ReceiptStat; route: ReceiptStat;
+    workoutLastSentAt: Date | null;
+    workoutFailures: Array<{ errorMessage: string | null; failedAt: Date | null; requestedAt: Date }>;
+    removalPending: Array<{ date: string; reason: string | null }>;
+    config: { syncEnabled: boolean; publishingEnabled: boolean; externalAiUnlocked: boolean };
+  };
   zeppLastProcessedEventAt: Date | null;
   zeppWorkoutLastAcceptedAt: Date | null;
   inboundFailures: Array<{ provider: string; eventType: string; status: string; lastError: string | null; updatedAt: Date }>;
@@ -130,7 +140,7 @@ export interface IntegrationsRaw {
 const EMPTY: ReceiptStat = { lastAt: null, count: 0 };
 const iso = (date: Date | null | undefined) => (date ? date.toISOString() : null);
 const stat = (value: ReceiptStat | undefined): ReceiptStat => value ?? EMPTY;
-const PROVIDER_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', strava: 'Strava', polar: 'Polar', wahoo: 'Wahoo', apple_health: 'Apple Saúde', health_connect: 'Health Connect (Android)' };
+const PROVIDER_NAME: Record<string, string> = { coros: 'COROS', zepp: 'Zepp / Amazfit', strava: 'Strava', polar: 'Polar', wahoo: 'Wahoo', apple_health: 'Apple Saúde', health_connect: 'Health Connect (Android)' };
 const EVENT_LABEL: Record<string, string> = { activity_file: 'uma atividade', sleep_summary: 'um registro de sono', daily_summary: 'um resumo diário', hrv_summary: 'um registro de HRV', metric_summary: 'um indicador de saúde', authorization_change: 'um aviso de autorização' };
 
 // Traducao do motivo tecnico (texto interno da fila) para algo que o treinador entende. O texto bruto NUNCA e' exibido.
@@ -326,6 +336,60 @@ function zeppEntry(raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean)
   };
 }
 
+// COROS: autorizacoes + o que chegou por categoria + envio de treinos. Os treinos que a COROS ja' tem e que o Panzeri Run nao consegue apagar aparecem como aviso ao treinador.
+function corosEntry(raw: IntegrationsRaw, now: Date): StudentIntegrationView | null {
+  const c = raw.coros;
+  if (!c) return null;
+  const row = c.row;
+  const hasData = c.activity.count > 0;
+  if (!row && !hasData) return null;
+  const granted = new Set<string>(Array.isArray(row?.grantedCategories) ? (row!.grantedCategories as unknown[]).filter((v): v is string => typeof v === 'string') : []);
+  const purposes = new Set<string>(Array.isArray(row?.grantedPurposes) ? (row!.grantedPurposes as unknown[]).filter((v): v is string => typeof v === 'string') : []);
+  const active = Boolean(row) && !row!.disconnectedAt;
+  const consentCurrent = row ? isConnectionConsentCurrent(COROS_CONSENT, row) : true;
+  const effective = (id: string) => active && consentCurrent && granted.has(id);
+  const expired = row ? tokenExpired(now, row.accessTokenExpiresAt, row.hasRefreshToken) : false;
+  const failures: IntegrationFailureView[] = c.workoutFailures.map((failed) => ({ at: (failed.failedAt ?? failed.requestedAt).toISOString(), message: describeDeliveryFailure(failed.errorMessage), count: 1, status: 'gave_up' as const }));
+  const state = stateFor({ connected: active, disconnected: Boolean(row?.disconnectedAt), hasData, expired, gaveUp: failures.length > 0 });
+  const watchAuthorized = active && purposes.has('watch_delivery') && isPurposeCurrent(COROS_CONSENT, 'watch_delivery', row!.purposeConsents);
+  const watchChecks: IntegrationCheckView[] = [
+    { label: 'Publicador ligado no servidor', ok: c.config.publishingEnabled, detail: c.config.publishingEnabled ? 'COROS_WORKOUT_PUBLISH_ENABLED está ligada.' : 'COROS_WORKOUT_PUBLISH_ENABLED não está ligada: nenhum treino é enviado à COROS.' },
+    { label: 'Conexão da aluna ativa', ok: active && !expired, detail: !row ? 'A aluna não conectou a COROS.' : !active ? 'A aluna desconectou a COROS.' : expired ? 'A autorização com a COROS expirou; a aluna precisa reconectar.' : 'Conectada.' },
+    { label: 'Autorização da aluna para enviar treinos', ok: row ? watchAuthorized : null, detail: !row ? 'Sem conexão.' : watchAuthorized ? 'A aluna autorizou “Enviar meus treinos ao relógio”.' : !purposes.has('watch_delivery') ? 'A aluna ainda não concedeu a autorização própria de envio de treinos (tela separada, depois de conectar).' : 'A autorização foi dada sobre um texto antigo; a aluna precisa autorizar de novo.' },
+  ];
+  const category = (id: string, label: string, categoryIds: string[], receipt: ReceiptStat): IntegrationCategoryView => ({
+    id, label, direction: 'recebe', authorized: row ? categoryIds.every((cat) => effective(cat)) : null, lastAt: iso(receipt.lastAt), count: receipt.count,
+  });
+  const categories: IntegrationCategoryView[] = [
+    category('activity', 'Atividades', ['activity'], c.activity),
+    category('activity_sensors', 'Frequência cardíaca, cadência, potência e elevação', ['activity_sensors'], c.sensors),
+    category('activity_route', 'Percurso GPS', ['activity_route'], c.route),
+    { id: 'watch_delivery', label: 'Envio de treinos ao calendário da COROS', direction: 'envia', authorized: row ? watchAuthorized : null, lastAt: iso(c.workoutLastSentAt), count: null, note: 'Mostra o último treino aceito pela COROS; isso não confirma que o relógio já recebeu. A COROS não deixa o Panzeri Run apagar treinos enviados.', checks: watchChecks },
+  ];
+  const warnings: string[] = [];
+  if (row && active && !consentCurrent) warnings.push('O texto da conexão mudou: a importação está suspensa até a aluna confirmar o texto atualizado no aplicativo.');
+  if (!c.config.syncEnabled) warnings.push('A importação de atividades da COROS está desligada no servidor (COROS_SYNC_ENABLED).');
+  for (const cat of categories) if (cat.direction === 'recebe' && cat.authorized && cat.count === 0) warnings.push(`Autorizada, mas ainda sem dados recebidos: ${cat.label}.`);
+  if (c.removalPending.length > 0) warnings.push(`Treinos que ficaram no calendário da COROS da aluna e que o Panzeri Run não consegue apagar (mudaram de dia, saíram do programa ou a autorização foi retirada): ${c.removalPending.map((item) => item.date.split('-').reverse().slice(0, 2).join('/')).join(', ')}. A aluna os apaga no aplicativo da COROS.`);
+  if (state === 'data_only') warnings.push('Há dados da COROS, mas não há conexão ativa registrada.');
+  const aiGranted = active && purposes.has('ai_external');
+  const aiCurrent = aiGranted && isPurposeCurrent(COROS_CONSENT, 'ai_external', row!.purposeConsents);
+  const record = row && purposes.has('ai_external') ? (row.purposeConsents as Record<string, { grantedAt?: string }> | null)?.ai_external : undefined;
+  const atlas: IntegrationAtlasView = {
+    applies: true, authorized: row ? aiCurrent : null, needsNewAuthorization: Boolean(aiGranted && !aiCurrent), since: aiCurrent && record?.grantedAt ? record.grantedAt : null, systemEnabled: c.config.externalAiUnlocked,
+    note: !row ? 'Sem conexão registrada.'
+      : aiCurrent ? (c.config.externalAiUnlocked ? 'A aluna autorizou o uso dos dados COROS pelo Atlas (autorização separada da importação).' : 'A aluna autorizou o uso pelo Atlas, mas o envio a IA externa ainda não está ligado no servidor (COROS_EXTERNAL_AI_ENABLED).')
+      : aiGranted ? 'A autorização do Atlas foi dada sobre uma versão anterior do texto e precisa ser renovada: hoje não vale.'
+      : 'A aluna não autorizou o uso dos dados COROS pelo Atlas: esses dados não são enviados à IA.',
+  };
+  return {
+    provider: 'coros', name: PROVIDER_NAME.coros, state, stateLabel: STATE_LABEL[state],
+    connectedSince: iso(row?.createdAt), disconnectedAt: iso(row?.disconnectedAt),
+    lastSyncAt: iso(row?.lastSyncCompletedAt ?? c.activity.lastAt), lastSyncBasis: row?.lastSyncCompletedAt ? 'sincronizacao_concluida' : c.activity.lastAt ? 'ultimo_dado_recebido' : null,
+    categories, atlas, failures, warnings,
+  };
+}
+
 // Health Connect: so' aparece com as autorizacoes quando o aluno ja' registrou alguma (senao segue o caso "dados sem registro de conexao"). Conectada = autorizacoes ativas no servidor.
 function healthConnectEntry(raw: IntegrationsRaw, externalAiUnlocked: boolean): StudentIntegrationView | null {
   const h = raw.healthConnect;
@@ -420,7 +484,7 @@ function stravaEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
 }
 
 export function buildStudentIntegrations(studentId: string, raw: IntegrationsRaw, now: Date, externalAiUnlocked: boolean, healthConnectAiUnlocked = false): StudentIntegrationsResult {
-  const entries = [zeppEntry(raw, now, externalAiUnlocked), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), appleHealthEntry(raw) ?? legacyEntry('apple_health', raw, now), healthConnectEntry(raw, healthConnectAiUnlocked) ?? legacyEntry('health_connect', raw, now)]
+  const entries = [zeppEntry(raw, now, externalAiUnlocked), corosEntry(raw, now), stravaEntry(raw), legacyEntry('polar', raw, now), legacyEntry('wahoo', raw, now), appleHealthEntry(raw) ?? legacyEntry('apple_health', raw, now), healthConnectEntry(raw, healthConnectAiUnlocked) ?? legacyEntry('health_connect', raw, now)]
     .filter((entry): entry is StudentIntegrationView => entry !== null);
   return { studentId, generatedAt: now.toISOString(), integrations: entries };
 }
@@ -535,6 +599,27 @@ export class StudentIntegrationsService {
       agg(this.prisma.wearableDailySummary.aggregate({ where: polarWearableWhere, _max: { receivedAt: true }, _count: true })),
     ]);
 
+    // COROS: autorizacoes (so' colunas de estado), o que chegou por categoria e o estado do envio de treinos ao calendario.
+    const corosSensorsWhere = { userId, provider: 'coros', OR: [{ avgHeartRateBpm: { not: null } }, { cadenceAvg: { not: null } }, { powerAvgWatts: { not: null } }, { elevationGainMeters: { not: null } }] };
+    const [corosRow, corosSensorsRow, corosSensorsCount, corosRouteRow, corosRouteCount, corosLastSent, corosFailed, corosCanceled] = await Promise.all([
+      this.prisma.providerConnection.findUnique({
+        where: { provider_userId: { provider: 'coros', userId } },
+        select: { createdAt: true, disconnectedAt: true, lastSyncCompletedAt: true, accessTokenExpiresAt: true, refreshTokenEncrypted: true, grantedCategories: true, grantedPurposes: true, purposeConsents: true, consentVersion: true, consentTextHash: true },
+      }),
+      this.prisma.activityLog.findFirst({ where: corosSensorsWhere, orderBy: { startedAt: 'desc' }, select: { rawActivity: { select: { receivedAt: true } } } }),
+      this.prisma.activityLog.count({ where: corosSensorsWhere }),
+      this.prisma.activityLog.findFirst({ where: { userId, provider: 'coros', hasRoute: true }, orderBy: { startedAt: 'desc' }, select: { rawActivity: { select: { receivedAt: true } } } }),
+      this.prisma.activityLog.count({ where: { userId, provider: 'coros', hasRoute: true } }),
+      this.prisma.workoutDelivery.findFirst({ where: { provider: 'coros_mcp', status: 'sent', trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, select: { providerMetadata: true, sentAt: true } }),
+      this.prisma.workoutDelivery.findMany({ where: { provider: 'coros_mcp', status: 'failed', requestedAt: { gte: since7 }, trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, take: 20, select: { errorMessage: true, failedAt: true, requestedAt: true } }),
+      this.prisma.workoutDelivery.findMany({ where: { provider: 'coros_mcp', status: 'canceled', trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, take: 50, select: { providerMetadata: true } }),
+    ]);
+    const todayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(now);
+    const corosSentAt = (corosLastSent?.providerMetadata as { sentToCorosAt?: unknown } | null)?.sentToCorosAt;
+    const corosRemovalPending = corosCanceled
+      .map((delivery) => delivery.providerMetadata as { removalPending?: boolean; scheduledDate?: string; removalReason?: string } | null)
+      .filter((meta): meta is { removalPending: true; scheduledDate: string; removalReason?: string } => meta?.removalPending === true && typeof meta.scheduledDate === 'string' && meta.scheduledDate >= todayIso)
+      .map((meta) => ({ date: meta.scheduledDate, reason: meta.removalReason ?? null }));
     const accepted = (lastDelivery?.providerMetadata as { windowAcceptedAt?: unknown } | null)?.windowAcceptedAt;
     const acceptedAt = typeof accepted === 'string' && !Number.isNaN(new Date(accepted).getTime()) ? new Date(accepted) : lastDelivery?.sentAt ?? null;
     const raw: IntegrationsRaw = {
@@ -555,6 +640,20 @@ export class StudentIntegrationsService {
       zeppWorkoutLastAcceptedAt: acceptedAt,
       inboundFailures: failedEvents,
       zeppWorkoutFailures: failedDeliveries,
+      coros: {
+        row: corosRow ? { createdAt: corosRow.createdAt, disconnectedAt: corosRow.disconnectedAt, lastSyncCompletedAt: corosRow.lastSyncCompletedAt, accessTokenExpiresAt: corosRow.accessTokenExpiresAt, hasRefreshToken: Boolean(corosRow.refreshTokenEncrypted), grantedCategories: corosRow.grantedCategories, grantedPurposes: corosRow.grantedPurposes, purposeConsents: corosRow.purposeConsents, consentVersion: corosRow.consentVersion, consentTextHash: corosRow.consentTextHash } : null,
+        activity: { lastAt: raws.find((row) => row.provider === 'coros')?._max.receivedAt ?? null, count: raws.find((row) => row.provider === 'coros')?._count._all ?? 0 },
+        sensors: { lastAt: corosSensorsRow?.rawActivity.receivedAt ?? null, count: corosSensorsCount },
+        route: { lastAt: corosRouteRow?.rawActivity.receivedAt ?? null, count: corosRouteCount },
+        workoutLastSentAt: typeof corosSentAt === 'string' && !Number.isNaN(new Date(corosSentAt).getTime()) ? new Date(corosSentAt) : corosLastSent?.sentAt ?? null,
+        workoutFailures: corosFailed,
+        removalPending: corosRemovalPending,
+        config: {
+          syncEnabled: this.config.get<string>('COROS_SYNC_ENABLED')?.trim().toLowerCase() === 'true',
+          publishingEnabled: this.config.get<string>('COROS_WORKOUT_PUBLISH_ENABLED')?.trim().toLowerCase() === 'true',
+          externalAiUnlocked: EXTERNAL_AI_APPROVED_PROVIDERS.includes('coros') && this.config.get<string>('COROS_EXTERNAL_AI_ENABLED')?.trim().toLowerCase() === 'true',
+        },
+      },
       zeppWatch: { publishingEnabled: this.config.get<string>('ZEPP_WORKOUT_PUBLISH_ENABLED')?.trim().toLowerCase() === 'true', unitProfileConfirmed: profileIsConfirmed(ZEPP_WORKOUT_PROFILE) },
     };
     const externalAiUnlocked = EXTERNAL_AI_APPROVED_PROVIDERS.includes('zepp') && this.config.get<string>('ZEPP_EXTERNAL_AI_ENABLED')?.trim().toLowerCase() === 'true';
