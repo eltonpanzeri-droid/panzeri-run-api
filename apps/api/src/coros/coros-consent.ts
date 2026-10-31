@@ -5,8 +5,8 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 //  2. ENVIO DE TREINOS AO RELOGIO (finalidade `watch_delivery`, tela propria): opcional, depois de conectar.
 //  3. ANALISE COM O ATLAS / Anthropic (finalidade `ai_external`, tela propria): opcional. Liberada por Elton em 30/10/2026; o envio so' acontece com a autorizacao propria da aluna E com a
 //     segunda trava do servidor ligada (COROS_EXTERNAL_AI_ENABLED=true). Recusar nao impede conectar nem usar o que nao depende de IA externa.
-// So' ha grupos do que esta IMPLEMENTADO: atividades, sensores e percurso (arquivo FIT da atividade). Sono, HRV, frequencia cardiaca de repouso e saude diaria da COROS ainda NAO sao
-// importados e por isso NAO sao pedidos aqui (nao se pede consentimento de um uso que nao existe); quando forem, entram numa versao nova com nova autorizacao.
+// So' ha grupos do que esta IMPLEMENTADO: atividades, sensores e percurso (arquivo FIT da atividade) e, desde 30/10/2026 (ainda ANTES de qualquer aluna conectar, por isso sem nova versao),
+// sono, HRV e saude diaria (com FC de repouso). Esses tres grupos leem texto do COROS MCP e NAO foram validados com dados reais (ver coros-health-records.ts).
 // ATENCAO: o texto completo (Politica de Privacidade e Termos) precisa de revisao por advogado. Qualquer alteracao de texto, grupos ou finalidades muda o hash e EXIGE nova versao.
 export const COROS_CONSENT: ConsentCapability = {
   version: '1.0',
@@ -17,7 +17,7 @@ export const COROS_CONSENT: ConsentCapability = {
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio COROS (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS), conforme os grupos de dados que você escolher abaixo.',
+        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio COROS (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação e percurso GPS) e, se você escolher, também seu sono, a variabilidade da frequência cardíaca (HRV) e a saúde diária (passos, distância e frequência cardíaca de repouso), conforme os grupos de dados que você escolher abaixo.',
         'Essas informações serão utilizadas para acompanhar sua evolução, comparar os treinos planejados com os realizados e personalizar seu treinamento. Elas não substituem avaliação médica.',
       ],
     },
@@ -32,7 +32,7 @@ export const COROS_CONSENT: ConsentCapability = {
     {
       heading: 'O que esta autorização não inclui',
       paragraphs: [
-        'Esta autorização não inclui o envio de treinos ao seu relógio nem a análise dos seus dados por inteligência artificial. Cada uma tem a sua própria autorização, opcional e separada, que você pode conceder ou não depois de conectar. Dados de sono, variabilidade da frequência cardíaca e saúde diária da COROS ainda não são importados pelo Panzeri Run.',
+        'Esta autorização não inclui o envio de treinos ao seu relógio nem a análise dos seus dados por inteligência artificial. Cada uma tem a sua própria autorização, opcional e separada, que você pode conceder ou não depois de conectar.',
       ],
     },
     {
@@ -48,6 +48,9 @@ export const COROS_CONSENT: ConsentCapability = {
     { id: 'activity', label: 'Atividades', description: 'Data e horário, distância, duração, ritmo e calorias das corridas e caminhadas.', required: false, categories: ['activity'] },
     { id: 'sensors', label: 'Frequência cardíaca, cadência, potência e elevação', description: 'Informações registradas durante a atividade, quando o seu relógio as medir. Depende de “Atividades”.', required: false, categories: ['activity_sensors'], requires: ['activity'] },
     { id: 'route', label: 'Percurso GPS', description: 'Trajeto e localização da atividade, quando disponíveis. Depende de “Atividades”.', required: false, categories: ['activity_route'], requires: ['activity'] },
+    { id: 'sleep', label: 'Sono e recuperação', description: 'Duração e etapas do sono (profundo, leve, REM e acordado), horários e pontuação de sono, quando o seu relógio os medir.', required: false, categories: ['sleep'] },
+    { id: 'daily', label: 'Saúde diária', description: 'Passos e distância do dia e frequência cardíaca de repouso, quando o seu relógio os medir.', required: false, categories: ['daily_activity', 'resting_heart_rate'] },
+    { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', description: 'HRV média da noite, quando o seu relógio a medir.', required: false, categories: ['hrv'] },
   ],
   // Finalidades OBRIGATORIAS descritas no texto da conexao. 'ai_external', 'ai_internal', 'watch_delivery' e qualquer outra NAO estao aqui => nao autorizadas por este consentimento.
   purposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view'],

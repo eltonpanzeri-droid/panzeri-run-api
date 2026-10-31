@@ -12,6 +12,7 @@ import { CorosMcpClient } from './coros-mcp-client';
 import { CorosFitDownloader } from './coros-fit-downloader';
 import { CorosActivityIngestionService } from './coros-activity-ingestion.service';
 import { CorosSyncService } from './coros-sync.service';
+import { CorosHealthSyncService } from './coros-health-sync.service';
 import { CorosDataDeletionService } from './coros-data-deletion.service';
 import { CorosWorkoutPublisherService } from './coros-workout-publisher.service';
 import { CorosWorkoutSchedulerService } from './coros-workout-scheduler.service';
@@ -21,7 +22,7 @@ import { CorosWorkoutSchedulerService } from './coros-workout-scheduler.service'
 @Module({
   imports: [ProviderHubModule, PrismaModule, WorkoutDeliveryModule, ActivityExecutionModule, DeviceRegistryModule],
   controllers: [CorosController],
-  providers: [CorosMcpClient, CorosFitDownloader, CorosActivityIngestionService, CorosSyncService, CorosDataDeletionService, CorosWorkoutPublisherService, CorosWorkoutSchedulerService],
+  providers: [CorosMcpClient, CorosFitDownloader, CorosActivityIngestionService, CorosHealthSyncService, CorosSyncService, CorosDataDeletionService, CorosWorkoutPublisherService, CorosWorkoutSchedulerService],
   exports: [CorosWorkoutPublisherService],
 })
 export class CorosModule implements OnModuleInit {

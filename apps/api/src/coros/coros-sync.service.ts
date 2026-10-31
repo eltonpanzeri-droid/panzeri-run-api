@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,7 @@ import { COROS_PROVIDER_ID } from './coros.connector';
 import { CorosMcpClient, CorosMcpError } from './coros-mcp-client';
 import { CorosFitDownloader } from './coros-fit-downloader';
 import { CorosActivityIngestionService } from './coros-activity-ingestion.service';
+import { COROS_HEALTH_CATEGORIES, CorosHealthSyncService } from './coros-health-sync.service';
 import { isFitLimitMessage, parseSportRecords, ymd } from './coros-sport-records';
 
 // Importacao de atividades da COROS por CONSULTA periodica (30/10/2026). A COROS so' tem webhook na Partner API (em analise), entao: a cada 30 minutos (e por pedido da aluna) cada conexao
@@ -42,6 +43,7 @@ export class CorosSyncService implements SyncCapability {
     private readonly downloader: CorosFitDownloader,
     private readonly ingestion: CorosActivityIngestionService,
     private readonly config: ConfigService,
+    @Optional() private readonly health?: CorosHealthSyncService,
   ) {}
 
   isEnabled(): boolean {
@@ -61,7 +63,9 @@ export class CorosSyncService implements SyncCapability {
     this.inFlight.add(userId);
     try {
       const snapshot = await this.consent.snapshot(COROS_PROVIDER_ID, userId);
-      if (!snapshot || !snapshot.categories.includes('activity')) return empty('not_connected');
+      const hasActivity = !!snapshot && snapshot.categories.includes('activity');
+      const healthCategories = snapshot ? COROS_HEALTH_CATEGORIES.filter((category) => snapshot.categories.includes(category)) : [];
+      if (!snapshot || (!hasActivity && healthCategories.length === 0)) return empty('not_connected');
       const connection = await this.connections.syncState(COROS_PROVIDER_ID, userId);
       if (!connection.connected) return empty('not_connected');
 
@@ -74,7 +78,13 @@ export class CorosSyncService implements SyncCapability {
       const start = new Date(Math.max(from.getTime(), floor.getTime()));
 
       let token: string;
-      try { token = await this.connections.getAccessToken(COROS_PROVIDER_ID, userId, 'activity'); } catch { return empty('failed'); }
+      try { token = await this.connections.getAccessToken(COROS_PROVIDER_ID, userId, hasActivity ? 'activity' : healthCategories[0]); } catch { return empty('failed'); }
+
+      // Saude (sono, HRV, diario, FC de repouso): independente das atividades; falha aqui nunca derruba a importacao de atividades.
+      if (healthCategories.length > 0 && this.health) {
+        await this.health.run(userId, token, healthCategories, now).catch((error) => this.logger.warn(`Saude COROS nao importada: ${(error as Error).message}`));
+      }
+      if (!hasActivity) return empty('ok');
 
       let listText: string;
       try {

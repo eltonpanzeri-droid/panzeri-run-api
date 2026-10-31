@@ -247,10 +247,9 @@ describe('lista de atividades (querySportRecords) e link do FIT', () => {
 });
 
 describe('consentimento e conector COROS', () => {
-  it('so pede o que esta implementado: atividades, sensores e percurso (FIT); sono, HRV e saude diaria NAO sao pedidos', () => {
+  it('so pede o que esta implementado: atividades, sensores, percurso (FIT), sono, HRV e saude diaria (com FC de repouso)', () => {
     const categories = COROS_CONSENT.groups.flatMap((g) => g.categories);
-    expect(categories.sort()).toEqual(['activity', 'activity_route', 'activity_sensors', 'profile']);
-    expect(JSON.stringify(COROS_CONSENT.groups)).not.toMatch(/sono|HRV|repouso/i);
+    expect(categories.sort()).toEqual(['activity', 'activity_route', 'activity_sensors', 'daily_activity', 'hrv', 'profile', 'resting_heart_rate', 'sleep']);
     const connector = buildCorosConnector(configWith(BASE_ENV));
     for (const category of categories.filter((c) => c !== 'profile')) expect(connector.categories).toContain(category);
     expect(connector.oauth && connector.revocation && connector.consent).toBeTruthy();
