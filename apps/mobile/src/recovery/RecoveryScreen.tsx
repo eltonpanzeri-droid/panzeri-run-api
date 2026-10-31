@@ -8,7 +8,8 @@ import { InfoTip } from '../InfoTip';
 
 type Point = { date: string; value: number };
 type Indicator = { id: string; label: string; unit: string; why: string; source: string; note: string | null; days: number; lastDate: string; last: number; avg7: number | null; avg30: number; points: Point[] };
-type Summary = { periodDays: number; indicators: Indicator[]; empty: boolean };
+type Unavailable = { id: string; label: string; reason: string };
+type Summary = { periodDays: number; indicators: Indicator[]; empty: boolean; unavailable?: Unavailable[] };
 
 const fmtDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 function fmtValue(indicator: Indicator, value: number): string {
@@ -80,6 +81,18 @@ export function RecoveryScreen({ accessToken, apiUrl, onBack, onOpenIntegrations
           {indicator.note ? <Text style={styles.note}>{indicator.note}</Text> : null}
         </View>
       )) : null}
+
+      {state === 'ready' && data?.unavailable && data.unavailable.length > 0 ? (
+        <View style={styles.box}>
+          <Text style={styles.boxTitle}>Dados que não chegaram</Text>
+          {data.unavailable.map((item) => (
+            <View key={item.id} style={{ gap: 2 }}>
+              <Text style={styles.label}>{item.label}</Text>
+              <Text style={styles.hint}>{item.reason}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }

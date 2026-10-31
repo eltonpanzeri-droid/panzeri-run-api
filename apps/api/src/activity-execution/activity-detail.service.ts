@@ -134,6 +134,14 @@ export class ActivityDetailService {
         powerAvgWatts: log.powerAvgWatts,
         elevationGainMeters: log.elevationGainMeters,
       },
+      // Treino do Health Connect gravado pelo Samsung Health: a Samsung nao envia cadencia nem ganho de elevacao (documentacao oficial). So' dizemos isso para a Samsung e so' quando o campo esta vazio.
+      deviceNote: (() => {
+        if (log.provider !== 'health_connect') return null;
+        const pkg = (log.providerMetrics as { source?: { packageName?: unknown } } | null)?.source?.packageName;
+        if (pkg !== 'com.sec.android.app.shealth') return null;
+        const missing = [cadenceAvg == null ? 'a cadência' : null, log.elevationGainMeters == null ? 'o ganho de elevação' : null].filter(Boolean);
+        return missing.length > 0 ? `O seu aparelho Samsung (Samsung Health) não envia ${missing.join(' nem ')} ao Health Connect; por isso não aparece neste treino.` : null;
+      })(),
       prescribed: link
         ? {
             trainingSessionId: link.trainingSession.id,

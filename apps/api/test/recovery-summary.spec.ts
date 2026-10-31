@@ -7,6 +7,32 @@ const base = { sleep: [], hrv: [], daily: [], metrics: [], now: NOW, days: 30, s
 const hc = (summary = 'com.sec.android.app.shealth|x') => ({ provider: 'health_connect', providerSummaryId: summary });
 const day = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString().slice(0, 10);
 
+describe('minha recuperação — gasto total e dados que o aparelho não envia', () => {
+  const m = (kind: string, values: Record<string, unknown>, d: number, origin = 'com.google.android.apps.fitness') => ({ ...hc(`${origin}|x${d}`), metricKind: kind, calendarDate: day(d), startTimeSec: 0, values });
+
+  it('gasto energético total do dia aparece (kcal, último valor do dia)', () => {
+    const result = buildRecoverySummary({ ...base, metrics: [m('daily_energy', { totalKilocalories: 2650 }, 1)] });
+    expect(result.indicators.find((i) => i.id === 'totalKcal')).toMatchObject({ label: 'Gasto energético total do dia', unit: 'kcal', last: 2650 });
+  });
+
+  it('aluna com Samsung: HRV, FC de repouso, respiração, hidratação e calorias NÃO enviados dizem que é o aparelho; o que a Samsung envia não entra na lista', () => {
+    const samsung = 'com.sec.android.app.shealth';
+    const result = buildRecoverySummary({ ...base, sleep: [{ ...hc(`${samsung}|s1`), calendarDate: day(1), durationSec: 27000 }], activitySourceKeys: [`health_connect:${samsung}`] });
+    const by = Object.fromEntries(result.unavailable.map((u) => [u.id, u.reason]));
+    for (const id of ['hrv', 'restingHr', 'resp', 'hydration', 'activeKcal', 'totalKcal']) expect(by[id]).toMatch(/Samsung Health\) não envia este dado ao Health Connect/);
+    expect(by.sleep).toBeUndefined();
+    expect(by.vo2).toMatch(/pode não medir ou não enviar/);
+    expect(by.vo2).not.toMatch(/Samsung/);
+  });
+
+  it('outra marca: nunca afirma que o aparelho não envia; sem nenhuma fonte conhecida, não lista nada', () => {
+    const garmin = buildRecoverySummary({ ...base, sleep: [{ ...hc('com.garmin.connect|s1'), calendarDate: day(1), durationSec: 25000 }] });
+    expect(garmin.unavailable.length).toBeGreaterThan(0);
+    for (const u of garmin.unavailable) expect(u.reason).not.toMatch(/Samsung|não envia este dado/);
+    expect(buildRecoverySummary(base).unavailable).toEqual([]);
+  });
+});
+
 describe('minha recuperação', () => {
   it('sem nenhum dado: vazio (a tela explica como conectar), sem inventar indicador', () => {
     const result = buildRecoverySummary(base);

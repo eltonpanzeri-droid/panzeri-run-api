@@ -39,6 +39,8 @@ export interface NormalizedHealthConnectExercise {
     distanceMeters: number | null;
     avgHeartRateBpm: number | null;
     maxHeartRateBpm: number | null;
+    // Calorias do treino que a tela mostra: as ATIVAS quando o aparelho informa, senao as TOTAIS do exercicio (a Samsung so' grava totais). Nenhum calculo: e' o valor do aparelho; a base fica em providerMetrics.energy.basis.
+    caloriesKcal: number | null;
     sport: string;
   };
   providerMetrics: Record<string, unknown>;
@@ -113,7 +115,10 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
     speedAvgMps: bounded(e.speedAvgMps, 100), speedMaxMps: bounded(e.speedMaxMps, 100), powerAvgWatts: bounded(e.powerAvgWatts, 5000), powerMaxWatts: bounded(e.powerMaxWatts, 10000),
     cadenceAvgPerMin: bounded(e.cadenceAvgPerMin, 400), elevationGainMeters: bounded(e.elevationGainMeters, 20000),
   };
-  const energy = { activeKilocalories: bounded(e.activeKilocalories, 50000), totalKilocalories: bounded(e.totalKilocalories, 50000) };
+  const activeKcal = bounded(e.activeKilocalories, 50000);
+  const totalKcal = bounded(e.totalKilocalories, 50000);
+  const caloriesKcal = activeKcal !== null && activeKcal > 0 ? Math.round(activeKcal) : totalKcal !== null && totalKcal > 0 ? Math.round(totalKcal) : null;
+  const energy = { activeKilocalories: activeKcal, totalKilocalories: totalKcal };
 
   // Fuso: offset em segundos informado pelo Health Connect (startZoneOffset.totalSeconds). Ausente => null (nunca adivinhado).
   const offsetSeconds = asFiniteNumber(e.startZoneOffsetSeconds);
@@ -154,7 +159,7 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
         ...sensors,
         ...energy,
       },
-      activity: { startedAt, utcOffsetMinutes, durationSec, distanceMeters, avgHeartRateBpm, maxHeartRateBpm, sport },
+      activity: { startedAt, utcOffsetMinutes, durationSec, distanceMeters, avgHeartRateBpm, maxHeartRateBpm, caloriesKcal, sport },
       providerMetrics: {
         channel: HEALTH_CONNECT_CHANNEL,
         // Canal x app de origem: `source.name` fica null de proposito (o Health Connect so' informa o pacote); o rotulo exibido vem do ecossistema conhecido.
@@ -169,7 +174,7 @@ export function normalizeHealthConnectExercise(input: unknown, now: Date = new D
         startZoneOffsetSeconds: offsetSeconds,
         heartRate: heartRateSampleCount === null ? null : { sampleCount: heartRateSampleCount },
         sensors: Object.values(sensors).every((v) => v === null) ? null : sensors,
-        energy: Object.values(energy).every((v) => v === null) ? null : energy,
+        energy: Object.values(energy).every((v) => v === null) ? null : { ...energy, basis: activeKcal !== null && activeKcal > 0 ? 'active' : totalKcal !== null && totalKcal > 0 ? 'total' : null },
       },
     },
   };

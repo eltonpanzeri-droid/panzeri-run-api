@@ -33,6 +33,7 @@
         "android.permission.health.READ_HEART_RATE",
         "android.permission.health.READ_SPEED",
         "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+        "android.permission.health.READ_TOTAL_CALORIES_BURNED",
         "android.permission.health.READ_POWER",
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_ELEVATION_GAINED",

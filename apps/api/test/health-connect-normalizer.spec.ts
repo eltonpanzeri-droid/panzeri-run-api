@@ -23,6 +23,19 @@ const ok = (input: unknown) => {
   return r.value;
 };
 
+// Calorias do treino (31/10/2026): ativas quando o aparelho informa; senao as TOTAIS do exercicio (Samsung). Nenhum calculo.
+describe('calorias do treino do Health Connect', () => {
+  it('so totais (Samsung): usa as totais e registra a base', () => {
+    const v = ok({ ...base, dataOrigin: 'com.sec.android.app.shealth', totalKilocalories: 312.4 });
+    expect(v.activity.caloriesKcal).toBe(312);
+    expect((v.providerMetrics.energy as { basis: string }).basis).toBe('total');
+  });
+  it('ativas e totais: usa as ativas; sem nenhuma: null (nunca zero)', () => {
+    expect(ok({ ...base, activeKilocalories: 250, totalKilocalories: 400 }).activity.caloriesKcal).toBe(250);
+    expect(ok({ ...base }).activity.caloriesKcal).toBeNull();
+  });
+});
+
 describe('normalizador Health Connect', () => {
   it('corrida com distancia e FC: campos canonicos e proveniencia em camadas separadas (canal x app x dispositivo)', () => {
     const v = ok(base);

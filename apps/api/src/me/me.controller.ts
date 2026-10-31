@@ -40,9 +40,12 @@ export class MeController {
       this.prisma.wearableSleepSummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, durationSec: true } }),
       this.prisma.wearableHrvSummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, lastNightAvg: true, hrvValues: true } }),
       this.prisma.wearableDailySummary.findMany({ where, select: { provider: true, providerSummaryId: true, calendarDate: true, steps: true, activeKilocalories: true, restingHeartRateBpm: true } }),
-      this.prisma.wearableMetricRecord.findMany({ where: { userId: user.sub, metricKind: { in: ['vo2_max', 'pulse_ox', 'respiratory_rate', 'nutrition', 'hydration'] }, startTimeSec: { gte: Math.floor(cutoff.getTime() / 1000) } }, select: { provider: true, providerSummaryId: true, metricKind: true, calendarDate: true, startTimeSec: true, values: true } }),
+      this.prisma.wearableMetricRecord.findMany({ where: { userId: user.sub, metricKind: { in: ['vo2_max', 'pulse_ox', 'respiratory_rate', 'nutrition', 'hydration', 'daily_energy'] }, startTimeSec: { gte: Math.floor(cutoff.getTime() / 1000) } }, select: { provider: true, providerSummaryId: true, metricKind: true, calendarDate: true, startTimeSec: true, values: true } }),
     ]);
-    return buildRecoverySummary({ sleep, hrv, daily, metrics, now, days, sourceName: sourceDisplayName });
+    // Apps de origem dos treinos do Health Connect (para saber, por exemplo, que a aluna usa Samsung mesmo sem outros dados de saude).
+    const recent = await this.prisma.activityLog.findMany({ where: { userId: user.sub, provider: 'health_connect' }, orderBy: { startedAt: 'desc' }, take: 20, select: { providerMetrics: true } });
+    const activitySourceKeys = recent.map((row) => { const pkg = (row.providerMetrics as { source?: { packageName?: unknown } } | null)?.source?.packageName; return `health_connect:${typeof pkg === 'string' && pkg ? pkg : 'origem_desconhecida'}`; });
+    return buildRecoverySummary({ sleep, hrv, daily, metrics, now, days, sourceName: sourceDisplayName, activitySourceKeys });
   }
 
   // Foto de perfil (21/10/2026): o aluno gerencia SOMENTE a propria (id sempre do token, nunca da URL).

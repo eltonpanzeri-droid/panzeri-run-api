@@ -1,4 +1,4 @@
-import { sourceKeyOf } from '../training-intelligence/wearable-source';
+import { ecosystemOfSourceKey, sourceKeyOf } from '../training-intelligence/wearable-source';
 
 // "Minha recuperação" (30/10/2026): o ALUNO vê os próprios dados de recuperação, saúde e rotina que autorizou compartilhar (Health Connect, Apple Saúde e demais fontes), de onde vêm e por que o Panzeri
 // Run os usa. Função PURA (sem banco). Nada é estimado: sem dado, o indicador não aparece (e a tela diz isso); zero informado continua zero; fontes diferentes nunca são misturadas (mostra-se a mais
@@ -14,7 +14,18 @@ export interface RecoveryIndicator {
   id: string; label: string; unit: string; why: string; source: string; sourceKey: string; note: string | null;
   days: number; lastDate: string; last: number; avg7: number | null; avg30: number; points: RecoveryPoint[];
 }
-export interface RecoverySummary { generatedAt: string; periodDays: number; indicators: RecoveryIndicator[]; empty: boolean }
+// Indicador que NAO chegou e por que: quando a fonte da aluna e' conhecida por NAO enviar aquele dado ao Health Connect, a mensagem diz que e' o aparelho/app (nunca presume o motivo para outras marcas).
+export interface RecoveryUnavailable { id: string; label: string; reason: string }
+export interface RecoverySummary { generatedAt: string; periodDays: number; indicators: RecoveryIndicator[]; empty: boolean; unavailable: RecoveryUnavailable[] }
+
+// Samsung Health -> Health Connect (documentacao oficial da Samsung, 18/02/2025; o ticket #00037107 confirma que nem todo dado e' sincronizado): NAO sincroniza HRV, FC de repouso, frequencia respiratoria,
+// hidratacao, calorias ativas nem o gasto total do DIA (so' as calorias totais do exercicio). Se a Samsung passar a enviar, retirar daqui. Outras marcas: sem lista oficial, mensagem generica.
+const SAMSUNG_NOT_SENT: ReadonlySet<string> = new Set(['hrv', 'restingHr', 'resp', 'hydration', 'activeKcal', 'totalKcal']);
+const CATALOG: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'sleep', label: 'Sono' }, { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)' }, { id: 'restingHr', label: 'Frequência cardíaca de repouso' }, { id: 'steps', label: 'Passos' },
+  { id: 'activeKcal', label: 'Calorias ativas do dia' }, { id: 'totalKcal', label: 'Gasto energético total do dia' }, { id: 'vo2', label: 'VO₂ máximo' }, { id: 'spo2', label: 'Saturação de oxigênio' },
+  { id: 'resp', label: 'Frequência respiratória' }, { id: 'nutrition', label: 'Energia consumida' }, { id: 'hydration', label: 'Hidratação' },
+];
 
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -26,6 +37,7 @@ const WHY: Record<string, string> = {
   restingHr: 'Uma frequência cardíaca de repouso mais alta que a sua média pode indicar cansaço acumulado. Usamos a tendência para calibrar a carga.',
   steps: 'Mostra o quanto você se movimenta fora dos treinos, o que também pesa na sua carga total do dia.',
   activeKcal: 'Soma o gasto de energia do dia fora do repouso, e ajuda a enxergar a carga total que seu corpo recebe.',
+  totalKcal: 'Todo o gasto de energia do dia, inclusive o repouso. Junto com o que você consome e com o seu treino, ajuda a perceber se o seu corpo está recebendo energia suficiente para treinar e se recuperar; não é um diagnóstico.',
   vo2: 'Estimativa da sua capacidade aeróbica. Acompanhar a evolução ao longo dos meses mostra se o treinamento está funcionando.',
   spo2: 'Mostra como está a oxigenação do sangue. Acompanhamos como o treinamento afeta o seu sistema cardiorrespiratório; não é um diagnóstico.',
   resp: 'A frequência respiratória em repouso acompanha a sua recuperação e a adaptação cardiorrespiratória ao treino.',
@@ -46,11 +58,11 @@ function put(raws: Map<string, Raw>, spec: { id: string; label: string; unit: st
   raws.set(key, raw);
 }
 
-export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRowLite[]; daily: DailyRowLite[]; metrics: MetricRowLite[]; now: Date; days?: number; sourceName: (key: string) => string }): RecoverySummary {
+export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRowLite[]; daily: DailyRowLite[]; metrics: MetricRowLite[]; now: Date; days?: number; sourceName: (key: string) => string; activitySourceKeys?: string[] }): RecoverySummary {
   const raws = new Map<string, Raw>();
   const spec = {
     sleep: { id: 'sleep', label: 'Sono', unit: 'min' }, restingHr: { id: 'restingHr', label: 'Frequência cardíaca de repouso', unit: 'bpm' }, steps: { id: 'steps', label: 'Passos', unit: 'passos' },
-    activeKcal: { id: 'activeKcal', label: 'Calorias ativas do dia', unit: 'kcal' }, vo2: { id: 'vo2', label: 'VO₂ máximo', unit: 'mL/(kg·min)' }, spo2: { id: 'spo2', label: 'Saturação de oxigênio', unit: '%' },
+    activeKcal: { id: 'activeKcal', label: 'Calorias ativas do dia', unit: 'kcal' }, totalKcal: { id: 'totalKcal', label: 'Gasto energético total do dia', unit: 'kcal' }, vo2: { id: 'vo2', label: 'VO₂ máximo', unit: 'mL/(kg·min)' }, spo2: { id: 'spo2', label: 'Saturação de oxigênio', unit: '%' },
     resp: { id: 'resp', label: 'Frequência respiratória', unit: 'respirações/min' }, nutrition: { id: 'nutrition', label: 'Energia consumida', unit: 'kcal' }, hydration: { id: 'hydration', label: 'Hidratação', unit: 'L' },
   };
   for (const r of input.sleep) if (r.durationSec != null && r.durationSec > 0) put(raws, spec.sleep, sourceKeyOf(r.provider, r.providerSummaryId), r.calendarDate, r.durationSec / 60, 'sum');
@@ -72,6 +84,7 @@ export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRow
     if (r.metricKind === 'vo2_max') { const x = pick('vo2MillilitersPerMinuteKilogram', 'vo2MaxMlKgMin'); if (x !== null) put(raws, spec.vo2, key, date, x, 'last'); }
     else if (r.metricKind === 'pulse_ox') { const pct = num(v.percentage); const frac = num(v.oxygenSaturationFractionAvg); const x = pct ?? (frac !== null ? frac * 100 : null); if (x !== null) put(raws, spec.spo2, key, date, x, 'last'); }
     else if (r.metricKind === 'respiratory_rate') { const x = pick('ratePerMinute', 'respiratoryRateBrpmAvg'); if (x !== null) put(raws, spec.resp, key, date, x, 'last'); }
+    else if (r.metricKind === 'daily_energy') { const x = pick('totalKilocalories'); if (x !== null && x > 0) put(raws, spec.totalKcal, key, date, x, 'last'); }
     else if (r.metricKind === 'nutrition') { const x = pick('energyKcal', 'dietaryEnergyKcal'); if (x !== null) put(raws, spec.nutrition, key, date, x, 'sum'); }
     else if (r.metricKind === 'hydration') { const liters = num(v.volumeLiters); const ml = num(v.waterMl); const x = liters ?? (ml !== null ? ml / 1000 : null); if (x !== null) put(raws, spec.hydration, key, date, x, 'sum'); }
   }
@@ -98,7 +111,17 @@ export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRow
       avg30: round(values.reduce((s, n) => s + n, 0) / values.length), points: points.map((p) => ({ date: p.date, value: round(p.value) })),
     });
   }
-  const order = ['sleep', 'hrv.rmssd', 'hrv.sdnn', 'restingHr', 'steps', 'activeKcal', 'vo2', 'spo2', 'resp', 'nutrition', 'hydration'];
+  const order = ['sleep', 'hrv.rmssd', 'hrv.sdnn', 'restingHr', 'steps', 'activeKcal', 'totalKcal', 'vo2', 'spo2', 'resp', 'nutrition', 'hydration'];
   indicators.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
-  return { generatedAt: input.now.toISOString(), periodDays: days, indicators, empty: indicators.length === 0 };
+  // Fontes conhecidas da aluna: de qualquer dado de saude recebido e dos treinos (a Samsung pode mandar treino e nao mandar o resto).
+  const ecosystems = new Set<string>([...[...raws.values()].map((r) => ecosystemOfSourceKey(r.sourceKey)), ...(input.activitySourceKeys ?? []).map((k) => ecosystemOfSourceKey(k))]);
+  const present = new Set(indicators.map((i) => i.id.split('.')[0]));
+  const unavailable: RecoveryUnavailable[] = ecosystems.size === 0 ? [] : CATALOG.filter((c) => !present.has(c.id)).map((c) => ({
+    id: c.id,
+    label: c.label,
+    reason: ecosystems.has('samsung') && SAMSUNG_NOT_SENT.has(c.id)
+      ? 'O seu aparelho Samsung (Samsung Health) não envia este dado ao Health Connect; por isso ele não aparece aqui. Não é uma falha do Panzeri Run nem da sua conexão.'
+      : 'Ainda não recebemos este dado. O seu relógio ou aplicativo pode não medir ou não enviar este dado ao Health Connect, ou o grupo ainda não foi autorizado em Dispositivos e integrações.',
+  }));
+  return { generatedAt: input.now.toISOString(), periodDays: days, indicators, empty: indicators.length === 0, unavailable };
 }

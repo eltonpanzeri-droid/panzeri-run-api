@@ -12,6 +12,7 @@ export interface IndicatorDef { kind: string; key: string; label: string; unit: 
 // [tipo de registro, chave guardada em values, rotulo, unidade ORIGINAL]. O Apple Saude fornece estas chaves; o Health Connect e outras fontes entram pelo caminho generico (chave e valores originais).
 export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
   { kind: 'daily_energy', key: 'basalKilocalories', label: 'Energia basal do dia', unit: 'kcal' },
+  { kind: 'daily_energy', key: 'totalKilocalories', label: 'Gasto energético total do dia', unit: 'kcal' },
   { kind: 'daily_movement', key: 'flightsClimbed', label: 'Lances de escada subidos', unit: 'lances' },
   { kind: 'daily_movement', key: 'exerciseMinutes', label: 'Minutos de exercício no dia', unit: 'min' },
   { kind: 'daily_movement', key: 'standMinutes', label: 'Minutos em pé no dia', unit: 'min' },

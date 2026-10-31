@@ -5,15 +5,16 @@
 // sessao): a autorizacao ja' e' perguntada, mas nada e' pedido ao Android para elas ate' a leitura existir.
 
 export const HC_CATEGORY_RECORD_TYPES: Readonly<Record<string, readonly string[]>> = {
-  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned'],
+  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
   activity_sensors: ['HeartRate', 'Power', 'StepsCadence', 'ElevationGained'],
   activity_route: [],
   sleep: ['SleepSession'],
-  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned'],
+  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
   resting_heart_rate: ['RestingHeartRate'],
   hrv: ['HeartRateVariabilityRmssd'],
   vo2_max: ['Vo2Max'],
-  // Composicao corporal (peso, gordura, massa magra/ossea/de agua) e calorias totais: NAO pedidos ao Android nesta versao (30/10/2026, Play: acesso minimo). O peso do aluno vem da entrevista e da reavaliacao.
+  // Composicao corporal (peso, gordura, massa magra/ossea/de agua): NAO pedida ao Android nesta versao (30/10/2026, Play: acesso minimo). O peso do aluno vem da entrevista e da reavaliacao.
+// Calorias totais: REVERTIDO em 31/10/2026 por ordem de Elton (gasto energetico total do dia, para acompanhar disponibilidade energetica/REDs; a Samsung grava as calorias do exercicio como TOTAIS).
   body_composition: [],
   pulse_ox: ['OxygenSaturation'],
   skin_temperature: [],

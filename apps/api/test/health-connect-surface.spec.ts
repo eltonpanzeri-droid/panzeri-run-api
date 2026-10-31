@@ -36,7 +36,9 @@ describe('superficie Health Connect no app', () => {
     const hc = app.expo.android.permissions.filter((p) => p.startsWith('android.permission.health.'));
     for (const required of ['READ_EXERCISE', 'READ_DISTANCE', 'READ_HEART_RATE', 'READ_SLEEP', 'READ_STEPS', 'READ_VO2_MAX', 'READ_HEALTH_DATA_HISTORY']) expect(hc).toContain('android.permission.health.' + required);
     // 30/10/2026 (Play: acesso minimo): composicao corporal e calorias totais nao sao pedidas
-    for (const removed of ['READ_WEIGHT', 'READ_BODY_FAT', 'READ_LEAN_BODY_MASS', 'READ_BONE_MASS', 'READ_BODY_WATER_MASS', 'READ_TOTAL_CALORIES_BURNED']) expect(hc).not.toContain('android.permission.health.' + removed);
+    for (const removed of ['READ_WEIGHT', 'READ_BODY_FAT', 'READ_LEAN_BODY_MASS', 'READ_BONE_MASS', 'READ_BODY_WATER_MASS']) expect(hc).not.toContain('android.permission.health.' + removed);
+    // Calorias totais VOLTARAM em 31/10/2026 por ordem de Elton (gasto energetico total do dia / REDs; a Samsung so' grava calorias totais do exercicio).
+    expect(hc).toContain('android.permission.health.READ_TOTAL_CALORIES_BURNED');
     // Segundo plano entra (build 13); o percurso GPS usa a confirmacao POR EXERCICIO do Android (sem permissao de manifesto propria). Escrita: nunca.
     expect(hc).toContain('android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND');
     expect(JSON.stringify(app)).not.toMatch(/WRITE_/);

@@ -87,6 +87,8 @@ export interface ActivityDetail {
     powerAvgWatts?: number | null;
     elevationGainMeters?: number | null;
   };
+  // Aviso quando o aparelho (ex.: Samsung) nao envia ao Health Connect um dado que aparece em outros relogios.
+  deviceNote?: string | null;
   prescribed: { title: string; distanceKm: number | null; durationMin: number | null } | null;
   prescribedSegments?: ActivityDetailSegment[];
   executionSummary?: ActivityExecutionSummary | null;
@@ -434,6 +436,7 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
         {s.powerAvgWatts != null ? <Text style={{ fontSize: 15 }}>Potência média: {s.powerAvgWatts} W</Text> : null}
         {s.elevationGainMeters != null ? <Text style={{ fontSize: 15 }}>Ganho de elevação: {Math.round(s.elevationGainMeters)} m</Text> : null}
         {s.caloriesKcal != null ? <Text style={{ fontSize: 15 }}>Calorias: {s.caloriesKcal} kcal</Text> : null}
+        {detail.deviceNote ? <Text style={{ fontSize: 12, color: MUTED }}>{detail.deviceNote}</Text> : null}
       </View>
 
       {/* Etapa 2.1: relatorio pos-treino (deterministico) */}

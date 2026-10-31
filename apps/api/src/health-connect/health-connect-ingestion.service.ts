@@ -35,6 +35,7 @@ type ExistingLog = {
   distanceMeters: number | null;
   avgHeartRateBpm: number | null;
   maxHeartRateBpm: number | null;
+  caloriesKcal: number | null;
   sport: string | null;
   providerMetrics: Prisma.JsonValue | null;
 };
@@ -149,7 +150,7 @@ export class HealthConnectIngestionService {
     return this.prisma.$transaction(async (tx) => {
       const existing = (await tx.activityLog.findUnique({
         where: key,
-        select: { id: true, startedAt: true, utcOffsetMinutes: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, maxHeartRateBpm: true, sport: true, providerMetrics: true },
+        select: { id: true, startedAt: true, utcOffsetMinutes: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, maxHeartRateBpm: true, caloriesKcal: true, sport: true, providerMetrics: true },
       })) as ExistingLog | null;
       const a = exercise.activity;
       const rawData = {
@@ -184,6 +185,7 @@ export class HealthConnectIngestionService {
         existing.distanceMeters === a.distanceMeters &&
         existing.avgHeartRateBpm === a.avgHeartRateBpm &&
         existing.maxHeartRateBpm === a.maxHeartRateBpm &&
+        existing.caloriesKcal === a.caloriesKcal &&
         existing.sport === a.sport &&
         this.provenanceOf(existing.providerMetrics) === this.provenanceOf(exercise.providerMetrics);
       if (unchanged) return { recordId: exercise.externalId, status: 'already_imported' as const, activityLogId: existing.id };
