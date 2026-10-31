@@ -60,3 +60,4 @@ Legenda do que chega ao aluno:
 - COROS e Samsung sem validação real; leitura em segundo plano do Health Connect nunca testada em aparelho.
 - Texto do catálogo da Samsung ainda promete mais do que ela envia (HRV/FC de repouso) — aguardando "vai".
 - Zepp: envio de dado Zepp real à Anthropic segue BLOQUEADO até revisão jurídica e autorização expressa.
+- **Decidido em 31/10, ainda sem código (Elton: "deixar para depois"):** pedir, na MESMA tela da conexão e em todas as integrações, as autorizações de envio de treinos ao relógio e de uso pela IA. Hoje ficam em telas separadas depois de conectar. Detalhes e cuidados no Prontuário (seção do backlog).
