@@ -116,7 +116,8 @@ describe('iPhone nativo: nada do Asaas e oferta acessivel para a revisao', () =>
     expect(config.expo.ios.supportsTablet).toBe(false);
     expect(config.expo.ios.bundleIdentifier).toBe('com.panzerirun.app');
     expect(config.expo.android.package).toBe('com.panzerirun.app');
-    expect(config.expo.version).toBe('1.0.0');
+    // 1.0.1 desde 29/10/2026: a Apple recusou o build 1.0.0 (trem de pré-lançamento fechado, ITMS-90186/90062).
+    expect(config.expo.version).toBe('1.0.1');
     expect(app).toContain("IOS_STORE_PRODUCT_ID = 'panzeri_run_mensal'");
   });
 });

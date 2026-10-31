@@ -3492,6 +3492,9 @@ Ordem do Elton (repetida várias vezes): todo app de integração deve tentar pe
 4. **Android:** ficha de saúde do Play Console + upload do `.aab` ainda pendentes.
 5. Checklist pré-build: API (migrations `20261030140000`, `20261030160000`, `20261030180000`) já em produção ANTES; `tsc`/lint/testes; revisão independente do que mexe em permissão/saúde.
 
+**Decidido em 31/10/2026 (Elton) e JÁ NO CÓDIGO, exige build nativo:** Testes físicos liberados também no Android e iOS (`PHYSICAL_TESTS_ENABLED = true` em `apps/mobile/src/physicalTests/config.ts`; no PWA já valia). Os lembretes (`PHYSICAL_TESTS_REMINDERS`) continuam desligados até Elton autorizar. Teste `ios-store-compliance` ajustado para a versão 1.0.1 (o app.json já estava em 1.0.1 desde 29/10).
+**Correção do item 2 acima (31/10/2026):** GPS, leitura em segundo plano e cartão Samsung são de 22/10 (commit 08b3797), anteriores ao build 13 (gerado a partir de 382e8e4); provavelmente já estão no build 13. Ultramaratona + provas alvo no calendário (0993722, 29/10) também já estão nele. Falta só: permissões novas (calorias totais; composição corporal já fora), telas novas de 30–31/10, textos de privacidade/dispositivos, Testes físicos e versão. A leitura em segundo plano continua NUNCA testada em aparelho real.
+**Números de build:** `eas.json` usa `appVersionSource: remote` + `autoIncrement` na produção, então os "1" do app.json são ignorados; o EAS soma sozinho (último: Android 13, iOS 15). Não é preciso editar nada.
 **Decidido para entrar no build, sem código ainda:** (nenhum item novo além dos acima em 31/10).
 **Pendente de decisão de Elton (sem data):** exigir 18+ no cadastro; Garmin continua "Indisponível".
 

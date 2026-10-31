@@ -10384,7 +10384,7 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     { id: 'observations', label: 'Relatar observação', icon: 'chatbox-ellipses' },
     { id: 'progress', label: 'Evolução', icon: 'stats-chart' },
     { id: 'recovery', label: 'Minha recuperação', icon: 'pulse-outline' },
-    // 30/10/2026: Testes físicos só no PWA por enquanto (PHYSICAL_TESTS_ENABLED); Android e iOS continuam sem a seção.
+    // Testes físicos: visibilidade controlada por PHYSICAL_TESTS_ENABLED (liberado em todas as plataformas desde 31/10/2026).
     ...(PHYSICAL_TESTS_ENABLED ? [{ id: 'physicalTests' as Tab, label: 'Testes físicos', icon: 'speedometer-outline' as keyof typeof Ionicons.glyphMap }] : []),
     { id: 'history', label: 'Calendário de treinos', icon: 'calendar-outline' },
     // 06/10/2026: porta unica para Polar, Strava e Apple (mesmos componentes ja usados em Perfil/Strava/Privacidade).
