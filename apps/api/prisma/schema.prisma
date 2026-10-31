@@ -301,6 +301,19 @@ model PasswordResetToken {
   @@index([userId])
 }
 
+// 30/10/2026: codigo de 6 digitos enviado por e-mail para recuperar a senha. Banco guarda so o hash; expira em 15 min; uso unico; maximo de 5 erros por codigo.
+model PasswordResetCode {
+  id        String    @id @default(uuid())
+  userId    String
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
 // 18/08: "link magico" pros e-mails de aquecimento de prospecto ("Continuar de onde parei") —
 // mesmo padrao de seguranca do PasswordResetToken (token bruto so existe no e-mail, banco guarda
 // so o hash; expira; uso unico). Nunca reaproveitado entre e-mails: cada envio gera um token novo.

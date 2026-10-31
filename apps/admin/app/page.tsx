@@ -503,6 +503,10 @@ export default function AdminHome() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotStatus, setForgotStatus] = useState('');
+  // 30/10/2026: recuperacao por codigo de 6 digitos enviado por e-mail (a API nao devolve mais link/token).
+  const [forgotCodeStep, setForgotCodeStep] = useState(false);
+  const [forgotCode, setForgotCode] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRunningNotificationTriggers, setIsRunningNotificationTriggers] = useState(false);
   const [isRunningProspectNurture, setIsRunningProspectNurture] = useState(false);
@@ -1231,19 +1235,45 @@ export default function AdminHome() {
       setForgotStatus('Informe o e-mail.');
       return;
     }
-    setForgotStatus('Gerando link...');
+    setForgotStatus('Enviando codigo...');
     try {
       const response = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim() }),
       });
-      const data = (await response.json()) as { resetLink?: string; message?: string };
-      if (!response.ok || !data.resetLink) {
-        setForgotStatus('Nao consegui gerar o link. Confira o e-mail.');
+      if (!response.ok) {
+        setForgotStatus(response.status === 429 ? 'Muitas tentativas. Aguarde 1 minuto.' : 'Nao consegui enviar o codigo.');
         return;
       }
-      setForgotStatus(data.resetLink);
+      setForgotCodeStep(true);
+      setForgotStatus('Se o e-mail estiver cadastrado, enviamos um codigo de 6 digitos (vale 15 minutos).');
+    } catch {
+      setForgotStatus('Nao consegui conectar com a API.');
+    }
+  }
+
+  async function resetPasswordWithCode() {
+    if (!/^\d{6}$/.test(forgotCode.trim()) || forgotNewPassword.length < 8) {
+      setForgotStatus('Digite o codigo de 6 digitos e uma nova senha com no minimo 8 caracteres.');
+      return;
+    }
+    setForgotStatus('Salvando...');
+    try {
+      const response = await fetch(`${API_URL}/auth/reset-password-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim(), code: forgotCode.trim(), password: forgotNewPassword }),
+      });
+      if (!response.ok) {
+        setForgotStatus('Codigo invalido ou expirado. Peca um novo codigo.');
+        return;
+      }
+      setForgotCodeStep(false);
+      setForgotCode('');
+      setForgotNewPassword('');
+      setShowForgotPassword(false);
+      setStatus('Senha atualizada. Entre com a nova senha.');
     } catch {
       setForgotStatus('Nao consegui conectar com a API.');
     }
@@ -1295,20 +1325,30 @@ export default function AdminHome() {
                 placeholder="E-mail da conta"
               />
               <button type="button" onClick={forgotPassword}>
-                Gerar link de redefinicao
+                {forgotCodeStep ? 'Pedir novo codigo' : 'Enviar codigo por e-mail'}
               </button>
-              {forgotStatus ? (
-                forgotStatus.startsWith('http') ? (
-                  <p className="statusText">
-                    Abra este link para trocar a senha:{' '}
-                    <a href={forgotStatus} target="_blank" rel="noreferrer">
-                      {forgotStatus}
-                    </a>
-                  </p>
-                ) : (
-                  <p className="statusText">{forgotStatus}</p>
-                )
+              {forgotCodeStep ? (
+                <>
+                  <input
+                    value={forgotCode}
+                    onChange={(event) => setForgotCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="Codigo de 6 digitos"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                  />
+                  <input
+                    type="password"
+                    value={forgotNewPassword}
+                    onChange={(event) => setForgotNewPassword(event.target.value)}
+                    placeholder="Nova senha (minimo 8 caracteres)"
+                    autoComplete="new-password"
+                  />
+                  <button type="button" onClick={resetPasswordWithCode}>
+                    Salvar nova senha
+                  </button>
+                </>
               ) : null}
+              {forgotStatus ? <p className="statusText">{forgotStatus}</p> : null}
             </div>
           ) : null}
         </section>

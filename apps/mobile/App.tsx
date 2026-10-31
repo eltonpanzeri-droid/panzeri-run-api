@@ -2273,7 +2273,10 @@ function Login({
   // configurado em producao, entao nenhum e-mail de fato saia). O token devolvido por
   // /auth/forgot-password agora e usado na hora, no proprio app, sem depender de e-mail nem do
   // treinador gerar/mandar link manualmente.
-  const [resetToken, setResetToken] = useState<string | null>(null);
+  // 30/10/2026: a recuperacao passou a ser por CODIGO de 6 digitos enviado por e-mail (a API nao devolve mais token: qualquer pessoa que soubesse o e-mail trocava a senha do aluno).
+  // resetEmail != null = etapa de digitar o codigo e a nova senha.
+  const [resetEmail, setResetEmail] = useState<string | null>(null);
+  const [resetCode, setResetCode] = useState('');
   const [resetPassword, setResetPassword] = useState('');
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('');
   const [isResetting, setIsResetting] = useState(false);
@@ -2298,39 +2301,39 @@ function Login({
         return;
       }
 
-      const data = (await response.json()) as { token?: string };
-      if (data.token) {
-        setResetToken(data.token);
-        setStatus('Digite sua nova senha abaixo.');
-      } else {
-        // E-mail nao cadastrado: a API responde OK sem token de proposito, pra nao revelar quais
-        // e-mails existem na base.
-        setStatus('Se este e-mail estiver cadastrado, você poderá criar uma nova senha agora.');
-      }
+      // A resposta e' igual exista ou nao o e-mail (de proposito, para nao revelar quais e-mails existem): sempre abre a etapa do codigo.
+      setResetEmail(cleanEmail);
+      setResetCode('');
+      setStatus('Se este e-mail estiver cadastrado, enviamos um código de 6 dígitos. Ele vale por 15 minutos (veja também o spam).');
     } catch {
       setStatus('Não consegui conectar agora. Verifique sua internet e tente novamente.');
     }
   }
 
   async function submitResetPassword() {
-    if (!resetToken) return;
+    if (!resetEmail || isResetting) return;
+    if (!/^\d{6}$/.test(resetCode.trim())) {
+      setStatus('Digite o código de 6 dígitos que chegou no seu e-mail.');
+      return;
+    }
     if (resetPassword.length < 8 || resetPassword !== resetPasswordConfirm) {
       setStatus('Confira a nova senha e a confirmação (mínimo 8 caracteres).');
       return;
     }
     setIsResetting(true);
     try {
-      const response = await fetch(`${API_URL}/auth/reset-password`, {
+      const response = await fetch(`${API_URL}/auth/reset-password-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: resetToken, password: resetPassword }),
+        body: JSON.stringify({ email: resetEmail, code: resetCode.trim(), password: resetPassword }),
       });
       if (!response.ok) {
-        setStatus('Não consegui salvar a nova senha. Toque em "Esqueci minha senha" para tentar de novo.');
-        setResetToken(null);
+        // Erro de codigo NAO apaga o que a pessoa digitou: ela corrige o codigo (ou pede outro) sem refazer a senha.
+        setStatus(response.status === 429 ? 'Muitas tentativas seguidas. Aguarde 1 minuto e toque de novo.' : 'Código inválido ou expirado. Confira o código ou toque em "Pedir novo código".');
         return;
       }
-      setResetToken(null);
+      setResetEmail(null);
+      setResetCode('');
       setResetPassword('');
       setResetPasswordConfirm('');
       setPassword('');
@@ -2573,9 +2576,21 @@ function Login({
 
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
 
-      {resetToken ? (
+      {resetEmail ? (
         <View style={styles.earlyStudentNotice}>
           <Text style={styles.earlyStudentNoticeTitle}>Criar nova senha</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Código de 6 dígitos"
+            value={resetCode}
+            onChangeText={(value) => setResetCode(value.replace(/\D/g, '').slice(0, 6))}
+            keyboardType="number-pad"
+            maxLength={6}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="one-time-code"
+            textContentType="oneTimeCode"
+          />
           <SecureTextInput placeholder="Nova senha" value={resetPassword} onChangeText={setResetPassword} kind="new" />
           <SecureTextInput placeholder="Confirmar nova senha" value={resetPasswordConfirm} onChangeText={setResetPasswordConfirm} kind="new" />
           <Pressable
@@ -2585,7 +2600,10 @@ function Login({
           >
             <Text style={styles.primaryButtonText}>{isResetting ? 'Salvando...' : 'Salvar nova senha'}</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={() => { setResetToken(null); setStatus(''); }}>
+          <Pressable style={styles.secondaryButton} onPress={forgotPassword}>
+            <Text style={styles.secondaryButtonText}>Pedir novo código</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryButton} onPress={() => { setResetEmail(null); setResetCode(''); setStatus(''); }}>
             <Text style={styles.secondaryButtonText}>Cancelar</Text>
           </Pressable>
         </View>

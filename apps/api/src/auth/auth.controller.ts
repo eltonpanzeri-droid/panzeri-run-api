@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { ResetPasswordWithCodeDto } from './dto/reset-password-code.dto';
 import { renderPrivacyPage, renderTermsPage } from '../legal/legal-content';
 
 @Controller()
@@ -49,6 +50,12 @@ export class AuthController {
   @Post('auth/forgot-password')
   forgotPassword(@Body('email') email: string) {
     return this.authService.startPasswordReset(email);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('auth/reset-password-code')
+  resetPasswordWithCode(@Body() dto: ResetPasswordWithCodeDto) {
+    return this.authService.resetPasswordWithCode(dto);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

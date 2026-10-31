@@ -1,11 +1,11 @@
-﻿import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
+﻿import { BadRequestException, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { isStaffRole, resolveEffectiveRole } from '../common/staff-roles';
 import { LEGAL_VERSION } from '../legal/legal-content';
 import * as bcrypt from 'bcryptjs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { readRoutineState } from '../common/routine-state';
 import { LoginDto } from './dto/login.dto';
@@ -14,6 +14,13 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MetaCapiService } from '../meta/meta-capi.service';
 import { Logger as NestLogger } from '@nestjs/common';
 import { isIosAppOrigin } from './client-origin';
+import { EmailService } from '../messaging/email.service';
+import { ResetPasswordWithCodeDto } from './dto/reset-password-code.dto';
+
+const RESET_CODE_TTL_MS = 15 * 60 * 1000;
+const RESET_CODE_MAX_ATTEMPTS = 5;
+const RESET_CODE_MAX_PER_HOUR = 3;
+const RESET_CODE_NEUTRAL_MESSAGE = 'Se este e-mail estiver cadastrado, enviamos um codigo de 6 digitos. Ele vale por 15 minutos.';
 
 function hasAnyAttributionField(a: AcquisitionAttributionDto): boolean {
   return !!(a.source || a.medium || a.campaign || a.content || a.term || a.referrer || a.fbclid || a.gclid || a.sessionId || a._fbp || a._fbc);
@@ -28,6 +35,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly metaCapi: MetaCapiService,
+    @Optional() private readonly emailService?: EmailService,
   ) {}
 
   async register(dto: RegisterDto, clientIp?: string, userAgent?: string, clientPlatform?: string | string[]) {
@@ -165,32 +173,59 @@ export class AuthService {
       select: { id: true, email: true },
     });
 
-    if (!user) {
-      return {
-        email: cleanEmail,
-        message: 'Se este e-mail estiver cadastrado, um link de recuperacao sera gerado.',
-      };
+    // 30/10/2026: a resposta e' SEMPRE a mesma (nunca revela se o e-mail existe e NUNCA devolve segredo): o codigo de 6 digitos so' existe no e-mail da pessoa.
+    // (Ate 30/10 a API devolvia o token ao app: qualquer pessoa que soubesse o e-mail de um aluno conseguia trocar a senha dele.)
+    const neutral = { email: cleanEmail, message: RESET_CODE_NEUTRAL_MESSAGE };
+    if (!user) return neutral;
+    const account = await this.prisma.user.findUnique({ where: { id: user.id }, select: { accountStatus: true } });
+    if (!account || account.accountStatus === 'deleted') return neutral;
+
+    // Limite por conta (alem do limite por IP): evita encher a caixa de e-mail de alguem e gastar o envio.
+    const sentLastHour = await this.prisma.passwordResetCode.count({ where: { userId: user.id, createdAt: { gt: new Date(Date.now() - 60 * 60 * 1000) } } });
+    if (sentLastHour >= RESET_CODE_MAX_PER_HOUR) return neutral;
+
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const now = new Date();
+    // Um codigo valido por vez: o pedido novo invalida os anteriores.
+    await this.prisma.passwordResetCode.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: now } });
+    await this.prisma.passwordResetCode.create({
+      data: { userId: user.id, codeHash: resetCodeHash(user.id, code), expiresAt: new Date(now.getTime() + RESET_CODE_TTL_MS) },
+    });
+    // Sem aguardar o envio: o tempo de resposta nao pode diferenciar e-mail cadastrado de nao cadastrado.
+    void this.deliverEmail(user.email, 'Seu codigo de recuperacao de senha - Panzeri Run', `Seu codigo para criar uma nova senha no Panzeri Run: ${code}\n\nEle vale por 15 minutos e so pode ser usado uma vez.\n\nSe voce nao pediu isso, ignore este e-mail: sua senha continua a mesma.`);
+    return neutral;
+  }
+
+  async resetPasswordWithCode(dto: ResetPasswordWithCodeDto) {
+    const invalid = () => new BadRequestException('Codigo invalido ou expirado. Peca um novo codigo.');
+    const user = await this.prisma.user.findUnique({ where: { email: dto.email.trim().toLowerCase() }, select: { id: true, email: true, accountStatus: true } });
+    if (!user || user.accountStatus === 'deleted') throw invalid();
+
+    const record = await this.prisma.passwordResetCode.findFirst({ where: { userId: user.id, usedAt: null }, orderBy: { createdAt: 'desc' } });
+    if (!record || record.expiresAt.getTime() < Date.now() || record.attempts >= RESET_CODE_MAX_ATTEMPTS) throw invalid();
+
+    if (record.codeHash !== resetCodeHash(user.id, dto.code)) {
+      await this.prisma.passwordResetCode.update({ where: { id: record.id }, data: { attempts: { increment: 1 } } });
+      throw invalid();
     }
 
-    const token = randomBytes(32).toString('hex');
-    await this.prisma.passwordResetToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
-      },
-    });
+    // Uso unico mesmo com dois envios simultaneos: so' quem marcar o codigo como usado (usedAt ainda nulo) troca a senha.
+    const claimed = await this.prisma.passwordResetCode.updateMany({ where: { id: record.id, usedAt: null }, data: { usedAt: new Date() } });
+    if (claimed.count !== 1) throw invalid();
 
-    return {
-      email: user.email,
-      // 27/09/2026: token cru devolvido pra chamada de dentro do proprio app poder trocar a senha
-      // na hora, sem depender de e-mail (Resend sem dominio configurado ainda, ver
-      // pending_email_domain_setup) nem do treinador ter que gerar e mandar link manual pelo
-      // WhatsApp. resetLink continua existindo por compatibilidade (admin/link manual).
-      token,
-      resetLink: `${this.publicAppUrl()}/reset-password?token=${token}`,
-      message: 'Link de recuperacao gerado. Abra o link para criar uma nova senha.',
-    };
+    const passwordHash = await bcrypt.hash(dto.password, 12);
+    await this.prisma.user.update({ where: { id: user.id }, data: { passwordHash, refreshTokenHash: null } });
+    void this.deliverEmail(user.email, 'Sua senha foi alterada - Panzeri Run', 'A senha da sua conta no Panzeri Run acabou de ser alterada. Se nao foi voce, responda a este e-mail ou fale com o treinador agora.');
+    return { message: 'Senha atualizada.' };
+  }
+
+  private async deliverEmail(to: string, subject: string, text: string): Promise<void> {
+    try {
+      const result = await this.emailService?.send(to, subject, text);
+      if (!result?.ok) this.logger.warn(`E-mail de recuperacao de senha nao enviado: ${result?.error ?? 'servico de e-mail ausente'}`);
+    } catch (error) {
+      this.logger.warn(`E-mail de recuperacao de senha falhou: ${(error as Error).message}`);
+    }
   }
 
   async resetPassword(dto: ResetPasswordDto) {
@@ -337,6 +372,10 @@ export class AuthService {
   private effectiveRole(email: string, role: string) {
     return resolveEffectiveRole(email, role, this.config.get<string>('ADMIN_EMAILS'), this.config.get<string>('COACH_EMAILS'));
   }
+}
+
+function resetCodeHash(userId: string, code: string) {
+  return createHash('sha256').update(`${userId}:${code}`).digest('hex');
 }
 
 function hashToken(token: string) {
