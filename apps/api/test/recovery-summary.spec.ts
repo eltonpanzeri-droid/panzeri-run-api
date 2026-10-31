@@ -15,20 +15,24 @@ describe('minha recuperação — gasto total e dados que o aparelho não envia'
     expect(result.indicators.find((i) => i.id === 'totalKcal')).toMatchObject({ label: 'Gasto energético total do dia', unit: 'kcal', last: 2650 });
   });
 
-  it('aluna com Samsung: HRV, FC de repouso, respiração, hidratação e calorias NÃO enviados dizem que é o aparelho; o que a Samsung envia não entra na lista', () => {
-    const samsung = 'com.sec.android.app.shealth';
-    const result = buildRecoverySummary({ ...base, sleep: [{ ...hc(`${samsung}|s1`), calendarDate: day(1), durationSec: 27000 }], activitySourceKeys: [`health_connect:${samsung}`] });
-    const by = Object.fromEntries(result.unavailable.map((u) => [u.id, u.reason]));
-    for (const id of ['hrv', 'restingHr', 'resp', 'hydration', 'activeKcal', 'totalKcal']) expect(by[id]).toMatch(/Samsung Health\) não envia este dado ao Health Connect/);
-    expect(by.sleep).toBeUndefined();
-    expect(by.vo2).toMatch(/pode não medir ou não enviar/);
-    expect(by.vo2).not.toMatch(/Samsung/);
+  it('QUALQUER marca: fonte conectada que enviou outros dados mas nunca este -> diz que o aparelho/app não envia; o que chegou não entra na lista', () => {
+    const sleepOnly = (origin: string) => ({ ...base, sleep: [{ ...hc(`${origin}|s1`), calendarDate: day(1), durationSec: 27000 }] });
+    for (const origin of ['com.sec.android.app.shealth', 'com.garmin.connect', 'fi.polar.polarflow', 'com.marca.inventada']) {
+      const by = Object.fromEntries(buildRecoverySummary(sleepOnly(origin)).unavailable.map((u) => [u.id, u.reason]));
+      expect(by.hrv).toMatch(/não envia \(ou não mede\) este dado/);
+      expect(by.sleep).toBeUndefined();
+    }
   });
 
-  it('outra marca: nunca afirma que o aparelho não envia; sem nenhuma fonte conhecida, não lista nada', () => {
-    const garmin = buildRecoverySummary({ ...base, sleep: [{ ...hc('com.garmin.connect|s1'), calendarDate: day(1), durationSec: 25000 }] });
-    expect(garmin.unavailable.length).toBeGreaterThan(0);
-    for (const u of garmin.unavailable) expect(u.reason).not.toMatch(/Samsung|não envia este dado/);
+  it('grupo não autorizado: diz que não foi autorizado e NÃO culpa o aparelho; autorizado e ausente: o aparelho não enviou', () => {
+    const input = { ...base, sleep: [{ ...hc('com.garmin.connect|s1'), calendarDate: day(1), durationSec: 27000 }], authorizedCategories: new Set(['sleep', 'hrv']) };
+    const by = Object.fromEntries(buildRecoverySummary(input).unavailable.map((u) => [u.id, u.reason]));
+    expect(by.hrv).toMatch(/não envia/);
+    expect(by.vo2).toMatch(/ainda não autorizou/);
+    expect(by.vo2).not.toMatch(/não envia/);
+  });
+
+  it('sem nenhuma fonte conhecida: não lista nada (a tela mostra o passo a passo de conectar)', () => {
     expect(buildRecoverySummary(base).unavailable).toEqual([]);
   });
 });

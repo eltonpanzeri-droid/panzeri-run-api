@@ -14,17 +14,17 @@ export interface RecoveryIndicator {
   id: string; label: string; unit: string; why: string; source: string; sourceKey: string; note: string | null;
   days: number; lastDate: string; last: number; avg7: number | null; avg30: number; points: RecoveryPoint[];
 }
-// Indicador que NAO chegou e por que: quando a fonte da aluna e' conhecida por NAO enviar aquele dado ao Health Connect, a mensagem diz que e' o aparelho/app (nunca presume o motivo para outras marcas).
+// Indicador que NAO chegou e por que, SEM lista de marcas: (1) grupo ainda nao autorizado -> diz isso; (2) a aluna tem fonte(s) conectada(s) que ja' enviaram outros dados, mas nunca este -> diz que o aparelho/aplicativo
+// dela nao envia (ou nao mede) este dado. Vale para qualquer relogio ou aplicativo, porque o criterio e' o que a propria fonte entregou.
 export interface RecoveryUnavailable { id: string; label: string; reason: string }
 export interface RecoverySummary { generatedAt: string; periodDays: number; indicators: RecoveryIndicator[]; empty: boolean; unavailable: RecoveryUnavailable[] }
 
-// Samsung Health -> Health Connect (documentacao oficial da Samsung, 18/02/2025; o ticket #00037107 confirma que nem todo dado e' sincronizado): NAO sincroniza HRV, FC de repouso, frequencia respiratoria,
-// hidratacao, calorias ativas nem o gasto total do DIA (so' as calorias totais do exercicio). Se a Samsung passar a enviar, retirar daqui. Outras marcas: sem lista oficial, mensagem generica.
-const SAMSUNG_NOT_SENT: ReadonlySet<string> = new Set(['hrv', 'restingHr', 'resp', 'hydration', 'activeKcal', 'totalKcal']);
-const CATALOG: ReadonlyArray<{ id: string; label: string }> = [
-  { id: 'sleep', label: 'Sono' }, { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)' }, { id: 'restingHr', label: 'Frequência cardíaca de repouso' }, { id: 'steps', label: 'Passos' },
-  { id: 'activeKcal', label: 'Calorias ativas do dia' }, { id: 'totalKcal', label: 'Gasto energético total do dia' }, { id: 'vo2', label: 'VO₂ máximo' }, { id: 'spo2', label: 'Saturação de oxigênio' },
-  { id: 'resp', label: 'Frequência respiratória' }, { id: 'nutrition', label: 'Energia consumida' }, { id: 'hydration', label: 'Hidratação' },
+// Categoria de autorizacao do Health Connect de cada indicador (para separar "nao autorizado" de "o aparelho nao enviou").
+const CATALOG: ReadonlyArray<{ id: string; label: string; category: string }> = [
+  { id: 'sleep', label: 'Sono', category: 'sleep' }, { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', category: 'hrv' }, { id: 'restingHr', label: 'Frequência cardíaca de repouso', category: 'resting_heart_rate' },
+  { id: 'steps', label: 'Passos', category: 'daily_activity' }, { id: 'activeKcal', label: 'Calorias ativas do dia', category: 'daily_activity' }, { id: 'totalKcal', label: 'Gasto energético total do dia', category: 'daily_activity' },
+  { id: 'vo2', label: 'VO₂ máximo', category: 'vo2_max' }, { id: 'spo2', label: 'Saturação de oxigênio', category: 'pulse_ox' }, { id: 'resp', label: 'Frequência respiratória', category: 'respiratory_rate' },
+  { id: 'nutrition', label: 'Energia consumida', category: 'nutrition' }, { id: 'hydration', label: 'Hidratação', category: 'nutrition' },
 ];
 
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
@@ -58,7 +58,7 @@ function put(raws: Map<string, Raw>, spec: { id: string; label: string; unit: st
   raws.set(key, raw);
 }
 
-export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRowLite[]; daily: DailyRowLite[]; metrics: MetricRowLite[]; now: Date; days?: number; sourceName: (key: string) => string; activitySourceKeys?: string[] }): RecoverySummary {
+export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRowLite[]; daily: DailyRowLite[]; metrics: MetricRowLite[]; now: Date; days?: number; sourceName: (key: string) => string; activitySourceKeys?: string[]; authorizedCategories?: ReadonlySet<string> }): RecoverySummary {
   const raws = new Map<string, Raw>();
   const spec = {
     sleep: { id: 'sleep', label: 'Sono', unit: 'min' }, restingHr: { id: 'restingHr', label: 'Frequência cardíaca de repouso', unit: 'bpm' }, steps: { id: 'steps', label: 'Passos', unit: 'passos' },
@@ -114,14 +114,17 @@ export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRow
   const order = ['sleep', 'hrv.rmssd', 'hrv.sdnn', 'restingHr', 'steps', 'activeKcal', 'totalKcal', 'vo2', 'spo2', 'resp', 'nutrition', 'hydration'];
   indicators.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
   // Fontes conhecidas da aluna: de qualquer dado de saude recebido e dos treinos (a Samsung pode mandar treino e nao mandar o resto).
-  const ecosystems = new Set<string>([...[...raws.values()].map((r) => ecosystemOfSourceKey(r.sourceKey)), ...(input.activitySourceKeys ?? []).map((k) => ecosystemOfSourceKey(k))]);
+  const sourceKeys = new Set<string>([...[...raws.values()].map((r) => r.sourceKey), ...(input.activitySourceKeys ?? [])]);
   const present = new Set(indicators.map((i) => i.id.split('.')[0]));
-  const unavailable: RecoveryUnavailable[] = ecosystems.size === 0 ? [] : CATALOG.filter((c) => !present.has(c.id)).map((c) => ({
+  const names = [...sourceKeys].map((k) => input.sourceName(k)).slice(0, 2).join(' e ');
+  const onlyHealthConnect = sourceKeys.size > 0 && [...sourceKeys].every((k) => ecosystemOfSourceKey(k) !== undefined && k.startsWith('health_connect'));
+  const unavailable: RecoveryUnavailable[] = sourceKeys.size === 0 ? [] : CATALOG.filter((c) => !present.has(c.id)).map((c) => ({
     id: c.id,
     label: c.label,
-    reason: ecosystems.has('samsung') && SAMSUNG_NOT_SENT.has(c.id)
-      ? 'O seu aparelho Samsung (Samsung Health) não envia este dado ao Health Connect; por isso ele não aparece aqui. Não é uma falha do Panzeri Run nem da sua conexão.'
-      : 'Ainda não recebemos este dado. O seu relógio ou aplicativo pode não medir ou não enviar este dado ao Health Connect, ou o grupo ainda não foi autorizado em Dispositivos e integrações.',
+    // Sem autorizacao do grupo nao ha o que cobrar do aparelho; so' se sabe disso para o Health Connect (unica fonte com a lista de autorizacoes aqui).
+    reason: onlyHealthConnect && input.authorizedCategories && !input.authorizedCategories.has(c.category)
+      ? 'Você ainda não autorizou este grupo de dados. Para ver este dado aqui, autorize em Dispositivos e integrações.'
+      : `O seu aparelho ou aplicativo (${names}) está conectado e enviou outros dados, mas não enviou este: ele não envia (ou não mede) este dado. Não é uma falha do Panzeri Run nem da sua conexão.`,
   }));
   return { generatedAt: input.now.toISOString(), periodDays: days, indicators, empty: indicators.length === 0, unavailable };
 }

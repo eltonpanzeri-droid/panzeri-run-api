@@ -134,13 +134,12 @@ export class ActivityDetailService {
         powerAvgWatts: log.powerAvgWatts,
         elevationGainMeters: log.elevationGainMeters,
       },
-      // Treino do Health Connect gravado pelo Samsung Health: a Samsung nao envia cadencia nem ganho de elevacao (documentacao oficial). So' dizemos isso para a Samsung e so' quando o campo esta vazio.
+      // Aviso por EVIDENCIA, valido para qualquer marca: se a frequencia cardiaca deste treino chegou (o grupo de sensores esta autorizado) mas cadencia, potencia ou ganho de elevacao nao, foi o aparelho
+      // ou aplicativo de origem que nao os enviou. Sem a FC nao ha como distinguir de "nao autorizado", entao nada e' afirmado.
       deviceNote: (() => {
-        if (log.provider !== 'health_connect') return null;
-        const pkg = (log.providerMetrics as { source?: { packageName?: unknown } } | null)?.source?.packageName;
-        if (pkg !== 'com.sec.android.app.shealth') return null;
-        const missing = [cadenceAvg == null ? 'a cadência' : null, log.elevationGainMeters == null ? 'o ganho de elevação' : null].filter(Boolean);
-        return missing.length > 0 ? `O seu aparelho Samsung (Samsung Health) não envia ${missing.join(' nem ')} ao Health Connect; por isso não aparece neste treino.` : null;
+        if (log.avgHeartRateBpm == null) return null;
+        const missing = [cadenceAvg == null ? 'a cadência' : null, log.powerAvgWatts == null ? 'a potência' : null, log.elevationGainMeters == null ? 'o ganho de elevação' : null].filter(Boolean);
+        return missing.length > 0 ? `O seu aparelho ou aplicativo de origem enviou a frequência cardíaca deste treino, mas não enviou ${missing.join(', ')}; por isso não aparece aqui.` : null;
       })(),
       prescribed: link
         ? {

@@ -7,9 +7,10 @@ import { BillingModule } from '../billing/billing.module';
 import { ReporterModule } from '../reporter/reporter.module';
 import { TrainingIntelligenceModule } from '../training-intelligence/training-intelligence.module';
 import { ProfilePhotoModule } from '../profile-photo/profile-photo.module';
+import { HealthConnectModule } from '../health-connect/health-connect.module';
 
 @Module({
-  imports: [TrainingPlansModule, BillingModule, ReporterModule, TrainingIntelligenceModule, ProfilePhotoModule],
+  imports: [TrainingPlansModule, BillingModule, ReporterModule, TrainingIntelligenceModule, ProfilePhotoModule, HealthConnectModule],
   controllers: [MeController],
   providers: [MeService, RoutineService],
   exports: [MeService, RoutineService],

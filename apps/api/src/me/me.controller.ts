@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, GoneException, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, GoneException, Optional, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { PatchAvailabilityDaysDto, UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { settlePendingReevaluation, viewOf } from '../activity-execution/pending-reevaluation';
 import { buildRecoverySummary } from './recovery-summary';
 import { sourceDisplayName } from '../coach/student-health-recovery.service';
+import { HealthConnectConsentService } from '../health-connect/health-connect-consent.service';
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('me')
@@ -26,6 +27,8 @@ export class MeController {
     private readonly profilePhoto: ProfilePhotoService,
     // Comando unico de gravacao da rotina (26/10/2026). Ultimo e opcional so' para testes antigos que constroem o controlador por posicao; em producao e' sempre injetado.
     private readonly routine?: RoutineService,
+    // Autorizacoes do Health Connect (31/10/2026): separa "grupo nao autorizado" de "o aparelho nao enviou" em Minha recuperacao. Opcional so' para testes antigos.
+    @Optional() private readonly healthConsent?: HealthConnectConsentService,
   ) {}
 
   // "Minha recuperação" (30/10/2026): o aluno vê os próprios dados de recuperação e saúde que autorizou compartilhar, de onde vêm e por que são usados. SOMENTE os dele (id sempre do token).
@@ -45,7 +48,8 @@ export class MeController {
     // Apps de origem dos treinos do Health Connect (para saber, por exemplo, que a aluna usa Samsung mesmo sem outros dados de saude).
     const recent = await this.prisma.activityLog.findMany({ where: { userId: user.sub, provider: 'health_connect' }, orderBy: { startedAt: 'desc' }, take: 20, select: { providerMetrics: true } });
     const activitySourceKeys = recent.map((row) => { const pkg = (row.providerMetrics as { source?: { packageName?: unknown } } | null)?.source?.packageName; return `health_connect:${typeof pkg === 'string' && pkg ? pkg : 'origem_desconhecida'}`; });
-    return buildRecoverySummary({ sleep, hrv, daily, metrics, now, days, sourceName: sourceDisplayName, activitySourceKeys });
+    const authorizedCategories = this.healthConsent ? await this.healthConsent.allowedCategories(user.sub).catch(() => undefined) : undefined;
+    return buildRecoverySummary({ sleep, hrv, daily, metrics, now, days, sourceName: sourceDisplayName, activitySourceKeys, authorizedCategories });
   }
 
   // Foto de perfil (21/10/2026): o aluno gerencia SOMENTE a propria (id sempre do token, nunca da URL).
