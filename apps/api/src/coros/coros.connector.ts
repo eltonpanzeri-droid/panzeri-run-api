@@ -18,7 +18,7 @@ export function buildCorosConnector(config: ConfigService, deps: CorosConnectorD
   return {
     id: COROS_PROVIDER_ID,
     displayName: 'COROS',
-    categories: ['activity', 'activity_route', 'activity_sensors'],
+    categories: ['activity', 'activity_route', 'activity_sensors', 'profile'],
     consent: COROS_CONSENT,
     oauth: new CorosOAuth(config),
     revocation: new CorosRevocation(config),
