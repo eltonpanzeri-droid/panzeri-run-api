@@ -12,13 +12,13 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('Polar e Strava: disponiveis e desconectados por padrao', () => {
+  it('Polar: disponivel e desconectada por padrao; Strava: INDISPONIVEL para novos alunos (30/10/2026) e disponivel so para quem ja esta conectado', () => {
     const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: none });
-    for (const id of ['polar', 'strava']) {
-      expect(byId(catalog, id).availability).toBe('available');
-      expect(byId(catalog, id).connection.state).toBe('disconnected');
-      expect(byId(catalog, id).capabilities).toEqual({ receiveActivities: true, sendWorkouts: false });
-    }
+    expect(byId(catalog, 'polar')).toMatchObject({ availability: 'available', connection: { state: 'disconnected' }, capabilities: { receiveActivities: true, sendWorkouts: false } });
+    expect(byId(catalog, 'strava')).toMatchObject({ availability: 'unavailable', summary: 'Indisponível para novos alunos.', connection: { state: 'not_applicable' }, capabilities: { receiveActivities: false, sendWorkouts: false } });
+    const connected = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['strava']) }), 'strava');
+    expect(connected).toMatchObject({ availability: 'available', connection: { state: 'connected' } });
+    expect(connected.summary).toContain('quem já conectou continua com o acesso');
   });
 
   it('conexao e individual: so o provedor conectado do aluno aparece conectado', () => {
@@ -36,11 +36,11 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(polar.summary).toBe('Integração indisponível no momento.');
   });
 
-  it('Apple Watch nunca e anunciado como disponivel; so iOS nativo', () => {
+  it('Apple Watch: sem selo de validacao (30/10/2026, decisao de Elton); so iOS nativo', () => {
     const apple = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: none }), 'apple_watch');
-    expect(apple.availability).toBe('preparing');
+    expect(apple.availability).toBe('available');
     expect(apple.platforms).toEqual(['ios_native']);
-    expect(apple.connection.state).toBe('not_applicable');
+    expect(apple.summary).not.toMatch(/valida/i);
   });
 
   it('Samsung / Galaxy Watch: disponivel no Android e leva ao Health Connect (os dados da Samsung chegam por ele)', () => {

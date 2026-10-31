@@ -10,7 +10,8 @@ export class StravaController {
 
   @UseGuards(AuthGuard('jwt'))
   @Get('connect-url')
-  connectUrl(@CurrentUser() user: CurrentUserPayload) {
+  async connectUrl(@CurrentUser() user: CurrentUserPayload) {
+    await this.stravaService.assertOpenForUser(user.sub); // fechado para novos alunos (30/10/2026)
     return this.stravaService.connectUrl(user.sub);
   }
 

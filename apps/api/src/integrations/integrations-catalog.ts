@@ -41,6 +41,8 @@ export interface IntegrationProvider {
   requiresEnv?: string | string[];
   // Integracao em validacao: so' aparece como disponivel para quem foi habilitado (ou ja esta conectado, para poder desconectar).
   requiresAllowlist?: boolean;
+  // Fechada para NOVOS alunos (30/10/2026, decisao de Elton, Strava): quem ja' esta conectado continua vendo e gerenciando; quem nao esta conectado ve "indisponivel" e o servidor recusa a conexao.
+  closedToNewUsers?: boolean;
   profile: IntegrationProfile;
 }
 
@@ -60,8 +62,9 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'strava',
     name: 'Strava',
-    summary: 'Importa suas atividades do Strava.',
+    summary: 'Importa suas atividades do Strava. Indisponível para novos alunos: quem já conectou continua com o acesso.',
     availability: 'available',
+    closedToNewUsers: true,
     platforms: ALL_PLATFORMS,
     capabilities: { receiveActivities: true, sendWorkouts: false },
     requiresEnv: 'STRAVA_CLIENT_ID',
@@ -70,11 +73,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'apple_watch',
     name: 'Apple Watch',
-    summary: 'Importa as suas corridas do app Saúde do iPhone, com as medidas e o percurso que você autorizar (no iPhone e no Panzeri Run). O envio de treinos ao Apple Watch segue em validação.',
-    availability: 'preparing',
+    summary: 'Importa as suas corridas do app Saúde do iPhone, com as medidas e o percurso que você autorizar (no iPhone e no Panzeri Run).',
+    availability: 'available',
     platforms: ['ios_native'],
     capabilities: { receiveActivities: true, sendWorkouts: true },
-    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'preparing', workoutDeliveryNote: 'O envio de treinos ao Apple Watch está em validação.', authorizedBy: 'both', aiUse: 'allowed' },
+    profile: { dataGroups: ['activities', 'performance', 'route', 'sleep', 'recovery', 'daily'], workoutDelivery: 'available', workoutDeliveryNote: 'Os treinos compatíveis têm o botão “Enviar ao Apple Watch”, com a autorização do iOS.', authorizedBy: 'both', aiUse: 'allowed' },
   },
   {
     id: 'health_connect',
@@ -148,7 +151,7 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   },
 ];
 
-export interface IntegrationCatalogEntry extends Omit<IntegrationProvider, 'requiresEnv' | 'requiresAllowlist'> {
+export interface IntegrationCatalogEntry extends Omit<IntegrationProvider, 'requiresEnv' | 'requiresAllowlist' | 'closedToNewUsers'> {
   connection: { state: IntegrationConnectionState };
 }
 
@@ -163,17 +166,18 @@ export interface CatalogInputs {
 
 export function buildIntegrationsCatalog(inputs: CatalogInputs): IntegrationCatalogEntry[] {
   return INTEGRATION_PROVIDERS.map((provider) => {
-    const { requiresEnv, requiresAllowlist, ...rest } = provider;
+    const { requiresEnv, requiresAllowlist, closedToNewUsers, ...rest } = provider;
     // Disponibilidade real: se exige configuracao no servidor e ela esta ausente, nao e oferecida.
     const required = requiresEnv === undefined ? [] : Array.isArray(requiresEnv) ? requiresEnv : [requiresEnv];
     const allowed = !requiresAllowlist || (inputs.allowedProviderIds?.has(provider.id) ?? false) || inputs.connectedProviderIds.has(provider.id);
-    const operational = provider.availability === 'available' && allowed && required.every((name) => inputs.configuredEnv.has(name));
+    const closedForThisUser = closedToNewUsers === true && !inputs.connectedProviderIds.has(provider.id);
+    const operational = provider.availability === 'available' && allowed && !closedForThisUser && required.every((name) => inputs.configuredEnv.has(name));
     const availability: IntegrationAvailability = operational
       ? 'available'
       : provider.availability === 'available' ? 'unavailable' : provider.availability;
     const capabilities = availability === 'available' ? provider.capabilities : { receiveActivities: false, sendWorkouts: false };
     const summary = availability === 'unavailable' && provider.availability === 'available'
-      ? 'Integração indisponível no momento.'
+      ? (closedForThisUser ? 'Indisponível para novos alunos.' : 'Integração indisponível no momento.')
       : provider.summary;
     const state: IntegrationConnectionState = availability !== 'available'
       ? 'not_applicable'

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
@@ -84,6 +84,13 @@ export class StravaService implements OnModuleInit {
     } catch {
       throw new ServiceUnavailableException('Strava ainda nao configurado no servidor.');
     }
+  }
+
+  // Strava fechado para NOVOS alunos (30/10/2026, decisao de Elton): so' quem ja' tem conexao registrada consegue abrir a autorizacao (reconectar). O catalogo mostra "indisponivel" para os
+  // demais; esta checagem (chamada pelo endpoint connect-url) garante isso tambem para um aplicativo antigo. O fluxo OAuth em si (connectUrl/callback) nao muda.
+  async assertOpenForUser(userId: string): Promise<void> {
+    const existing = await this.prisma.stravaConnection.findUnique({ where: { userId }, select: { id: true } });
+    if (!existing) throw new ForbiddenException('O Strava esta indisponivel para novos alunos.');
   }
 
   async connectUrl(userId: string) {

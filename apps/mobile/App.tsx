@@ -2234,11 +2234,13 @@ function Onboarding({ onStart }: { onStart: () => void }) {
   );
 }
 
-function SecureTextInput({ placeholder, value, onChangeText }: { placeholder: string; value: string; onChangeText: (value: string) => void }) {
+// Campo de senha. Com "Ver" ativado o campo deixa de ser protegido e o teclado (iPhone e PWA) passa a CAPITALIZAR a primeira letra, corrigir palavras e acrescentar espaco apos sugestao: a senha digitada
+// ficava diferente da cadastrada e o login dava "credenciais invalidas" (30/10/2026). Por isso o campo NUNCA capitaliza, corrige nem sugere, e informa ao gerenciador de senhas se e' senha atual ou nova.
+function SecureTextInput({ placeholder, value, onChangeText, kind = 'current' }: { placeholder: string; value: string; onChangeText: (value: string) => void; kind?: 'current' | 'new' }) {
   const [visible, setVisible] = useState(false);
   return (
     <View style={styles.secureInputWrap}>
-      <TextInput style={[styles.input, styles.secureInput]} placeholder={placeholder} value={value} onChangeText={onChangeText} secureTextEntry={!visible} />
+      <TextInput style={[styles.input, styles.secureInput]} placeholder={placeholder} value={value} onChangeText={onChangeText} secureTextEntry={!visible} autoCapitalize="none" autoCorrect={false} spellCheck={false} autoComplete={kind === 'new' ? 'new-password' : 'current-password'} textContentType={kind === 'new' ? 'newPassword' : 'password'} />
       <Pressable style={styles.showPasswordButton} onPress={() => setVisible((current) => !current)}>
         <Ionicons name={visible ? 'eye-off-outline' : 'eye-outline'} size={18} color={PRColors.ocean} />
         <Text style={styles.showPasswordText}>{visible ? 'Ocultar' : 'Ver'}</Text>
@@ -2518,13 +2520,17 @@ function Login({
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="email"
+        textContentType="emailAddress"
         keyboardType="email-address"
       />
-      <SecureTextInput placeholder="Senha" value={password} onChangeText={setPassword} />
+      <SecureTextInput placeholder="Senha" value={password} onChangeText={setPassword} kind={mode === 'register' ? 'new' : 'current'} />
 
       {mode === 'register' && (
         <>
-          <SecureTextInput placeholder="Confirmação de senha" value={passwordConfirm} onChangeText={setPasswordConfirm} />
+          <SecureTextInput placeholder="Confirmação de senha" value={passwordConfirm} onChangeText={setPasswordConfirm} kind="new" />
 
           <View style={styles.termsRow}>
             <Switch value={acceptedTerms} onValueChange={onTermsChange} />
@@ -2570,8 +2576,8 @@ function Login({
       {resetToken ? (
         <View style={styles.earlyStudentNotice}>
           <Text style={styles.earlyStudentNoticeTitle}>Criar nova senha</Text>
-          <SecureTextInput placeholder="Nova senha" value={resetPassword} onChangeText={setResetPassword} />
-          <SecureTextInput placeholder="Confirmar nova senha" value={resetPasswordConfirm} onChangeText={setResetPasswordConfirm} />
+          <SecureTextInput placeholder="Nova senha" value={resetPassword} onChangeText={setResetPassword} kind="new" />
+          <SecureTextInput placeholder="Confirmar nova senha" value={resetPasswordConfirm} onChangeText={setResetPasswordConfirm} kind="new" />
           <Pressable
             style={[styles.primaryButton, styles.authButton, isResetting && styles.disabledButton]}
             disabled={isResetting}
