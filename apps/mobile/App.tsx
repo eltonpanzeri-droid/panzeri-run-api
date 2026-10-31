@@ -2294,7 +2294,7 @@ function Login({
       });
 
       if (!response.ok) {
-        setStatus('Não consegui solicitar recuperação.');
+        setStatus(response.status === 429 ? 'Muitas tentativas seguidas. Aguarde 1 minuto e toque de novo.' : 'Não consegui solicitar recuperação.');
         return;
       }
 
