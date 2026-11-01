@@ -11,7 +11,8 @@
 // 30/10/2026 (2a revisao do dia): texto geral reorganizado (compromisso, idade minima, compromissos sobre compartilhamento, declaracoes de uso dos dados de saude exigidas pelas lojas,
 // Google Analytics na lista de terceiros, identificacao do responsavel). A versao muda porque o texto mudou (quem aceitar daqui em diante registra esta).
 // 01/11/2026: saude da Polar (sono, HRV, atividade diaria) passa a poder alimentar o Atlas SE a aluna autorizar o Atlas no cartao da Polar (frase da secao de dispositivos).
-export const LEGAL_VERSION = '2026-11-01.1';
+// 01/11/2026 (2a): preco unico de R$19,90/mes em todos os canais (Asaas e Google Play; o Play foi de R$24,90 para R$19,90 por Elton). A versao muda porque o texto mudou.
+export const LEGAL_VERSION = '2026-11-01.2';
 export const LEGAL_UPDATED_LABEL = '1 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
@@ -297,7 +298,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     id: 'assinatura',
     heading: '4. Assinatura e pagamento',
-    paragraphs: ['O acesso ao programa de treinos depende de assinatura mensal ativa. Para novas assinaturas, o valor atual é de R$24,90/mês, processado pelo canal de pagamento escolhido. Condições anteriores já contratadas podem ser preservadas. O cancelamento pode ser feito a qualquer momento, sem multa, produzindo efeito conforme as regras vigentes de cobrança.'],
+    paragraphs: ['O acesso ao programa de treinos depende de assinatura mensal ativa. Para novas assinaturas, o valor atual é de R$19,90/mês, processado pelo canal de pagamento escolhido. Condições anteriores já contratadas podem ser preservadas. O cancelamento pode ser feito a qualquer momento, sem multa, produzindo efeito conforme as regras vigentes de cobrança.'],
   },
   {
     id: 'informacoes',
