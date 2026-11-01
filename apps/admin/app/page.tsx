@@ -6168,7 +6168,7 @@ function SessionExecutionPanel({ session }: { session: NonNullable<StudentDetail
     {session.completionStatus === 'sem_registro' ? <span>Sem registro</span> : (
       <>
         <span>
-          {session.completedDurationMin ? `${session.completedDurationMin} min` : 'Tempo nao informado'}
+          {session.completedDurationMin ? exactDurationLabel(session.completedDurationMin) : 'Tempo nao informado'}
           {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}
           {session.completedPaceSecondsKm ? ` | ${paceLabel(session.completedPaceSecondsKm)}` : ''}
         </span>
@@ -7548,6 +7548,16 @@ function dateLabel(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Tempo exato e legivel, sem arredondar minutos: 95,7333 min vira "1h35min44s" (o dado guardado e' o mesmo; so' a forma de mostrar muda). Minutos inteiros ficam como antes ("45 min"). */
+function exactDurationLabel(minutes: number) {
+  const total = Math.round(minutes * 60);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (sec === 0) return h > 0 ? `${h}h${m > 0 ? `${m}min` : ''}` : `${m} min`;
+  return h > 0 ? `${h}h${m}min${sec}s` : `${m}min${sec}s`;
 }
 
 function paceLabel(seconds: number) {

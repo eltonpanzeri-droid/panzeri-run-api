@@ -11236,6 +11236,7 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
       ) : (
         <>
           <Text style={{ fontSize: 13, fontWeight: '700' }}>Escolha o treino:</Text>
+          <Text style={{ fontSize: 12, color: '#475569' }}>O relógio parou e você recomeçou? Vincule a primeira atividade ao treino. Na segunda, escolha o mesmo treino e toque em “Adicionar como parte deste treino”: as duas contam como um treino só.</Text>
           {options.map((option) => (
             <View key={option.id} style={{ gap: 4 }}>
               <Pressable style={[styles.secondaryOutlineButton, (busy || option.linkedToThisActivity) && styles.disabledButton]} disabled={busy || option.linkedToThisActivity} onPress={() => choose(option)}>
@@ -11246,7 +11247,9 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
                 {option.compatibility.needsConfirmation ? '  ·  pode não corresponder' : ''}
               </Text>
               {option.linkedToAnotherActivity && !option.linkedToThisActivity ? (
-                <Pressable disabled={busy} onPress={() => choose(option, { role: 'part' })}><Text style={{ fontSize: 12, color: '#1769AA', fontWeight: '600' }}>Adicionar como parte deste treino</Text></Pressable>
+                <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => choose(option, { role: 'part' })} accessibilityRole="button">
+                  <Text style={styles.secondaryOutlineButtonText}>Adicionar como parte deste treino</Text>
+                </Pressable>
               ) : null}
             </View>
           ))}

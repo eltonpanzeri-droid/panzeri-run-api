@@ -94,7 +94,7 @@ export interface WeeklyExecutionIndicators {
   version: number;
   weekStartDate: string;
   overview: { prescribed: number; performed: number; notPerformed: number; noRecord: number; frequencyPct: number | null; byModality: Record<string, { prescribed: number; performed: number }> };
-  strength: { prescribed: number; performed: number; durationClasses: { proxima: number; mais_curta: number; mais_longa: number; sem_dado: number }; effortAvg: number | null; effortMin: number | null; effortMax: number | null; effortN: number; caloriesTotalKcal: number | null; caloriesN: number } | null;
+  strength: { prescribed: number; performed: number; durationClasses: { proxima: number; mais_curta: number; mais_longa: number; sem_dado: number }; effortAvg: number | null; effortMin: number | null; effortMax: number | null; effortN: number; caloriesTotalKcal: number | null; caloriesN: number; /* modalidades das sessoes FEITAS (forca e/ou fortalecimento_corredores); ausente em relatorios emitidos antes de 01/11/2026 */ modalities?: string[] } | null;
   run: {
     prescribed: number; performed: number; prescribedKmAll: number | null; prescribedKmPerformed: number | null; realizedKm: number | null; sessionsWithDistance: number;
     // distribuicao de tempo pelas faixas PRESCRITAS de cada bloco, somando segundos por papel (estimulo/recuperacao/continuo) — papeis nunca se misturam
@@ -131,6 +131,7 @@ export function buildWeeklyExecutionIndicators(weekStartDate: string, sessions: 
     effortAvg: efforts.length > 0 ? Math.round((efforts.reduce((a, b) => a + b, 0) / efforts.length) * 10) / 10 : null,
     effortMin: efforts.length > 0 ? Math.min(...efforts) : null, effortMax: efforts.length > 0 ? Math.max(...efforts) : null, effortN: efforts.length,
     caloriesTotalKcal: calories.length > 0 ? Math.round(calories.reduce((a, b) => a + b, 0)) : null, caloriesN: calories.length,
+    modalities: [...new Set(strengthSessions.filter((s) => s.analysis.kind === 'strength').map((s) => s.modality))].sort(),
   };
 
   const runSessions = sessions.filter((s) => s.kind === 'run');
@@ -170,6 +171,16 @@ export function buildWeeklyExecutionIndicators(weekStartDate: string, sessions: 
     strength, run, completeness: { sessionsWithoutData: withoutData, summaryOnly, manualOnly, notes },
     sources: { sessionIds: sessions.map((s) => s.sessionId), activityLogIds: sessions.map((s) => s.activityLogId).filter((id): id is string => !!id), providers },
   };
+}
+
+/** Como o grupo de forca e' chamado no texto: so' o que realmente foi feito (forca = musculacao; fortalecimento_corredores = fortalecimento). Sem a informacao (relatorio antigo): termo neutro. */
+export function strengthGroupLabel(modalities: string[] | undefined): string {
+  const hasForca = modalities?.includes('forca') ?? false;
+  const hasFort = modalities?.includes('fortalecimento_corredores') ?? false;
+  if (hasForca && hasFort) return 'Na musculação e no fortalecimento';
+  if (hasFort) return 'No fortalecimento';
+  if (hasForca) return 'Na musculação';
+  return 'Nos treinos de força';
 }
 
 const MODALITY_LABEL: Record<string, string> = { corrida: 'corrida', esteira: 'corrida', forca: 'musculação', fortalecimento_corredores: 'fortalecimento' };
@@ -232,7 +243,7 @@ export function renderWeeklyReport(ind: WeeklyExecutionIndicators): string[] {
   if (s && s.performed > 0) {
     const c = s.durationClasses;
     const bits = [c.proxima > 0 ? `${c.proxima} com duração próxima à planejada` : null, c.mais_curta > 0 ? `${c.mais_curta} mais curta${c.mais_curta > 1 ? 's' : ''}` : null, c.mais_longa > 0 ? `${c.mais_longa} mais longa${c.mais_longa > 1 ? 's' : ''}` : null].filter(Boolean);
-    lines.push(`Na musculação, ${s.performed} sessão(ões)${bits.length > 0 ? `: ${bits.join(', ')}` : ''}.${s.effortAvg != null ? ` O esforço percebido médio foi ${String(s.effortAvg).replace('.', ',')}/10${s.effortN > 1 ? `, com registros de ${s.effortMin} e ${s.effortMax}` : ''}.` : ''}${s.caloriesTotalKcal != null ? ` Gasto energético estimado pelo relógio: ${s.caloriesTotalKcal} kcal (${s.caloriesN} sessão(ões) com o dado).` : ''}`);
+    lines.push(`${strengthGroupLabel(s.modalities)}, ${s.performed} sessão(ões)${bits.length > 0 ? `: ${bits.join(', ')}` : ''}.${s.effortAvg != null ? ` O esforço percebido médio foi ${String(s.effortAvg).replace('.', ',')}/10${s.effortN > 1 ? `, com registros de ${s.effortMin} e ${s.effortMax}` : ''}.` : ''}${s.caloriesTotalKcal != null ? ` Gasto energético estimado pelo relógio: ${s.caloriesTotalKcal} kcal (${s.caloriesN} sessão(ões) com o dado).` : ''}`);
   }
   const r = ind.run;
   if (r && r.performed > 0) {

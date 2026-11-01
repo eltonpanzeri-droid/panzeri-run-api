@@ -1,3 +1,4 @@
+import { ExecutionAnalysisService } from '../src/activity-execution/execution-analysis.service';
 import {
   analyzeRunExecution, analyzeStrengthExecution, buildIntervals, EXECUTION_THRESHOLDS, extractPrescribedBlocks, mergeTimeInBand, RunInputs, SeriesSample,
 } from '../src/activity-execution/execution-analysis';
@@ -289,6 +290,24 @@ describe('consolidacao semanal', () => {
     expect(text).toMatch(/Você realizou 5 dos 6 treinos previstos/);
     expect(text).toMatch(/esforço percebido médio foi 5\/10, com registros de 2 e 8/);
     expect(text).toMatch(/Percorreu 11,2 dos 19,2 km previstos/);
+  });
+
+  // 01/11/2026 (caso Duane): treino de FORTALECIMENTO aparecia como 'Na musculacao' no resumo da semana e como 'musculacao' para a IA.
+  it('o grupo de forca e chamado pelo nome do que foi feito (fortalecimento nao vira musculacao)', () => {
+    const fort = { ...strengthDone('f1', 45, 6, null), modality: 'fortalecimento_corredores' };
+    const onlyFort = buildWeeklyExecutionIndicators('2026-10-26', [fort]);
+    expect(onlyFort.strength!.modalities).toEqual(['fortalecimento_corredores']);
+    expect(renderWeeklyReport(onlyFort).join(' ')).toContain('No fortalecimento, 1 sessão(ões)');
+    expect(renderWeeklyReport(onlyFort).join(' ')).not.toMatch(/musculação/);
+    const onlyForca = buildWeeklyExecutionIndicators('2026-10-26', [strengthDone('s1', 49, 2, null)]);
+    expect(renderWeeklyReport(onlyForca).join(' ')).toMatch(/Na musculação, 1 sessão/);
+    const mixed = buildWeeklyExecutionIndicators('2026-10-26', [fort, strengthDone('s1', 49, 2, null)]);
+    expect(renderWeeklyReport(mixed).join(' ')).toMatch(/Na musculação e no fortalecimento, 2 sessão/);
+    // relatorio emitido antes desta correcao (sem modalities): termo neutro, nunca 'musculacao' presumida
+    const legacy = { ...onlyForca, strength: { ...onlyForca.strength!, modalities: undefined } };
+    expect(renderWeeklyReport(legacy).join(' ')).toMatch(/Nos treinos de força, 1 sessão/);
+    const prompt = new ExecutionAnalysisService({} as never).toPromptIndicators(onlyFort) as { musculacao: { modalidades: string[]; realizadas: number } };
+    expect(prompt.musculacao).toMatchObject({ modalidades: ['fortalecimento'], realizadas: 1 });
   });
 
   it('semana com informacoes incompletas: declara o que faltou, sem inventar', () => {

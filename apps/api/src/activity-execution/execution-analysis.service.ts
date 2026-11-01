@@ -223,7 +223,9 @@ export class ExecutionAnalysisService implements OnModuleInit {
     return {
       semanaIniciadaEm: ind.weekStartDate,
       sessoes: { prescritas: ind.overview.prescribed, realizadas: ind.overview.performed, naoFeitas: ind.overview.notPerformed, semRegistro: ind.overview.noRecord, frequenciaPct: ind.overview.frequencyPct },
+      // O nome do campo e' historico (descrito no prompt); `modalidades` diz o que realmente foi feito: sem isso um treino de fortalecimento chegava a IA como se fosse musculacao.
       musculacao: ind.strength && {
+        modalidades: (ind.strength.modalities ?? []).map((m) => (m === 'fortalecimento_corredores' ? 'fortalecimento' : 'musculacao')),
         realizadas: ind.strength.performed, duracaoProximaDaPrevista: ind.strength.durationClasses.proxima, maisCurtas: ind.strength.durationClasses.mais_curta, maisLongas: ind.strength.durationClasses.mais_longa,
         esforcoPercebidoMedio: ind.strength.effortAvg, esforcoMin: ind.strength.effortMin, esforcoMax: ind.strength.effortMax, gastoEnergeticoEstimadoKcal: ind.strength.caloriesTotalKcal,
       },
