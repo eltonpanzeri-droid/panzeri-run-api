@@ -11,6 +11,7 @@ import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import StudentTrainingLoad from './student-training-load';
 import AiCostSection from './ai-cost';
+import { EXCLUSION_REASON_LABEL } from './exclusion-reasons';
 import EquipmentIntelligence from './equipment-intelligence';
 import Observatory from './observatory';
 import StudentAvatar from './student-avatar';
@@ -5384,6 +5385,11 @@ type ExternalActivityRow = {
   physicalIdentityEvaluatedAt?: string | null;
   executionClassification?: string | null;
   executionClassifiedBy?: string | null;
+  // Excluir/ignorar (01/11/2026): o painel do treinador ve as ignoradas/excluidas (marcadas); o resto do sistema as esconde.
+  exclusionMode?: 'ignored' | 'deleted' | null;
+  excludedAt?: string | null;
+  excludedBy?: string | null;
+  exclusionReason?: string | null;
   observerKey?: string;
   sportCanonical?: string | null;
   providerMetrics?: { source?: { name?: string; bundleId?: string; family?: string }; device?: { name?: string; manufacturer?: string; model?: string }; distanceStatus?: string | null; distanceLimitation?: string | null } | null;
@@ -5536,6 +5542,51 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
   // de classify() apos ingestao Polar. So' chama o endpoint ja' existente
   // (CoachService.reclassifyExternalActivity), nenhuma logica de reconciliacao nova aqui.
   const [reclassifyById, setReclassifyById] = React.useState<Record<string, 'loading' | 'error' | ExternalActivityReclassifyResult>>({});
+  // Excluir/ignorar uma atividade da aluna (01/11/2026). As duas opcoes tiram os dados daquela atividade de toda analise; 'ignorar' pode ser desfeita, 'excluir' apaga os detalhes.
+  const [exclusionDraft, setExclusionDraft] = React.useState<{ id: string; mode: 'ignored' | 'deleted'; reason: string } | null>(null);
+  const [exclusionBusy, setExclusionBusy] = React.useState(false);
+  const [exclusionError, setExclusionError] = React.useState<string | null>(null);
+  async function submitExclusion() {
+    if (!exclusionDraft) return;
+    setExclusionBusy(true);
+    setExclusionError(null);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${exclusionDraft.id}/exclude`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: exclusionDraft.mode, reason: exclusionDraft.reason }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        setExclusionError(body?.message ?? 'Não foi possível concluir agora.');
+        setExclusionBusy(false);
+        return;
+      }
+      setExclusionDraft(null);
+      await load();
+    } catch {
+      setExclusionError('Não foi possível concluir agora.');
+    }
+    setExclusionBusy(false);
+  }
+  async function restoreIgnored(activityLogId: string) {
+    if (!window.confirm('Desfazer: esta atividade volta a contar nas análises (como atividade extra). Confirmar?')) return;
+    setExclusionBusy(true);
+    setExclusionError(null);
+    try {
+      const response = await fetch(`${API_URL}/coach/students/${studentId}/external-activities/${activityLogId}/restore`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        setExclusionError(body?.message ?? 'Não foi possível desfazer agora.');
+        setExclusionBusy(false);
+        return;
+      }
+      await load();
+    } catch {
+      setExclusionError('Não foi possível desfazer agora.');
+    }
+    setExclusionBusy(false);
+  }
 
   const load = React.useCallback(async () => {
     try {
@@ -5719,7 +5770,14 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     const selected = compareIds.includes(row.id);
     const reclassifyState = reclassifyById[row.id];
     return (
-      <div key={row.id} className={`extObs${isCanonical ? ' extObsCanonical' : ''}${selected ? ' extObsSelected' : ''}`}>
+      <div key={row.id} className={`extObs${isCanonical ? ' extObsCanonical' : ''}${selected ? ' extObsSelected' : ''}${row.exclusionMode ? ' extObsExcluded' : ''}`}>
+        {row.exclusionMode ? (
+          <div className="extExcludedBanner" role="note">
+            <strong>{row.exclusionMode === 'deleted' ? 'EXCLUÍDA' : 'IGNORADA'}</strong> {row.excludedAt ? `em ${fmtDayFull(row.excludedAt)} ` : ''}por {row.excludedBy === 'coach' ? 'treinador' : 'aluna'}
+            {row.exclusionReason ? ` · motivo: ${EXCLUSION_REASON_LABEL[row.exclusionReason] ?? row.exclusionReason}` : ''}.
+            {row.exclusionMode === 'deleted' ? ' Os detalhes foram apagados; só a marca mínima permanece para o relógio não trazer de volta. Não entra em nenhuma análise.' : ' Os dados ficam guardados, mas esta atividade não entra em nenhuma análise (volume, carga, vínculos, IA).'}
+          </div>
+        ) : null}
         <div className="extObsHead">
           <span className={`extProvider extProvider_${row.provider}`}>{EXT_PROVIDER_LABEL[row.provider] ?? row.provider}</span>
           {isCanonical ? <span className="extBadge extBadgeCanonical">★ CANÔNICA</span> : row.physicalCanonicalActivityLogId ? <span className="extBadge extBadgeNeutral">não canônica</span> : null}
@@ -5777,6 +5835,15 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
         </details>
 
         <div className="extActions">
+          {row.exclusionMode === 'ignored' ? (
+            <button type="button" className="secondaryOutlineButton" disabled={exclusionBusy} onClick={() => restoreIgnored(row.id)} title="Faz a atividade voltar a contar nas análises">Desfazer ignorar</button>
+          ) : null}
+          {!row.exclusionMode ? (
+            <>
+              <button type="button" className="secondaryOutlineButton" disabled={exclusionBusy} onClick={() => { setExclusionError(null); setExclusionDraft({ id: row.id, mode: 'ignored', reason: 'same_workout_registered' }); }} title="Tira esta atividade de toda análise; os dados ficam guardados e dá para desfazer">Ignorar</button>
+              <button type="button" className="secondaryOutlineButton" disabled={exclusionBusy} onClick={() => { setExclusionError(null); setExclusionDraft({ id: row.id, mode: 'deleted', reason: 'same_workout_registered' }); }} title="Tira esta atividade de toda análise e apaga os detalhes; não dá para desfazer">Excluir</button>
+            </>
+          ) : null}
           <button type="button" className="secondaryOutlineButton" onClick={() => toggleRaw(row.id)}>
             {openRawId === row.id ? 'Fechar payload bruto' : 'Ver payload bruto (raw)'}
           </button>
@@ -5803,6 +5870,27 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
             <button type="button" className="secondaryOutlineButton" disabled={identityActionById[row.id] === 'loading'} onClick={() => identityAction(row.id, 'revert')} title="Reverte a decisão humana ativa que envolve esta atividade (fica registrada como revertida). Se uma reversão anterior não terminou, conclui o processamento.">
               {activeIdentityDecisions(row).length > 0 ? 'Reverter decisão de identidade' : 'Concluir reversão'}
             </button>
+          ) : null}
+          {exclusionDraft?.id === row.id ? (
+            <div className="extExclusionPanel" role="group" aria-label="Confirmar a retirada da atividade">
+              <strong>{exclusionDraft.mode === 'deleted' ? 'Excluir esta atividade?' : 'Ignorar esta atividade?'}</strong>
+              <p className="extHint">
+                {exclusionDraft.mode === 'deleted'
+                  ? 'Apaga os detalhes (percurso, frequência cardíaca, dados brutos) e NÃO dá para desfazer. Só fica a marca mínima para o relógio não trazer de volta. O feedback que a aluna escreveu nunca é apagado.'
+                  : 'Os dados ficam guardados, mas a atividade sai de toda análise (volume, carga, vínculos, IA). Dá para desfazer depois.'}
+                {' '}Vale para todas as observações deste mesmo treino (relógio, Health Connect...).
+              </p>
+              <label className="extHint">Motivo{' '}
+                <select value={exclusionDraft.reason} onChange={(event) => setExclusionDraft({ ...exclusionDraft, reason: event.target.value })}>
+                  {Object.entries(EXCLUSION_REASON_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <div className="extActions">
+                <button type="button" className="primaryButton" disabled={exclusionBusy} onClick={() => void submitExclusion()}>{exclusionBusy ? 'Salvando...' : exclusionDraft.mode === 'deleted' ? 'Confirmar exclusão' : 'Confirmar'}</button>
+                <button type="button" className="secondaryOutlineButton" disabled={exclusionBusy} onClick={() => setExclusionDraft(null)}>Cancelar</button>
+              </div>
+              {exclusionError ? <span className="extHint" style={{ color: '#b91c1c' }}>{exclusionError}</span> : null}
+            </div>
           ) : null}
           {typeof identityActionById[row.id] === 'object' ? <span className="extHint" style={{ color: '#b91c1c' }}>{(identityActionById[row.id] as { error: string }).error}</span> : null}
           {humanDecisionsOf(row).map((d) => (

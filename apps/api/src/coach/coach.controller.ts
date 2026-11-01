@@ -503,6 +503,17 @@ export class CoachController {
     return this.coachService.resolveExternalActivityIdentity(studentId, actor.sub, activityLogId, body?.decision);
   }
 
+  // Excluir/ignorar uma atividade do relogio da aluna (01/11/2026): body { mode: 'ignored' | 'deleted', reason }. As duas retiram os dados da atividade de toda analise; 'ignored' pode ser desfeita.
+  @Post('students/:studentId/external-activities/:activityLogId/exclude')
+  excludeExternalActivity(@CurrentUser() actor: CurrentUserPayload, @Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string, @Body() body: { mode?: unknown; reason?: unknown }) {
+    return this.coachService.excludeExternalActivity(studentId, activityLogId, actor.sub, body);
+  }
+
+  @Post('students/:studentId/external-activities/:activityLogId/restore')
+  restoreExternalActivity(@CurrentUser() actor: CurrentUserPayload, @Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {
+    return this.coachService.restoreExternalActivity(studentId, activityLogId, actor.sub);
+  }
+
   // Reverte a decisao humana ativa que envolve esta observacao (fica registrada como revertida, com quem/quando).
   @Post('students/:studentId/external-activities/:activityLogId/identity-decision/revert')
   revertExternalActivityIdentity(@CurrentUser() actor: CurrentUserPayload, @Param('studentId') studentId: string, @Param('activityLogId') activityLogId: string) {

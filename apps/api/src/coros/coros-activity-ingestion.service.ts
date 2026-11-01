@@ -3,6 +3,7 @@ import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isActivityExcluded } from '../prisma/activity-exclusion-scope';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
@@ -26,7 +27,7 @@ export interface CorosIngestMeta {
   source: 'sync';
 }
 
-export type CorosIngestResult = { written: false; reason: 'not_authorized' } | { written: true; activityLogId: string; classification: string | null; removed: string[] };
+export type CorosIngestResult = { written: false; reason: 'not_authorized' | 'excluded' } | { written: true; activityLogId: string; classification: string | null; removed: string[] };
 
 @Injectable()
 export class CorosActivityIngestionService {
@@ -43,6 +44,8 @@ export class CorosActivityIngestionService {
   ) {}
 
   async ingest(userId: string, meta: CorosIngestMeta, fit: ZeppFitActivity): Promise<CorosIngestResult> {
+    // Atividade ja excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada (nem payload bruto, metricas ou amostras) — senao o relogio traria de volta o que foi excluido.
+    if (await isActivityExcluded(this.prisma, userId, COROS_PROVIDER_ID, meta.labelId)) return { written: false, reason: 'excluded' };
     const written = await this.consent.writeWhileAuthorized(COROS_PROVIDER_ID, userId, async (tx, granted) => {
       // Sem a categoria 'activity' nada e' guardado.
       if (!granted.categories.includes('activity')) return null;

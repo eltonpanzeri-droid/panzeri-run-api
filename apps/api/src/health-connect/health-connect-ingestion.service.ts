@@ -3,6 +3,7 @@ import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { HealthConnectConsentService } from './health-connect-consent.service';
@@ -28,6 +29,7 @@ export interface HealthConnectImportResult {
 }
 
 type ExistingLog = {
+  exclusionMode: string | null;
   id: string;
   startedAt: Date;
   utcOffsetMinutes: number | null;
@@ -148,10 +150,12 @@ export class HealthConnectIngestionService {
   private write(userId: string, exercise: NormalizedHealthConnectExercise): Promise<HealthConnectImportItemResult> {
     const key = { provider_userId_externalId: { provider: HEALTH_CONNECT_PROVIDER, userId, externalId: exercise.externalId } };
     return this.prisma.$transaction(async (tx) => {
-      const existing = (await tx.activityLog.findUnique({
+      const existing = (await includeExcludedActivities(() => tx.activityLog.findUnique({
         where: key,
-        select: { id: true, startedAt: true, utcOffsetMinutes: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, maxHeartRateBpm: true, caloriesKcal: true, sport: true, providerMetrics: true },
-      })) as ExistingLog | null;
+        select: { exclusionMode: true, id: true, startedAt: true, utcOffsetMinutes: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, maxHeartRateBpm: true, caloriesKcal: true, sport: true, providerMetrics: true },
+      }))) as ExistingLog | null;
+      // Atividade ja excluida/ignorada pela aluna ou treinador: o reenvio NAO regrava nada e nao dispara o pos-processamento.
+      if (existing?.exclusionMode) return { recordId: exercise.externalId, status: 'already_imported' as const };
       const a = exercise.activity;
       const rawData = {
         payload: exercise.raw as Prisma.InputJsonObject,

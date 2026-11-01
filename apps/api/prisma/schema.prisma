@@ -1637,6 +1637,16 @@ model ActivityLog {
   // entra na carga (decisao de Elton); o rotulo so informa a IA e o treinador. Nunca altera a classificacao nem o resultado original.
   studentLabel            String?
 
+  // Exclusao de atividade pela ALUNA ou pelo TREINADOR (01/11/2026). Mesma atividade registrada em dois lugares (relogio + registro manual) ou dado errado:
+  //   'ignored' = fica guardada (reversivel), fora de TODA analise, volume, carga, vinculo e IA; 'deleted' = detalhes apagados (serie, amostras, payload bruto, metricas), so' a marca
+  //   minima (provedor + id externo + data) permanece para a sincronizacao do relogio NAO trazer de volta. Leituras comuns de ActivityLog escondem estas linhas por padrao (filtro central
+  //   em PrismaService); so' as telas de gestao e as ingestoes enxergam. Uma atividade excluida NUNCA tem vinculo ativo/candidato.
+  exclusionMode           String?
+  excludedAt              DateTime?
+  excludedBy              String?
+  excludedById            String?
+  exclusionReason         String?
+
   // Identidade FISICA cross-provider (06/10/2026, Apple Etapa 2). Varios ActivityLog (Polar, HealthKit, Strava-via-HealthKit,
   // Garmin...) podem ser observacoes do MESMO evento fisico. Nenhum registro e apagado nem fundido: cada ActivityLog continua
   // com seu provider/externalId/raw/metricas/provenance, e as observacoes do mesmo evento compartilham physicalEventId (um uuid

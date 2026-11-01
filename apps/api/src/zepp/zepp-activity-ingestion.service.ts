@@ -3,6 +3,7 @@ import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isActivityExcluded } from '../prisma/activity-exclusion-scope';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
@@ -28,7 +29,7 @@ export interface ZeppIngestMeta {
   source: 'webhook' | 'backfill';
 }
 
-export type ZeppIngestResult = { written: false; reason: 'not_authorized' } | { written: true; activityLogId: string; classification: string | null; removed: string[] };
+export type ZeppIngestResult = { written: false; reason: 'not_authorized' | 'excluded' } | { written: true; activityLogId: string; classification: string | null; removed: string[] };
 
 @Injectable()
 export class ZeppActivityIngestionService {
@@ -45,6 +46,8 @@ export class ZeppActivityIngestionService {
   ) {}
 
   async ingest(userId: string, meta: ZeppIngestMeta, fit: ZeppFitActivity): Promise<ZeppIngestResult> {
+    // Atividade ja excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada (nem payload bruto, metricas ou amostras) — senao o relogio traria de volta o que foi excluido.
+    if (await isActivityExcluded(this.prisma, userId, ZEPP_PROVIDER_ID, meta.summaryId)) return { written: false, reason: 'excluded' };
     const written = await this.consent.writeWhileAuthorized(ZEPP_PROVIDER_ID, userId, async (tx, granted) => {
       // Sem a categoria 'activity' nada e' guardado.
       if (!granted.categories.includes('activity')) return null;

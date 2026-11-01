@@ -3,6 +3,7 @@ import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadGatewayException, ConflictException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isActivityExcluded } from '../prisma/activity-exclusion-scope';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
@@ -203,6 +204,8 @@ export class WahooActivityIngestionService {
   }
 
   private async ingestWorkout(userId: string, workout: WahooWorkoutPayload, summary: WahooSummaryPayload, externalId: string) {
+    // Atividade ja excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada (nem payload bruto, metricas ou amostras) — senao o relogio traria de volta o que foi excluido.
+    if (await isActivityExcluded(this.prisma, userId, 'wahoo', externalId)) return;
     const canonical = mapWahooActivity(workout, summary);
     if (!canonical) throw new BadGatewayException('Treino Wahoo sem inicio valido.');
     const sourceUpdatedAt = typeof workout.updated_at === 'string' && !Number.isNaN(new Date(workout.updated_at).getTime()) ? new Date(workout.updated_at) : null;

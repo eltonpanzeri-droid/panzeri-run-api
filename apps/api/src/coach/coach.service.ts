@@ -46,6 +46,8 @@ import type { CorrectionOptions } from '../activity-execution/session-execution-
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { IdentityConfirmationService } from '../activity-execution/identity-confirmation.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
+import type { ExclusionMode, ExclusionReason } from '../activity-execution/activity-exclusion';
 import { validateDefinition } from '../billing/coupon-rules';
 
 @Injectable()
@@ -188,13 +190,19 @@ export class CoachService {
         // Estado de execucao atual (so' leitura): o painel so' oferece "confirmar que e' outra atividade" para ambigua ainda sem classificacao.
         executionClassification: true,
         executionClassifiedBy: true,
+        // Excluir/ignorar (01/11/2026): o painel do treinador ENXERGA as ignoradas/excluidas (marcadas, para desfazer ou conferir); todo o resto do sistema as esconde.
+        exclusionMode: true,
+        excludedAt: true,
+        excludedBy: true,
+        exclusionReason: true,
         providerMetrics: true,
         rawActivity: { select: { receivedAt: true, sourceUpdatedAt: true } },
       },
     });
-    let logs = await query();
+    let logs = await includeExcludedActivities(query);
     // Decisoes humanas de identidade ainda sem o efeito concluido (falha transitoria anterior) sao reprocessadas aqui, sem acao do treinador (idempotente).
-    if (this.identityConfirmation && (await this.identityConfirmation.healForCoachView(studentId, logs))) logs = await query();
+    // Atividades ignoradas/excluidas ficam fora do reprocessamento de identidade (nunca podem ganhar vinculo de volta); aparecem na lista so' marcadas.
+    if (this.identityConfirmation && (await this.identityConfirmation.healForCoachView(studentId, logs.filter((log) => !log.exclusionMode)))) logs = await includeExcludedActivities(query);
     return logs.map(({ rawActivity, ...log }) => ({
       ...log,
       // Derivados so' para exibicao diagnostica (mesmas funcoes do matcher); o sport original segue em `sport`.
@@ -283,6 +291,15 @@ export class CoachService {
   // SessionExecutionLinkService, com a mesma checagem de posse (activityLogId pertence a esse
   // studentId) ja' usada em getExternalActivityRaw. Idempotente (classify() nao reclassifica se ja'
   // houver classificacao — ver cabecalho de session-execution-link.service.ts).
+  // Excluir/ignorar e desfazer pelo TREINADOR (01/11/2026): mesma regra da aluna (SessionExecutionLinkService), com origem 'coach' no registro e no Prontuario.
+  async excludeExternalActivity(studentId: string, activityLogId: string, actorId: string, body: { mode?: unknown; reason?: unknown }) {
+    return this.sessionExecutionLink.excludeActivity({ userId: studentId, activityLogId, mode: body?.mode as ExclusionMode, reason: body?.reason as ExclusionReason, actor: { role: 'coach', id: actorId } });
+  }
+
+  async restoreExternalActivity(studentId: string, activityLogId: string, actorId: string) {
+    return this.sessionExecutionLink.restoreActivity({ userId: studentId, activityLogId, actor: { role: 'coach', id: actorId } });
+  }
+
   async reclassifyExternalActivity(studentId: string, activityLogId: string) {
     const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId: studentId } });
     if (!log) {

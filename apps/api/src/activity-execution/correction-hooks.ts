@@ -4,7 +4,7 @@ import { Logger } from '@nestjs/common';
 // e Prontuario se registram nele ao iniciar (onModuleInit) — evita dependencia circular entre modulos e mantem um unico ponto central. Um gancho que falha
 // NUNCA derruba a correcao (ja gravada) nem os outros ganchos: o erro e' registrado em log.
 
-export type CorrectionKind = 'link_correction' | 'identity_correction' | 'bulk_reconcile' | 'session_edit' | 'provider_data_deleted';
+export type CorrectionKind = 'link_correction' | 'identity_correction' | 'bulk_reconcile' | 'session_edit' | 'provider_data_deleted' | 'activity_excluded';
 export type CorrectionOrigin = 'student' | 'coach' | 'system';
 
 export interface LinkChange {

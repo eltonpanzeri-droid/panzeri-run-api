@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
+import { EXCLUSION_REASONS } from './exclusion-reasons';
 
 // Calendario do aluno (aba "Semanas anteriores"), 20/10/2026. So' LEITURA: busca GET /coach/students/:id/calendar e desenha tres visoes — Mes (padrao), Semana e
 // Lista. O cartao de cada treino e' desenhado por quem usa este componente (renderSessionCard), para ficar IDENTICO ao da aba Treinos; aqui ficam so' a grade,
@@ -239,10 +240,65 @@ export default function StudentCalendar({ apiUrl, token, studentId, focusDate, f
   const nextDisabled = mode === 'semana' ? addDays(weekStart, 7) > maxWeek : shiftMonth(month, 1) > maxMonth;
   const title = mode === 'semana' ? `Semana de ${dateBr(weekStart)} a ${dateBr(addDays(weekStart, 6))}` : `${MONTHS[Number(month.slice(5, 7)) - 1]} de ${month.slice(0, 4)}`;
 
+  // Excluir/ignorar uma atividade do relogio (01/11/2026): as duas opcoes tiram os dados da atividade de toda analise; 'ignorar' pode ser desfeita (aba Atividades externas), 'excluir' apaga os detalhes.
+  const [draft, setDraft] = useState<{ id: string; mode: 'ignored' | 'deleted'; reason: string } | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftError, setDraftError] = useState('');
+  const submitExclusion = async () => {
+    if (!draft) return;
+    setDraftBusy(true);
+    setDraftError('');
+    try {
+      const response = await fetch(`${apiUrl}/coach/students/${studentId}/external-activities/${draft.id}/exclude`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: draft.mode, reason: draft.reason }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { message?: string } | null;
+        setDraftError(body?.message ?? 'Não foi possível concluir agora.');
+        return;
+      }
+      setDraft(null);
+      cache.current.clear();
+      await load(range.from, range.to, true);
+    } catch {
+      setDraftError('Não foi possível concluir agora.');
+    } finally {
+      setDraftBusy(false);
+    }
+  };
+
   const renderActivity = (activity: CalendarActivity) => (
     <div key={activity.id} className={`calActivity ${activity.classification === 'alternative' ? 'calActivityExtra' : 'calActivityPending'}`}>
       <strong>{modalityName(activity.modality)}</strong> {[km(activity.distanceKm), minutes(activity.durationMin), activity.avgHeartRateBpm ? `${activity.avgHeartRateBpm} bpm` : null].filter(Boolean).join(' · ')}
       <small>{activity.classification === 'alternative' ? 'Atividade fora do programa' : 'A confirmar (ainda sem decisão)'} · {activity.provider}</small>
+      {draft?.id === activity.id ? (
+        <div className="extExclusionPanel" role="group" aria-label="Confirmar a retirada da atividade">
+          <strong>{draft.mode === 'deleted' ? 'Excluir esta atividade?' : 'Ignorar esta atividade?'}</strong>
+          <small>
+            {draft.mode === 'deleted'
+              ? 'Apaga os detalhes (percurso, frequência cardíaca, dados brutos) e NÃO dá para desfazer. O feedback que a aluna escreveu nunca é apagado.'
+              : 'Os dados ficam guardados, mas a atividade sai de toda análise (volume, carga, vínculos, IA). Dá para desfazer na aba Atividades externas.'}
+            {' '}Vale para todas as observações deste mesmo treino.
+          </small>
+          <label>Motivo{' '}
+            <select value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })}>
+              {EXCLUSION_REASONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <div className="calActivityActions">
+            <button type="button" className="primaryButton" disabled={draftBusy} onClick={() => void submitExclusion()}>{draftBusy ? 'Salvando...' : draft.mode === 'deleted' ? 'Confirmar exclusão' : 'Confirmar'}</button>
+            <button type="button" className="secondaryOutlineButton" disabled={draftBusy} onClick={() => setDraft(null)}>Cancelar</button>
+          </div>
+          {draftError ? <small style={{ color: '#b91c1c' }}>{draftError}</small> : null}
+        </div>
+      ) : (
+        <div className="calActivityActions">
+          <button type="button" className="secondaryOutlineButton" onClick={() => { setDraftError(''); setDraft({ id: activity.id, mode: 'ignored', reason: 'same_workout_registered' }); }} title="Tira esta atividade de toda análise; os dados ficam guardados e dá para desfazer">Ignorar</button>
+          <button type="button" className="secondaryOutlineButton" onClick={() => { setDraftError(''); setDraft({ id: activity.id, mode: 'deleted', reason: 'same_workout_registered' }); }} title="Tira esta atividade de toda análise e apaga os detalhes; não dá para desfazer">Excluir</button>
+        </div>
+      )}
     </div>
   );
 

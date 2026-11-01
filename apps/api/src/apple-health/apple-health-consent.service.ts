@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { consentTextHash, isConnectionConsentCurrent } from '../provider-hub/provider-consent.service';
 import { APPLE_HEALTH_CONSENT, APPLE_HEALTH_PROVIDER_ID } from './apple-health-consent';
@@ -255,7 +256,8 @@ export class AppleHealthConsentService {
       for (const key of APPLE_SENSOR_KEYS) if (key in object) object[key] = null;
       return object;
     };
-    const logs = await db.activityLog.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } });
+    // Inclui as atividades IGNORADAS: elas guardam os dados, entao a retirada de autorizacao tambem os apaga delas.
+    const logs = await includeExcludedActivities(() => db.activityLog.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } }));
     for (const log of logs) {
       const next = strip(log.providerMetrics);
       if (next) await db.activityLog.update({ where: { id: log.id }, data: { providerMetrics: next as Prisma.InputJsonObject } });

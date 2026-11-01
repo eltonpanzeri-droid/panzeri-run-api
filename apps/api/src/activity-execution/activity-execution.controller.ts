@@ -4,6 +4,7 @@ import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { SessionExecutionLinkService } from './session-execution-link.service';
 import { ActivityDetailService } from './activity-detail.service';
 import { IdentityConfirmationService } from './identity-confirmation.service';
+import type { ExclusionMode, ExclusionReason } from './activity-exclusion';
 
 // Visualizacao Prescrito x Realizado (02/10/2026) — endpoints do aluno sobre reconciliacao. Nunca
 // redecide classificacao/correspondencia aqui, so' delega pro service (ja testado) com checagem de
@@ -74,6 +75,24 @@ export class ActivityExecutionController {
   @Post(':activityLogId/duplicate')
   duplicate(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('otherActivityLogId') otherActivityLogId: string) {
     return this.identityConfirmation.declareSameAsStudent(user.sub, [activityLogId, String(otherActivityLogId ?? '')]);
+  }
+
+  // Excluir/ignorar (01/11/2026): body { mode: 'ignored' | 'deleted', reason }. A aluna so' mexe nas proprias atividades (404 para a de outra conta). As duas retiram os dados da
+  // atividade de toda analise; 'ignored' pode ser desfeita (POST :id/restore), 'deleted' apaga os detalhes e nao volta.
+  @Post(':activityLogId/exclude')
+  exclude(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body() body: { mode?: unknown; reason?: unknown }) {
+    return this.sessionExecutionLinkService.excludeActivity({ userId: user.sub, activityLogId, mode: body?.mode as ExclusionMode, reason: body?.reason as ExclusionReason, actor: { role: 'student', id: user.sub } });
+  }
+
+  @Post(':activityLogId/restore')
+  restore(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
+    return this.sessionExecutionLinkService.restoreActivity({ userId: user.sub, activityLogId, actor: { role: 'student', id: user.sub } });
+  }
+
+  // Atividades que a propria aluna (ou o treinador) ignorou, para ela poder desfazer. So' leitura; as excluidas nao aparecem (nao ha como recuperar).
+  @Get('ignored')
+  ignored(@CurrentUser() user: CurrentUserPayload) {
+    return this.sessionExecutionLinkService.listIgnoredForStudent(user.sub);
   }
 
   @Post(':activityLogId/unlink')

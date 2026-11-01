@@ -5510,6 +5510,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Treino da semana</Text>
+      <IgnoredActivitiesSection accessToken={accessToken} refreshKey={plan} onChanged={loadPlan} />
       {routineAlignment?.canRegenerate && weekOffset === 0 ? (
         <View style={styles.coachBox}>
           <Text style={styles.formSectionTitle}>Sua rotina mudou depois que este programa foi gerado</Text>
@@ -11101,6 +11102,8 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState('');
   const [feedbackChoice, setFeedbackChoice] = React.useState<{ option: LinkOption; extra: LinkExtra } | null>(null);
+  // Tirar a atividade da analise (01/11/2026): "ignorar" (fica guardada, reversivel) ou "excluir" (apaga os detalhes). As duas a tiram de volume, carga, evolucao e IA.
+  const [removal, setRemoval] = React.useState<{ mode: 'ignored' | 'deleted'; reason: string } | null>(null);
   const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
   // Na web/PWA a confirmacao e' feita DENTRO do app (window.confirm no PWA do iPhone pode deixar a tela sem responder ao toque depois do dialogo nativo).
   const [pendingConfirm, setPendingConfirm] = React.useState<{ title: string; message: string; resolve: (ok: boolean) => void } | null>(null);
@@ -11185,6 +11188,26 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     if (ok) await post('unlink', {});
   }
 
+  async function submitRemoval() {
+    if (!removal) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/exclude`, { method: 'POST', headers, body: JSON.stringify(removal) });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setMessage(payload?.message ?? 'Não foi possível salvar agora.');
+        return;
+      }
+      setRemoval(null);
+      onChanged();
+    } catch {
+      setMessage('Não foi possível salvar agora.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (pendingConfirm) {
     return (
       <View style={{ gap: 8, marginTop: 6 }}>
@@ -11213,6 +11236,41 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
     );
   }
 
+  if (removal) {
+    const reasons: Array<[string, string]> = [
+      ['same_workout_registered', 'É o mesmo treino que já está registrado'],
+      ['not_mine_or_error', 'Não é minha atividade ou o relógio errou'],
+      ['dont_count', 'Não quero que conte'],
+      ['other', 'Outro motivo'],
+    ];
+    const choiceStyle = (selected: boolean) => [styles.secondaryOutlineButton, selected && { borderColor: '#1769AA', backgroundColor: '#E8F2FA' }, busy && styles.disabledButton];
+    return (
+      <View style={{ gap: 8, marginTop: 6 }}>
+        <Text style={{ fontSize: 14, fontWeight: '700' }}>Tirar esta atividade da análise</Text>
+        <Text style={{ fontSize: 13, color: '#475569' }}>Ela deixa de contar no volume, na carga, na sua evolução e no programa de treino. Vale para todos os registros deste mesmo treino (relógio e Health Connect, por exemplo). O feedback que você escreveu é mantido.</Text>
+        <Pressable style={choiceStyle(removal.mode === 'ignored')} disabled={busy} onPress={() => setRemoval({ ...removal, mode: 'ignored' })} accessibilityRole="radio" accessibilityState={{ selected: removal.mode === 'ignored' }}>
+          <Text style={styles.secondaryOutlineButtonText}>Ignorar</Text>
+        </Pressable>
+        <Text style={{ fontSize: 11, color: '#64748b' }}>Fica guardada, mas não conta em nada. Você pode desfazer depois.</Text>
+        <Pressable style={choiceStyle(removal.mode === 'deleted')} disabled={busy} onPress={() => setRemoval({ ...removal, mode: 'deleted' })} accessibilityRole="radio" accessibilityState={{ selected: removal.mode === 'deleted' }}>
+          <Text style={styles.secondaryOutlineButtonText}>Excluir</Text>
+        </Pressable>
+        <Text style={{ fontSize: 11, color: '#64748b' }}>Apaga os detalhes (percurso, frequência cardíaca...) e não dá para desfazer.</Text>
+        <Text style={{ fontSize: 13, fontWeight: '700' }}>Motivo:</Text>
+        {reasons.map(([value, label]) => (
+          <Pressable key={value} style={choiceStyle(removal.reason === value)} disabled={busy} onPress={() => setRemoval({ ...removal, reason: value })} accessibilityRole="radio" accessibilityState={{ selected: removal.reason === value }}>
+            <Text style={styles.secondaryOutlineButtonText}>{label}</Text>
+          </Pressable>
+        ))}
+        <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => void submitRemoval()}>
+          <Text style={styles.secondaryOutlineButtonText}>{busy ? 'Salvando...' : removal.mode === 'deleted' ? 'Confirmar exclusão' : 'Confirmar'}</Text>
+        </Pressable>
+        <Pressable onPress={() => { setRemoval(null); setMessage(''); }}><Text style={{ fontSize: 12, color: '#64748b', textAlign: 'center' }}>Cancelar</Text></Pressable>
+        {message ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{message}</Text> : null}
+      </View>
+    );
+  }
+
   return (
     <View style={{ gap: 6, marginTop: 6 }}>
       {options == null ? (
@@ -11232,6 +11290,10 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
               <Text style={{ fontSize: 11, color: '#64748b' }}>Vale como exercício extra e entra na sua carga; só avisa o programa que faz parte da rotina.</Text>
             </>
           )}
+          <Pressable style={[styles.secondaryOutlineButton, busy && styles.disabledButton]} disabled={busy} onPress={() => { setMessage(''); setRemoval({ mode: 'ignored', reason: 'same_workout_registered' }); }}>
+            <Text style={styles.secondaryOutlineButtonText}>Excluir ou ignorar esta atividade</Text>
+          </Pressable>
+          <Text style={{ fontSize: 11, color: '#64748b' }}>Use se for o mesmo treino que você já registrou, ou se o relógio errou. A atividade sai do volume, da carga e do programa.</Text>
         </>
       ) : (
         <>
@@ -11257,6 +11319,78 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
         </>
       )}
       {message ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{message}</Text> : null}
+    </View>
+  );
+}
+
+// Atividades que a aluna (ou o treinador) IGNOROU (01/11/2026): ficam guardadas e fora de toda analise; aqui ela pode desfazer. So' aparece quando existe alguma.
+// As EXCLUIDAS nao aparecem (os detalhes foram apagados, nao ha o que recuperar).
+type IgnoredActivity = { id: string; provider: string; startedAt: string; utcOffsetMinutes: number | null; sport: string | null; durationSec: number | null; distanceMeters: number | null; excludedBy: string | null; exclusionReason: string | null };
+const IGNORED_REASON_LABEL: Record<string, string> = {
+  same_workout_registered: 'é o mesmo treino que já estava registrado',
+  not_mine_or_error: 'não era minha ou o relógio errou',
+  dont_count: 'não queria que contasse',
+  other: 'outro motivo',
+};
+function IgnoredActivitiesSection({ accessToken, refreshKey, onChanged }: { accessToken: string; refreshKey?: unknown; onChanged: () => void }) {
+  const [items, setItems] = React.useState<IgnoredActivity[]>([]);
+  const [open, setOpen] = React.useState(false);
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [message, setMessage] = React.useState('');
+  const load = React.useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/ignored`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) return;
+      setItems((await response.json()) as IgnoredActivity[]);
+    } catch {
+      // sem a lista, a tela segue normal
+    }
+  }, [accessToken]);
+  React.useEffect(() => { void load(); }, [load, refreshKey]);
+
+  async function restore(id: string) {
+    setBusyId(id);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/me/activity-reconciliation/${id}/restore`, { method: 'POST', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        setMessage(payload?.message ?? 'Não foi possível desfazer agora.');
+        return;
+      }
+      await load();
+      onChanged();
+    } catch {
+      setMessage('Não foi possível desfazer agora.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (items.length === 0) return null;
+  const dayOf = (item: IgnoredActivity) => new Date(new Date(item.startedAt).getTime() + (item.utcOffsetMinutes ?? -180) * 60_000).toISOString().slice(0, 10).split('-').reverse().slice(0, 2).join('/');
+  return (
+    <View style={styles.coachBox}>
+      <Pressable onPress={() => setOpen((current) => !current)} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+        <Text style={styles.formSectionTitle}>{`Atividades ignoradas (${items.length}) ${open ? '▲' : '▼'}`}</Text>
+      </Pressable>
+      {open ? (
+        <View style={{ gap: 8 }}>
+          <Text style={styles.copyTight}>Estas atividades ficam guardadas, mas não contam no volume, na carga nem no programa. Toque em desfazer para voltarem a contar.</Text>
+          {items.map((item) => (
+            <View key={item.id} style={{ gap: 4 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600' }}>
+                {[dayOf(item), item.sport ?? 'atividade', item.distanceMeters != null ? `${(item.distanceMeters / 1000).toFixed(1).replace('.', ',')} km` : null, item.durationSec != null ? `${Math.round(item.durationSec / 60)} min` : null].filter(Boolean).join(' · ')}
+              </Text>
+              <Text style={{ fontSize: 11, color: '#64748b' }}>{`${item.excludedBy === 'coach' ? 'Ignorada pelo treinador' : 'Ignorada por você'}${item.exclusionReason ? ` · ${IGNORED_REASON_LABEL[item.exclusionReason] ?? item.exclusionReason}` : ''}`}</Text>
+              <Pressable style={[styles.secondaryOutlineButton, busyId === item.id && styles.disabledButton]} disabled={busyId === item.id} onPress={() => void restore(item.id)}>
+                <Text style={styles.secondaryOutlineButtonText}>{busyId === item.id ? 'Desfazendo...' : 'Desfazer (voltar a contar)'}</Text>
+              </Pressable>
+            </View>
+          ))}
+          {message ? <Text style={{ fontSize: 12, color: '#b91c1c' }}>{message}</Text> : null}
+        </View>
+      ) : null}
     </View>
   );
 }

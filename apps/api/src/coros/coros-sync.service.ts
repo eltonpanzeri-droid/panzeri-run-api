@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { SyncCapability } from '../provider-hub/provider-connector';
@@ -96,7 +97,8 @@ export class CorosSyncService implements SyncCapability {
         .filter((record) => record.startTimestamp === null || record.startTimestamp * 1000 >= start.getTime() - DAY_MS)
         .sort((a, b) => (a.startTimestamp ?? 0) - (b.startTimestamp ?? 0));
 
-      const known = await this.prisma.activityLog.findMany({ where: { userId, provider: COROS_PROVIDER_ID, externalId: { in: records.map((r) => r.labelId) } }, select: { externalId: true } });
+      // Inclui as ignoradas/excluidas pela aluna ou treinador: sem isso elas pareceriam "novas" e seriam baixadas de novo a cada rodada, gastando o limite de 50 arquivos/dia da COROS.
+      const known = await includeExcludedActivities(() => this.prisma.activityLog.findMany({ where: { userId, provider: COROS_PROVIDER_ID, externalId: { in: records.map((r) => r.labelId) } }, select: { externalId: true } }));
       const knownIds = new Set(known.map((row) => row.externalId));
       const todo = records.filter((record) => !knownIds.has(record.labelId));
 

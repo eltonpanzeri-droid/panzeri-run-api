@@ -10,6 +10,8 @@ import { RecomputeOptions, RecomputeResult, prepareAnalysisRecompute, toRecomput
 import { DEFAULT_SYNC_LIMIT, processPendingReevaluation, readPending } from './pending-reevaluation';
 import { CorrectionKind, CorrectionOrigin, LinkChange, SessionEditChange, correctionHooks, scheduleWeeklyReportRefresh, weeklyReportRefresh } from './correction-hooks';
 import { assessCompatibility, modalitiesCompatible, weakForceCompatible, type CompatibilityAssessment } from './activity-compatibility';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
+import { ExclusionMode, ExclusionReason, exclusionProfileNote, isExclusionMode, isExclusionReason, tombstoneMetricsPatch } from './activity-exclusion';
 
 // Opcoes do ponto central pos-correcao: o que o chamador sabe sobre a correcao (quem, de que tipo, o que mais foi afetado).
 export interface CorrectionOptions extends RecomputeOptions {
@@ -1504,6 +1506,115 @@ export class SessionExecutionLinkService {
     });
     await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction' });
     return result;
+  }
+
+  // ── Excluir / ignorar atividade (01/11/2026) ─────────────────────────────────────────────────────────────────────────────
+  // Pedido de Elton: aluna E treinador podem; as duas opcoes retiram os dados daquela atividade de TODA analise (ver activity-exclusion.ts e o filtro central em PrismaService).
+  // Vale para o EVENTO fisico inteiro (todas as observacoes do mesmo treino: relogio + Health Connect...), senao a outra observacao viraria a canonica. Na mesma transacao:
+  // revoga vinculos (ativo/candidato), marca como extra por decisao humana, retira a sessao sintetica do calendario (feedback da aluna fica guardado como versao) e grava a marca.
+  async excludeActivity(params: { userId: string; activityLogId: string; mode: ExclusionMode; reason: ExclusionReason; actor: { role: 'student' | 'coach'; id: string } }) {
+    const { userId, activityLogId, mode, reason, actor } = params;
+    if (!isExclusionMode(mode)) throw new BadRequestException('Escolha excluir ou ignorar.');
+    if (!isExclusionReason(reason)) throw new BadRequestException('Escolha um motivo.');
+    const activity = await includeExcludedActivities(() => this.prisma.activityLog.findUnique({ where: { id: activityLogId } }));
+    if (!activity || activity.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
+    const since = new Date();
+    const outcome = await this.withUserLock(userId, (service) => includeExcludedActivities(async () => {
+      // Estado reavaliado DENTRO da trava: duas pessoas (aluna e treinador) agindo ao mesmo tempo nao podem sobrescrever uma exclusao ja' feita (ex.: 'excluida' virando 'ignorada' com os dados apagados).
+      const fresh = await service.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+      if (!fresh || fresh.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
+      if (fresh.exclusionMode === 'deleted') throw new BadRequestException('Esta atividade ja foi excluida.');
+      if (fresh.exclusionMode === mode) return { skipped: true as const, members: [fresh] };
+      const { members } = await service.eventOf(fresh);
+      const memberIds = members.map((m) => m.id);
+      const linked = await service.prisma.sessionExecutionLink.findMany({ where: { activityLogId: { in: memberIds }, status: { in: ['active', 'candidate'] } }, select: { trainingSessionId: true } });
+      // 1) vinculos revogados e classificacao 'extra' por decisao humana (markExtra), ANTES da marca.
+      for (const member of members) await service.markExtra({ activityLogId: member.id, origin: actor.role, note: 'activity_excluded' });
+      // 2) sessao sintetica da atividade extra: sai do calendario; o conteudo da aluna (feedback) fica guardado como versao, nunca apagado.
+      let syntheticRemoved = false;
+      const synthetic = await service.findMaterializedSessionForActivities(userId, new Set(memberIds));
+      if (synthetic) {
+        if ((await service.prisma.sessionExecutionLink.count({ where: { trainingSessionId: synthetic.id, status: { in: ['active', 'candidate'] } } })) > 0) {
+          throw new BadRequestException('Esta atividade ja tem um registro de treino extra com vinculos proprios; peca ao treinador para corrigir.');
+        }
+        const completion = synthetic.completion as unknown as ({ id: string } & Record<string, unknown>) | null;
+        if (completion && completionHasStudentContent(completion)) {
+          await service.prisma.workoutFeedbackVersion.create({ data: { userId, sessionId: synthetic.id, payload: JSON.parse(JSON.stringify(completion)) as Prisma.InputJsonValue, reason: 'activity_excluded' } });
+        }
+        if (completion) await service.prisma.workoutCompletion.delete({ where: { id: completion.id } });
+        await service.prisma.sessionExecutionAnalysis.deleteMany({ where: { trainingSessionId: synthetic.id } });
+        await service.prisma.trainingAnalysis.deleteMany({ where: { userId, scope: 'session', refKey: synthetic.id } });
+        await service.prisma.trainingSession.delete({ where: { id: synthetic.id } });
+        syntheticRemoved = true;
+      }
+      // 3) a marca (todas as observacoes do evento). 'deleted' tambem apaga detalhes: serie, amostras, payload bruto e metricas (sobra so' a marca minima).
+      const mark = { exclusionMode: mode, excludedAt: new Date(), excludedBy: actor.role, excludedById: actor.id, exclusionReason: reason };
+      for (const member of members) {
+        await service.prisma.activityLog.update({ where: { id: member.id }, data: (mode === 'deleted' ? { ...mark, ...tombstoneMetricsPatch() } : mark) as Prisma.ActivityLogUncheckedUpdateInput });
+        if (mode === 'deleted') {
+          await service.prisma.activityTimeSeriesPoint.deleteMany({ where: { activityLogId: member.id } });
+          await service.prisma.rawActivitySample.deleteMany({ where: { activityLogId: member.id } });
+          await service.prisma.rawExternalActivity.update({ where: { id: member.rawActivityId }, data: { payload: {}, ingestionMeta: Prisma.JsonNull } });
+        }
+      }
+      return { skipped: false as const, members, sessionIds: [...new Set(linked.map((l) => l.trainingSessionId))], syntheticRemoved };
+    }));
+    if (outcome.skipped) return { activityLogId, mode, alreadyApplied: true as const, affectedActivityIds: outcome.members.map((m) => m.id) };
+    // Aviso ao Prontuario (sem repetir os numeros da atividade) — falha aqui nunca desfaz a exclusao.
+    try {
+      const note = exclusionProfileNote({ mode, actorRole: actor.role, sport: activity.sport, startedAt: activity.startedAt, utcOffsetMinutes: activity.utcOffsetMinutes, reason, count: outcome.members.length });
+      await this.prisma.studentProfileEvent.create({ data: { userId, code: 'EXECUTION_LINK_CORRECTED', content: `${note.header}\n${note.body}` } });
+    } catch (error) {
+      this.logger.error(`Aviso de atividade retirada nao gravado no prontuario (aluno ${userId}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+    // A leitura filtrada nao enxerga mais a atividade: as datas afetadas vao explicitas (semanas/meses das medalhas e dos relatorios).
+    // absenceOfData: conquista ja' concedida nao e' desfeita automaticamente por esta retirada.
+    const affectedDates = [...new Set(outcome.members.map((m) => localCalendarDate(m.startedAt, m.utcOffsetMinutes)))];
+    await this.recomputeAfterCorrection(userId, since, { kind: 'activity_excluded', origin: actor.role, actorId: actor.id, sessionIds: outcome.sessionIds, affectedDates, completionsChanged: outcome.syntheticRemoved, absenceOfData: true, force: true });
+    return { activityLogId, mode, alreadyApplied: false as const, affectedActivityIds: outcome.members.map((m) => m.id) };
+  }
+
+  // Lista das atividades 'ignoradas' da aluna (para desfazer). Nunca inclui as 'excluidas' (sem como recuperar) e nunca as de outra conta.
+  async listIgnoredForStudent(userId: string) {
+    const rows = await includeExcludedActivities(() => this.prisma.activityLog.findMany({
+      // So' as que a PROPRIA aluna ignorou: o que o treinador ignorou ela nao desfaz (ver restoreActivity).
+      where: { userId, exclusionMode: 'ignored', excludedBy: 'student' },
+      orderBy: { startedAt: 'desc' },
+      take: 50,
+      select: { id: true, provider: true, startedAt: true, utcOffsetMinutes: true, sport: true, durationSec: true, distanceMeters: true, excludedAt: true, excludedBy: true, exclusionReason: true },
+    }));
+    return rows;
+  }
+
+  // Desfazer 'ignorar' (a 'excluida' nao volta: os detalhes foram apagados). A atividade volta como EXTRA (decisao humana anterior preservada); a aluna pode vincula-la de novo.
+  async restoreActivity(params: { userId: string; activityLogId: string; actor: { role: 'student' | 'coach'; id: string } }) {
+    const { userId, activityLogId, actor } = params;
+    const activity = await includeExcludedActivities(() => this.prisma.activityLog.findUnique({ where: { id: activityLogId } }));
+    if (!activity || activity.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
+    if (activity.exclusionMode === 'deleted') throw new BadRequestException('Uma atividade excluida nao pode ser recuperada: os detalhes foram apagados.');
+    if (activity.exclusionMode !== 'ignored') throw new BadRequestException('Esta atividade nao esta ignorada.');
+    const since = new Date();
+    const members = await this.withUserLock(userId, (service) => includeExcludedActivities(async () => {
+      // Estado reavaliado DENTRO da trava (outra pessoa pode ter excluido ou desfeito neste meio tempo).
+      const fresh = await service.prisma.activityLog.findUnique({ where: { id: activityLogId } });
+      if (!fresh || fresh.userId !== userId) throw new NotFoundException('Atividade nao encontrada.');
+      if (fresh.exclusionMode === 'deleted') throw new BadRequestException('Uma atividade excluida nao pode ser recuperada: os detalhes foram apagados.');
+      if (fresh.exclusionMode !== 'ignored') throw new BadRequestException('Esta atividade nao esta ignorada.');
+      // A decisao do treinador e' dele: a aluna nao a desfaz (o treinador pode desfazer a propria e a da aluna).
+      if (actor.role === 'student' && fresh.excludedBy === 'coach') throw new BadRequestException('Esta atividade foi ignorada pelo treinador; peca a ele para desfazer.');
+      const { members: eventMembers } = await service.eventOf(fresh);
+      const ignored = eventMembers.filter((m) => m.exclusionMode === 'ignored');
+      for (const member of ignored) await service.prisma.activityLog.update({ where: { id: member.id }, data: { exclusionMode: null, excludedAt: null, excludedBy: null, excludedById: null, exclusionReason: null } });
+      return ignored;
+    }));
+    try {
+      await this.prisma.studentProfileEvent.create({ data: { userId, code: 'EXECUTION_LINK_CORRECTED', content: `Atividade devolvida à análise em ${new Date().toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}, feito ${actor.role === 'coach' ? 'pelo treinador' : 'pela própria aluna'}.\nUma atividade que estava ignorada voltou a contar nas análises.` } });
+    } catch (error) {
+      this.logger.error(`Aviso de atividade devolvida nao gravado no prontuario (aluno ${userId}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const affectedDates = [...new Set(members.map((m) => localCalendarDate(m.startedAt, m.utcOffsetMinutes)))];
+    await this.recomputeAfterCorrection(userId, since, { kind: 'activity_excluded', origin: actor.role, actorId: actor.id, activityLogIds: members.map((m) => m.id), affectedDates, absenceOfData: true, force: true });
+    return { activityLogId, restoredActivityIds: members.map((m) => m.id) };
   }
 
   private async findMaterializedSession(userId: string, activityLogId: string) {

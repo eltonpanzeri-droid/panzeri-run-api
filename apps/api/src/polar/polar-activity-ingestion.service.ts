@@ -12,6 +12,7 @@ import {
 import { containsLocationPoints, isLocationSampleType } from './polar-location-filter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isActivityExcluded } from '../prisma/activity-exclusion-scope';
 import { ActivityTimeSeriesService } from '../activity-timeseries/activity-timeseries.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
@@ -255,6 +256,8 @@ export class PolarActivityIngestionService {
 
     const externalId = this.asId(summary.id);
     if (!externalId) throw new BadGatewayException('Exercicio Polar sem id valido.');
+    // Atividade ja excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada (nem payload bruto, metricas ou amostras) — senao o relogio traria de volta o que foi excluido.
+    if (await isActivityExcluded(this.prisma, userId, 'polar', externalId)) return;
 
     // Raw primeiro, sempre — mesmo que o mapeamento canonico abaixo falhe depois, o payload
     // bruto ja fica preservado e disponivel para reprocessamento futuro.

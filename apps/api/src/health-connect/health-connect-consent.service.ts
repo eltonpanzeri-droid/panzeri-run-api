@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, Optional } 
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { externalAiUnlockedFor } from '../ai-governance/ai-data-eligibility.service';
 import { consentTextHash, isConnectionConsentCurrent, isPurposeCurrent, purposeTextHash } from '../provider-hub/provider-consent.service';
@@ -280,7 +281,8 @@ export class HealthConnectConsentService {
     await this.prisma.activityLog.updateMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID }, data: { avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null } });
     // A altitude dos pontos do percurso e' sensor (categoria propria): sai junto.
     await this.prisma.activityTimeSeriesPoint.updateMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, elevationMeters: { not: null }, activityLog: { userId } }, data: { elevationMeters: null } });
-    const logs = await this.prisma.activityLog.findMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } });
+    // Inclui as atividades IGNORADAS: elas guardam os dados, entao a retirada de autorizacao tambem os apaga delas.
+    const logs = await includeExcludedActivities(() => this.prisma.activityLog.findMany({ where: { userId, provider: HEALTH_CONNECT_PROVIDER_ID, providerMetrics: { not: Prisma.DbNull } }, select: { id: true, providerMetrics: true } }));
     for (const log of logs) {
       const metrics = log.providerMetrics && typeof log.providerMetrics === 'object' && !Array.isArray(log.providerMetrics) ? { ...(log.providerMetrics as Record<string, unknown>) } : null;
       if (!metrics || (!('sensors' in metrics) && !('heartRate' in metrics))) continue;

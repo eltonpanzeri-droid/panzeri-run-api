@@ -2784,6 +2784,9 @@ h3 {
 .extObs { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; background: var(--paper); min-width: 0; }
 .extObsCanonical { border-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent); }
 .extObsSelected { outline: 2px solid #6366f1; outline-offset: 1px; background: #f5f6ff; }
+.extObsExcluded { border-style: dashed; opacity: 0.78; }
+.extExcludedBanner { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: #f1f5f9; font-size: 13px; }
+.extExclusionPanel { width: 100%; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: #fffbeb; }
 .extObsHead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .extProvider { font-weight: 700; font-size: 13px; padding: 2px 10px; border-radius: 6px; color: #fff; background: #475569; }
 .extProvider_polar { background: #d1002f; }
@@ -2870,6 +2873,7 @@ h3 {
 .calListDay { margin: 0 0 4px; font-weight: 600; text-transform: capitalize; }
 .calActivity { border: 1px dashed #9aa4b2; border-radius: 8px; padding: 6px 8px; font-size: 13px; display: grid; gap: 2px; }
 .calActivityExtra { border-color: #7c3aed; }
+.calActivityActions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .calOverlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); display: flex; align-items: flex-start; justify-content: center; padding: 24px 12px; overflow-y: auto; z-index: 50; }
 .calDialog { background: var(--panel, #fff); color: inherit; border-radius: 12px; width: min(760px, 100%); padding: 16px; display: grid; gap: 12px; }
 .calDialogHeader { display: flex; justify-content: space-between; align-items: center; gap: 8px; }

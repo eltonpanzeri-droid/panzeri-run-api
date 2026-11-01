@@ -3,6 +3,7 @@ import { DeviceRegistryService } from '../equipment/device-registry.service';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { ForbiddenException } from '@nestjs/common';
@@ -210,10 +211,12 @@ export class AppleHealthIngestionService {
     key: { provider_userId_externalId: { provider: string; userId: string; externalId: string } },
   ): Promise<AppleHealthImportItemResult> {
     {
-      const existing = await tx.activityLog.findUnique({
+      const existing = await includeExcludedActivities(() => tx.activityLog.findUnique({
         where: key,
-        select: { id: true, distanceMeters: true, caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, providerMetrics: true },
-      });
+        select: { exclusionMode: true, id: true, distanceMeters: true, caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, providerMetrics: true },
+      }));
+      // Atividade ja excluida/ignorada pela aluna ou treinador: o reenvio NAO regrava nada (nem completa metricas) e nao dispara o pos-processamento.
+      if (existing?.exclusionMode) return { uuid: workout.externalId, status: 'already_imported' as const };
       if (existing) {
         // Reenvio do mesmo HKWorkout (ex.: depois de o app passar a ler mais medidas): so' COMPLETA o que estava ausente. Valor ja' gravado nunca e' sobrescrito, o payload bruto
         // original (RawExternalActivity) permanece intacto e a identidade/classificacao da atividade nao e' tocada por esta logica.

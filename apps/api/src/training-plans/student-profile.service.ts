@@ -59,7 +59,8 @@ export class StudentProfileService implements OnModuleInit {
    * e' correcao). Operacao em massa gera UM evento resumido. Nunca apaga nem reescreve evento anterior. Medalhas nao entram aqui.
    */
   async recordCorrectionEvents(context: CorrectionContext): Promise<number> {
-    if (context.kind === 'provider_data_deleted') return 0;
+    // 'activity_excluded' tem o proprio aviso (exclusionProfileNote, gravado pela exclusao); aqui nao ha o que descrever: a atividade ja' nao e' lida.
+    if (context.kind === 'provider_data_deleted' || context.kind === 'activity_excluded') return 0;
     const needed = idsNeeded(context);
     if (needed.sessionIds.length === 0 && needed.activityIds.length === 0) return 0;
     const [sessions, activities] = await Promise.all([
