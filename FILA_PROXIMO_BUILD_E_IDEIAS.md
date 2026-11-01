@@ -14,6 +14,8 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 |---|---|---|---|
 | 01/11/2026 | **Dicas para montar a rotina** na tela de rotina: item 1 (maior parte da disponibilidade para corrida, rotina que consiga cumprir) para todos; item 2 (um dia com cerca de 240 min) só para quem tem prova alvo ativa de 21 km ou mais | `apps/mobile/App.tsx` (`RoutineEditScreen`) | Vale no deploy; aluna precisa reinstalar o ícone para ver |
 
+| 01/11/2026 | **Aviso de uso do ciclo menstrual pela IA** no topo da aba "Ciclo", com o texto de Elton (sem caixa de marcar; "ao registrar, você consente"). Substitui a frase antiga "não altera sua prescrição", que contradizia o servidor | `apps/mobile/App.tsx` (`MenstrualCycleScreen`) | Vale no deploy; aluna reinstala o ícone |
+
 ## B. Ideias e decisões ainda NÃO implementadas
 
 | Data | Ideia / decisão | Estado | Observações |

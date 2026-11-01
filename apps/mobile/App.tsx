@@ -8309,7 +8309,11 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.sectionLabel}>Ciclo menstrual</Text>
       <Text style={styles.titleSmall}>Seu calendário de acompanhamento</Text>
       <Text style={styles.copyTight}>
-        Toque em qualquer dia pra registrar ou corrigir. Isso não altera sua prescrição de treino diretamente, é contexto de acompanhamento.
+        Toque em qualquer dia pra registrar ou corrigir.
+      </Text>
+      {/* (01/11/2026) Aviso de uso pela IA, texto de Elton. Substitui a frase antiga "não altera sua prescrição", que contradizia o que o servidor faz (o contexto do ciclo chega ao agente de prescrição). Sem caixa de marcar, por decisão dele. */}
+      <Text style={[styles.copyTight, { marginTop: 8 }]}>
+        Os dados de ciclo menstrual podem ajudar a entender melhor sobre você, inclusive aspectos relacionados a dores e performance. Ao registrar seus dados de ciclo menstrual, você consente que esses dados serão usados por nossa inteligência artificial para criar prescrições melhores para você.
       </Text>
 
       {pendingCheck && (
