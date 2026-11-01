@@ -9071,7 +9071,8 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
 function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
   const screens: IntegrationScreens = {
     // Polar/Wahoo ja' conectadas: o pedido do Atlas aparece logo abaixo (so' para quem esta conectada); sem resposta, nada muda.
-    polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} /><LegacyAtlasConsentCard provider="polar" apiUrl={API_URL} accessToken={accessToken} /></>),
+    // 01/11/2026: Polar = UM cartao so' (saude + Atlas, um "Salvar"); o cartao separado do Atlas so' continua para a Wahoo.
+    polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} /></>),
     strava: () => <StravaSync accessToken={accessToken} />,
     wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
     // Apple Saude: sincronizacao simples (so aparece no app nativo iOS; o proprio card se autolimita).

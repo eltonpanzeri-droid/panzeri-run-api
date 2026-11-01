@@ -9,6 +9,8 @@ import { PolarHealthConsentService } from '../src/polar/polar-health-consent.ser
 import { PolarHealthIngestionService } from '../src/polar/polar-health-ingestion.service';
 import { PolarProbeService } from '../src/polar/polar-probe.service';
 import { AiDataEligibility } from '../src/ai-governance/ai-data-eligibility.service';
+import { LEGACY_CONSENT_DOCUMENTS } from '../src/legacy-consent/legacy-consent';
+import { consentTextHash, purposeTextHash } from '../src/provider-hub/provider-consent.service';
 import { buildStudentIntegrations, type IntegrationsRaw } from '../src/coach/student-integrations.service';
 import { StudentHealthRecoveryService, sourceDisplayName } from '../src/coach/student-health-recovery.service';
 import { MathLayerService } from '../src/training-intelligence/math-layer.service';
@@ -23,12 +25,15 @@ const current = { consentVersion: POLAR_HEALTH_CONSENT.version, consentTextHash:
 const row = (over: Partial<PolarHealthRow> = {}): PolarHealthRow => ({ disconnectedAt: null, grantedCategories: ['sleep', 'hrv', 'daily_activity'], ...current, ...over });
 
 describe('consentimento por categoria da Polar', () => {
-  it('o texto tem versao e hash; o hash muda se uma palavra mudar; cobre sono, HRV e atividade diaria e diz que NAO vai ao Atlas', () => {
+  it('o texto tem versao e hash; o hash muda se uma palavra mudar; cobre sono, HRV e atividade diaria; NAO contradiz o Atlas (01/11/2026) e remete a autorizacao do Atlas a mesma pagina', () => {
     expect(polarHealthTextHash()).toMatch(/^[0-9a-f]{64}$/);
+    expect(POLAR_HEALTH_CONSENT.version).toBe('1.1');
     expect(POLAR_HEALTH_CONSENT.groups.map((g) => g.id)).toEqual(['sleep', 'hrv', 'daily_activity']);
     const text = POLAR_HEALTH_CONSENT.paragraphs.join(' ');
     expect(text).toMatch(/seu treinador os verá no painel/);
-    expect(text).toMatch(/não inclui o envio desses dados à inteligência artificial/);
+    expect(text).not.toMatch(/não inclui o envio desses dados à inteligência artificial/); // a frase que contradizia o texto do Atlas saiu
+    expect(text).toMatch(/Se você também autorizar o Atlas \(nossa inteligência artificial\) nesta mesma página/);
+    expect(text).toMatch(/sem essa autorização, eles ficam só para você e para o seu treinador/);
     expect(text).toMatch(/últimos 28 dias/);
     expect(text).toMatch(/apagados do Panzeri Run/);
   });
@@ -414,8 +419,82 @@ describe('diagnostico administrativo (somente leitura)', () => {
   });
 });
 
-describe('IA: saude da Polar fica FORA do Atlas (fail-closed)', () => {
-  it('as categorias de saude de Polar e Wahoo estao sempre bloqueadas no escopo; as de Zepp/Health Connect seguem a regra delas', async () => {
+// 01/11/2026 (ordem de Elton): a saude da Polar alimenta a IA SE a aluna autorizou o Atlas de forma explicita e vigente E marcou o grupo (texto vigente). Qualquer outra situacao = bloqueada.
+describe('IA: saude da Polar segue a autorizacao da aluna (Atlas explicito + grupo marcado, texto vigente)', () => {
+  const atlas = LEGACY_CONSENT_DOCUMENTS.polar.optionalPurposes.find((p) => p.id === 'ai_external')!;
+  const atlasRow = (over: Record<string, unknown> = {}) => ({
+    disconnectedAt: null, grantedCategories: ['activity'], grantedPurposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view', 'ai_external'],
+    purposeConsents: { ai_external: { version: atlas.screen!.version, textHash: purposeTextHash(atlas), grantedAt: '2026-11-01T12:00:00.000Z' } },
+    consentVersion: LEGACY_CONSENT_DOCUMENTS.polar.version, consentTextHash: consentTextHash(LEGACY_CONSENT_DOCUMENTS.polar), ...over,
+  });
+  const healthRow = (over: Record<string, unknown> = {}) => ({ disconnectedAt: null, grantedCategories: ['sleep', 'hrv'], ...current, ...over });
+  async function scopeFor(rows: { polar?: unknown; polar_health?: unknown }, destination: 'external_ai' | 'internal_ai' = 'external_ai') {
+    const prisma: any = {
+      activityLog: { findMany: async () => [] },
+      providerConnection: { findUnique: async ({ where }: any) => (rows as any)[where.provider_userId.provider] ?? null },
+      providerConnectionEvent: { findFirst: async () => null },
+    };
+    const registry: any = { list: () => [], get: () => undefined };
+    return new AiDataEligibility(prisma, registry, { get: () => undefined } as any).scopeFor('u1', destination);
+  }
+
+  it('Atlas autorizado + grupos marcados: so os grupos marcados (sono, HRV) saem do bloqueio; atividade diaria (nao marcada) continua bloqueada', async () => {
+    const scope = await scopeFor({ polar: atlasRow(), polar_health: healthRow() });
+    expect(scope.blockedHealth).not.toContain('polar:sleep');
+    expect(scope.blockedHealth).not.toContain('polar:hrv');
+    expect(scope.blockedHealth).toContain('polar:daily_activity');
+    expect(scope.blocked).not.toContain('polar'); // os treinos tambem seguem liberados
+    expect(scope.blockedHealth).toContain('wahoo:sleep'); // Wahoo nao tem saude: segue bloqueada
+  });
+
+  it('SEM decisao sobre o Atlas ("comportamento anterior" vale so para os treinos): a saude continua bloqueada, mesmo com o grupo marcado', async () => {
+    const scope = await scopeFor({ polar_health: healthRow() });
+    for (const category of ['sleep', 'hrv', 'daily_activity']) expect(scope.blockedHealth).toContain(`polar:${category}`);
+  });
+
+  it('Atlas RECUSADO ou RETIRADO: tudo da Polar bloqueado (treinos e saude)', async () => {
+    const declined = await scopeFor({ polar: atlasRow({ grantedPurposes: ['history', 'tracking'], purposeConsents: {} }), polar_health: healthRow() });
+    expect(declined.blocked).toContain('polar');
+    for (const category of ['sleep', 'hrv', 'daily_activity']) expect(declined.blockedHealth).toContain(`polar:${category}`);
+  });
+
+  it('texto do Atlas DESATUALIZADO (versao antiga): bloqueado ate reautorizar', async () => {
+    const stale = await scopeFor({ polar: atlasRow({ purposeConsents: { ai_external: { version: '1.0', textHash: 'hash-antigo', grantedAt: '2026-10-22T12:00:00.000Z' } } }), polar_health: healthRow() });
+    for (const category of ['sleep', 'hrv', 'daily_activity']) expect(stale.blockedHealth).toContain(`polar:${category}`);
+    expect(stale.blocked).toContain('polar');
+  });
+
+  it('saude: texto desatualizado, linha desconectada ou sem grupo = bloqueada; destino interno nunca libera', async () => {
+    for (const row of [healthRow({ consentVersion: '1.0' }), healthRow({ consentTextHash: 'outro' }), healthRow({ disconnectedAt: new Date() }), healthRow({ grantedCategories: [] })]) {
+      const scope = await scopeFor({ polar: atlasRow(), polar_health: row });
+      for (const category of ['sleep', 'hrv', 'daily_activity']) expect(scope.blockedHealth).toContain(`polar:${category}`);
+    }
+    const internal = await scopeFor({ polar: atlasRow(), polar_health: healthRow() }, 'internal_ai');
+    for (const category of ['sleep', 'hrv', 'daily_activity']) expect(internal.blockedHealth).toContain(`polar:${category}`);
+  });
+
+  it('o leitor de observacoes entrega sono da Polar a IA quando o escopo libera (e continua omitindo quando bloqueia)', async () => {
+    const sleepRow = { id: 's1', userId: 'u1', provider: 'polar', providerSummaryId: 'polar:sleep:2026-10-22', calendarDate: '2026-10-22', startTimeSec: 1, durationSec: 25000 };
+    const reader = Object.create(ObservationReaderService.prototype) as any;
+    reader.prisma = { wearableSleepSummary: { findMany: async () => [sleepRow] }, wearableDailySummary: { findMany: async () => [] }, wearableHrvSummary: { findMany: async () => [] } };
+    const open = { userId: 'u1', destination: 'external_ai', blocked: [], blockedHealth: ['polar:hrv', 'polar:daily_activity'], computedAt: Date.now() } as never;
+    await runWithAiScope(open, async () => { expect((await reader.readWearableHealthVariable('u1', VARIABLE_REGISTRY['wearable.sleepDurationMin'])).length).toBeGreaterThan(0); });
+  });
+
+  it('textos nao se contradizem: Atlas da Polar (v1.1) cobre treinos E saude autorizada; Wahoo continua so com atividades e inalterado', () => {
+    const polarText = atlas.screen!.paragraphs.join(' ');
+    expect(atlas.screen!.version).toBe('1.1');
+    expect(polarText).toMatch(/dados de saúde e recuperação da Polar que você autorizou compartilhar/);
+    expect(polarText).toMatch(/nem as atividades nem os dados de saúde da Polar serão enviados à Anthropic/);
+    expect(atlas.screen!.checkboxText).toMatch(/dados de saúde da Polar que autorizei \(apenas os grupos marcados\)/);
+    const wahoo = LEGACY_CONSENT_DOCUMENTS.wahoo.optionalPurposes.find((p) => p.id === 'ai_external')!;
+    expect(wahoo.screen!.version).toBe('1.0');
+    expect(wahoo.screen!.paragraphs.join(' ')).not.toMatch(/saúde/);
+  });
+});
+
+describe('IA: sem nenhuma autorizacao, a saude da Polar fica bloqueada (fail-closed)', () => {
+  it('as categorias de saude de Polar e Wahoo estao bloqueadas quando nao ha decisao da aluna; as de Zepp/Health Connect seguem a regra delas', async () => {
     const prisma: any = { activityLog: { findMany: async () => [] }, providerConnection: { findUnique: async () => null }, providerConnectionEvent: { findFirst: async () => null } };
     const registry: any = { list: () => [], get: () => undefined };
     const config: any = { get: () => undefined };

@@ -6,6 +6,7 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 import { HEALTH_CONNECT_CONSENT, HEALTH_CONNECT_PROVIDER_ID } from '../health-connect/health-connect-consent';
 import { APPLE_HEALTH_CONSENT, APPLE_HEALTH_PROVIDER_ID } from '../apple-health/apple-health-consent';
 import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LEGACY_CONSENT_PROVIDERS } from '../legacy-consent/legacy-consent';
+import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID } from '../polar/polar-health-consent';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
@@ -102,6 +103,19 @@ export class AiDataEligibility {
     return { allowed: true, reason: 'allowed' };
   }
 
+  // Categorias de saude da Polar que podem alimentar a IA agora. Vazio (tudo bloqueado) quando: o destino nao e' a IA externa; o Atlas nao foi autorizado de forma explicita e vigente para a Polar
+  // (reason 'allowed' — nunca 'legacy_provider_unchanged'); ou a aluna nao marcou o grupo (texto vigente, linha ativa).
+  private async polarHealthCategoriesForAi(userId: string, destination: AiDestination): Promise<Set<string>> {
+    if (destination !== 'external_ai') return new Set();
+    const atlas = await this.decide(userId, 'polar', { category: 'activity', destination });
+    if (atlas.reason !== 'allowed') return new Set();
+    const row = await this.prisma.providerConnection.findUnique({
+      where: { provider_userId: { provider: POLAR_HEALTH_PROVIDER_ID, userId } },
+      select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true },
+    });
+    return new Set(grantedPolarHealthCategories(row));
+  }
+
   // Apple Health: respeita o consentimento por categoria ja' existente (nenhuma autorizacao nova para IA). Fail-closed quando ha registro retirado ou texto desatualizado.
   private async decideAppleHealth(userId: string, category: string): Promise<EligibilityDecision> {
     const connection = await this.prisma.providerConnection.findUnique({
@@ -145,9 +159,12 @@ export class AiDataEligibility {
     for (const healthCategory of HEALTH_AI_CATEGORIES) {
       if (!(await this.decide(userId, APPLE_HEALTH_PROVIDER_ID, { category: healthCategory, destination })).allowed) blockedHealth.add(`${APPLE_HEALTH_PROVIDER_ID}:${healthCategory}`);
     }
-    // Polar/Wahoo (23/10/2026): a autorizacao deles sobre o Atlas cobre so' ATIVIDADES. Saude e recuperacao da Polar (sono, HRV, atividade diaria), autorizada apenas para o acompanhamento pelo
-    // treinador, fica FORA da IA: sem uma autorizacao propria sobre o Atlas para saude, essas categorias sao sempre bloqueadas (nunca fail-open).
-    for (const legacy of LEGACY_CONSENT_PROVIDERS) for (const healthCategory of HEALTH_AI_CATEGORIES) blockedHealth.add(`${legacy}:${healthCategory}`);
+    // Polar (01/11/2026, ordem de Elton): a saude da Polar (sono, HRV, atividade diaria) alimenta a IA quando a aluna (1) AUTORIZOU o Atlas para a Polar, de forma EXPLICITA e sobre o texto vigente
+    // (o mesmo texto que cobre os treinos — legacy-consent.ts; "sem decisao" NAO vale como autorizacao para saude) e (2) marcou aquele grupo de saude, sobre o texto vigente (polar-health-consent.ts).
+    // Qualquer outra situacao continua bloqueada (fail-closed). Wahoo nao tem dado de saude: segue bloqueado.
+    const polarHealthGranted = await this.polarHealthCategoriesForAi(userId, destination);
+    for (const healthCategory of HEALTH_AI_CATEGORIES) if (!polarHealthGranted.has(healthCategory)) blockedHealth.add(`polar:${healthCategory}`);
+    for (const healthCategory of HEALTH_AI_CATEGORIES) blockedHealth.add(`wahoo:${healthCategory}`);
     return { userId, destination, blocked: [...blocked].sort(), blockedHealth: [...blockedHealth].sort(), computedAt: Date.now() };
   }
 }

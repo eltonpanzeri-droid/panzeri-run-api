@@ -169,14 +169,28 @@ describe('painel do treinador e lista da aluna', () => {
 describe('fiacao no app e no servidor', () => {
   const read = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8');
 
-  it('o cartao aparece nas telas da Polar e da Wahoo, so para quem esta conectada, e nunca desconecta o provedor', () => {
+  it('Wahoo usa o cartao do Atlas; a Polar usa UM cartao so (saude + Atlas); so aparece para quem esta conectada e nunca desconecta o provedor', () => {
     const app = read('mobile/App.tsx');
-    expect(app).toContain('<LegacyAtlasConsentCard provider="polar"');
+    expect(app).not.toContain('<LegacyAtlasConsentCard provider="polar"'); // 01/11/2026: o Atlas da Polar foi para o cartao de saude (nao pede autorizacao duas vezes)
     expect(app).toContain('<LegacyAtlasConsentCard provider="wahoo"');
+    expect(app).toContain('<PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} />');
     const card = read('mobile/src/legacyConsent/LegacyAtlasConsentCard.tsx');
     expect(card).toContain('!perms.connected) return null');
     expect(card).toContain('Enquanto não responder, tudo continua como está');
     expect(card).not.toMatch(/disconnect|desconectar\(/i);
+  });
+
+  it('cartao unico da Polar: saude + Atlas num "Salvar", mesmos endpoints, texto e hash vem do servidor, Atlas so se a caixa mudou', () => {
+    const card = read('mobile/src/polarHealth/PolarHealthConsentCard.tsx');
+    expect(card).toContain('/polar/health-consent');
+    expect(card).toContain('/legacy-consent/polar');
+    expect(card).toContain('/legacy-consent/polar/atlas');
+    expect(card).toContain('consentTextHash: atlasDoc.purposeHashes.ai_external'); // o servidor registra o texto que ela de fato viu
+    expect(card).toContain('atlasOn !== atlasPerms.atlas.granted'); // so' grava o Atlas quando a escolha mudou
+    expect(card).toContain('Seus dados de saúde foram salvos, mas não consegui salvar a escolha do Atlas'); // falha parcial nunca e' escondida
+    expect(card).toContain('!perms.connected) return null');
+    expect(card).not.toMatch(/disconnect|desconectar\(/i);
+    expect(card.match(/<Pressable style=\{\[styles\.primary/g)).toHaveLength(1); // um botao so' de salvar
   });
 
   it('rotas do servidor: JWT, id sempre do token, provedor restrito a Polar/Wahoo; modulo registrado', () => {

@@ -10,8 +10,9 @@
 
 // 30/10/2026 (2a revisao do dia): texto geral reorganizado (compromisso, idade minima, compromissos sobre compartilhamento, declaracoes de uso dos dados de saude exigidas pelas lojas,
 // Google Analytics na lista de terceiros, identificacao do responsavel). A versao muda porque o texto mudou (quem aceitar daqui em diante registra esta).
-export const LEGAL_VERSION = '2026-10-31.1';
-export const LEGAL_UPDATED_LABEL = '30 de outubro de 2026';
+// 01/11/2026: saude da Polar (sono, HRV, atividade diaria) passa a poder alimentar o Atlas SE a aluna autorizar o Atlas no cartao da Polar (frase da secao de dispositivos).
+export const LEGAL_VERSION = '2026-11-01.1';
+export const LEGAL_UPDATED_LABEL = '1 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
@@ -35,7 +36,7 @@ export const DATA_CATEGORIES = [
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, não são enviados à inteligência artificial e você pode retirar a autorização quando quiser, o que apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, só são enviados à inteligência artificial (Atlas) se você também autorizar o Atlas no mesmo cartão da Polar no aplicativo (a mesma autorização que cobre seus treinos da Polar), e você pode retirar cada autorização quando quiser, o que, para os grupos de saúde, apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',

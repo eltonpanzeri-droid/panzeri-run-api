@@ -15,6 +15,11 @@ export const legacyProviderName = (provider: LegacyConsentProvider) => NAME[prov
 
 function buildDocument(provider: LegacyConsentProvider): ConsentCapability {
   const name = NAME[provider];
+  // 01/11/2026: o Atlas da POLAR cobre os treinos E os dados de saude da Polar que a aluna autorizou (grupos de polar-health-consent.ts), numa autorizacao so', pedida no mesmo cartao da saude. Wahoo nao
+  // tem dado de saude: seu texto continua exatamente o de 22/10/2026 (nem hash nem versao mudam).
+  const withHealth = provider === 'polar';
+  const atlasVersion = withHealth ? '1.1' : '1.0';
+  const atlasDate = withHealth ? '01/11/2026' : '22/10/2026';
   return {
     version: '1.0',
     dateLabel: '22/10/2026',
@@ -27,22 +32,30 @@ function buildDocument(provider: LegacyConsentProvider): ConsentCapability {
       {
         id: 'ai_external',
         label: 'Análise com o Atlas (inteligência artificial)',
-        description: `Permite usar suas atividades do ${name} em análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic.`,
+        description: withHealth
+          ? `Permite usar suas atividades do ${name} e os dados de saúde da Polar que você autorizou em análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic.`
+          : `Permite usar suas atividades do ${name} em análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic.`,
         external: true,
         changeableAfterConnect: true,
         screen: {
-          version: '1.0',
-          dateLabel: '22/10/2026',
+          version: atlasVersion,
+          dateLabel: atlasDate,
           title: 'Personalize seus treinos com o Atlas',
           paragraphs: [
             'O Atlas é a inteligência artificial utilizada pelo Panzeri Run para ajudar a analisar seu treinamento e orientar a personalização das próximas sessões.',
-            `Com sua autorização, o Atlas poderá utilizar as atividades que você importou do ${name} — distância, ritmo, frequência cardíaca e demais informações que o ${name} fornecer — para avaliar como você respondeu às sessões planejadas.`,
+            withHealth
+              ? 'Com sua autorização, o Atlas poderá utilizar as atividades que você importou do Polar Flow — distância, ritmo, frequência cardíaca e demais informações do treino que o Polar Flow fornecer — e também os dados de saúde e recuperação da Polar que você autorizou compartilhar (sono, recuperação noturna com HRV e atividade diária; só os grupos que você marcou) — para avaliar como você respondeu às sessões planejadas e como está se recuperando.'
+              : `Com sua autorização, o Atlas poderá utilizar as atividades que você importou do ${name} — distância, ritmo, frequência cardíaca e demais informações que o ${name} fornecer — para avaliar como você respondeu às sessões planejadas.`,
             'Para realizar essas análises, o Panzeri Run poderá transmitir os dados necessários à Anthropic, empresa fornecedora da tecnologia de inteligência artificial utilizada pelo Atlas. Esse processamento poderá envolver transferência internacional de dados, conforme descrito na Política de Privacidade.',
             'As análises automatizadas podem apresentar limitações e não substituem avaliação médica.',
-            `A recusa não desconecta o ${name} e não impede você de usar o Panzeri Run. Se você não autorizar, as atividades do ${name} não serão enviadas à Anthropic, nem diretamente nem por meio de resumos derivados delas.`,
+            withHealth
+              ? 'A recusa não desconecta o Polar Flow e não impede você de usar o Panzeri Run. Se você não autorizar, nem as atividades nem os dados de saúde da Polar serão enviados à Anthropic, nem diretamente nem por meio de resumos derivados deles. Seu treinador continua vendo os dados que você autorizou compartilhar.'
+              : `A recusa não desconecta o ${name} e não impede você de usar o Panzeri Run. Se você não autorizar, as atividades do ${name} não serão enviadas à Anthropic, nem diretamente nem por meio de resumos derivados delas.`,
             'Você pode mudar de ideia quando quiser nesta mesma tela. Ao retirar, o envio futuro cessa e os resultados de IA já gerados com esses dados são invalidados ou atualizados, respeitadas as obrigações legais de conservação. O que já tiver sido enviado ao fornecedor não pode ser desfeito junto a ele.',
           ],
-          checkboxText: `Autorizo o Panzeri Run a utilizar minhas atividades do ${name} para análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic para processamento por inteligência artificial, conforme a Política de Privacidade.`,
+          checkboxText: withHealth
+            ? 'Autorizo o Panzeri Run a utilizar minhas atividades do Polar Flow e os dados de saúde da Polar que autorizei (apenas os grupos marcados) para análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic para processamento por inteligência artificial, conforme a Política de Privacidade.'
+            : `Autorizo o Panzeri Run a utilizar minhas atividades do ${name} para análises personalizadas com o Atlas, incluindo o envio dos dados necessários à Anthropic para processamento por inteligência artificial, conforme a Política de Privacidade.`,
           buttonLabel: 'Autorizar análise com Atlas',
         },
       },

@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 // Autorizacao por categoria para SAUDE E RECUPERACAO da Polar (23/10/2026). A conexao Polar existente (OAuth, so' exercicios) NAO muda e NAO exige nova autenticacao: a aluna ja' conectada decide
 // aqui, no app, quais grupos de dados de saude quer compartilhar. O registro mora em ProviderConnection com provider 'polar_health' (linha PROPRIA, separada da decisao sobre o Atlas, que usa
 // provider 'polar'): assim uma decisao nunca apaga nem confunde a outra. SEM registro = nada de saude e' importado (fail-closed; a regra de nao-perda vale so' para as atividades).
-// Nada daqui vai para a IA: o Atlas continua BLOQUEADO para saude da Polar (ver AiDataEligibility) ate' haver uma autorizacao propria.
+// 01/11/2026 (ordem de Elton): a saude da Polar PASSA a poder alimentar a IA — mas so' quando a aluna autorizou o ATLAS para a Polar (a mesma decisao que cobre os treinos, em
+// legacy-consent.ts) E marcou o grupo aqui. Os dois pedidos aparecem no MESMO cartao do app (uma tela, um "Salvar"); nenhum dos dois texto contradiz o outro. A regra do servidor esta em AiDataEligibility.
 export const POLAR_HEALTH_PROVIDER_ID = 'polar_health';
 export const POLAR_WEARABLE_PROVIDER = 'polar'; // valor gravado em Wearable*.provider (a fonte dos dados)
 
@@ -16,13 +17,13 @@ export const POLAR_HEALTH_PURPOSES = ['history', 'tracking', 'indicators', 'coac
 export interface PolarHealthGroup { id: PolarHealthCategory; label: string; description: string }
 
 export const POLAR_HEALTH_CONSENT = {
-  version: '1.0',
-  dateLabel: '23/10/2026',
+  version: '1.1',
+  dateLabel: '01/11/2026',
   title: 'Saúde e recuperação da sua Polar',
   paragraphs: [
     'Você já conectou a Polar ao Panzeri Run para importar seus treinos, e isso continua valendo. Agora você pode escolher, à parte, compartilhar também dados de saúde e recuperação medidos pelo seu relógio Polar.',
     'Com sua autorização, o Panzeri Run poderá receber da Polar o seu sono (duração e etapas), a sua recuperação noturna (Nightly Recharge, incluindo a variabilidade da frequência cardíaca, o HRV, da noite) e a sua atividade diária (passos, distância e calorias). Nem todos os dados existem em todos os relógios.',
-    'Esses dados serão usados para acompanhar sua recuperação e sua evolução, e seu treinador os verá no painel dele para acompanhar seu treino. Esta autorização não inclui o envio desses dados à inteligência artificial (Atlas). Eles não substituem avaliação médica.',
+    'Esses dados serão usados para acompanhar sua recuperação e sua evolução, e seu treinador os verá no painel dele para acompanhar seu treino. Se você também autorizar o Atlas (nossa inteligência artificial) nesta mesma página, ele poderá usar os grupos que você marcar aqui para personalizar seus treinos; sem essa autorização, eles ficam só para você e para o seu treinador. Eles não substituem avaliação médica.',
     'Ao autorizar, importamos o que a Polar disponibilizar, normalmente os últimos 28 dias, e passamos a importar os dados novos. A origem de cada dado (Polar) é sempre preservada.',
     'Você escolhe cada grupo. Ao retirar um grupo, a importação dele para e os dados já importados desse grupo são apagados do Panzeri Run. Desconectar a Polar também interrompe a importação. Os detalhes estão na Política de Privacidade.',
   ],
