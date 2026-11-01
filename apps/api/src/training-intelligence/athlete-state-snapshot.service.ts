@@ -28,6 +28,11 @@ import { TrainingIntelligenceQueryService, VariableSnapshotResponse } from './tr
 import { ContextEventsService } from '../context-events/context-events.service';
 import { EXECUTION_ANALYSIS_VARIABLE_IDS } from './variable-registry';
 import { buildPairedEvidence, EMPTY_PAIRED_EVIDENCE, type PairedEvidence } from './paired-evidence';
+import { buildInternalLoadContext, buildSessionReferences, type InternalLoadContext } from './internal-load-context';
+import { INTERNAL_LOAD_VARIABLE_ID } from './internal-load';
+import { loadInputRows } from '../coach/training-load-rows';
+import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-policy';
+import { classifySessions } from '../coach/training-load';
 import { MAX_SECONDARY_SOURCES } from './wearable-source';
 import { OperationalReferenceService } from '../physiology/operational-reference.service';
 import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
@@ -192,6 +197,8 @@ export interface AthleteStateSnapshotV1 {
   compact: Record<string, unknown>;
   // 21/10/2026: relato do aluno x medicao do aparelho no mesmo dia (esforco percebido x FC/ritmo/potencia; sono percebido x sono do relogio). Provider-neutro; ver paired-evidence.ts.
   pairedEvidence?: PairedEvidence;
+  // 01/11/2026: carga interna percebida (PSE x minutos) por modalidade, com a ultima sessao comparada so' com o historico ANTERIOR e a carga acumulada de 7 e 28 dias. null = sem sessoes elegiveis.
+  internalLoad?: InternalLoadContext | null;
   domains: {
     training: TrainingDomainState;
     trainingLoad: VariableBasedDomainState;
@@ -282,6 +289,8 @@ const TRAINING_LOAD_VARIABLES = [
   'training.volumeRatioCompletedPrescribed',
   'training.adherencePercent',
   'training.acwr',
+  // 01/11/2026: carga interna percebida da sessao (PSE x minutos), por modalidade, na mesma Camada Matematica. A duracao usada e a PSE ficam separadas (a PSE ja' esta em trainingResponse; a duracao vem em cargaInternaPercebida).
+  INTERNAL_LOAD_VARIABLE_ID,
   // Etapa 2.1: execucao medida (comparacao prescrito x serie do relogio) nas mesmas janelas longitudinais.
   ...EXECUTION_ANALYSIS_VARIABLE_IDS,
 ];
@@ -404,14 +413,28 @@ export class AthleteStateSnapshotService {
     // Melhor esforco: falha no pareamento nunca derruba o snapshot (a IA segue com as fontes separadas).
     const pairedEvidence = await buildPairedEvidence(this.prisma as never, athleteId, new Date(), { sleepSourceKey: variableCache.get('wearable.sleepDurationMin')?.selectedSource ?? null }).catch(() => ({ ...EMPTY_PAIRED_EVIDENCE }));
 
+    // Melhor esforco: falha na carga acumulada nunca derruba o snapshot (a IA segue com PSE e demais variaveis separadas).
+    const internalLoad = await this.buildInternalLoad(athleteId).catch(() => null);
+
     return {
       athleteId,
       generatedAt: new Date().toISOString(),
       compact: this.buildCompact(domains),
       pairedEvidence,
+      internalLoad,
       domains,
       evidenceQuality,
     };
+  }
+
+  // Carga interna percebida: mesma fonte unica do painel (coach/training-load-rows.ts). Roda DENTRO do escopo de IA quando o snapshot alimenta um agente: atividade de relogio sem consentimento nao entra.
+  private async buildInternalLoad(athleteId: string): Promise<InternalLoadContext | null> {
+    // Mesmo corte de historico contaminado por teste das demais variaveis da Training Intelligence (training-history-policy.ts): o bloco da IA e a variavel do registro nunca divergem.
+    const cutoff = TRAINING_INTELLIGENCE_DATA_CUTOFF.toISOString().slice(0, 10);
+    const rows = (await loadInputRows(this.prisma, athleteId)).filter((row) => row.date >= cutoff);
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const references = await buildSessionReferences(this.trainingIntelligenceQuery, athleteId, classifySessions(rows).sessions);
+    return buildInternalLoadContext(rows, today, references);
   }
 
   // ---------------------------------------------------------------------------------------------

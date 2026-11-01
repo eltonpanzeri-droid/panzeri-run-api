@@ -51,7 +51,10 @@ export type VariableSource =
   | 'session_execution_analysis'
   // 21/10/2026 — resumo de SAUDE/RECUPERACAO medido por relogio e entregue pelo provedor (sono, HRV, FC de repouso, diario): WearableSleepSummary/WearableHrvSummary/WearableDailySummary.
   // Nunca estimado nem preenchido pelo Panzeri Run; uma linha = uma observacao; so' entra na IA quando a categoria foi autorizada (ver isHealthBlockedForAi).
-  | 'wearable_health';
+  | 'wearable_health'
+  // 01/11/2026 — carga interna percebida da sessão (PSE × minutos) e duração usada no cálculo: derivadas do feedback da aluna (PSE, duração) e da atividade importada vinculada (duração real),
+  // pela MESMA fonte única do painel (coach/training-load-rows.ts). Uma linha = uma sessão elegível. Ver internal-load.ts.
+  | 'internal_load_session';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -145,6 +148,7 @@ export function evidenceKindOf(definition: VariableDefinition): EvidenceKind {
       return 'device_measurement';
     case 'session_execution_analysis':
     case 'weekly_training_load':
+    case 'internal_load_session':
       return 'system_calculation';
     default:
       return 'self_report';
@@ -922,6 +926,47 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
       'feitas ÷ (feitas + não-feitas) — sem registro NUNCA entra no denominador (mesma fórmula canônica de EvolutionMetricService/coach.service.ts). Ausente (nunca 0%) na semana em que feitas+naoFeitas=0. ' +
       'Numerador/denominador/coverage reais ficam no context de cada observação (context.numerator/denominator/coveragePercent) — a % nunca aparece sem o tamanho da amostra por trás.',
   },
+  // ---------------------------------------------------------------------------------------------
+  // Carga interna percebida (01/11/2026). Três variáveis DISTINTAS: PSE (workout.perceivedEffort, acima), duração usada e carga = PSE × minutos. A carga nunca substitui a PSE isolada.
+  // Por sessão ELEGÍVEL (feita/ajustada, com PSE 1–10 e duração utilizável — nada é estimado), por modalidade (context.modality). Referências SEMPRE só com sessões anteriores (reference-series.ts).
+  // Interpretação (obrigatória para a IA): PSE/carga alta NÃO é experiência emocional negativa, NÃO é recuperação insuficiente e NÃO é, sozinha, aumento comprovado de risco de lesão; carga baixa NÃO
+  // significa prontidão para mais treino. Descreve a EXIGÊNCIA PERCEBIDA × EXPOSIÇÃO (duração); emoção, satisfação, fadiga e recuperação vêm de outras variáveis.
+  // ---------------------------------------------------------------------------------------------
+  'workout.sessionInternalLoad': {
+    variableId: 'workout.sessionInternalLoad',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'carga interna percebida da sessão (PSE × minutos)',
+    scale: { min: 0, max: 8000, unit: 'UA' },
+    direction: 'not_directional',
+    source: 'internal_load_session',
+    expectedFrequency: 'per_workout',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'Carga = PSE da sessão (1 a 10, informada pela aluna) × duração efetiva em minutos, em UA (unidade arbitrária). Duração: a da atividade importada corretamente vinculada (relógio) quando existe; senão a informada pela aluna — nunca estimada. ' +
+      'Sessões sem PSE ou sem duração utilizável NÃO geram observação (ficam fora, com motivo, no painel). Sessões extras entram. PSE e duração originais estão no context de cada observação (rpe, minutes, durationSource). ' +
+      'Descreve exigência percebida × tempo de exposição: não mede risco, fadiga, prontidão nem experiência emocional.',
+  },
+  'workout.sessionDurationUsedMin': {
+    variableId: 'workout.sessionDurationUsedMin',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'duração da sessão usada no cálculo da carga',
+    scale: { min: 0, max: 1440, unit: 'min' },
+    direction: 'not_directional',
+    source: 'internal_load_session',
+    expectedFrequency: 'per_workout',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes: 'Minutos efetivamente usados em PSE × minutos (atividade importada vinculada quando existe; senão a duração informada pela aluna). A origem (durationSource) está no context. Mesmas sessões elegíveis da carga.',
+  },
   'training.acwr': {
     variableId: 'training.acwr',
     domain: 'training_load',
@@ -937,6 +982,7 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes:
+      'ATENÇÃO: esta razão é de VOLUME (km, 28 ÷ 42 dias) e NÃO é a razão aguda/crônica da carga interna percebida (PSE × minutos, 7 ÷ 28 dias), que vem no bloco cargaInternaPercebida. ' +
       'Média móvel de 28 dias (aguda) ÷ média móvel de 42 dias (crônica) de training.volumeCompletedTotalKm, calculadas com a MESMA MathLayerService.movingAverage do resto da Training Intelligence (calendar_days, nunca por índice de array). ' +
       'É uma RELAÇÃO descritiva — não representa segurança, risco, correção de treino nem suficiência de estímulo por si só. Composição completa (agudo/crônico/coverage) fica no context de cada observação.',
   },

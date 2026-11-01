@@ -3231,7 +3231,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'carga' | 'calendario'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'calendario'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   // 27/10/2026: periodo unico da aba Evolucao (nova central). Compartilhado pela exploracao, pela comparacao e pelas analises de treino.
@@ -3754,7 +3754,6 @@ function StudentPanel({
         {/* 15/10/2026: abas "Contexto" e "Timeline" agora ficam dentro da Evolucao (secao "Registros e historico").
             O codigo das duas abas foi mantido, inalcancavel pelos botoes, para reverter. */}
         <button type="button" className={detailTab === 'integracoes' ? 'active' : ''} onClick={() => setDetailTab('integracoes')}>Integrações</button>
-        <button type="button" className={`tabNova ${detailTab === 'carga' ? 'active' : ''}`} onClick={() => setDetailTab('carga')}>Carga (propria) <span className="tabNovaTag">NOVO · em avaliacao</span></button>
         <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
@@ -4080,16 +4079,20 @@ function StudentPanel({
                 </>
               ),
               volume: (
-                <EvoSection wide defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
-                  desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Para prescrito/realizado/extra separados, médias e faixa habitual: aba Explorar → Treinos.">
-                  <KmEvolutionChart weeks={filteredWeeks} period={999} />
-                </EvoSection>
+                <>
+                  <EvoSection wide defaultOpen icon="📊" title="Volume semanal" badge={`${filteredWeeks.length} sem`}
+                    desc="Km completados por semana (barra) vs prescritos (linha tracejada). Linha roxa = tendência de evolução. Para prescrito/realizado/extra separados, médias e faixa habitual: aba Explorar → Treinos.">
+                    <KmEvolutionChart weeks={filteredWeeks} period={999} />
+                  </EvoSection>
+                  {/* 01/11/2026: a relação aguda:crônica de VOLUME (km, 28 ÷ 42 dias) fica junto do volume. A relação aguda:crônica da CARGA INTERNA PERCEBIDA (PSE × minutos, 7 ÷ 28 dias) é outra métrica e fica em "Esforço percebido e carga interna". */}
+                  <EvoSection wide icon="📈" title="Volume: relação aguda:crônica (km)" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
+                    desc="Carga semanal aqui é o VOLUME realizado por semana (km). ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto o volume recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Não é a carga interna percebida (PSE × minutos): essa está em Esforço percebido e carga interna.">
+                    <LoadAnalysisSection weeks={filteredWeeks} />
+                  </EvoSection>
+                </>
               ),
               carga: (
-                <EvoSection wide defaultOpen icon="📈" title="Carga semanal e relação aguda:crônica" badge={filteredWeeks.length > 1 ? `${filteredWeeks.length} sem` : undefined}
-                  desc="Carga Semanal é a série de volume realizado por semana. ACWR (Aguda:Crônica) é uma RELAÇÃO derivada dela — quanto a carga recente representa frente à referência histórica do próprio aluno. Descreve magnitude de variação, não segurança, risco ou correção. Interprete sempre junto com RPE, sono, dor e contexto real do aluno.">
-                  <LoadAnalysisSection weeks={filteredWeeks} />
-                </EvoSection>
+                <StudentTrainingLoad studentId={student.id} accessToken={token} apiUrl={API_URL} />
               ),
               saude: (
                 <EvoSection defaultOpen icon="🩹" title="Dor ao longo do tempo" badge={sessionsWithV1Pain.length > 0 ? sessionsWithV1Pain.filter((s) => s.painFlag !== 'none').length : undefined}
@@ -4394,9 +4397,7 @@ function StudentPanel({
       {detailTab === 'integracoes' ? (
         <div className="detailFull"><StudentIntegrations studentId={student.id} accessToken={token} apiUrl={API_URL} /></div>
       ) : null}
-      {detailTab === 'carga' ? (
-        <div className="detailFull"><StudentTrainingLoad studentId={student.id} accessToken={token} apiUrl={API_URL} /></div>
-      ) : null}
+      {/* 01/11/2026: a antiga aba "Carga (própria)" foi consolidada em Evolução > Explorar > Treinos > "Carga acumulada e semanas" (uma só implementação da métrica). */}
       {detailTab === 'atividadesExternas' ? (
         <div className="detailFull"><AtividadesExternasTab studentId={student.id} accessToken={token} /></div>
       ) : null}

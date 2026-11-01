@@ -4,7 +4,9 @@ import type { Observation, Snapshot, Variable } from './data';
 
 export type ExplorerCategoryId = 'treinos' | 'sono' | 'recuperacao' | 'atividade_diaria' | 'bem_estar' | 'saude';
 export type ExplorerInfo = {
-  category: ExplorerCategoryId; evidenceKind: string; evidenceLabel: string; source: string; periodicity: string; periodicityLabel: string;
+  category: ExplorerCategoryId;
+  /** Grupo tematico dentro de "Treinos" (null nas demais categorias). */
+  subgroup?: string | null; evidenceKind: string; evidenceLabel: string; source: string; periodicity: string; periodicityLabel: string;
   windowUnit: string; versionComparability: 'comparable_across_versions' | 'not_comparable_across_versions'; crossSourceComparability: 'comparable' | 'not_comparable'; notes: string | null;
 };
 export type ExplorerVariable = Variable & { info?: ExplorerInfo };
@@ -29,6 +31,15 @@ export type ExplorerSnapshot = Snapshot & {
   availableSources?: Array<{ key: string; n: number; lastObservationAt: string | null }>; mainSource?: string | null; selectedSource?: string | null;
 };
 export type Availability = { id: string; n: number; firstObservationAt: string | null; lastObservationAt: string | null; mathApplicable: boolean };
+
+// Grupos tematicos de "Treinos" (01/11/2026). ESPELHO de TRAINING_SUBGROUPS do servidor (explorer-catalog.ts): o servidor diz a qual grupo cada indicador pertence (info.subgroup); aqui so' ficam os rotulos e a ordem.
+export const TRAINING_SUBGROUPS: Array<{ id: string; label: string; hint: string }> = [
+  { id: 'volume_consistencia', label: 'Volume e consistência', hint: 'o que foi realizado, quanto e com que regularidade' },
+  { id: 'esforco_carga', label: 'Esforço percebido e carga interna', hint: 'a exigência que as sessões representaram para a aluna' },
+  { id: 'intensidade_resposta', label: 'Intensidade e resposta cardiovascular', hint: 'ritmo, velocidade e frequência cardíaca' },
+  { id: 'mecanica_eficiencia', label: 'Mecânica e eficiência da corrida', hint: 'cadência, potência e dinâmica de corrida' },
+  { id: 'execucao_experiencia', label: 'Execução e experiência do treinamento', hint: 'como o treino prescrito foi vivido e executado' },
+];
 
 export const CATEGORIES: Array<{ id: ExplorerCategoryId | 'contexto'; label: string }> = [
   { id: 'treinos', label: 'Treinos' }, { id: 'sono', label: 'Sono' }, { id: 'recuperacao', label: 'Recuperação' }, { id: 'atividade_diaria', label: 'Atividade diária' },

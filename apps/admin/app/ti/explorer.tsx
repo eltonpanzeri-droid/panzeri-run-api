@@ -4,7 +4,7 @@ import { Info, Search, X } from 'lucide-react';
 import { API_URL, EVENT_TYPES, SOURCES, ContextEvent, PERIODS, dateKey, dateLabel, displayVariable, fmtFor, snapshotIsValid, unitLabel, windowFor, type Observation, type Variable } from './data';
 import { ChartLegend, DEFAULT_EXPLORER_LAYERS, ExplorerChart, ModalityKey, type ExplorerLayers } from './explorer-chart';
 import {
-  CATEGORIES, MODALITY_LABELS, SIGNAL_LABEL, availableGroups, modalitiesQueryOf, referenceFor, statusOf, ucFirst,
+  CATEGORIES, MODALITY_LABELS, SIGNAL_LABEL, TRAINING_SUBGROUPS, availableGroups, modalitiesQueryOf, referenceFor, statusOf, ucFirst,
   type Availability, type ExplorerSnapshot, type ExplorerVariable, type ModalityGroupId,
 } from './explorer-data';
 import SleepComposition from './sleep-composition';
@@ -171,19 +171,39 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
           ? <p className="evx-side-note">Acontecimentos de vida registrados para esta aluna: viagem, trabalho, doença, mudança de rotina. Não são medidas, são registros datados.</p>
           : <ul className="evx-list">
             {category === 'sono' && !needle && <li><button type="button" className={`evx-item available ${special === 'sleep' ? 'active' : ''}`} aria-current={special === 'sleep' ? 'true' : undefined} onClick={() => setSpecial('sleep')}><span><b>Composição do sono por noite</b><small>etapas, pontuação e sessões</small></span></button></li>}
-            {category === 'treinos' && !needle && panels && ([['volume', 'Volume semanal', 'prescrito x realizado por semana'], ['carga', 'Carga semanal e relação aguda:crônica', 'carga e aumento contra a semana anterior']] as const).map(([id, title, note]) => <li key={id}><button type="button" className={`evx-item available ${special === id ? 'active' : ''}`} aria-current={special === id ? 'true' : undefined} onClick={() => setSpecial(id)}><span><b>{title}</b><small>{note}</small></span></button></li>)}
-            {listed.map((variable) => {
-              const status = statusOf(variable, availability[variable.id], studentIsFemale);
-              return <li key={variable.id}>
-                <button type="button" className={`evx-item ${variable.id === activeId && category !== 'contexto' && !specialView ? 'active' : ''} ${status.kind}`} aria-current={variable.id === activeId && !specialView ? 'true' : undefined} onClick={() => pickVariable(variable)}>
-                  <span><b>{ucFirst(variable.constructLabel ?? variable.id)}</b>{status.label && <small>{status.label}</small>}{needle && <small className="evx-chip">{CATEGORIES.find((c) => c.id === categoryOf(variable))?.label}</small>}</span>
-                </button>
-                <button type="button" className="evx-info-btn" aria-label={`Informações sobre ${variable.constructLabel ?? variable.id}`} aria-expanded={infoFor === variable.id} onClick={() => setInfoFor(infoFor === variable.id ? null : variable.id)}><Info size={15} /></button>
-              </li>;
-            })}
+            {(() => {
+              const variableItem = (variable: ExplorerVariable) => {
+                const status = statusOf(variable, availability[variable.id], studentIsFemale);
+                return <li key={variable.id}>
+                  <button type="button" className={`evx-item ${variable.id === activeId && category !== 'contexto' && !specialView ? 'active' : ''} ${status.kind}`} aria-current={variable.id === activeId && !specialView ? 'true' : undefined} onClick={() => pickVariable(variable)}>
+                    <span><b>{ucFirst(variable.constructLabel ?? variable.id)}</b>{status.label && <small>{status.label}</small>}{needle && <small className="evx-chip">{CATEGORIES.find((c) => c.id === categoryOf(variable))?.label}</small>}</span>
+                  </button>
+                  <button type="button" className="evx-info-btn" aria-label={`Informações sobre ${variable.constructLabel ?? variable.id}`} aria-expanded={infoFor === variable.id} onClick={() => setInfoFor(infoFor === variable.id ? null : variable.id)}><Info size={15} /></button>
+                </li>;
+              };
+              const specialItem = (id: 'volume' | 'carga', title: string, note: string) => <li key={`special-${id}`}><button type="button" className={`evx-item available ${special === id ? 'active' : ''}`} aria-current={special === id ? 'true' : undefined} onClick={() => setSpecial(id)}><span><b>{title}</b><small>{note}</small></span></button></li>;
+              // "Treinos" (01/11/2026): cinco grupos tematicos, cada indicador em um so'. A busca continua global (lista plana, com a categoria de cada resultado).
+              if (category === 'treinos' && !needle) {
+                return TRAINING_SUBGROUPS.map((group) => {
+                  const items = listed.filter((variable) => (variable.info?.subgroup ?? 'execucao_experiencia') === group.id);
+                  const specials = group.id === 'volume_consistencia'
+                    ? (panels ? [specialItem('volume', 'Volume semanal', 'prescrito x realizado por semana')] : [])
+                    : group.id === 'esforco_carga'
+                      ? (panels ? [specialItem('carga', 'Carga acumulada e semanas', 'janelas de 7 e 28 dias, razão aguda:crônica e carga por semana')] : [])
+                      : [];
+                  if (!items.length && !specials.length) return null;
+                  return <React.Fragment key={group.id}>
+                    <li className="evx-subgroup" aria-label={group.label}><b>{group.label}</b><small>{group.hint}</small></li>
+                    {specials}
+                    {items.map(variableItem)}
+                  </React.Fragment>;
+                });
+              }
+              return listed.map(variableItem);
+            })()}
             {!listed.length && <li className="evx-empty-small">{needle ? 'Nenhum indicador encontrado.' : 'Carregando indicadores…'}</li>}
           </ul>}
-        <p className="evx-side-foot">Indicadores fora do catálogo (carga sRPE, sessões perdidas, calendário) estão em “Treinos e carga”.</p>
+        <p className="evx-side-foot">Indicadores fora do catálogo (sessões perdidas, calendário) estão em “Treinos e carga”.</p>
       </aside>
       <section className="evx-main">
         {info && !(specialView && !needle && category !== 'contexto') && <div className="evx-info" role="dialog" aria-label={`Informações: ${info.constructLabel ?? info.id}`}>

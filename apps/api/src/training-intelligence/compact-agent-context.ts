@@ -56,6 +56,7 @@ import type {
 import type { VariableSnapshotResponse } from './training-intelligence-query.service';
 import { evidenceKindOf, getVariableDefinition, type EvidenceKind } from './variable-registry';
 import type { PairedEvidence } from './paired-evidence';
+import type { InternalLoadContext } from './internal-load-context';
 
 export interface CompactExcursionSummary {
   direction: 'above' | 'below';
@@ -185,6 +186,8 @@ export interface CompactAgentContext {
   systemDynamics: SystemDynamicsDomainState;
   /** Relato do aluno x medicao do aparelho no MESMO dia (esforco percebido x FC/ritmo/potencia; sono percebido x sono do relogio). Ver paired-evidence.ts. Ausente quando nao ha nenhum par. */
   pairedEvidence?: PairedEvidence;
+  /** Carga interna percebida (PSE x minutos) por modalidade: ultima sessao comparada so' com o historico ANTERIOR + carga acumulada de 7 e 28 dias (01/11/2026). Ausente quando nao ha sessao elegivel. Nao e' dado de relogio: nunca sai pelo teto de integracoes. */
+  cargaInternaPercebida?: InternalLoadContext;
   evidenceQuality: {
     variablesWithData: number;
     variablesWithoutData: number;
@@ -380,6 +383,7 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     lifeContext: snapshot.domains.lifeContext,
     systemDynamics: snapshot.domains.systemDynamics,
     ...(snapshot.pairedEvidence && (snapshot.pairedEvidence.effortVsDevice.length > 0 || snapshot.pairedEvidence.sleepPerceivedVsDevice.length > 0) ? { pairedEvidence: snapshot.pairedEvidence } : {}),
+    ...(snapshot.internalLoad ? { cargaInternaPercebida: snapshot.internalLoad } : {}),
     evidenceQuality: snapshot.evidenceQuality.overall,
   };
 }

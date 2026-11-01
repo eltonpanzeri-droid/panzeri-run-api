@@ -9,11 +9,20 @@
 //     A razão só existe com 28 dias de histórico E pelo menos 10 treinos nos últimos 28 dias (decisão de Elton, 23/10/2026): com menos que isso a métrica vale pouco e não é mostrada.
 //  5. O que NÃO entra: treino marcado como não feito; treino sem esforço percebido ou sem duração utilizável (nunca vira zero nem é estimado — aparece numa lista própria, com o motivo).
 //
-// Isto DESCREVE o que a aluna fez. NÃO decide treino, NÃO é recomendação, não há faixa de risco e (até decisão de Elton) o Atlas NÃO usa.
+// Isto DESCREVE o que a aluna fez. NÃO decide treino, NÃO é recomendação e não há faixa de risco.
+// 01/11/2026: o MESMO cálculo agora alimenta (a) o painel, (b) o Explorar (variáveis workout.sessionInternalLoad / workout.sessionDurationUsedMin do registro, com médias e bandas só com sessões
+// ANTERIORES) e (c) o contexto dos agentes de IA (bloco `cargaInternaPercebida`). Fonte única dos registros: training-load-rows.ts.
 
 import { canonicalModality } from '../activity-execution/canonical-modality'; // modulo puro (sem imports)
+import type { ReferencePoint, ReferenceSeries } from '../training-intelligence/reference-series'; // so' tipos (nenhuma dependencia de execucao)
 
-export const LOAD_METHOD_VERSION = 'carga-propria v2 (23/10/2026)';
+// Chave de modalidade usada nas observacoes do registro (workout.sessionInternalLoad): a modalidade canonica da sessao (valor bruto do provedor, ex.: 'RUNNING', vira 'corrida'); valor desconhecido segue o proprio texto.
+export function loadModalityKey(modality: string | null | undefined): string {
+  const raw = (modality ?? '').trim().toLowerCase();
+  return canonicalModality(raw) ?? (raw || 'outra');
+}
+
+export const LOAD_METHOD_VERSION = 'carga-interna-percebida v3 (01/11/2026)';
 export const ACUTE_DAYS = 7;
 export const CHRONIC_DAYS = 28;
 // Minimo de treinos (que entraram na conta) nos 28 dias para a razao valer (decisao de Elton, 23/10/2026). Vale por visao: modalidade com menos treinos fica sem razao.
@@ -40,6 +49,10 @@ export type DurationSource = 'informada' | 'atividade_importada';
 
 export interface LoadInputRow {
   id: string;
+  /** Treino programado a que o registro pertence (rastreio até o original). */
+  sessionId?: string | null;
+  /** Atividade importada cuja duração/data foram usadas (rastreio). */
+  activityLogId?: string | null;
   date: string; // AAAA-MM-DD: data REAL (atividade vinculada) ou, na falta dela, a programada (ou o dia do registro, sem sessao programada)
   /** De onde veio `date`. Sem informacao = programada (nunca se presume data real). */
   dateSource?: DateSource;
@@ -63,7 +76,7 @@ export interface LoadInputRow {
 }
 
 export interface LoadSession {
-  id: string; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: LoadInputRow['activityNote'];
+  id: string; sessionId: string | null; activityLogId: string | null; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: LoadInputRow['activityNote'];
   modality: string | null; group: LoadGroup; title: string | null; isExtra: boolean; adjusted: boolean;
   /** Duracao que a aluna informou, quando a usada na conta e' a da atividade e ela e' diferente (para o treinador comparar). */
   informedMinutes: number | null;
@@ -71,7 +84,7 @@ export interface LoadSession {
 }
 export type ExclusionReason = 'sem_esforco' | 'sem_duracao' | 'sem_esforco_e_duracao';
 export interface ExcludedSession {
-  id: string; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: LoadInputRow['activityNote'];
+  id: string; sessionId: string | null; activityLogId: string | null; date: string; dateSource: DateSource; scheduledDate: string | null; shiftDays: number | null; dateZoneAssumed: boolean; activityNote: LoadInputRow['activityNote'];
   modality: string | null; group: LoadGroup; title: string | null; isExtra: boolean; reason: ExclusionReason; rpe: number | null; minutes: number | null;
 }
 
@@ -120,6 +133,8 @@ export interface TrainingLoadResult {
   /** Origem dos dados dos treinos que entraram no período. */
   sources: { dateReal: number; dateProgrammedOnly: number; dateRegisteredOnly: number; durationInformed: number; durationImported: number };
   example: { date: string; rpe: number; minutes: number; load: number } | null;
+  /** Comparação da sessão mais recente de cada modalidade com o histórico ANTERIOR a ela (preenchido pelo serviço; a função pura buildTrainingLoad não tem acesso à camada matemática). */
+  references?: Partial<Record<LoadGroup, SessionReferenceView>>;
 }
 
 const noon = (date: string) => new Date(`${date}T12:00:00.000Z`);
@@ -152,7 +167,7 @@ export function classifySessions(rows: LoadInputRow[]): { sessions: LoadSession[
     const dateSource: DateSource = row.dateSource ?? 'programada';
     const scheduledDate = row.scheduledDate ?? null;
     const shiftDays = dateSource === 'atividade_vinculada' && scheduledDate ? diffDays(scheduledDate, row.date) : null; // dias entre o programado e o executado
-    const base = { id: row.id, date: row.date, dateSource, scheduledDate, shiftDays, dateZoneAssumed: row.dateZoneAssumed === true, activityNote: row.activityNote ?? null, modality: row.modality, group: modalityGroup(row.modality), title: row.title, isExtra: row.isExtra };
+    const base = { id: row.id, sessionId: row.sessionId ?? null, activityLogId: row.activityLogId ?? null, date: row.date, dateSource, scheduledDate, shiftDays, dateZoneAssumed: row.dateZoneAssumed === true, activityNote: row.activityNote ?? null, modality: row.modality, group: modalityGroup(row.modality), title: row.title, isExtra: row.isExtra };
     if (rpe == null || minutes == null) {
       excluded.push({ ...base, reason: rpe == null && minutes == null ? 'sem_esforco_e_duracao' : rpe == null ? 'sem_esforco' : 'sem_duracao', rpe, minutes });
     } else {
@@ -200,7 +215,7 @@ export const METHOD_TEXT = {
     'Treino sem esforço percebido, ou sem duração utilizável (nem da atividade vinculada nem informada), NÃO entra (nunca vira zero e nada é estimado): aparece na lista "Ficaram de fora", com o motivo.',
     'A atividade importada só é usada quando está confirmada para aquele treino (uma só, sem duplicar a mesma atividade em dois treinos). Vínculo automático a mais de 3 dias do dia programado é ignorado; vínculo confirmado por pessoa (aluna ou treinador) vale até 6 dias. Dados do Strava não são usados.',
     'Não lê a FC nem outras medidas do relógio: só a duração e o dia da atividade vinculada.',
-    'É uma descrição do que foi feito. Não é recomendação, e o Atlas ainda não usa esta métrica.',
+    'É uma descrição do que foi feito: não é recomendação nem faixa de risco. A IA de prescrição e de evolução recebe a PSE, a duração e a carga SEPARADAS, por modalidade, e a interpreta junto com sono, dor, fadiga, satisfação e demais dados — um indicador sozinho nunca decide o treino.',
   ],
   generalViewNote: 'A visão GERAL é a soma de cargas sRPE de modalidades diferentes (corrida, força e outras). A unidade (UA) é a mesma, mas o esforço de cada tipo de treino não é equivalente: use as visões por modalidade para comparar.',
 };
@@ -251,5 +266,61 @@ export function buildTrainingLoad(rows: LoadInputRow[], period: { from: string; 
       durationImported: sessions.filter((s) => s.durationSource === 'atividade_importada').length,
     },
     example: last ? { date: last.date, rpe: last.rpe, minutes: last.minutes, load: last.load } : null,
+  };
+}
+
+// ── Comparação da SESSÃO com o histórico (01/11/2026) ─────────────────────────────────────────────────────────────────────────────────────────────────────
+// A sessão investigada NUNCA entra nas médias e bandas usadas para compará-la: as referências vêm de reference-series.ts (`prior_observations_only`), a MESMA metodologia dos demais indicadores da Evolução:
+// média histórica = todas as sessões elegíveis anteriores da MESMA modalidade; médias móveis das últimas 7/21/60/200 sessões anteriores; faixa habitual = P10–P90 das anteriores (até 200), com
+// >= 12 sessões anteriores = individual, 4 a 11 = limitada, menos que 4 = SEM faixa (amostra insuficiente: ausência de faixa nunca é tratada como "normal"). Sessões no MESMO dia e modalidade compartilham
+// a mesma referência (nenhuma entra na referência da outra). Nada aqui decide treino nem classifica como bom/ruim: o sinal só diz de que lado da faixa individual o valor ficou.
+export interface SessionComparison {
+  id: string; sessionId: string | null; date: string; modality: string | null; title: string | null;
+  rpe: number; minutes: number; load: number; durationSource: DurationSource; durationProvider: string | null;
+  /** Quantas sessões elegíveis da mesma modalidade existiam ANTES desta. */
+  priorN: number;
+  historicalMean: { value: number | null; n: number };
+  movingAverages: Array<{ key: string; label: string; value: number | null; n: number; partial: boolean }>;
+  band: { lower: number | null; upper: number | null; median: number | null; n: number; basis: 'individual' | 'limited' | 'none' };
+  signal: 'above' | 'below' | 'within' | 'no_reference';
+  outsideBy: number | null;
+  /** Diferença da carga desta sessão para a média histórica anterior e para a média móvel das últimas 7 sessões anteriores (null quando não há referência). */
+  vsHistoricalMean: { absolute: number; percent: number | null } | null;
+  vsMoving7: { absolute: number; percent: number | null } | null;
+  sufficient: boolean; // há faixa (limitada ou individual)
+}
+export interface SessionReferenceView {
+  group: LoadGroup;
+  /** Modalidades canônicas reunidas neste grupo (ex.: corrida + esteira). */
+  modalities: string[];
+  /** Sessões elegíveis do grupo em todo o histórico (base das referências). */
+  eligibleSessions: number;
+  unit: string;
+  windows: Array<{ key: string; label: string }>;
+  bandPolicy: { method: string; windowSize: number; individualMin: number; limitedMin: number };
+  /** A sessão mais recente do grupo, comparada só com o que veio ANTES dela. */
+  last: SessionComparison | null;
+  /** Série curta para o gráfico por sessão (mais antigas primeiro). */
+  points: Array<{ date: string; load: number; rpe: number | null; minutes: number | null; mm7: number | null; lower: number | null; upper: number | null; signal: string }>;
+}
+
+const pctOf = (delta: number, base: number | null): number | null => (base != null && base !== 0 ? Math.round((delta / base) * 1000) / 10 : null);
+const diffVs = (value: number, ref: number | null | undefined) => (ref == null ? null : { absolute: round1(value - ref), percent: pctOf(value - ref, ref) });
+
+/** Junta a sessão (cálculo) com o ponto de referência correspondente (só observações anteriores). Função pura, testável sem banco. */
+export function compareSessionToReference(session: LoadSession, point: ReferencePoint, series: Pick<ReferenceSeries, 'windows'>): SessionComparison {
+  const mm7 = point.movingAverages.mm7;
+  return {
+    id: session.id, sessionId: session.sessionId, date: session.date, modality: session.modality, title: session.title,
+    rpe: session.rpe, minutes: session.minutes, load: session.load, durationSource: session.durationSource, durationProvider: session.durationProvider,
+    priorN: point.priorN,
+    historicalMean: { value: point.historicalMean.value != null ? round1(point.historicalMean.value) : null, n: point.historicalMean.n },
+    movingAverages: series.windows.map(({ key, label }) => { const w = point.movingAverages[key as keyof typeof point.movingAverages]; return { key, label, value: w.value != null ? round1(w.value) : null, n: w.n, partial: w.isPartialWindow }; }),
+    band: { lower: point.band.lower != null ? round1(point.band.lower) : null, upper: point.band.upper != null ? round1(point.band.upper) : null, median: point.band.median != null ? round1(point.band.median) : null, n: point.band.n, basis: point.band.basis },
+    signal: point.signal,
+    outsideBy: point.outsideBy != null ? round1(point.outsideBy) : null,
+    vsHistoricalMean: diffVs(session.load, point.historicalMean.value),
+    vsMoving7: diffVs(session.load, mm7.value),
+    sufficient: point.band.basis !== 'none',
   };
 }

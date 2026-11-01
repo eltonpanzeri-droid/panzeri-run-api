@@ -28,6 +28,9 @@ import type { EvolutionSeries } from '../evolution/evolution.types';
 import { MathLayerService, SeriesPoint } from './math-layer.service';
 import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition, VariableSource } from './variable-registry';
 import { EXECUTION_ANALYSIS_VERSION, intensityBasisOf, RunExecutionAnalysis } from '../activity-execution/execution-analysis';
+import { loadInputRows } from '../coach/training-load-rows';
+import { classifySessions, loadModalityKey } from '../coach/training-load';
+import { SESSION_DURATION_VARIABLE_ID } from './internal-load';
 
 export interface Observation {
   athleteId: string;
@@ -66,6 +69,11 @@ export interface Observation {
     // 22/10/2026: fonte da medicao (provedor; no Health Connect, tambem o app de origem) e, so' no sono, o papel da sessao dentro da fonte/dia (ver wearable-source.ts).
     sourceKey?: string;
     sessionRole?: 'principal' | 'additional';
+    // Carga interna percebida (01/11/2026): os insumos originais ficam em cada observação (PSE, minutos usados, de onde veio a duração e a data).
+    rpe?: number;
+    minutes?: number;
+    durationSource?: string;
+    dateSource?: string;
     acuteValue?: number;
     chronicValue?: number;
     acuteWindowDays?: number;
@@ -214,6 +222,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'weekly_training_load') {
       return this.readTrainingLoadVariable(athleteId, definition);
+    }
+    if (definition.source === 'internal_load_session') {
+      return this.readInternalLoadVariable(athleteId, definition);
     }
     if (definition.source === 'session_execution_analysis') {
       return this.readExecutionAnalysisVariable(athleteId, definition);
@@ -566,6 +577,38 @@ export class ObservationReaderService {
       });
     }
     return observations;
+  }
+
+  // Carga interna percebida (01/11/2026): UMA observação por sessão ELEGÍVEL (feita/ajustada, PSE 1–10 e duração utilizável), pela MESMA fonte única do painel (coach/training-load-rows.ts + classifySessions).
+  // Nunca estima PSE nem duração. Dentro de escopo de IA, atividade de provedor sem consentimento é tratada como inexistente (a duração volta à informada pela aluna). Mesmo corte de histórico dos demais
+  // leitores. O timestamp é o dia a que o treino se refere (data real da atividade vinculada ou, na falta, a programada), ao meio-dia UTC, imune a fuso — igual às outras fontes deste arquivo.
+  private async readInternalLoadVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const cutoff = TRAINING_INTELLIGENCE_DATA_CUTOFF.toISOString().slice(0, 10);
+    const { sessions } = classifySessions(await loadInputRows(this.prisma, athleteId));
+    return sessions
+      .filter((s) => s.date >= cutoff)
+      .map((s): Observation => ({
+        athleteId,
+        variableId: definition.variableId,
+        value: definition.variableId === SESSION_DURATION_VARIABLE_ID ? s.minutes : s.load,
+        timestamp: new Date(`${s.date}T12:00:00.000Z`),
+        source: 'internal_load_session',
+        instrumentVersion: 1,
+        context: {
+          sessionId: s.sessionId ?? undefined,
+          workoutCompletionId: s.id,
+          activityLogId: s.activityLogId ?? undefined,
+          provider: s.durationProvider ?? undefined,
+          modality: loadModalityKey(s.modality),
+          scheduledDate: s.date,
+          isExtra: s.isExtra,
+          rpe: s.rpe,
+          minutes: s.minutes,
+          durationSource: s.durationSource,
+          dateSource: s.dateSource,
+        },
+      }))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
   private async readTrainingLoadVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {

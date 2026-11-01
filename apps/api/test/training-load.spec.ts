@@ -248,8 +248,8 @@ describe('resultado completo (o que o painel mostra)', () => {
     expect(result.example).toEqual({ date: '2026-10-26', rpe: 5, minutes: 20, load: 100 });
     expect(result.excluded.map((e) => e.id)).toEqual(['sem']);
     expect(result.method.formula).toMatch(/esforço percebido \(1 a 10\) × minutos/);
-    expect(result.method.leftOut.join(' ')).toMatch(/Atlas ainda não usa/);
-    expect(result.method.version).toMatch(/carga-propria v2/);
+    expect(result.method.leftOut.join(' ')).toMatch(/IA de prescrição e de evolução recebe a PSE, a duração e a carga SEPARADAS/);
+    expect(result.method.version).toMatch(/carga-interna-percebida v3/);
     expect(result.method.steps.join(' ')).toMatch(/sem risco|não há faixa de risco/i);
   });
 
@@ -429,26 +429,36 @@ describe('estrutura: somente leitura, restrito ao treinador e fora do Atlas', ()
   const read = (...parts: string[]) => readFileSync(join(__dirname, '..', 'src', ...parts), 'utf8');
 
   it('nada grava no banco e a rota esta no controller do treinador', () => {
-    for (const file of ['student-training-load.service.ts', 'training-load.ts']) expect(read('coach', file)).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany|\$executeRaw)\s*\(/);
+    for (const file of ['student-training-load.service.ts', 'training-load.ts', 'training-load-rows.ts']) expect(read('coach', file)).not.toMatch(/\.(create|createMany|update|updateMany|upsert|delete|deleteMany|\$executeRaw)\s*\(/);
     const controller = read('coach', 'coach.controller.ts');
     expect(controller).toMatch(/@Roles\('coach', 'admin'\)\s*\n?\s*@Controller\('coach'\)/);
     expect(controller).toContain("@Get('students/:studentId/training-load')");
     expect(read('coach', 'coach.module.ts')).toContain('StudentTrainingLoadService');
   });
 
-  it('a carga propria NAO esta ligada ao Atlas: nenhum arquivo da IA importa o calculo', () => {
-    for (const dir of ['training-plans', 'training-intelligence', 'technical-manager', 'reassessment', 'evolution', 'reporter']) {
-      for (const file of ['prescription-agent.service.ts', 'training-plans.service.ts', 'athlete-state-snapshot.service.ts', 'compact-agent-context.ts', 'observation-reader.service.ts', 'variable-registry.ts']) {
-        try { expect(read(dir, file)).not.toMatch(/training-load'|coach\/training-load|student-training-load/); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      }
-    }
+  // 01/11/2026 (ordem de Elton): a carga interna percebida DEIXOU de ser exclusiva do painel. Painel, Explorar e IA leem a MESMA fonte (training-load-rows.ts + training-load.ts); nunca ha segunda conta da metrica.
+  it('a carga interna percebida alimenta a IA pela MESMA fonte do painel (sem uma segunda implementacao)', () => {
+    const reader = read('training-intelligence', 'observation-reader.service.ts');
+    expect(reader).toContain("from '../coach/training-load-rows'");
+    expect(reader).toContain("from '../coach/training-load'");
+    expect(reader).toContain('classifySessions(await loadInputRows(');
+    const snapshot = read('training-intelligence', 'athlete-state-snapshot.service.ts');
+    expect(snapshot).toContain('loadInputRows(this.prisma, athleteId)');
+    expect(snapshot).toContain('INTERNAL_LOAD_VARIABLE_ID');
+    expect(read('training-intelligence', 'compact-agent-context.ts')).toContain('cargaInternaPercebida');
+    expect(read('reassessment', 'reassessment.service.ts')).toContain('cargaInternaPercebida: snapshot?.internalLoad');
+    expect(read('training-plans', 'prescription-agent.service.ts')).toContain('INTERNAL_LOAD_INSTRUCTION,');
+    // painel (servico) e IA usam a mesma funcao de montagem dos registros: nenhum dos dois recalcula PSE x minutos por conta propria
+    expect(read('coach', 'student-training-load.service.ts')).toContain('loadInputRows(this.prisma, studentId)');
+    expect(read('training-intelligence', 'internal-load-context.ts')).not.toMatch(/\* *s\.minutes|rpe *\* *minutes/);
   });
 
   it('a leitura da atividade importada so usa vinculo ativo e a observacao canonica (sem tocar em tokens)', () => {
-    const service = read('coach', 'student-training-load.service.ts');
+    const service = read('coach', 'training-load-rows.ts');
     expect(service).toContain("status: 'active'");
     expect(service).toContain('pickCanonicalPerEvent');
     expect(service).toContain("COACH_HIDDEN_PROVIDERS = ['strava']");
+    expect(service).toContain('aiBlockedProviders'); // em escopo de IA, atividade de provedor sem consentimento e' tratada como inexistente
     expect(service).not.toMatch(/accessToken|refreshToken|providerMetrics|raw/i);
   });
 });
