@@ -61,5 +61,17 @@ Os casos de setembro eram DEFEITOS (geração lendo fonte errada) e foram corrig
 - **C:** manter como está e só melhorar o texto da confirmação. Não resolve: a aluna não lê e o treinador não é avisado.
 - Em qualquer opção: teste de ponta a ponta do fluxo ("programa existe → rotina muda → aviso/oferta aparece") antes de dizer "corrigido".
 
+## Investigação dos dois cenários (01/11/2026, só leitura de código; nada alterado)
+
+**Cenário 1 — "o programa foi feito com a rotina antiga": como seria possível?**
+- Geração: lê a rotina fresca no início e recusa publicar se ela mudar durante a geração (`assertRoutineUnchanged`). Os dois botões (aluna e treinador) leem fresco.
+- Quem escreve na rotina: só o `RoutineService` (que sobe a revisão), a mesclagem de contas (também sobe a revisão: `mergedRoutineRevision`) e as contas de revisão da loja. Não achei escritor sem revisão.
+- **Caminho que NÃO se auto-corrige:** um programa da semana seguinte criado ANTES (por exemplo "Gerar semana seguinte para todos", `generateNextWeekIfMissing`, que não recria se o programa já existe) reflete a rotina daquele dia, e o botão da aluna responde `ja_gerado`: ela não consegue regenerar. É a explicação mais plausível que ainda cabe com a informação "ela não mudou a rotina depois de gerar" (a geração pode ter ocorrido mais cedo do que se pensa). **Falta provar com a hora de criação do programa nº 600.**
+- Um treino na SEXTA não pode nascer de uma rotina em que a sexta é descanso (as sessões só nascem dos dias ativos; dia fora da rotina é descartado). A sexta de Duane aparece como descanso no app. Isso reforça "rotina diferente na hora da geração" ou "treino criado/movido à mão".
+
+**Cenário 2 — defeito ao vivo na geração.** Achado um defeito LATENTE real em `generateWeek` (`training-plans.service.ts`, criação das sessões): `const modalities = day.modalities.length ? day.modalities : ['corrida']`. Um dia ATIVO com a lista de modalidades vazia vira CORRIDA por padrão (prescrição inventada). Desde 26/10 a gravação recusa esse dia ("Dia com treino precisa de ao menos uma modalidade"), mas o próprio comentário de `routine.rules.ts` diz que o validador anterior deixava passar "dia com treino sem modalidade": linhas gravadas antes de 26/10 podem existir assim e, nas telas, aparecem como "NÃO" em todas as modalidades (e não como "DESC"). Isso poderia explicar a corrida da SEGUNDA (a segunda não aparece na imagem da aluna, só no painel como "NAO/NAO/NAO"), mas NÃO a da sexta. **Correção proposta (precisa de aprovação, risco médio): dia ativo sem modalidade não gera treino (e vira alerta), em vez de assumir corrida.**
+
+**Resumo:** nenhum dos dois cenários, sozinho, explica Seg e Sex ao mesmo tempo com a rotina atual. Isso pede o dado de produção (hora do programa e histórico da rotina).
+
 ## Para Elton agora (sem código)
 Para Duane: abrir a ficha dela e clicar **"Refazer nova semana de treinos"**; a geração usará a rotina vigente (Ter 60 corrida, Qua 45 fortalecimento, Qui 45 corrida, Dom 120 corrida). Como a semana ainda não começou e não há execução, nada se perde.
