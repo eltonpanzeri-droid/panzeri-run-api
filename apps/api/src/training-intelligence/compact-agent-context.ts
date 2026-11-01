@@ -410,6 +410,23 @@ export interface LimitedCompactContext {
   maxChars: number;
 }
 
+const jsonSize = (value: unknown) => (value === undefined ? 0 : JSON.stringify(value).length);
+
+/** Diagnostico (01/11/2026): de onde vem o tamanho do contexto. So' mede e descreve; nunca altera o contexto. */
+export function describeContextSize(context: CompactAgentContext): string {
+  const { variables, variableLegend, ...sections } = context;
+  const entries = Object.entries(variables);
+  const wearable = entries.filter(([id]) => isIntegrationVariable(id));
+  const sum = (list: Array<[string, CompactVariableState]>) => list.reduce((total, [, state]) => total + jsonSize(state), 0);
+  const bySection = Object.entries(sections).map(([key, value]) => [key, jsonSize(value)] as const).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key, size]) => `${key}=${size}`);
+  const biggest = entries
+    .map(([id, state]) => ({ id, total: jsonSize(state), modalidades: jsonSize(state.byModality), fontes: jsonSize(state.otherSources), modalidadesN: Object.keys(state.byModality ?? {}).length, fontesN: Object.keys(state.otherSources ?? {}).length }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5)
+    .map((v) => `${v.id}=${v.total}(modalidades ${v.modalidades}/${v.modalidadesN}, fontes ${v.fontes}/${v.fontesN})`);
+  return `variaveis=${jsonSize(variables)} (relogio ${sum(wearable)} em ${wearable.length}, demais ${sum(entries.filter(([id]) => !isIntegrationVariable(id)))} em ${entries.length - wearable.length}); legenda=${jsonSize(variableLegend)}; pareada=${jsonSize(context.pairedEvidence)}; maiores secoes: ${bySection.join(', ')}; maiores variaveis: ${biggest.join('; ')}`;
+}
+
 export function limitCompactAgentContext(context: CompactAgentContext, maxChars: number = aiContextMaxChars()): LimitedCompactContext {
   const sizeChars = JSON.stringify(context).length;
   if (sizeChars <= maxChars) return { context, integrationDataOmitted: false, sizeChars, maxChars };

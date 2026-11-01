@@ -49,7 +49,7 @@ import { StudentProfileService, ProfileEventCode } from './student-profile.servi
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
 import { AthleteStateSnapshotService } from '../training-intelligence/athlete-state-snapshot.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
-import { buildCompactAgentContext, limitCompactAgentContext } from '../training-intelligence/compact-agent-context';
+import { buildCompactAgentContext, describeContextSize, limitCompactAgentContext } from '../training-intelligence/compact-agent-context';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
 import { EXTRA_ANSWER_LINK_PREFIX, SessionExecutionLinkService, WeekReconciliation, localCalendarDate } from '../activity-execution/session-execution-link.service';
@@ -1099,7 +1099,11 @@ export class TrainingPlansService {
       .getSnapshot(userId)
       .then((snapshot) => {
         // Teto de tamanho (22/10/2026): dados de relogio/integracoes saem por inteiro se o contexto estourar; o treino e' gerado com o resto e o treinador e' avisado (lacuna 'degradado' -> Telegram).
-        const limited = limitCompactAgentContext(buildCompactAgentContext(snapshot));
+        const compact = buildCompactAgentContext(snapshot);
+        const limited = limitCompactAgentContext(compact);
+        if (limited.sizeChars > limited.maxChars) {
+          this.logger.warn(`Tamanho do contexto da IA acima do teto (userId=${userId}): total=${limited.sizeChars} teto=${limited.maxChars}; ${describeContextSize(compact)}`);
+        }
         if (limited.integrationDataOmitted) {
           contextGaps.push({ source: 'dados_das_integracoes', severity: 'degradado', reason: `contexto com ${limited.sizeChars} caracteres, acima do teto de ${limited.maxChars}`, effect: 'Os dados vindos de relogios e integracoes (sono, HRV, FC de repouso, atividade diaria medidos pelo aparelho) NAO foram lidos nesta geracao; decida com os demais dados (entrevista, historico, registros, check-in) e NAO cite nem suponha valores do aparelho.' });
         }

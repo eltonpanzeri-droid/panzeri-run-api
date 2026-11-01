@@ -1,4 +1,4 @@
-import { aiContextMaxChars, DEFAULT_AI_CONTEXT_MAX_CHARS, limitCompactAgentContext, type CompactAgentContext } from '../src/training-intelligence/compact-agent-context';
+import { aiContextMaxChars, describeContextSize, DEFAULT_AI_CONTEXT_MAX_CHARS, limitCompactAgentContext, type CompactAgentContext } from '../src/training-intelligence/compact-agent-context';
 
 // 22/10/2026 — teto de tamanho do contexto da IA: dados de integracoes saem POR INTEIRO se estourar; o resto nunca e' removido por este teto.
 const ref = (ids: string[]) => ({ availability: 'available', variableIds: ids });
@@ -49,5 +49,20 @@ describe('limitCompactAgentContext', () => {
     expect(aiContextMaxChars({})).toBe(DEFAULT_AI_CONTEXT_MAX_CHARS);
     expect(aiContextMaxChars({ AI_CONTEXT_MAX_CHARS: 'abc' })).toBe(DEFAULT_AI_CONTEXT_MAX_CHARS);
     expect(aiContextMaxChars({ AI_CONTEXT_MAX_CHARS: '80000' })).toBe(80_000);
+  });
+});
+
+describe('describeContextSize', () => {
+  it('descreve de onde vem o tamanho sem alterar o contexto', () => {
+    const input = context('x'.repeat(300));
+    (input.variables['wearable.sleepDurationMin'] as unknown as Record<string, unknown>).byModality = { corrida: { evidence: { n: 1 } } };
+    (input.variables['wearable.sleepDurationMin'] as unknown as Record<string, unknown>).otherSources = { polar: { evidence: { n: 1 } }, samsung: { evidence: { n: 1 } } };
+    const before = JSON.stringify(input);
+    const text = describeContextSize(input);
+    expect(text).toContain('relogio');
+    expect(text).toContain('wearable.sleepDurationMin');
+    expect(text).toContain('modalidades');
+    expect(text).toContain('fontes');
+    expect(JSON.stringify(input)).toBe(before);
   });
 });
