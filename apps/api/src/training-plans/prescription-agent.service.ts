@@ -19,7 +19,7 @@ import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from './panzeri-developmental-directi
 import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
-import { describeOutputSize, describePromptSize } from '../common/ai-prompt-size';
+import { describeOutputSize, describePromptSize, measureOutputSize, measurePromptSize } from '../common/ai-prompt-size';
 import { AgentCallTrace, BASIS_SOURCES, DECISION_VARIABLES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
@@ -558,9 +558,19 @@ export class PrescriptionAgentService {
       const parsed = response.parsed_output;
       if (!parsed) return null;
 
-      // Log de custo real. thinking tokens entram dentro de output_tokens (mesma linha de billing
-      // da resposta escrita) — sem isso nao da pra saber quanto do gasto e raciocinio vs. texto
-      // final, so estimar.
+      // Medicao (01/11/2026): tamanhos por bloco, so' contagens; uma falha aqui nunca pode afetar a geracao. Vai para o log E para o registro de custo (AiGenerationCost).
+      let sizeDetail: Record<string, unknown> | undefined;
+      try {
+        const promptSize = measurePromptSize({ systemStable, systemExtra: safetyGuidance, userPrompt });
+        const outputSize = measureOutputSize({ content: response.content, outputTokens: response.usage.output_tokens, parsed });
+        sizeDetail = { prompt: promptSize, saida: outputSize };
+        this.logger.log(`[tamanho-ia] agente=treinador_semana prompt: ${describePromptSize({ systemStable, systemExtra: safetyGuidance, userPrompt })}`);
+        this.logger.log(`[tamanho-ia] agente=treinador_semana ${describeOutputSize({ content: response.content, outputTokens: response.usage.output_tokens, parsed })}`);
+      } catch (error) {
+        this.logger.warn(`Medicao de tamanho da IA indisponivel: ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`);
+      }
+
+      // Log de custo real. thinking tokens entram dentro de output_tokens (mesma linha de billing da resposta escrita); o detalhe de tamanho acima estima a parte nao visivel.
       logAiUsage(this.logger, {
         agent: 'treinador_semana',
         model: AI_MODELS.SONNET_5,
@@ -568,14 +578,9 @@ export class PrescriptionAgentService {
         durationMs: Date.now() - startedAt,
         ttl: cacheTtlLabel('treinador_semana'),
         extra: `effort=${effort}`,
+        effort,
+        detail: sizeDetail,
       });
-      // Medicao (01/11/2026): so' registra tamanhos por bloco; uma falha aqui nunca pode afetar a geracao.
-      try {
-        this.logger.log(`[tamanho-ia] agente=treinador_semana prompt: ${describePromptSize({ systemStable, systemExtra: safetyGuidance, userPrompt })}`);
-        this.logger.log(`[tamanho-ia] agente=treinador_semana ${describeOutputSize({ content: response.content, outputTokens: response.usage.output_tokens, parsed })}`);
-      } catch (error) {
-        this.logger.warn(`Medicao de tamanho da IA indisponivel: ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`);
-      }
 
       // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
       // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca

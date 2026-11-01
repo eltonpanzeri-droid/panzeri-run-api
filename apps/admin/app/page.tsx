@@ -10,6 +10,7 @@ import ZeppTestPanel from './zepp-test-panel';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import StudentTrainingLoad from './student-training-load';
+import AiCostSection from './ai-cost';
 import EquipmentIntelligence from './equipment-intelligence';
 import Observatory from './observatory';
 import StudentAvatar from './student-avatar';
@@ -3065,6 +3066,7 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
           </section>
         );
       })() : null}
+      <AiCostSection accessToken={accessToken} apiUrl={API_URL} priceCents={finance?.priceCents ?? 1990} />
       <section className="miniSection">
         <h3>Cupons com uso</h3>
         {finance?.coupons.length ? finance.coupons.map((coupon) => (

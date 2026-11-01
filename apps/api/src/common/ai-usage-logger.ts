@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { AI_RATES_USD_PER_MTOK, AiRates } from './ai-models.config';
+import { currentAiScope } from '../ai-governance/ai-scope';
+import { emitAiCost } from './ai-cost-sink';
 
 // Observabilidade de custo real de IA (28/09/2026; custo estimado em 09/10/2026) — uma linha por chamada, com os numeros que a
 // propria Anthropic devolve (nunca estimados) e o custo calculado a partir deles com a tabela de tarifas de ai-models.config.ts.
@@ -22,6 +24,8 @@ export interface AiCallCost {
   usdWithoutCache: number;
   // Positivo = o cache economizou; NEGATIVO = o cache custou mais do que custaria sem ele (gravacoes sem leituras suficientes).
   cacheSavingsUsd: number;
+  // Partes do custo (soma = usd): entrada normal, gravacao de cache, leitura de cache e saida (inclui raciocinio).
+  parts: { input: number; cacheWrite: number; cacheRead: number; output: number };
 }
 
 // Funcao pura (testavel). Retorna null para modelo sem tarifa cadastrada — o log mostra n/d em vez de inventar um numero.
@@ -34,9 +38,15 @@ export function estimateCallCost(model: string, usage: AiUsageLike): AiCallCost 
   const created5m = usage.cache_creation?.ephemeral_5m_input_tokens ?? Math.max(0, created - created1h);
   const inputTotal = usage.input_tokens + read + created;
   const rates: AiRates = entry.longPrompt && inputTotal > entry.longPrompt.aboveTokens ? entry.longPrompt.rates : entry.standard;
-  const usd = (usage.input_tokens * rates.input + created5m * rates.cacheWrite5m + created1h * rates.cacheWrite1h + read * rates.cacheRead + usage.output_tokens * rates.output) / 1_000_000;
+  const parts = {
+    input: (usage.input_tokens * rates.input) / 1_000_000,
+    cacheWrite: (created5m * rates.cacheWrite5m + created1h * rates.cacheWrite1h) / 1_000_000,
+    cacheRead: (read * rates.cacheRead) / 1_000_000,
+    output: (usage.output_tokens * rates.output) / 1_000_000,
+  };
+  const usd = parts.input + parts.cacheWrite + parts.cacheRead + parts.output;
   const usdWithoutCache = (inputTotal * rates.input + usage.output_tokens * rates.output) / 1_000_000;
-  return { inputTotalTokens: inputTotal, cache5mTokens: created5m, cache1hTokens: created1h, usd, usdWithoutCache, cacheSavingsUsd: usdWithoutCache - usd };
+  return { inputTotalTokens: inputTotal, cache5mTokens: created5m, cache1hTokens: created1h, usd, usdWithoutCache, cacheSavingsUsd: usdWithoutCache - usd, parts };
 }
 
 const money = (value: number) => value.toFixed(6);
@@ -50,9 +60,12 @@ export function logAiUsage(
     durationMs: number;
     ttl?: string;
     extra?: string;
+    // Esforco usado na chamada e medicao de tamanho por bloco (so' contagens), gravados junto com o custo.
+    effort?: string;
+    detail?: Record<string, unknown>;
   },
 ): void {
-  const { agent, model, usage, durationMs, ttl, extra } = params;
+  const { agent, model, usage, durationMs, ttl, extra, effort, detail } = params;
   const cost = estimateCallCost(model, usage);
   logger.log(
     `[custo-ia] agente=${agent} modelo=${model} input_tokens=${usage.input_tokens} output_tokens=${usage.output_tokens} ` +
@@ -63,4 +76,16 @@ export function logAiUsage(
       : 'custo_usd=n/d ') +
     `duracao_ms=${durationMs}${ttl ? ` ttl=${ttl}` : ''}${extra ? ` ${extra}` : ''}`,
   );
+
+  if (cost) {
+    // Aluno da chamada = o do escopo de IA (quando existe); agentes sem escopo gravam sem aluno.
+    emitAiCost({
+      agent, model, effort: effort ?? null, userId: currentAiScope()?.userId ?? null,
+      inputTokens: usage.input_tokens, outputTokens: usage.output_tokens,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0, cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
+      costUsd: cost.usd, costWithoutCacheUsd: cost.usdWithoutCache,
+      inputUsd: cost.parts.input, cacheWriteUsd: cost.parts.cacheWrite, cacheReadUsd: cost.parts.cacheRead, outputUsd: cost.parts.output,
+      durationMs, detail: detail ?? null,
+    });
+  }
 }

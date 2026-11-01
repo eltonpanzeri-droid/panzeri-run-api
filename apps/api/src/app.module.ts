@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { CoachModule } from './coach/coach.module';
+import { AiCostModule } from './ai-cost/ai-cost.module';
 import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
 import { PhysiologyModule } from './physiology/physiology.module';
 import { MeModule } from './me/me.module';
@@ -57,6 +58,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PrismaModule,
     AuthModule,
     CoachModule,
+    AiCostModule,
     MeModule,
     NotificationsModule,
     FitnessTestsModule,

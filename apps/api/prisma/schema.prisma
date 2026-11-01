@@ -115,6 +115,7 @@ model User {
   evolutionReports      EvolutionReport[]
   contextEvents         ContextEvent[]
   billingEvents         BillingEvent[]
+  aiGenerationCosts     AiGenerationCost[]
   onboardingInterview   OnboardingInterview?
   billingSubscription   BillingSubscription?
   couponRedemptions     CouponRedemption[]
@@ -2257,6 +2258,34 @@ model FunnelEvent {
   @@index([journeyId])
   @@index([userId])
   @@index([event, createdAt])
+}
+
+// Custo real de cada chamada de IA (01/11/2026). Uma linha por chamada, SO' numeros e metadados: nunca texto de aluno nem conteudo de prompt/resposta.
+// userId opcional e SetNull: o historico de custo sobrevive a exclusao da conta sem manter vinculo com a pessoa. Gravacao em segundo plano (AiCostRecorderService); falha nunca afeta a geracao.
+model AiGenerationCost {
+  id                  String   @id @default(uuid())
+  userId              String?
+  user                User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent               String
+  model               String
+  effort              String?
+  inputTokens         Int
+  outputTokens        Int
+  cacheReadTokens     Int      @default(0)
+  cacheCreationTokens Int      @default(0)
+  costUsd             Decimal  @db.Decimal(12, 6)
+  costWithoutCacheUsd Decimal  @db.Decimal(12, 6)
+  inputUsd            Decimal  @db.Decimal(12, 6)
+  cacheWriteUsd       Decimal  @db.Decimal(12, 6)
+  cacheReadUsd        Decimal  @db.Decimal(12, 6)
+  outputUsd           Decimal  @db.Decimal(12, 6)
+  durationMs          Int
+  detail              Json?
+  createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([agent, createdAt])
+  @@index([userId, createdAt])
 }
 
 model BillingEvent {
