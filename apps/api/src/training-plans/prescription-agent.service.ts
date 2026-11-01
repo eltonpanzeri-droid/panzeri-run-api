@@ -19,6 +19,7 @@ import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from './panzeri-developmental-directi
 import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
+import { describeOutputSize, describePromptSize } from '../common/ai-prompt-size';
 import { AgentCallTrace, BASIS_SOURCES, DECISION_VARIABLES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
@@ -568,6 +569,13 @@ export class PrescriptionAgentService {
         ttl: cacheTtlLabel('treinador_semana'),
         extra: `effort=${effort}`,
       });
+      // Medicao (01/11/2026): so' registra tamanhos por bloco; uma falha aqui nunca pode afetar a geracao.
+      try {
+        this.logger.log(`[tamanho-ia] agente=treinador_semana prompt: ${describePromptSize({ systemStable, systemExtra: safetyGuidance, userPrompt })}`);
+        this.logger.log(`[tamanho-ia] agente=treinador_semana ${describeOutputSize({ content: response.content, outputTokens: response.usage.output_tokens, parsed })}`);
+      } catch (error) {
+        this.logger.warn(`Medicao de tamanho da IA indisponivel: ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`);
+      }
 
       // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
       // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca
