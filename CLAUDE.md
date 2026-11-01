@@ -157,6 +157,24 @@ Use revisor com contexto separado para mudanças em auth, billing, prescrição,
 - **Toda implementação nova já nasce registrada** no `PRONTUARIO.md` dizendo se vale no deploy (API/painel/PWA) ou se exige build nativo; o que exigir build — e o que foi só discutido e concluído como "vai no build" — entra NO MESMO DIA na seção "BACKLOG DO PRÓXIMO BUILD" (Elton, 31/10/2026). Nunca gerar build sem Elton mandar; ao receber "gera o build", conferir a lista e avisar o que ficaria de fora.
 - **Fila do próximo build (Elton, 01/11/2026):** ao FINAL de toda mudança de código que precisa de build nativo (`apps/mobile`, permissões do `app.json`, módulo nativo), registrar no `FILA_PROXIMO_BUILD_E_IDEIAS.md` (parte A) no mesmo dia, com data, o que mudou e arquivo. Ideia discutida e não implementada vai na parte B. Ao gerar e enviar um build, mover os itens da A para a C. Elton não quer build a cada pequena mudança: este documento é o que permite juntar tudo.
 
+## Premissa de dados e IA (Elton, 01/11/2026 — vale para TODA programação)
+
+Mensagem de Elton, gravada palavra por palavra:
+
+> "Absolutamente todos os dados dos alunos serão usados pela IA, a menos que a aluna não tenha dado consentimento, ou que isso atrapalhe que a gente consiga autorização de empresas de relógios e sistemas de treinos. como foi o caso do STRAVA"
+>
+> portanto, agora, somente o Strava está com bloquei para usar a IA.
+>
+> Por isso, toda a programação deve ser feita justamente partindo da premissa que queremos coletar, organizar, analisar o máximo de dados, incluindo a IA, seguindo as leis, as recomendações das empresas e os consentimentos. Não é para partir do pressuposto que o acesso aos dados nos bloquearemos nossas IA, pelo contrário, partiremos da premissa que nossas IA terão acessos. Excetos nos casos citados acima ou se aparecer um novo.
+>
+> Você deve obrigatoriamente me advertir quando eu pedir para liberar alguma coisa a respeito disso e isso contrariar alguma regra ou ordem ou combinado nosso, ou lei, o autorização dos fabricantes ou dos consentimentos.
+
+Como aplicar:
+- **Padrão = a IA TEM acesso.** Coletar, organizar e analisar o máximo de dados e enviar o treino a todo relógio/sistema que permitir. Nunca partir do pressuposto de bloquear. Trava "fail-closed" de código é proteção técnica, não decisão de produto: integração ou categoria nova já nasce liberada para a IA, com o pedido de consentimento.
+- **Só três exceções:** (1) a aluna não deu consentimento; (2) a lei ou as recomendações/termos da empresa proíbem; (3) liberar prejudicaria a autorização de fabricantes ou lojas (caso do Strava). Caso novo: avisar Elton em vez de bloquear sozinho.
+- **Obrigação de advertir:** quando Elton pedir para liberar algo e isso contrariar regra, ordem ou combinado, lei, autorização de fabricante ou consentimento, advertir ANTES de fazer, dizendo qual regra/lei/termo e o risco.
+- **A frase "somente o Strava está bloqueado" é a REGRA, não o retrato do código.** Bloqueio existente que contrarie a premissa é desvio a corrigir e deve ser dito como tal, nunca apresentado como "decisão opcional". Desvios conhecidos em 01/11/2026 (a corrigir só com ordem de Elton): Polar com sono/HRV/atividade diária fora da IA; Apple Saúde com pressão arterial, glicemia e ciclo menstrual fora da IA.
+
 ## Comunicação com Elton
 
 **Linguagem e formato:**
