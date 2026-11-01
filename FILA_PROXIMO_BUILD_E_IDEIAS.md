@@ -16,6 +16,8 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 | 01/11/2026 | **Aviso de uso do ciclo menstrual pela IA** no topo da aba "Ciclo", com o texto de Elton (sem caixa de marcar; "ao registrar, você consente"). Substitui a frase antiga "não altera sua prescrição", que contradizia o servidor | `apps/mobile/App.tsx` (`MenstrualCycleScreen`) | Vale no deploy; aluna reinstala o ícone |
 
+| 01/11/2026 | **Versão do app no fim do menu** ("Panzeri Run · versão X", lida do `app.json` via `expo-constants`; sem dependência nova) | `apps/mobile/App.tsx` (menu lateral, abaixo de "Sair") | Vale no deploy; no PWA mostra a versão do `app.json` no deploy (só muda quando subirmos a versão) |
+
 ## B. Ideias e decisões ainda NÃO implementadas
 
 | Data | Ideia / decisão | Estado | Observações |

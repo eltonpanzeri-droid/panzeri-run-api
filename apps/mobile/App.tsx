@@ -10461,6 +10461,10 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
               <Ionicons name="log-out-outline" size={21} color="#64748b" />
               <Text style={styles.menuItemText}>Sair</Text>
             </Pressable>
+            {/* (01/11/2026) Versão do app no fim do menu (pedido de Elton). Vem do app.json em tempo de build; no PWA mostra a versão do app.json no momento do deploy. */}
+            <Text style={[styles.copyTight, { textAlign: 'center', marginTop: 12, marginBottom: 4 }]}>
+              Panzeri Run · versão {Constants.expoConfig?.version ?? '—'}
+            </Text>
           </ScrollView>
         </Pressable>
       </Pressable>
