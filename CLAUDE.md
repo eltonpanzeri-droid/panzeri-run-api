@@ -155,6 +155,7 @@ Use revisor com contexto separado para mudanças em auth, billing, prescrição,
 - Atualizar o `PRONTUARIO.md` (seção Diário) sempre que uma correção relevante, incidente ou mudança arquitetural acontecer — não só nas memórias.
 - **Antes de implementar qualquer coisa**, varrer o `PRONTUARIO.md` atrás de pendência relacionada e de decisão que contradiga o pedido (Elton, 31/10/2026); se houver contradição, avisar e registrar qual decisão prevalece.
 - **Toda implementação nova já nasce registrada** no `PRONTUARIO.md` dizendo se vale no deploy (API/painel/PWA) ou se exige build nativo; o que exigir build — e o que foi só discutido e concluído como "vai no build" — entra NO MESMO DIA na seção "BACKLOG DO PRÓXIMO BUILD" (Elton, 31/10/2026). Nunca gerar build sem Elton mandar; ao receber "gera o build", conferir a lista e avisar o que ficaria de fora.
+- **Fila do próximo build (Elton, 01/11/2026):** ao FINAL de toda mudança de código que precisa de build nativo (`apps/mobile`, permissões do `app.json`, módulo nativo), registrar no `FILA_PROXIMO_BUILD_E_IDEIAS.md` (parte A) no mesmo dia, com data, o que mudou e arquivo. Ideia discutida e não implementada vai na parte B. Ao gerar e enviar um build, mover os itens da A para a C. Elton não quer build a cada pequena mudança: este documento é o que permite juntar tudo.
 
 ## Comunicação com Elton
 

@@ -7029,6 +7029,18 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
   const [status, setStatus] = React.useState('');
   const [statusOk, setStatusOk] = React.useState(false);
   const [observation, setObservation] = React.useState('');
+  // (01/11/2026) Dica de longão só para quem tem prova alvo ativa de 21 km ou mais. Se a consulta falhar, a dica simplesmente não aparece (é só orientação, nunca bloqueia a rotina).
+  const [hasLongRaceTarget, setHasLongRaceTarget] = React.useState(false);
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch(`${API_URL}/me/target-races`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((races: Array<{ status?: string; distanceKm?: number }>) => {
+        if (!cancelled && Array.isArray(races)) setHasLongRaceTarget(races.some((race) => race.status === 'em_andamento' && Number(race.distanceKm) >= 21));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [accessToken]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -7081,6 +7093,17 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
           ? 'Esta e a ultima etapa antes do seu primeiro programa: ele e montado com base nos dias e no tempo que voce informar aqui. Escolha o que voce realmente consegue cumprir, voce pode mudar a rotina depois, quando quiser, em "Rotina de treinos" no menu.'
           : 'Escolha os dias e os treinos que voce quer receber do Panzeri Run. Isso nao inclui as outras atividades que voce faz por conta propria (por exemplo, musculacao em outra academia): se quiser nos contar, use o campo de observacao abaixo.'}
       </Text>
+      <View style={{ borderWidth: 1, borderColor: PRColors.stone, borderRadius: 8, backgroundColor: '#FAFAF8', padding: 12, marginBottom: 12 }}>
+        <Text style={[styles.inputLabel, { marginBottom: 6 }]}>Dicas para montar sua rotina</Text>
+        <Text style={styles.copyTight}>
+          1. Valorizamos muito o treino de força para quem corre. Mas, pelo princípio da especificidade, recomendamos que a maior parte da sua disponibilidade seja para corrida. Não existe uma divisão fixa entre as modalidades. O mais importante é marcar uma rotina que você realmente consiga cumprir.
+        </Text>
+        {hasLongRaceTarget ? (
+          <Text style={[styles.copyTight, { marginTop: 8 }]}>
+            2. Para provas longas, reserve pelo menos um dia na semana com cerca de 240 minutos (4 horas). Isso não quer dizer que todo treino terá esse tempo. Mas um dia mais longo dá liberdade à nossa equipe para criar os longões e para preparar você para a prova, especialmente a maratona.
+          </Text>
+        ) : null}
+      </View>
       <RoutineEditor routineDays={days} onChange={setDays} />
       {allRest ? <Text style={[styles.formHint, { marginTop: 8 }]}>Todos os dias estão como "Sem treinos": isso é uma pausa. Nenhum programa é gerado até você incluir dias de treino.</Text> : null}
       <Text style={[styles.inputLabel, { marginTop: 12 }]}>Quer contar algo sobre a sua rotina? (opcional)</Text>
