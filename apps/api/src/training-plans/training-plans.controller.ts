@@ -30,9 +30,16 @@ export class TrainingPlansController {
   // nenhuma tela. Ver TrainingPlansService.generateCurrentWeekOnDemand.
   // includeToday: undefined (sem Body) ou true = incluir hoje na geracao; false = comecar amanha
   // (aluno escolheu "Nao, a partir de amanha" no dialogo do app — ver generateCurrentWeekNow).
+  // useNewRoutine=true (01/11/2026, botao "Gerar de novo com a minha rotina nova"): so' refaz o programa se a rotina mudou depois da geracao E nada foi executado (ver routineAlignment).
   @Post('generate-current-week')
-  generateCurrentWeek(@CurrentUser() user: CurrentUserPayload, @Body() dto: { includeToday?: boolean }) {
-    return this.trainingPlansService.generateCurrentWeekOnDemand(user.sub, dto.includeToday);
+  generateCurrentWeek(@CurrentUser() user: CurrentUserPayload, @Body() dto: { includeToday?: boolean; useNewRoutine?: boolean }) {
+    return this.trainingPlansService.generateCurrentWeekOnDemand(user.sub, dto?.includeToday, dto?.useNewRoutine === true);
+  }
+
+  // Leitura pura: o programa desta semana-alvo bate com a rotina atual? A aluna pode refaze-lo? O app usa para mostrar (ou nao) o botao "Gerar de novo com a minha rotina nova".
+  @Get('routine-alignment')
+  routineAlignment(@CurrentUser() user: CurrentUserPayload) {
+    return this.trainingPlansService.routineAlignment(user.sub);
   }
 
   // Consultado pelo app ANTES de tocar em "Gerar treino da semana" — decide se mostra a tela de

@@ -133,6 +133,14 @@ const TODAY_INCLUSION_CUTOFF_HOUR = 22;
 // 600s (10min) — se esse valor ficasse pra tras, o aluno poderia tentar de novo antes da 1a
 // tentativa sequer ter tido chance de terminar.
 const BASE_GENERATION_ATTEMPTS = 2;
+
+// Resultado de routineAlignment (01/11/2026): `stale` = o programa ativo da semana-alvo foi gerado com outra rotina; `canRegenerate` = a aluna pode refaze-lo sozinha (nada executado, semana nao iniciada).
+export interface RoutineAlignment {
+  status: 'sem_rotina' | 'sem_programa' | 'alinhado' | 'ha_execucao' | 'semana_iniciada' | 'pode_refazer';
+  stale: boolean;
+  canRegenerate: boolean;
+  weekStart: string | null;
+}
 const GENERATION_ATTEMPT_COOLDOWN_MS = 600_000;
 
 // Shape bruto de WorkoutCompletion (tal como vem do Prisma, com include:{completion:true}) usado
@@ -1834,18 +1842,49 @@ export class TrainingPlansService {
   // includeToday: true (ou undefined) = gerar a partir de hoje; false = pular hoje e comecar
   // amanha. Escolha feita pelo proprio aluno via dialogo no app ("Incluir treino de hoje?").
   // Nao afeta o calculo de qual semana gerar — so informa a IA para nao prescrever hoje.
-  async generateCurrentWeekOnDemand(userId: string, includeToday?: boolean): Promise<{ generated: boolean; reason: string }> {
+  // 01/11/2026 (caso Duane, erro persistente #0012): useNewRoutine=true so' e' aceito quando a rotina mudou DEPOIS de o programa da semana-alvo ser gerado E a semana ainda nao comecou nem teve
+  // nenhuma execucao (ver routineAlignment). Nesse caso a aluna pode refazer o programa sozinha com a rotina nova; em qualquer outro caso o programa existente fica como esta' ('ja_gerado' /
+  // 'nao_pode_refazer'). Conta como uma das tentativas da semana e respeita todas as travas (reavaliacao, tentativas, intervalo). O check-in semanal nao e' pedido de novo: ja' foi feito
+  // para gerar este mesmo programa.
+  async generateCurrentWeekOnDemand(userId: string, includeToday?: boolean, useNewRoutine?: boolean): Promise<{ generated: boolean; reason: string }> {
     const inFlight = this.currentWeekGenerationInFlight.get(userId);
     if (inFlight) return inFlight;
 
-    const promise = this.doGenerateCurrentWeekOnDemand(userId, includeToday).finally(() => {
+    const promise = this.doGenerateCurrentWeekOnDemand(userId, includeToday, useNewRoutine === true).finally(() => {
       this.currentWeekGenerationInFlight.delete(userId);
     });
     this.currentWeekGenerationInFlight.set(userId, promise);
     return promise;
   }
 
-  private async doGenerateCurrentWeekOnDemand(userId: string, includeToday?: boolean): Promise<{ generated: boolean; reason: string }> {
+  // Leitura pura (nenhuma escrita, nenhuma IA): o programa ativo da semana-alvo foi gerado com uma rotina DIFERENTE da atual (revisao)? E a aluna pode refaze-lo sozinha?
+  // So' pode quando NENHUM treino do programa teve execucao/registro/atividade vinculada e NENHUM dia dele ja' passou. Qualquer outra situacao: o programa fica como esta' (regra de 10/10).
+  async routineAlignment(userId: string): Promise<RoutineAlignment> {
+    const routine = await readRoutineState(this.prisma, userId);
+    if (!routine.configured || routine.allRest) return { status: 'sem_rotina', stale: false, canRegenerate: false, weekStart: null };
+    const availability = routine.activeDays;
+    const today = todayInSaoPaulo();
+    const initialWeekStart = startOfWeek(new Date());
+    // Mesma semana-alvo do botao "Gerar treino da semana" (doGenerateCurrentWeekOnDemand).
+    const targetWeekStart = anyAvailableDayIsFuture(availability, initialWeekStart, today) ? initialWeekStart : addDays(initialWeekStart, 7);
+    const weekStart = targetWeekStart.toISOString().slice(0, 10);
+    const plan = await this.prisma.trainingPlan.findFirst({
+      where: { userId, status: 'active', startDate: targetWeekStart },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, inputSnapshot: true },
+    });
+    if (!plan) return { status: 'sem_programa', stale: false, canRegenerate: false, weekStart };
+    if (planMatchesRoutine(plan.inputSnapshot, routine.revision, availability)) return { status: 'alinhado', stale: false, canRegenerate: false, weekStart };
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: { planId: plan.id },
+      select: { scheduledDate: true, completion: { select: { id: true } }, executionLinks: { where: { status: 'active' }, select: { id: true } } },
+    });
+    if (sessions.some((session) => session.completion || session.executionLinks.length > 0)) return { status: 'ha_execucao', stale: true, canRegenerate: false, weekStart };
+    if (sessions.some((session) => session.scheduledDate.getTime() < today.getTime())) return { status: 'semana_iniciada', stale: true, canRegenerate: false, weekStart };
+    return { status: 'pode_refazer', stale: true, canRegenerate: true, weekStart };
+  }
+
+  private async doGenerateCurrentWeekOnDemand(userId: string, includeToday?: boolean, useNewRoutine = false): Promise<{ generated: boolean; reason: string }> {
     const [anyPlanEver, user, routine] = await Promise.all([
       this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } }),
       this.prisma.user.findUnique({
@@ -1886,7 +1925,13 @@ export class TrainingPlansService {
       where: { userId, status: 'active', startDate: targetWeekStart },
       select: { id: true },
     });
-    if (existingPlanForWeek) return { generated: false, reason: 'ja_gerado' };
+    let regenerating = false;
+    if (existingPlanForWeek) {
+      if (!useNewRoutine) return { generated: false, reason: 'ja_gerado' };
+      const alignment = await this.routineAlignment(userId);
+      if (!alignment.canRegenerate) return { generated: false, reason: alignment.stale ? 'nao_pode_refazer' : 'ja_gerado' };
+      regenerating = true; // generateWeek() arquiva o programa anterior; nada foi executado nele (conferido acima)
+    }
 
     // Passo 3 (25/09/2026): mesmo gate de generateWeek(), verificado aqui tambem pra devolver a
     // resposta no mesmo formato {generated,reason} que o app ja trata (em vez de bolha de excecao),
@@ -1900,7 +1945,7 @@ export class TrainingPlansService {
     // uma tentativa de proposito: um check-in pendente nao e' uma tentativa de geracao falhando,
     // e' so' o aluno ainda nao ter passado por essa etapa — nao deveria custar uma das tentativas
     // limitadas dele. Ver WeeklyCheckInService.
-    if (!(await this.weeklyCheckIn.hasCheckedInForCurrentPlan(userId))) {
+    if (!regenerating && !(await this.weeklyCheckIn.hasCheckedInForCurrentPlan(userId))) {
       return { generated: false, reason: 'checkin_pendente' };
     }
 
@@ -1958,7 +2003,9 @@ export class TrainingPlansService {
       .recordEvent(
         userId,
         ProfileEventCode.WEEK_GENERATED,
-        diasDeAtraso > 0
+        regenerating
+          ? `Semana de ${targetWeekStart.toISOString().slice(0, 10)} refeita pela aluna com a rotina nova (botao "Gerar de novo com a minha rotina nova"); o programa anterior nao tinha nenhuma execucao.`
+          : diasDeAtraso > 0
           ? `Semana de ${targetWeekStart.toISOString().slice(0, 10)} gerada sob demanda pela aluna (botao "Gerar treino da semana"), ${diasDeAtraso} dia(s) apos a liberacao.`
           : `Semana de ${targetWeekStart.toISOString().slice(0, 10)} gerada sob demanda pela aluna (botao "Gerar treino da semana"), no dia da liberacao.`,
       )

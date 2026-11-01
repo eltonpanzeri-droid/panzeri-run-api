@@ -1,7 +1,7 @@
 # Erro Persistente #0012 — "A rotina que registrei é diferente do programa que recebi" (recorrente)
 
 **Último caso:** Duane D'Avila (Cod. 0000020), 01/11/2026 (domingo, ~16:45). Rotina no painel e no app: **Ter corrida 60, Qua fortalecimento 45, Qui corrida 45, Dom corrida 120**; Seg/Sex/Sáb sem treino. Programa da semana 02/11–08/11 (Prescrição nº 600): **Seg corrida 50 min/7 km, Qua corrida 41 min/6,5 km (tiros), Qui fortalecimento 45, Sex corrida 43 min, Dom corrida 98 min/14 km; Ter e Sáb sem treino.**
-**Aberto em:** 01/11/2026. **Status:** ABERTO. Diagnóstico feito; correção NÃO aplicada, aguarda decisão de Elton (opções abaixo). Conserto só na pasta `GitHub\panzeri-run-api`.
+**Aberto em:** 01/11/2026. **Status:** CAUSA CONFIRMADA PELOS HORÁRIOS DO TELEGRAM (16:36 programa gerado com a rotina antiga; 16:39 rotina alterada; sem segunda geração: o "gerar de novo" caiu em `ja_gerado`). **Correção da opção A IMPLEMENTADA localmente em 01/11 (ver "Correção aplicada" no fim) — aguarda push, deploy e conferência real com uma aluna.** Conserto feito só na pasta `GitHub\panzeri-run-api`. Não fechar o dossiê até uma aluna real passar pelo fluxo sem erro.
 
 ---
 
@@ -75,3 +75,19 @@ Os casos de setembro eram DEFEITOS (geração lendo fonte errada) e foram corrig
 
 ## Para Elton agora (sem código)
 Para Duane: abrir a ficha dela e clicar **"Refazer nova semana de treinos"**; a geração usará a rotina vigente (Ter 60 corrida, Qua 45 fortalecimento, Qui 45 corrida, Dom 120 corrida). Como a semana ainda não começou e não há execução, nada se perde.
+
+---
+
+## Correção aplicada (01/11/2026, opção A + pedidos de Elton) — NÃO enviada ainda
+
+**Servidor (`training-plans.service.ts`, `training-plans.controller.ts`):**
+- `GET /training-plans/routine-alignment`: leitura pura. Estados: `sem_rotina`, `sem_programa`, `alinhado`, `ha_execucao`, `semana_iniciada`, `pode_refazer`. Só `pode_refazer` libera o botão (rotina mudou depois do programa; nenhum treino com registro, execução ou atividade vinculada; nenhum dia do programa já passou).
+- `POST /training-plans/generate-current-week` com `useNewRoutine: true`: refaz SOMENTE em `pode_refazer`; senão responde `ja_gerado` (programa já alinhado) ou `nao_pode_refazer`. Conta como tentativa e respeita reavaliação, limite (2/semana + extras do treinador) e intervalo de 10 min; não pede o check-in de novo (já foi feito para gerar este programa). `generateWeek` arquiva o programa anterior, sem execução.
+
+**App (`apps/mobile/App.tsx`):** (a) antes de gerar, janela com a rotina atual na mesma tabela da tela de rotina (`RoutineTable`), confirmação obrigatória; (b) depois de salvar uma rotina que já existia, aviso fixo de que ela vale a partir da próxima geração e, se o servidor confirmar, caminho para refazer; (c) na tela de treinos, cartão com o botão "Gerar de novo com a minha rotina nova" (confirmação antes; a espera só termina quando o programa muda de id, para não confirmar com o programa antigo).
+
+**Painel (`page.tsx`):** só o motivo "rotina mudou depois do programa" volta, pequeno, junto de "Refazer nova semana de treinos".
+
+**Testes:** `routine-alignment.spec.ts` (18). **Pendente:** push, deploy (API + painel + PWA), build nativo (fila), revisão independente, conferência com uma aluna real; observabilidade do caminho `ja_gerado` e início/fim da geração no log (não feito).
+
+**Efeito colateral conhecido:** o intervalo entre tentativas é de 10 minutos. Quem gera e logo depois muda a rotina verá "aguarde 10 minutos" ao tentar refazer antes disso.

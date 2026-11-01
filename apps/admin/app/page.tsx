@@ -4295,6 +4295,12 @@ function StudentPanel({
       </div>
       {student.plan?.methodology ? <p className="methodologySummary">{methodologySummaryLine(student.plan.methodology)}</p> : null}
 
+      {/* 01/11/2026 (erro persistente #0012): o aviso amarelo geral de "plano desatualizado" continua fora desta tela (retirado em 19/10 a pedido), mas ESTE motivo — rotina mudou depois da geracao — volta,
+          pequeno e junto do botao que o resolve, porque foi exatamente a falta dele que escondeu o caso da Duane. */}
+      {student.needsUpdate && /disponibilidade real/i.test(student.needsUpdateReason ?? '') ? (
+        <p className="hrNotice warn" role="status"><span><strong>A rotina da aluna mudou depois que este programa foi gerado.</strong> Para aplicar a rotina nova, use &quot;Refazer nova semana de treinos&quot;. A aluna também pode refazer sozinha, desde que a semana não tenha começado e nada tenha sido registrado.</span></p>
+      ) : null}
+
       <section className="miniSection weekWorkspace">
         <div className="weekWorkspaceHeader">
           <div>

@@ -1906,6 +1906,7 @@ function AppInner() {
                 // Primeiro cadastro: depois de gravar, o aluno segue para o treino da semana (onde o primeiro programa aparece sendo preparado). Edicao: continua no formulario com o que foi gravado.
                 onSaved={(wasFirstTime) => { void refreshRoutineFromServer(); if (wasFirstTime) { setRoutineSetupMode(false); setActiveTab('week'); } }}
                 onBack={() => { setRoutineSetupMode(false); if (!routineConfigured) setActiveTab('week'); }}
+                onGoToWeek={() => setActiveTab('week')}
               />
             )}
             {activeTab === 'reassessment' && (
@@ -1951,6 +1952,7 @@ function AppInner() {
                 onOpenTest={() => setActiveTab(PHYSICAL_TESTS_ENABLED ? 'physicalTests' : 'week')}
                 onOpenPainReport={() => setActiveTab('painReport')}
                 onOpenZepp={() => { setDevicesProvider('zepp'); setActiveTab('devices'); }}
+                onOpenRoutine={() => setActiveTab('routine')}
               />
             )}
             {activeTab === 'notifications' && (
@@ -3875,6 +3877,49 @@ function ReturnAfterGapModal({
   );
 }
 
+// (01/11/2026, caso Duane, erro persistente #0012) Confirmacao da ROTINA antes de gerar o programa da semana: mostra a tabela que a aluna ja' conhece e so' segue se ela confirmar. O programa e'
+// montado com a rotina gravada no momento da geracao; mudar a rotina depois nao altera um programa ja' gerado (regra de 10/10). Por isso a conferencia acontece ANTES, sempre.
+function RoutineConfirmModal({
+  visible,
+  availability,
+  onConfirm,
+  onChangeRoutine,
+  onCancel,
+}: {
+  visible: boolean;
+  availability: SavedAvailabilityDay[];
+  onConfirm: () => void;
+  onChangeRoutine: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={styles.appMenuOverlay}>
+        <View style={styles.appMenuSheet}>
+          <ScrollView contentContainerStyle={styles.appMenuContent}>
+            <Text style={styles.formSectionTitle}>Confira sua rotina antes de gerar</Text>
+            <Text style={styles.copyTight}>
+              O programa da semana será montado com a rotina abaixo. Se ela mudou, altere agora: depois que o programa é gerado, mudar a rotina não altera os treinos já criados.
+            </Text>
+            <RoutineTable availability={availability} />
+            <View style={styles.checkInOptionsColumn}>
+              <Pressable style={styles.primaryButton} onPress={onConfirm} accessibilityRole="button">
+                <Text style={styles.primaryButtonText}>Está correta, gerar meu treino</Text>
+              </Pressable>
+              <Pressable style={styles.secondaryOutlineButton} onPress={onChangeRoutine} accessibilityRole="button">
+                <Text style={styles.secondaryOutlineButtonText}>Alterar minha rotina</Text>
+              </Pressable>
+              <Pressable style={styles.checkInSkipButton} onPress={onCancel} accessibilityRole="button">
+                <Text style={styles.checkInSkipButtonText}>Voltar</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function WeeklyCheckInModal({
   visible,
   step,
@@ -4118,7 +4163,7 @@ function WeeklyCheckInModal({
   );
 }
 
-function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, onOpenZepp, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onOpenZepp?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
+function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, onOpenZepp, onOpenRoutine, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onOpenZepp?: () => void; onOpenRoutine?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
@@ -4255,6 +4300,19 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   // true quando o backend confirmou que hoje tem treino na rotina do aluno — guia o dialogo
   // "Incluir treino de hoje?" (so exibido de segunda a sabado; nunca no domingo).
   const [generationTodayHasRoutine, setGenerationTodayHasRoutine] = useState(false);
+  // (01/11/2026, erro #0012) Confirmacao da rotina antes de gerar e botao "Gerar de novo com a minha rotina nova".
+  const [routineGate, setRoutineGate] = useState<SavedAvailabilityDay[] | null>(null);
+  const [routineAlignment, setRoutineAlignment] = useState<{ stale: boolean; canRegenerate: boolean } | null>(null);
+  useEffect(() => {
+    // So' na semana atual (a que a aluna ve ao abrir Treinos) e so' com programa existente. Falha de rede = sem botao (nada muda).
+    if (!plan || weekOffset !== 0) { setRoutineAlignment(null); return; }
+    let cancelled = false;
+    void fetch(`${API_URL}/training-plans/routine-alignment`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { stale?: boolean; canRegenerate?: boolean } | null) => { if (!cancelled) setRoutineAlignment(data ? { stale: Boolean(data.stale), canRegenerate: Boolean(data.canRegenerate) } : null); })
+      .catch(() => { if (!cancelled) setRoutineAlignment(null); });
+    return () => { cancelled = true; };
+  }, [accessToken, plan?.id, weekOffset]);
   // 25/09/2026 (Passo 4): questionário de retorno após lacuna — checado uma vez por sessão do app
   // (não a cada render/troca de semana). Não bloqueia nenhum outro fluxo; "responder mais tarde"
   // só esconde o modal até a próxima abertura do app (returnGapDismissed não persiste).
@@ -4523,7 +4581,30 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   // (a logica que ja existia) so' e' chamada depois, seja direto (check-in ja feito) ou apos o
   // aluno responder (ver submitCheckInAndGenerate).
   async function generateCurrentWeekNow() {
+    // (01/11/2026, erro #0012) ANTES de tudo: mostra a rotina atual e pede a confirmacao. Se a rotina nao puder ser lida (rede), segue sem travar: a conferencia e' um passo a mais, nao a acao principal.
+    setIsLoading(true);
+    const routine = await loadRoutineSnapshot(accessToken);
+    setIsLoading(false);
+    if (routine && routine.configured && !routine.allRest) {
+      setRoutineGate(routine.availability);
+      return;
+    }
     await runGenerateCurrentWeekFlow(false);
+  }
+
+  // Botao "Gerar de novo com a minha rotina nova": so' aparece quando o servidor confirma que a rotina mudou depois do programa e que nada foi executado (GET /training-plans/routine-alignment).
+  // O servidor confere tudo de novo ao receber o pedido; nenhum treino feito e' substituido.
+  function askRegenerateWithNewRoutine() {
+    const title = 'Gerar de novo com a rotina nova?';
+    const message = 'Isto substitui o programa desta semana por um novo, montado com a sua rotina atual. Nenhum treino seu foi registrado nele, então nada se perde.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}\n\n${message}`)) void runGenerateCurrentWeek(undefined, { useNewRoutine: true });
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Gerar de novo', onPress: () => { void runGenerateCurrentWeek(undefined, { useNewRoutine: true }); } },
+    ]);
   }
 
   async function runGenerateCurrentWeekFlow(skipFeedbackReminder: boolean) {
@@ -4609,7 +4690,10 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   // includeToday: undefined = domingo (sem dialogo, gera normalmente);
   //              true  = aluno escolheu "Sim, inclua o dia de hoje";
   //              false = aluno escolheu "Nao, a partir de amanha" — servidor calcula generateFrom.
-  async function runGenerateCurrentWeek(includeToday?: boolean) {
+  // options.useNewRoutine (01/11/2026): refaz o programa JA' existente com a rotina nova. Como o programa antigo continua sendo o "current" durante a geracao, a espera so' termina quando o
+  // programa MUDA (id diferente) — senao a confirmacao chegaria em 10 s mostrando o programa antigo.
+  async function runGenerateCurrentWeek(includeToday?: boolean, options?: { useNewRoutine?: boolean }) {
+    const previousPlanId = options?.useNewRoutine ? plan?.id ?? null : null;
     setIsLoading(true);
     setIsGeneratingWeek(true);
     // Incidente real 09/08: sem essa mensagem, uma geracao mais demorada (a IA as vezes precisa
@@ -4626,7 +4710,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
         const response = await fetch(`${API_URL}/training-plans/generate-current-week`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ includeToday }),
+          body: JSON.stringify({ includeToday, ...(options?.useNewRoutine ? { useNewRoutine: true } : {}) }),
         });
         if (settled) return;
         if (!response.ok) return; // deixa o polling abaixo decidir, sem mostrar erro ainda
@@ -4640,6 +4724,10 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           settled = true;
           if (data.reason === 'ja_gerado') {
             setStatus('Seu treino desta semana já foi gerado.');
+            await loadPlan();
+          } else if (data.reason === 'nao_pode_refazer') {
+            // 01/11/2026: a rotina mudou depois do programa, mas ja' ha treino registrado ou a semana comecou: o programa existente fica como esta'.
+            setStatus('Não dá para refazer este programa sozinha: a semana já começou ou há treino registrado nela. A rotina nova vale na próxima geração. Se precisar, fale com seu treinador.');
             await loadPlan();
           } else if (data.reason === 'aguardar_intervalo') {
             setStatus('Espera só um instante, sua última tentativa ainda pode estar em andamento. Tente novamente após 10 minutos.');
@@ -4687,7 +4775,8 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           if (!response.ok) continue;
           const data = (await response.json()) as WeekByOffsetResponse | null;
           if (settled) return;
-          if (data && !data.notGenerated) {
+          // Refazendo com a rotina nova: o programa antigo ainda responde ate' o novo ficar pronto; so' vale quando o id muda.
+          if (data && !data.notGenerated && (previousPlanId === null || (data as { id?: string }).id !== previousPlanId)) {
             settled = true;
             setStatus('Seu treino da semana já esta pronto.');
             await loadPlan();
@@ -5330,6 +5419,13 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
+        <RoutineConfirmModal
+          visible={routineGate !== null}
+          availability={routineGate ?? []}
+          onConfirm={() => { setRoutineGate(null); void runGenerateCurrentWeekFlow(false); }}
+          onChangeRoutine={() => { setRoutineGate(null); onOpenRoutine?.(); }}
+          onCancel={() => setRoutineGate(null)}
+        />
       </View>
     );
   }
@@ -5400,6 +5496,13 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           onSkip={skipCheckInAndGenerate}
           onSubmit={submitCheckInAndGenerate}
         />
+        <RoutineConfirmModal
+          visible={routineGate !== null}
+          availability={routineGate ?? []}
+          onConfirm={() => { setRoutineGate(null); void runGenerateCurrentWeekFlow(false); }}
+          onChangeRoutine={() => { setRoutineGate(null); onOpenRoutine?.(); }}
+          onCancel={() => setRoutineGate(null)}
+        />
       </View>
     );
   }
@@ -5407,6 +5510,15 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Treino da semana</Text>
+      {routineAlignment?.canRegenerate && weekOffset === 0 ? (
+        <View style={styles.coachBox}>
+          <Text style={styles.formSectionTitle}>Sua rotina mudou depois que este programa foi gerado</Text>
+          <Text style={styles.copyTight}>Este programa foi montado com a rotina anterior. Como a semana ainda não começou e nenhum treino foi registrado, você pode gerar de novo com a rotina nova.</Text>
+          <Pressable style={styles.primaryButton} onPress={askRegenerateWithNewRoutine} accessibilityRole="button">
+            <Text style={styles.primaryButtonText}>Gerar de novo com a minha rotina nova</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/* 07/09: banner proeminente exibido enquanto a geracao da semana esta em andamento.
           Fica no topo da secao, bem vísivel, para que o aluno saiba o que esta acontecendo
@@ -6820,21 +6932,8 @@ const QUICK_EDIT_OBJECTIVE_OPTIONS = [
   option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'), option('Correr ultramaratona'),
 ];
 
-// 09/09: tela de visão geral da rotina semanal — exibe tabela de modalidades × dias
-// antes de entrar na entrevista de configuração de rotina.
-// Layout: coluna fixa de labels à esquerda + ScrollView horizontal com as 7 colunas de dias.
-// Fonte de dados: SavedAvailabilityDay[] da WA canônica (passada como prop).
-function RoutineOverviewScreen({
-  availability,
-  onSetup,
-  onBack,
-}: {
-  availability: SavedAvailabilityDay[];
-  onSetup: () => void;
-  onBack: () => void;
-}) {
-  const hasRoutine = availability.length > 0;
-
+// (01/11/2026) Tabela da rotina semanal (modalidades x dias). Reutilizada na tela "Rotina semanal" e na confirmacao da rotina que aparece antes de gerar o programa da semana.
+function RoutineTable({ availability }: { availability: SavedAvailabilityDay[] }) {
   // Ordem de exibição: Seg → Dom (weekday 1..6, 0)
   const DAYS = [
     { label: 'Seg', weekday: 1 },
@@ -6874,15 +6973,9 @@ function RoutineOverviewScreen({
   const ROW_H = 46;
   const HEADER_H = 32;
 
-  return (
-    <View style={styles.section}>
-      <Text style={styles.sectionLabel}>Rotina semanal</Text>
-      <Text style={[styles.reportText, { marginBottom: 16 }]}>
-        {hasRoutine
-          ? 'Sua rotina atual de treinos.'
-          : 'Você ainda não configurou sua rotina. Configure para receber treinos personalizados.'}
-      </Text>
 
+  return (
+    <>
       {/* Tabela: coluna fixa de labels + dias em scroll horizontal */}
       <View style={{ flexDirection: 'row', marginBottom: 20, borderWidth: 1, borderColor: PRColors.stone, borderRadius: 8, overflow: 'hidden' }}>
         {/* Coluna de labels (fixa) */}
@@ -6998,6 +7091,36 @@ function RoutineOverviewScreen({
         </ScrollView>
       </View>
 
+    </>
+  );
+}
+
+// 09/09: tela de visão geral da rotina semanal — exibe tabela de modalidades × dias
+// antes de entrar na entrevista de configuração de rotina.
+// Layout: coluna fixa de labels à esquerda + ScrollView horizontal com as 7 colunas de dias.
+// Fonte de dados: SavedAvailabilityDay[] da WA canônica (passada como prop).
+function RoutineOverviewScreen({
+  availability,
+  onSetup,
+  onBack,
+}: {
+  availability: SavedAvailabilityDay[];
+  onSetup: () => void;
+  onBack: () => void;
+}) {
+  const hasRoutine = availability.length > 0;
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionLabel}>Rotina semanal</Text>
+      <Text style={[styles.reportText, { marginBottom: 16 }]}>
+        {hasRoutine
+          ? 'Sua rotina atual de treinos.'
+          : 'Você ainda não configurou sua rotina. Configure para receber treinos personalizados.'}
+      </Text>
+
+      <RoutineTable availability={availability} />
+
       {/* Botão principal */}
       <Pressable style={styles.primaryButton} onPress={onSetup}>
         <Text style={styles.primaryButtonText}>
@@ -7020,7 +7143,9 @@ function emptyRoutineDays(): RoutineDay[] {
 
 // (26/10/2026) FORMULARIO UNICO DA ROTINA: usado no primeiro cadastro (depois da entrevista) e na edicao pelo menu. Le a rotina direto da API, confere a revisao ao salvar
 // (409 = alterada em outra tela/pelo treinador), mostra de volta o que foi efetivamente gravado e nunca confirma sucesso quando a gravacao nao foi confirmada.
-function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { accessToken: string; firstTime: boolean; onSaved: (wasFirstTime: boolean) => void; onBack: () => void }) {
+function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack, onGoToWeek }: { accessToken: string; firstTime: boolean; onSaved: (wasFirstTime: boolean) => void; onBack: () => void; onGoToWeek?: () => void }) {
+  // (01/11/2026, erro #0012) Aviso fixo depois de salvar uma rotina que ja' existia: quando a rotina nova vale e, se o servidor confirmar, o caminho para refazer o programa da semana.
+  const [postSaveNotice, setPostSaveNotice] = React.useState<{ canRegenerate: boolean } | null>(null);
   const [days, setDays] = React.useState<RoutineDay[] | null>(null);
   const [revision, setRevision] = React.useState(0);
   const [loadError, setLoadError] = React.useState('');
@@ -7066,6 +7191,16 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
     if (result.ok) {
       setObservation('');
       if (result.saved && firstTime) trackFunnel('routine_configured');
+      if (result.saved && !firstTime) {
+        // Mostra o aviso na hora; o botao de refazer so' aparece depois que o servidor confirma que ha' o que refazer (falha de rede = so' o aviso).
+        setPostSaveNotice({ canRegenerate: false });
+        void fetch(`${API_URL}/training-plans/routine-alignment`, { headers: { Authorization: `Bearer ${accessToken}` } })
+          .then((response) => (response.ok ? response.json() : null))
+          .then((data: { canRegenerate?: boolean } | null) => { if (data?.canRegenerate) setPostSaveNotice({ canRegenerate: true }); })
+          .catch(() => undefined);
+      } else {
+        setPostSaveNotice(null);
+      }
       onSaved(firstTime);
     }
     setSaving(false);
@@ -7115,6 +7250,20 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack }: { access
         <Text style={styles.secondaryButtonText}>Voltar</Text>
       </Pressable>
       {status ? <Text style={[styles.statusMessage, !statusOk && { color: '#b42318' }]}>{status}</Text> : null}
+      {postSaveNotice ? (
+        <View style={[styles.coachBox, { marginTop: 12 }]}>
+          <Text style={styles.formSectionTitle}>Importante: quando a rotina nova vale</Text>
+          <Text style={styles.copyTight}>A rotina nova vale a partir da próxima geração do seu programa (liberada aos domingos a partir das 12h). Os treinos que você já recebeu não mudam.</Text>
+          {postSaveNotice.canRegenerate ? (
+            <>
+              <Text style={styles.copyTight}>Seu programa desta semana ainda não começou e nenhum treino foi registrado nele: você pode gerar de novo agora, com a rotina nova.</Text>
+              <Pressable style={styles.primaryButton} onPress={() => onGoToWeek?.()} accessibilityRole="button">
+                <Text style={styles.primaryButtonText}>Ir para Treinos e gerar de novo</Text>
+              </Pressable>
+            </>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
