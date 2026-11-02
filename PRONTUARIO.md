@@ -3511,6 +3511,15 @@ O item "Evolução" do menu (e o link da Home) agora abre `home/EvolutionHub.tsx
 - Esqueleto pronto, mas ainda sem TODOS os indicadores combinados com Elton (ver listas dele de 02/11). Próximos lotes: indicadores novos por área, textos "o que isso representa", volume semanal na matemática do servidor.
 - Vale no PWA após o Deploy da API e do app; não verificado visualmente (sem API local sem usar o banco de produção).
 
+### 02/11/2026 — Evolução, lote 4: indicadores do treinamento (diferença, razão, tempo na faixa de ritmo)
+Mapa dos 8 indicadores de "Evolução do treinamento" pedidos por Elton: 1 volume prescrito, 2 realizado total, 3 prescrito × realizado (prescritos feitos + extras), 4 diferença, 5 razão, 6 cadência, 7 ritmo, 8 % do tempo dentro da faixa de ritmo prescrita. TODOS já existiam no servidor (`training.volumePrescribedKm`, `volumeCompletedTotalKm`, `volumeExtraKm`, `volumeDiffAbsoluteKm`, `volumeRatioCompletedPrescribed`, `activity.cadenceAvg`, `activity.avgPaceSecondsKm`, `execution.timeInBandPct`); 1, 2, 3, 6 e 7 já apareciam. O lote 4 acrescenta na tela 4, 5 e 8.
+- Cartões novos em `home/EvolutionObjective.tsx`: "Diferença: realizado − prescrito" e "Razão: realizado ÷ prescrito" (semanais, uma bolinha por SEMANA COMPLETA) e "Tempo dentro da faixa de ritmo prescrita" (por treino, só corrida, com aviso de "dado em atualização" quando há correção de atividade pendente). Ordem do cartão segue a lista de Elton (cadência, ritmo, tempo na faixa).
+- A SEMANA EM ANDAMENTO fica de fora do gráfico e do texto dos indicadores semanais (o servidor a guarda na série marcada `isPartialWeek`; uma razão de terça-feira não é comparável com semanas fechadas). Texto: `weeklySentences` em `home/insights.ts` (última semana completa, média de 3 semanas até ela, lado da faixa devolvido pelo servidor). Sem conta nova no app.
+- Gráfico "Volume por semana" (prescrito/percorrido/extras): a faixa cinza deixou de ser calculada no celular (`trailingChannel`, 8 semanas ± 2 desvios) e passou a vir do servidor, como os demais. AINDA com a matemática antiga: o cartão de volume da HOME (`HomeScreen.tsx`, `trailingChannel`) — próximo lote.
+- Correção de português: "Sua ritmo média" virou "Seu ritmo médio" (`recentVsLastSentences` ganhou `masculine`).
+- Fora deste lote: seletor de modalidade nesses indicadores (km é só de atividades com distância; ritmo/cadência/faixa são só corrida e ganham a etiqueta "Modalidade: corrida"); volume prescrito, realizado e extras continuam no gráfico combinado já existente. Testes em `home-weekly-indicators.spec.ts`.
+- Vale no PWA após o Deploy (só app; a API não mudou neste lote); app nativo só no próximo build. Não verificado visualmente.
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

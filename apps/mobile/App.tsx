@@ -22,7 +22,7 @@ import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
-import { isWeekInProgress, trailingChannel } from './home/trendChannel';
+import { isWeekInProgress } from './home/trendChannel';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -44,7 +44,9 @@ import { MedalsScreen } from './home/MedalsScreen';
 import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
-import type { FeelingDomain } from './home/insights';
+import type { FeelingDomain, SnapshotLite } from './home/insights';
+import { fetchSnapshot } from './home/homeApi';
+import { dayFromIso, referenceChannelPoints } from './home/chartData';
 import { BottomNav, BottomNavTab } from './home/BottomNav';
 import { PendingIdentitySection } from './home/PendingIdentity';
 import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/big-shoulders-display';
@@ -6032,7 +6034,9 @@ interface EvolutionOverviewMobile {
 
 type KmSerie = { key: 'percorrido' | 'prescrito' | 'extras'; label: string; color: string; data: (number | null)[] };
 
-function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: Array<'percorrido' | 'prescrito' | 'extras'> }) {
+// `serverBand` (02/11/2026): faixa habitual do SERVIDOR por semana (chave = dia do meio-dia de segunda, como nas observacoes); a mesma do painel e do texto. Substitui a
+// faixa calculada aqui (media de 8 semanas ± 2 desvios): uma matematica so'.
+function KmLineChart({ weeks, series, serverBand }: { weeks: EvolutionWeekMobile[]; series: Array<'percorrido' | 'prescrito' | 'extras'>; serverBand?: Map<number, { lower: number; upper: number; mean: number }> }) {
   if (weeks.length === 0) return null;
 
   const activeSeries: KmSerie[] = [];
@@ -6077,12 +6081,18 @@ function KmLineChart({ weeks, series }: { weeks: EvolutionWeekMobile[]; series: 
   const svgW = paddingLeft + (n - 1) * spacing + paddingRight;
   const svgH = chartH + paddingBottom + paddingTop;
 
-  // 15/10/2026 (pedido de Elton): "sua faixa habitual" — canal que acompanha o percorrido (media das ultimas 8 semanas completas ± 2
-  // desvios). A semana em andamento nao entra; sem 8 semanas completas nao ha faixa. So apresentacao, nao e' meta nem alerta.
+  // "Sua faixa habitual" (pedido de Elton, 15/10) acompanha o percorrido. Desde 02/11/2026 vem do servidor (referencias anteriores, P10-P90). A semana em andamento nao
+  // entra; semana sem faixa sustentada pelo servidor nao desenha faixa. So apresentacao, nao e' meta nem alerta.
   const todayIsoKm = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-  const runSerie = activeSeries.find((s) => s.key === 'percorrido');
-  const channelKm = runSerie ? trailingChannel(runSerie.data.map((v, i) => (v == null || isWeekInProgress(weeks[i].weekStart, todayIsoKm) ? null : v)), 8) : [];
-  const channelPts = channelKm.filter((c): c is NonNullable<typeof c> => c != null);
+  const hasRunSerie = activeSeries.some((s) => s.key === 'percorrido');
+  const channelPts: Array<{ index: number; lower: number; upper: number; mean: number }> = [];
+  if (hasRunSerie && serverBand) {
+    weeks.forEach((w, index) => {
+      if (isWeekInProgress(w.weekStart, todayIsoKm)) return;
+      const band = serverBand.get(dayFromIso(`${w.weekStart.slice(0, 10)}T12:00:00.000Z`));
+      if (band) channelPts.push({ index, ...band });
+    });
+  }
   const maxKm = Math.max(...allValues, ...channelPts.map((c) => c.upper), 0.1);
   const getX = (i: number) => paddingLeft + i * spacing;
   const getY = (km: number) => paddingTop + chartH - (km / maxKm) * (chartH - 4);
@@ -6236,6 +6246,16 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
       .catch(() => undefined)
       .finally(() => setLoading(false));
   }, [accessToken]);
+
+  // 02/11/2026: faixa habitual do volume vinda do servidor (mesma serie do texto e do painel); so' busca quando a tela mostra o volume.
+  const [kmSnapshot, setKmSnapshot] = useState<SnapshotLite | null>(null);
+  useEffect(() => {
+    if (!accessToken || focus === 'adherence') return;
+    let alive = true;
+    fetchSnapshot('training.volumeCompletedTotalKm', accessToken, { reference: true }).then((s) => { if (alive) setKmSnapshot(s); });
+    return () => { alive = false; };
+  }, [accessToken, focus]);
+  const kmServerBand = useMemo(() => new Map(referenceChannelPoints(kmSnapshot).map((p) => [p.x, { lower: p.lower, upper: p.upper, mean: p.mean }] as const)), [kmSnapshot]);
 
   const adherence = data
     ? period === 'allTime'
@@ -6427,7 +6447,7 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
             {(() => {
               const periodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
               const sliced = data.recentWeeks.slice(-periodWeeks);
-              return <KmLineChart weeks={sliced} series={[...chartSeries]} />;
+              return <KmLineChart weeks={sliced} series={[...chartSeries]} serverBand={kmServerBand} />;
             })()}
 
             {/* Checkboxes de séries — abaixo do gráfico */}

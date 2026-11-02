@@ -28,12 +28,14 @@ export interface SnapshotLite {
   habitualRange?: { lower: number | null; upper: number | null; median: number | null; n: number; isPartialWindow?: boolean } | null;
   variabilityChange?: { direction: string } | null;
   persistence?: { currentlyOutsideHabitualRange: boolean | null; direction?: 'above' | 'below' | null } | null;
-  observations: Array<{ timestamp: string; value: number | string; context?: { modality?: string; activityLogId?: string } | null }>;
+  observations: Array<{ timestamp: string; value: number | string; context?: { modality?: string; activityLogId?: string; isPartialWeek?: boolean } | null }>;
   evidence: { n: number };
   /** Modalidades com dado (so' quando a variavel tem dimensao de modalidade). */
   availableModalities?: string[];
-  /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. So' a faixa e' usada na tela da aluna. */
-  reference?: { points: Array<{ timestamp: string; band: { lower: number | null; upper: number | null; median: number | null; basis: 'individual' | 'limited' | 'none' } }> } | null;
+  /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. Faixa e lado da faixa (neutro) de cada ponto. */
+  reference?: { points: Array<{ timestamp: string; value?: number; signal?: 'above' | 'below' | 'within' | 'no_reference'; band: { lower: number | null; upper: number | null; median: number | null; n?: number; basis: 'individual' | 'limited' | 'none' } }> } | null;
+  /** Indicadores de execucao: dado ainda em atualizacao depois de uma correcao de atividade (devolvido so' em GET /me/observations/execution.*). */
+  provisional?: { reason: string; sessions: number; since: string | null } | null;
 }
 
 // SUFICIENCIA DE EVIDENCIA pertence ao motor longitudinal, nunca a este arquivo. Sinais canonicos
@@ -237,17 +239,72 @@ export function formatPaceSeconds(seconds: number): string {
  */
 export function recentVsLastSentences(
   snapshot: SnapshotLite | null | undefined,
-  d: { noun: string; fmt: (v: number) => string },
+  d: { noun: string; fmt: (v: number) => string; /** substantivo masculino (ritmo): "Seu ritmo médio", nao "Sua ritmo média" */ masculine?: boolean },
 ): string[] {
   if (!snapshot || !snapshot.mathApplicable || snapshot.current == null) return [];
   const mm = snapshot.movingAverages?.short_21d;
   const out: string[] = [];
+  const poss = d.masculine ? 'seu' : 'sua';
   // A media movel de 21 dias e' do motor (value null = motor nao sustenta); n e' comunicado, nao usado como porta.
   if (mm && mm.value != null) {
-    out.push(`Sua ${d.noun} média nas últimas 3 semanas (${mm.n} treino${mm.n === 1 ? '' : 's'}) é ${d.fmt(mm.value)}. No último treino registrado, foi ${d.fmt(snapshot.current)}.`);
+    out.push(`${capitalize(poss)} ${d.noun} ${d.masculine ? 'médio' : 'média'} nas últimas 3 semanas (${mm.n} treino${mm.n === 1 ? '' : 's'}) é ${d.fmt(mm.value)}. No último treino registrado, foi ${d.fmt(snapshot.current)}.`);
   } else {
-    out.push(`No último treino registrado, sua ${d.noun} foi ${d.fmt(snapshot.current)}. Não há treinos suficientes nas últimas 3 semanas para uma média.`);
+    out.push(`No último treino registrado, ${poss} ${d.noun} foi ${d.fmt(snapshot.current)}. Não há treinos suficientes nas últimas 3 semanas para uma média.`);
   }
+  return out;
+}
+
+/** Variavel POR TREINO sem genero fixo (ex.: "o tempo dentro da faixa de ritmo prescrita"): media das ultimas 3 semanas (do motor) x ultimo treino. */
+export function sessionMeanSentences(
+  snapshot: SnapshotLite | null | undefined,
+  d: { subject: string; fmt: (v: number) => string },
+): string[] {
+  if (!snapshot || !snapshot.mathApplicable || snapshot.current == null) return [];
+  const mm = snapshot.movingAverages?.short_21d;
+  if (mm && mm.value != null) {
+    return [`Nas últimas 3 semanas (${mm.n} treino${mm.n === 1 ? '' : 's'}), ${d.subject} teve média de ${d.fmt(mm.value)}. No último treino com esse dado, foi ${d.fmt(snapshot.current)}.`];
+  }
+  return [`No último treino com esse dado, ${d.subject} foi ${d.fmt(snapshot.current)}. Não há treinos suficientes nas últimas 3 semanas para uma média.`];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Indicadores SEMANAIS (training.* por semana): diferenca e razao realizado x prescrito. A semana em andamento esta na serie do servidor, marcada como parcial; ela NAO
+// entra no grafico nem no texto ate terminar (uma razao de terca-feira nao e' comparavel com semanas fechadas). So' leitura: nenhuma conta de volume aqui.
+// ---------------------------------------------------------------------------------------------
+
+export function completeWeekPoints(snapshot: SnapshotLite | null | undefined): Array<{ timestamp: string; value: number }> {
+  if (!snapshot || !snapshot.mathApplicable) return [];
+  return snapshot.observations
+    .filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value) && o.context?.isPartialWeek !== true)
+    .map((o) => ({ timestamp: o.timestamp, value: o.value }));
+}
+
+function dayMonth(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export interface WeeklyDescriptor {
+  fmt: (v: number) => string;
+  /** Resto da frase depois de "Na última semana completa (semana de dd/mm), ": ex. "você realizou 3 km a mais do que o prescrito". */
+  lastLine: (v: number) => string;
+}
+
+export function weeklySentences(snapshot: SnapshotLite | null | undefined, d: WeeklyDescriptor): string[] {
+  const weeks = completeWeekPoints(snapshot);
+  if (!snapshot || weeks.length === 0) return ['Ainda não há semanas completas com este dado.'];
+  const last = weeks[weeks.length - 1];
+  const out = [`Na última semana completa (semana de ${dayMonth(last.timestamp)}), ${d.lastLine(last.value)}.`];
+  const mm = snapshot.movingAverageSeries?.short_21d?.find((p) => p.timestamp === last.timestamp);
+  if (mm && mm.value != null) out.push(`A média das últimas 3 semanas, até essa semana, é ${d.fmt(mm.value)}.`);
+  const ref = snapshot.reference?.points.find((p) => p.timestamp === last.timestamp);
+  if (ref && ref.band.basis !== 'none' && ref.band.lower != null && ref.band.upper != null && ref.signal && ref.signal !== 'no_reference') {
+    const lado = ref.signal === 'above' ? 'acima da' : ref.signal === 'below' ? 'abaixo da' : 'dentro da';
+    out.push(`Esse valor ficou ${lado} sua faixa habitual (${d.fmt(ref.band.lower)} a ${d.fmt(ref.band.upper)}${ref.band.basis === 'limited' ? ', histórico ainda curto' : ''}).`);
+  } else {
+    out.push('Ainda não há histórico suficiente para uma faixa habitual.');
+  }
+  if (snapshot.observations.some((o) => o.context?.isPartialWeek === true)) out.push('A semana em andamento fica de fora até terminar.');
   return out;
 }
 

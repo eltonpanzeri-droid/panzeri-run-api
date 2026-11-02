@@ -6,12 +6,16 @@ import { fetchSnapshots } from './homeApi';
 import {
   SnapshotLite,
   WeekVolumeLite,
+  WeeklyDescriptor,
+  completeWeekPoints,
   describeVariable,
   formatPaceSeconds,
   recentVsLastSentences,
+  sessionMeanSentences,
   volumeSentences,
+  weeklySentences,
 } from './insights';
-import { formatDayLabel, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
+import { dayFromIso, formatDayLabel, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
@@ -20,10 +24,30 @@ import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 // recalculado aqui. Pace e cadencia sao OBJETIVOS (ActivityLog); sem dado valido, a secao diz isso
 // em vez de mostrar grafico vazio ou zero.
 
-const IDS = ['training.volumeCompletedTotalKm', 'activity.avgPaceSecondsKm', 'activity.cadenceAvg'] as const;
+// 02/11/2026 (lote 4): diferenca e razao realizado x prescrito (semanais) e % do tempo dentro da faixa de ritmo prescrita (por treino) entram na area "Evolucao do
+// treinamento", lidos do servidor como os demais.
+const IDS = [
+  'training.volumeCompletedTotalKm',
+  'training.volumeDiffAbsoluteKm',
+  'training.volumeRatioCompletedPrescribed',
+  'activity.avgPaceSecondsKm',
+  'activity.cadenceAvg',
+  'execution.timeInBandPct',
+] as const;
 
 const PACE = { label: 'Ritmo médio', fmt: (v: number) => formatPaceSeconds(v) };
 const CADENCE = { label: 'Cadência média', fmt: (v: number) => `${Math.round(v)} spm` };
+const TIME_IN_BAND = { label: 'Tempo dentro da faixa de ritmo prescrita', fmt: (v: number) => `${Math.round(v)}%` };
+
+const kmText = (v: number) => `${String(Math.round(Math.abs(v) * 10) / 10).replace('.', ',')} km`;
+const DIFF: WeeklyDescriptor = {
+  fmt: (v) => (Math.abs(v) < 0.05 ? '0 km' : `${v > 0 ? '+' : '−'}${kmText(v)}`),
+  lastLine: (v) => (Math.abs(v) < 0.05 ? 'você realizou exatamente o volume prescrito' : `você realizou ${kmText(v)} ${v > 0 ? 'a mais' : 'a menos'} do que o prescrito`),
+};
+const RATIO: WeeklyDescriptor = {
+  fmt: (v) => `${Math.round(v * 100)}%`,
+  lastLine: (v) => `você realizou ${Math.round(v * 100)}% do volume prescrito`,
+};
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -49,11 +73,17 @@ function MetricCard({
   unit,
   formatY,
   higherIsUp,
+  masculine,
+  subject,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
   descriptor: { label: string; fmt: (v: number) => string };
   noun: string;
+  /** Substantivo masculino ("ritmo"): "Seu ritmo médio". */
+  masculine?: boolean;
+  /** Sem genero fixo ("o tempo dentro da faixa..."): usa a frase por treino com este sujeito no lugar de "sua/seu {noun} média". */
+  subject?: string;
   emptyText: string;
   caution?: string;
   unit: string;
@@ -68,10 +98,12 @@ function MetricCard({
   }
   // 02/11/2026: faixa habitual vinda do servidor (mesma matematica do painel e do texto), no lugar do canal calculado no celular.
   const channelPoints = referenceChannelPoints(snapshot);
-  const sentences = [...recentVsLastSentences(snapshot, { noun, fmt: descriptor.fmt }), ...describeVariable(snapshot, descriptor)];
+  const lead = subject ? sessionMeanSentences(snapshot, { subject, fmt: descriptor.fmt }) : recentVsLastSentences(snapshot, { noun, fmt: descriptor.fmt, masculine });
+  const sentences = [...lead, ...describeVariable(snapshot, descriptor)];
   return (
     <Card title={title}>
       <Text style={styles.tag}>Modalidade: corrida</Text>
+      {snapshot.provisional ? <Text style={styles.caution}>Este dado está sendo atualizado depois de uma correção de atividade e pode mudar.</Text> : null}
       {points.length >= 2 ? (
         <DetailChart
           title=""
@@ -89,6 +121,63 @@ function MetricCard({
         <Text style={styles.muted}>É preciso ao menos 2 treinos com este dado para desenhar a evolução.</Text>
       )}
       <Sentences items={sentences} />
+      {caution ? <Text style={styles.caution}>{caution}</Text> : null}
+    </Card>
+  );
+}
+
+// Indicador SEMANAL (uma bolinha por semana COMPLETA, segunda a domingo). A semana em andamento fica fora do grafico e do texto ate terminar; faixa e media movel
+// vem do servidor (mesmos pontos, so' filtrados para as semanas completas).
+function WeeklyCard({
+  title,
+  snapshot,
+  descriptor,
+  unit,
+  formatY,
+  emptyText,
+  caution,
+}: {
+  title: string;
+  snapshot: SnapshotLite | null | undefined;
+  descriptor: WeeklyDescriptor;
+  unit: string;
+  formatY: (v: number) => string;
+  emptyText: string;
+  caution?: string;
+}) {
+  const points = useMemo(() => completeWeekPoints(snapshot).map((p) => ({ x: dayFromIso(p.timestamp), y: p.value })), [snapshot]);
+  const mm = useMemo(() => {
+    const xs = new Set(points.map((p) => p.x));
+    return snapshot ? movingAveragePoints(snapshot, 'short_21d').filter((p) => xs.has(p.x)) : [];
+  }, [snapshot, points]);
+  const channelPoints = useMemo(() => {
+    const xs = new Set(points.map((p) => p.x));
+    return referenceChannelPoints(snapshot).filter((p) => xs.has(p.x));
+  }, [snapshot, points]);
+
+  if (!snapshot || snapshot.evidence.n === 0) {
+    return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
+  }
+  return (
+    <Card title={title}>
+      <Text style={styles.tag}>Uma bolinha por semana completa</Text>
+      {points.length >= 2 ? (
+        <DetailChart
+          title=""
+          unit={unit}
+          points={points}
+          xLabel="semana"
+          formatX={formatDayLabel}
+          formatY={formatY}
+          higherIsUp
+          secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
+          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde suas semanas costumam ficar)', showMean: false } : undefined}
+          seriesLabel="cada semana"
+        />
+      ) : (
+        <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
+      )}
+      <Sentences items={weeklySentences(snapshot, descriptor)} />
       {caution ? <Text style={styles.caution}>{caution}</Text> : null}
     </Card>
   );
@@ -114,16 +203,23 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
           <Text style={styles.caution}>Descrição dos seus próprios registros; não indica o que é certo ou errado.</Text>
         </Card>
       ) : null}
-      <MetricCard
-        title="Ritmo ao longo do tempo"
-        snapshot={snapshots['activity.avgPaceSecondsKm']}
-        descriptor={PACE}
-        noun="ritmo"
-        unit="min/km (mais rápido no alto)"
-        formatY={(v) => formatPaceSeconds(v).replace('/km', '')}
-        higherIsUp={false}
-        emptyText="Ainda não há corridas com distância e duração registradas pelo relógio."
-        caution="Cada ponto é o ritmo médio de uma corrida; treinos leves, longões e intervalados têm intenções diferentes e aparecem juntos."
+      <WeeklyCard
+        title="Diferença: realizado − prescrito"
+        snapshot={snapshots['training.volumeDiffAbsoluteKm']}
+        descriptor={DIFF}
+        unit="km por semana (0 = igual ao prescrito)"
+        formatY={(v) => String(Math.round(v * 10) / 10).replace('.', ',')}
+        emptyText="Ainda não há semanas com volume prescrito e realizado para comparar."
+        caution="Cada ponto é uma semana completa, de segunda a domingo. Descrição dos seus registros; não indica o que é certo ou errado."
+      />
+      <WeeklyCard
+        title="Razão: realizado ÷ prescrito"
+        snapshot={snapshots['training.volumeRatioCompletedPrescribed']}
+        descriptor={RATIO}
+        unit="razão (1 = igual ao prescrito)"
+        formatY={(v) => (Math.round(v * 10) / 10).toFixed(1).replace('.', ',')}
+        emptyText="Ainda não há semanas com volume prescrito para calcular a razão."
+        caution="O realizado inclui os treinos extras. Semana sem volume prescrito não entra. Descrição dos seus registros; não indica o que é certo ou errado."
       />
       <MetricCard
         title="Cadência ao longo do tempo"
@@ -134,6 +230,30 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         formatY={(v) => String(Math.round(v))}
         higherIsUp
         emptyText="Ainda não há corridas com cadência fornecida pelo seu dispositivo."
+      />
+      <MetricCard
+        title="Ritmo ao longo do tempo"
+        snapshot={snapshots['activity.avgPaceSecondsKm']}
+        descriptor={PACE}
+        noun="ritmo"
+        masculine
+        unit="min/km (mais rápido no alto)"
+        formatY={(v) => formatPaceSeconds(v).replace('/km', '')}
+        higherIsUp={false}
+        emptyText="Ainda não há corridas com distância e duração registradas pelo relógio."
+        caution="Cada ponto é o ritmo médio de uma corrida; treinos leves, longões e intervalados têm intenções diferentes e aparecem juntos."
+      />
+      <MetricCard
+        title="Tempo dentro da faixa de ritmo prescrita"
+        snapshot={snapshots['execution.timeInBandPct']}
+        descriptor={TIME_IN_BAND}
+        noun="tempo dentro da faixa"
+        subject="o tempo dentro da faixa de ritmo prescrita"
+        unit="% do tempo observável do treino"
+        formatY={(v) => String(Math.round(v))}
+        higherIsUp
+        emptyText="Ainda não há corridas com faixa de ritmo prescrita e dados do relógio suficientes."
+        caution="Mostra a parte do tempo observável do treino em que seu ritmo ficou dentro da faixa prescrita. Só entram corridas com faixa de ritmo prescrita e dados do relógio. Descrição dos seus registros; não é uma nota."
       />
       <SourcesLink themeIds={['intensidade-treinamento', 'rigidez-tendinea-economia-corrida']} />
     </View>
