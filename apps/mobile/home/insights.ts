@@ -268,6 +268,49 @@ export function sessionMeanSentences(
 }
 
 // ---------------------------------------------------------------------------------------------
+// Carga interna percebida (esforço × minutos, em UA) — GET /me/training-load (a mesma conta do painel do treinador, coach/training-load.ts). Aqui só se FORMATA o que o servidor devolve.
+// Semana em andamento e semana cortada pelo período ficam fora do gráfico; semana sem nenhum treino com carga vira LACUNA (nunca zero: pode ser semana sem registro, nao semana sem treino).
+// ---------------------------------------------------------------------------------------------
+
+export interface LoadWeekLite { weekStart: string; inProgress: boolean; clipped: boolean; load: number; sessions: number; excluded: number }
+export interface LoadWindowLite { acuteLoad: number; chronicWeeklyAverage: number; ratio: number | null; sessionsInWindow: number; minSessions: number; note: string | null }
+
+const uaText = (v: number) => `${String(Math.round(v * 10) / 10).replace('.', ',')} UA`;
+const dayMonthOf = (isoDay: string) => `${isoDay.slice(8, 10)}/${isoDay.slice(5, 7)}`;
+const treinos = (n: number) => `${n} ${n === 1 ? 'treino' : 'treinos'}`;
+
+/** Pontos do grafico semanal: so' semanas completas; sem treino com carga = lacuna (load null), nunca zero. */
+export function loadChartWeeks(weeks: LoadWeekLite[]): Array<{ weekStart: string; load: number | null }> {
+  return weeks.filter((w) => !w.inProgress && !w.clipped).map((w) => ({ weekStart: w.weekStart, load: w.sessions > 0 ? w.load : null }));
+}
+
+export function loadWeekSentences(weeks: LoadWeekLite[]): string[] {
+  const lastComplete = [...weeks].reverse().find((w) => !w.inProgress && !w.clipped && w.sessions > 0);
+  const current = weeks.find((w) => w.inProgress && w.sessions > 0);
+  const out: string[] = [];
+  if (lastComplete) {
+    out.push(`Na última semana completa com treinos (semana de ${dayMonthOf(lastComplete.weekStart)}), a carga foi de ${uaText(lastComplete.load)}, em ${treinos(lastComplete.sessions)}.`);
+    if (lastComplete.excluded > 0) out.push(`${treinos(lastComplete.excluded)} dessa semana ${lastComplete.excluded === 1 ? 'ficou' : 'ficaram'} de fora do cálculo por falta de esforço percebido ou de duração.`);
+  } else {
+    out.push('Ainda não há semanas completas com carga registrada.');
+  }
+  if (current) out.push(`Nesta semana, até agora: ${uaText(current.load)} em ${treinos(current.sessions)} (fora do gráfico até a semana terminar).`);
+  return out;
+}
+
+export function loadWindowSentences(w: LoadWindowLite): string[] {
+  if (w.sessionsInWindow <= 0) return [w.note ?? 'Ainda não há carga registrada nos últimos 28 dias.'];
+  const out = [`Carga dos últimos 7 dias (aguda): ${uaText(w.acuteLoad)}.`, `Média semanal dos últimos 28 dias (crônica): ${uaText(w.chronicWeeklyAverage)}.`];
+  if (w.ratio != null) {
+    out.push(`Razão aguda ÷ crônica: ${w.ratio.toFixed(2).replace('.', ',')}.`);
+    if (w.note) out.push(w.note);
+  } else {
+    out.push(w.note ?? 'A razão ainda não existe: histórico insuficiente.');
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Indicadores SEMANAIS (training.* por semana): diferenca e razao realizado x prescrito. A semana em andamento esta na serie do servidor, marcada como parcial; ela NAO
 // entra no grafico nem no texto ate terminar (uma razao de terca-feira nao e' comparavel com semanas fechadas). So' leitura: nenhuma conta de volume aqui.
 // ---------------------------------------------------------------------------------------------

@@ -3520,6 +3520,14 @@ Mapa dos 8 indicadores de "Evolução do treinamento" pedidos por Elton: 1 volum
 - Fora deste lote: seletor de modalidade nesses indicadores (km é só de atividades com distância; ritmo/cadência/faixa são só corrida e ganham a etiqueta "Modalidade: corrida"); volume prescrito, realizado e extras continuam no gráfico combinado já existente. Testes em `home-weekly-indicators.spec.ts`.
 - Vale no PWA após o Deploy (só app; a API não mudou neste lote); app nativo só no próximo build. Não verificado visualmente.
 
+### 02/11/2026 — Evolução, lote 5: Resposta à carga
+Mapa dos 7 indicadores pedidos por Elton: 1 PSE (já existia), 2 carga acumulada (esforço × minutos), 3 relação aguda × crônica da carga, 4 volume aguda × crônica, 5 frequência cardíaca média total, 6 desacoplamento da FC, 7 exigência da semana. 1, 2, 3, 4 e 7 já tinham dado no servidor; 5 e 6 NÃO.
+- Servidor: nova rota `GET /me/training-load` (`coach/me-training-load.controller.ts`) = a MESMA conta do painel do treinador (`StudentTrainingLoadService` → `coach/training-load.ts`, fonte única), sempre com o id da aluna autenticada. Teste em `me-training-load.spec.ts`.
+- App (`home/LoadSection.tsx`, abaixo do cartão de esforço percebido em "Resposta à carga"): carga de cada treino por modalidade (variável `workout.sessionInternalLoad`, com faixa e média do servidor); carga acumulada por semana (UA) com botões Todas/Corrida/Força/Outras; "Carga recente × seu hábito" (aguda 7 dias, crônica média semanal 28 dias, razão — a razão só aparece quando o servidor a sustenta, com a explicação dele quando não); volume aguda ÷ crônica (`training.acwr`, km, 28 ÷ 42 dias); exigência da semana comparada ao normal (`checkin.weekDemandVsNormal`, 1–5 do check-in).
+- Regras de leitura: semana em andamento e semana cortada pelo período ficam fora do gráfico semanal; semana sem nenhum treino com esforço e duração vira LACUNA, nunca zero (pode ser semana sem registro). Textos só descrevem (`loadWeekSentences`, `loadWindowSentences` em `home/insights.ts`); testes em `home-load-sentences.spec.ts`.
+- NÃO feito: (5) frequência cardíaca média total não existe como variável (só `execution.avgHeartRateInBandBpm`); exigiria nova variável no registro (`ActivityLog.avgHeartRateBpm` existe) — a IA usa lista explícita de variáveis, então criar a variável não a expõe à IA sozinho. Aguardando decisão de Elton. (6) desacoplamento: Elton disse que ainda será instalado. A carga SEMANAL ainda não tem faixa nem média móvel (não há variável semanal de carga interna; criar é trabalho de servidor, ver acima).
+- Vale no PWA após o Deploy da API (rota nova) e do app; app nativo só no próximo build. Não verificado visualmente.
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

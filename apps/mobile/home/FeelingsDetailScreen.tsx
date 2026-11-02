@@ -21,7 +21,7 @@ function fmtValue(v: number, variable: DomainVariable) {
   return `${String(rounded).replace('.', ',')}${variable.unit ? ` ${variable.unit}` : ''}`;
 }
 
-function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string }) {
+export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string }) {
   // 02/11/2026: seletor de modalidade DENTRO do grafico (padrao: todas). So' aparece quando a variavel tem dado em 2+ modalidades; a escolha busca a MESMA leitura
   // do servidor filtrada pela modalidade (nenhuma conta no app).
   const [modality, setModality] = useState<string | null>(null);

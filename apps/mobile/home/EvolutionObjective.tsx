@@ -128,7 +128,7 @@ function MetricCard({
 
 // Indicador SEMANAL (uma bolinha por semana COMPLETA, segunda a domingo). A semana em andamento fica fora do grafico e do texto ate terminar; faixa e media movel
 // vem do servidor (mesmos pontos, so' filtrados para as semanas completas).
-function WeeklyCard({
+export function WeeklyCard({
   title,
   snapshot,
   descriptor,
