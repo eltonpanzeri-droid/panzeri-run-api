@@ -32,7 +32,7 @@ Depois que ela gera, o treino novo aparece na tela principal e o ciclo recomeça
 4. **Quem decide o estado da semana:** hoje o app refaz a conta do corte de domingo por conta própria (duas funções) e o servidor tem outras (pelo menos três). A regra nova exige uma resposta única, e o caso do dossiê 0013 mostra que a conta no celular falhou no app nativo.
 
 ## Implementação
-- **Passo 1 — servidor (feito em 01/11, aguardando Push e Deploy):** `currentWeekWindow` + `current()` em `training-plans.service.ts`. De domingo 12h (Brasília) em diante a tela principal é a **semana seguinte** (gerada, ou "não gerada" → botão); "Anterior" = semana que acabou; "Próxima" = a depois. Resolve o app nativo 1.0.2 (16) sem novo build. Testes de borda: `test/current-week-window.spec.ts` (11h59, 12h00, 21h08, 23h59, 00h00, outro fuso de máquina).
+- **Passo 1 — servidor (feito e CONFIRMADO por Elton em 01/11, noite; falta a confirmação da Juliana):** `currentWeekWindow` + `current()` em `training-plans.service.ts`. De domingo 12h (Brasília) em diante a tela principal é a **semana seguinte** (gerada, ou "não gerada" → botão); "Anterior" = semana que acabou; "Próxima" = a depois. Resolve o app nativo 1.0.2 (16) sem novo build. Testes de borda: `test/current-week-window.spec.ts` (11h59, 12h00, 21h08, 23h59, 00h00, outro fuso de máquina).
 - **Passo 2 — app (precisa de novo build; NÃO autorizado):** hora de Brasília sem `Intl`, "incluir hoje?" também no domingo até 11h59 e em Brasília, "Próxima" apagada com a frase.
 
 ## Próximo passo (ainda NÃO autorizado)
