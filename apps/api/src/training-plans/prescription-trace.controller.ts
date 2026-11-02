@@ -18,7 +18,19 @@ export class PrescriptionTraceController {
     @Query('planId') planId?: string,
     @Query('sessionId') sessionId?: string,
     @Query('includeAgentInput') includeAgentInput?: string,
+    @Query('packageId') packageId?: string,
   ) {
-    return this.trace.getTrace(studentId, { planId, sessionId, includeAgentInput: includeAgentInput === 'true' });
+    return this.trace.getTrace(studentId, { planId, sessionId, packageId, includeAgentInput: includeAgentInput === 'true' });
+  }
+
+  // Lista leve dos pacotes (sem prompt) e prontuario da aluna: base da tela "O que a IA recebeu" (02/11/2026). So' leitura.
+  @Get('students/:studentId/prescription-packages')
+  list(@Param('studentId') studentId: string, @Query('limit') limit?: string) {
+    return this.trace.listPackages(studentId, limit ? parseInt(limit, 10) : undefined);
+  }
+
+  @Get('students/:studentId/prontuario')
+  prontuario(@Param('studentId') studentId: string) {
+    return this.trace.getProntuario(studentId);
   }
 }

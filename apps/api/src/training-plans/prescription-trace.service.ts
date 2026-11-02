@@ -191,9 +191,9 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
   }
 
   // Reconstrucao: pacote(s) + decisoes + RESULTADO lido por vinculo (nada e copiado; sempre consistente com o dado atual).
-  async getTrace(userId: string, query: { planId?: string; sessionId?: string; includeAgentInput?: boolean }) {
+  async getTrace(userId: string, query: { planId?: string; sessionId?: string; packageId?: string; includeAgentInput?: boolean }) {
     const packages = await this.prisma.prescriptionEvidencePackage.findMany({
-      where: { userId, ...(query.planId ? { planId: query.planId } : {}), ...(query.sessionId ? { OR: [{ sessionId: query.sessionId }, { decisions: { some: { sessionId: query.sessionId } } }] } : {}) },
+      where: { userId, ...(query.packageId ? { id: query.packageId } : {}),...(query.planId ? { planId: query.planId } : {}), ...(query.sessionId ? { OR: [{ sessionId: query.sessionId }, { decisions: { some: { sessionId: query.sessionId } } }] } : {}) },
       orderBy: { createdAt: 'asc' },
       include: { decisions: { orderBy: { createdAt: 'asc' } } },
     });
@@ -269,6 +269,30 @@ export class PrescriptionTraceService implements OnApplicationBootstrap {
     return {
       sessionCreatedAt: session.createdAt, completion: session.completion, objectiveActivities,
       coachEditsAfterRegistration: session.completion && Array.isArray(session.prescriptionHistory) ? session.prescriptionHistory.length : 0,
+    };
+  }
+
+  // Lista LEVE dos pacotes de uma aluna (sem o prompt): para a tela "O que a IA recebeu" escolher qual prescricao abrir. So' leitura.
+  async listPackages(userId: string, limit = 30) {
+    const take = Math.min(Math.max(Math.trunc(limit) || 30, 1), 100);
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; createdAt: Date; kind: string; planId: string; sessionId: string | null; modelIds: string[]; hasInput: boolean; inputChars: number | bigint | null; purgedAt: Date | null }>>`
+      SELECT "id", "createdAt", "kind", "planId", "sessionId", "modelIds", ("agentInput" IS NOT NULL) AS "hasInput", LENGTH("agentInput"::text) AS "inputChars", "agentInputPurgedAt" AS "purgedAt"
+      FROM "PrescriptionEvidencePackage" WHERE "userId" = ${userId} ORDER BY "createdAt" DESC LIMIT ${take}`;
+    return rows.map((row) => ({ ...row, inputChars: row.inputChars == null ? null : Number(row.inputChars) }));
+  }
+
+  // Prontuario da aluna como a IA o recebe: resumo condensado + eventos ainda NAO condensados (esses seguem crus para o Prescritor). So' leitura, so' treinador.
+  // ai-scope: nao-ia (visao do TREINADOR; mostra o que ja' e' elegivel para a IA e tambem eventos de provedores bloqueados, marcados como tal).
+  async getProntuario(userId: string) {
+    const [profile, events] = await Promise.all([
+      this.prisma.studentProfile.findUnique({ where: { userId }, select: { summary: true, updatedAt: true } }),
+      this.prisma.studentProfileEvent.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 80, select: { id: true, code: true, content: true, createdAt: true, summarizedAt: true, sourceProviders: true } }),
+    ]);
+    return {
+      summary: profile?.summary ?? '',
+      summaryUpdatedAt: profile?.updatedAt ?? null,
+      pendingEvents: events.filter((event) => event.summarizedAt === null),
+      condensedEvents: events.filter((event) => event.summarizedAt !== null),
     };
   }
 

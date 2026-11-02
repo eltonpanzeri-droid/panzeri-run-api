@@ -3234,7 +3234,7 @@ function StudentPanel({
   // 01/09: o painel virou abas em vez de uma pagina so' com tudo empilhado (pedido do treinador —
   // ver studentViewMode no componente pai pro contexto completo dessa mudanca). "Treinos" e' a aba
   // padrao por ser a mais usada no dia a dia.
-  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'calendario'>('treinos');
+  const [detailTab, setDetailTab] = useState<'treinos' | 'cadastro' | 'provas' | 'avaliacao' | 'rotina' | 'diretrizes' | 'semanas' | 'evolucao' | 'ciclo' | 'contexto' | 'timeline' | 'atividadesExternas' | 'integracoes' | 'calendario' | 'iaRecebeu'>('treinos');
   // 11/09: período universal da aba Evolução — compartilhado por todos os gráficos e seções.
   // Padrão 12 semanas (~3 meses). Opções: 4/8/12/24/52/999(Tudo).
   // 27/10/2026: periodo unico da aba Evolucao (nova central). Compartilhado pela exploracao, pela comparacao e pelas analises de treino.
@@ -3758,6 +3758,7 @@ function StudentPanel({
             O codigo das duas abas foi mantido, inalcancavel pelos botoes, para reverter. */}
         <button type="button" className={detailTab === 'integracoes' ? 'active' : ''} onClick={() => setDetailTab('integracoes')}>Integrações</button>
         <button type="button" className={detailTab === 'atividadesExternas' ? 'active' : ''} onClick={() => setDetailTab('atividadesExternas')}>Atividades externas</button>
+        <button type="button" className={detailTab === 'iaRecebeu' ? 'active' : ''} onClick={() => setDetailTab('iaRecebeu')}>O que a IA recebeu</button>
         {student?.interview?.answers?.personal_sex === 'Feminino' && (
           <button type="button" className={detailTab === 'ciclo' ? 'active' : ''} onClick={() => setDetailTab('ciclo')}>Ciclo</button>
         )}
@@ -4409,6 +4410,9 @@ function StudentPanel({
       {/* 01/11/2026: a antiga aba "Carga (própria)" foi consolidada em Evolução > Explorar > Treinos > "Carga acumulada e semanas" (uma só implementação da métrica). */}
       {detailTab === 'atividadesExternas' ? (
         <div className="detailFull"><AtividadesExternasTab studentId={student.id} accessToken={token} /></div>
+      ) : null}
+      {detailTab === 'iaRecebeu' ? (
+        <div className="detailFull"><IaRecebeuTab studentId={student.id} accessToken={token} /></div>
       ) : null}
 
       </section>
@@ -5525,6 +5529,263 @@ function extTriState(matched: boolean | null) {
   if (matched === false) return <span className="extBadge extBadgeDanger">falhou</span>;
   return <span className="extBadge extBadgeNeutral">sem dado</span>;
 }
+// ---- "O que a IA recebeu" (02/11/2026) — so' leitura. Mostra, de uma prescricao ja' gerada: o que chegou a IA (prompt do usuario, por secao), o que ficou de fora,
+// a justificativa que a IA declarou (nao o treino) e o prontuario. NAO chama a IA e nao gasta tokens: le o que ja' esta guardado.
+interface IaPackageListItem { id: string; createdAt: string; kind: string; planId: string; sessionId: string | null; modelIds: string[]; hasInput: boolean; inputChars: number | null; purgedAt: string | null }
+interface IaDecision { id: string; kind: string; weekday: number | null; modality: string | null; summary: string; changeFromPrevious: unknown; rationale: unknown; intent: string | null; expected: unknown; basis: unknown; traceStatus: string }
+interface IaCall { attempt: number; purpose: string; model: string; systemPromptSha256: string; userPromptSha256?: string; userPrompt: string; userInput?: unknown }
+interface IaPackage {
+  id: string; kind: string; planId: string; createdAt: string; modelIds: string[]; methodologyVersion: string; agentInputHash: string;
+  evidence: Array<{ ref: string; kind: string; label: string; delivery: string; storage: string; asOf: string | null; excerpt: string | null }>;
+  contextGaps: unknown; agentInputAvailable: boolean; agentInput?: { calls: IaCall[] } | null; decisions: IaDecision[];
+}
+interface IaProntuarioEvent { id: string; code: string; content: string; createdAt: string; summarizedAt: string | null; sourceProviders: unknown }
+interface IaProntuario { summary: string; summaryUpdatedAt: string | null; pendingEvents: IaProntuarioEvent[]; condensedEvents: IaProntuarioEvent[] }
+
+const IA_WEEKDAY = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const IA_KIND_LABEL: Record<string, string> = { weekly: 'Semana', day_regeneration: 'Regeneração de um dia' };
+const IA_PURPOSE_LABEL: Record<string, string> = { semana: 'Treinador da semana', dia_corrida: 'Dia de corrida', dia_forca: 'Dia de força', reparo_forca: 'Reparo de força' };
+const iaFmtChars = (n: number) => `${n.toLocaleString('pt-BR')} car.`;
+
+function iaText(value: unknown): string {
+  if (value == null) return '';
+  return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+}
+
+// Conteudo grande so' e' montado quando a secao e' aberta (o retrato do atleta passa de 100 mil caracteres).
+function IaLazyBlock({ summary, text }: { summary: React.ReactNode; text: string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <details className="extDetails" onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}>
+      <summary>{summary}</summary>
+      {open ? <pre className="extPre" style={{ maxHeight: 520, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{text}</pre> : null}
+    </details>
+  );
+}
+
+function IaPromptSections({ call }: { call: IaCall }) {
+  const total = call.userPrompt.length;
+  const parsed = call.userInput && typeof call.userInput === 'object' && !Array.isArray(call.userInput) ? (call.userInput as Record<string, unknown>) : null;
+  if (!parsed) {
+    return <IaLazyBlock summary={`Prompt do usuário como texto (${iaFmtChars(total)})`} text={call.userPrompt} />;
+  }
+  const sections = Object.entries(parsed).map(([key, value]) => {
+    const text = JSON.stringify(value, null, 2) ?? '';
+    return { key, text, size: text.length };
+  }).sort((a, b) => b.size - a.size);
+  return (
+    <div>
+      <p className="extHint" style={{ margin: '0 0 6px' }}>
+        {sections.length} seção(ões) no prompt do usuário, da maior para a menor. O percentual é sobre os {iaFmtChars(total)} enviados (texto exato, com a formatação que a IA recebeu).
+      </p>
+      <div className="extTableWrap">
+        <table className="extTable">
+          <thead><tr><th>Seção</th><th>Tamanho</th><th>% do prompt</th></tr></thead>
+          <tbody>
+            {sections.map((section) => (
+              <tr key={section.key}>
+                <td><IaLazyBlock summary={<code>{section.key}</code>} text={section.text} /></td>
+                <td>{iaFmtChars(section.size)}</td>
+                <td>{total > 0 ? `${Math.round((section.size / total) * 1000) / 10}%` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <IaLazyBlock summary="Ver o prompt do usuário completo (texto exato enviado)" text={call.userPrompt} />
+    </div>
+  );
+}
+
+function IaProntuarioList({ title, events }: { title: string; events: IaProntuarioEvent[] }) {
+  if (events.length === 0) return <p className="extHint">{title}: nenhum evento.</p>;
+  return (
+    <div>
+      <strong>{title} ({events.length})</strong>
+      <div className="extTableWrap">
+        <table className="extTable">
+          <thead><tr><th>Data</th><th>Tipo</th><th>Texto</th></tr></thead>
+          <tbody>
+            {events.map((event) => (
+              <tr key={event.id}><td>{extFmtDateTime(event.createdAt)}</td><td><code>{event.code}</code></td><td style={{ whiteSpace: 'pre-wrap' }}>{event.content}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function IaRecebeuTab({ studentId, accessToken }: { studentId: string; accessToken: string }) {
+  const [list, setList] = React.useState<IaPackageListItem[] | null>(null);
+  const [selected, setSelected] = React.useState<string>('');
+  const [pkg, setPkg] = React.useState<IaPackage | null>(null);
+  const [state, setState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [prontuario, setProntuario] = React.useState<IaProntuario | null>(null);
+
+  React.useEffect(() => {
+    let alive = true;
+    setList(null); setPkg(null); setSelected(''); setProntuario(null);
+    const headers = { Authorization: `Bearer ${accessToken}` };
+    void fetch(`${API_URL}/coach/students/${studentId}/prescription-packages?limit=40`, { headers })
+      .then((response) => (response.ok ? response.json() : []))
+      .then((rows: IaPackageListItem[]) => {
+        if (!alive) return;
+        setList(rows);
+        const first = rows.find((row) => row.kind === 'weekly') ?? rows[0];
+        if (first) setSelected(first.id);
+      })
+      .catch(() => { if (alive) setList([]); });
+    void fetch(`${API_URL}/coach/students/${studentId}/prontuario`, { headers })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: IaProntuario | null) => { if (alive) setProntuario(data); })
+      .catch(() => { if (alive) setProntuario(null); });
+    return () => { alive = false; };
+  }, [studentId, accessToken]);
+
+  React.useEffect(() => {
+    if (!selected) return;
+    let alive = true;
+    setState('loading'); setPkg(null);
+    void fetch(`${API_URL}/coach/students/${studentId}/prescription-trace?packageId=${encodeURIComponent(selected)}&includeAgentInput=true`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error('falha'))))
+      .then((data: { packages: IaPackage[] }) => { if (!alive) return; setPkg(data.packages[0] ?? null); setState('idle'); })
+      .catch(() => { if (alive) setState('error'); });
+    return () => { alive = false; };
+  }, [selected, studentId, accessToken]);
+
+  const weekDecision = pkg?.decisions.find((decision) => decision.kind === 'week') ?? null;
+  const sessionDecisions = (pkg?.decisions ?? []).filter((decision) => decision.kind === 'session');
+  const deliveryBadge = (delivery: string) => <span className={`extBadge ${delivery === 'delivered' ? 'extBadgeOk' : delivery === 'absent' ? 'extBadgeWarn' : 'extBadgeNeutral'}`}>{delivery === 'delivered' ? 'entregue' : delivery === 'absent' ? 'ausente' : delivery === 'delivered_unprocessed' ? 'entregue sem processar' : delivery}</span>;
+
+  return (
+    <div className="extWrap">
+      <div>
+        <h3 style={{ margin: 0 }}>O que a IA recebeu, pensou e entregou</h3>
+        <p className="extHint" style={{ margin: '4px 0 0' }}>
+          Só leitura do que já está guardado: <strong>nenhuma chamada de IA é feita e nenhum token é gasto</strong> ao abrir esta tela. Mostra o que chegou à IA, o que ficou de fora e a justificativa que ela declarou
+          (não o treino). O raciocínio interno bruto da IA não é guardado: o que existe é o que ela declarou como intenção, resultado esperado e base de cada decisão.
+        </p>
+      </div>
+
+      <div className="extToolbar">
+        <div className="extToolbarGroup">
+          <label className="extHint" htmlFor="iaPackage">Prescrição:</label>
+          <select id="iaPackage" value={selected} onChange={(event) => setSelected(event.target.value)} disabled={!list || list.length === 0}>
+            {(list ?? []).map((item) => (
+              <option key={item.id} value={item.id}>
+                {extFmtDateTime(item.createdAt)} · {IA_KIND_LABEL[item.kind] ?? item.kind}{item.hasInput ? '' : ' · entrada não guardada'}
+              </option>
+            ))}
+          </select>
+          {list === null ? <span className="extHint">carregando…</span> : null}
+          {list && list.length === 0 ? <span className="extHint">Nenhuma prescrição registrada para esta aluna.</span> : null}
+          {state === 'loading' ? <span className="extHint">abrindo…</span> : null}
+          {state === 'error' ? <span className="extBadge extBadgeDanger">Falha ao abrir</span> : null}
+        </div>
+      </div>
+
+      {pkg ? (
+        <>
+          <div className="extCompare">
+            <div className="extToolbarGroup">
+              <strong>{IA_KIND_LABEL[pkg.kind] ?? pkg.kind}</strong>
+              <span className="extBadge extBadgeNeutral">{extFmtDateTime(pkg.createdAt)}</span>
+              <span className="extBadge extBadgeNeutral">metodologia {pkg.methodologyVersion}</span>
+              {pkg.modelIds.map((model) => <span key={model} className="extBadge extBadgeNeutral">{model}</span>)}
+            </div>
+          </div>
+
+          <div className="extCompare">
+            <strong>1. O que chegou à IA</strong>
+            {!pkg.agentInputAvailable || !pkg.agentInput ? (
+              <p className="extHint">A entrada completa desta prescrição <strong>não está guardada</strong> (passou do prazo de retenção ou era grande demais para guardar). Só o índice de evidências abaixo está disponível.</p>
+            ) : (
+              pkg.agentInput.calls.map((call) => (
+                <div key={call.attempt} style={{ marginTop: 10 }}>
+                  <div className="extToolbarGroup">
+                    <strong>{IA_PURPOSE_LABEL[call.purpose] ?? call.purpose}</strong>
+                    <span className="extBadge extBadgeNeutral">tentativa {call.attempt}</span>
+                    <span className="extBadge extBadgeNeutral">{call.model}</span>
+                    <span className="extBadge extBadgeNeutral">prompt do usuário: {iaFmtChars(call.userPrompt.length)}</span>
+                  </div>
+                  <p className="extHint" style={{ margin: '4px 0' }}>
+                    As instruções fixas (prompt de sistema) não são guardadas como texto: fica só a identificação <code>{call.systemPromptSha256.slice(0, 12)}…</code>; o texto vive no código, versionado.
+                  </p>
+                  <IaPromptSections call={call} />
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="extCompare">
+            <strong>2. O que foi considerado e o que ficou de fora</strong>
+            <div className="extTableWrap">
+              <table className="extTable">
+                <thead><tr><th>Item</th><th>Tipo</th><th>Situação</th><th>Como foi guardado</th><th>Referência de data</th></tr></thead>
+                <tbody>
+                  {pkg.evidence.map((item) => (
+                    <tr key={item.ref}>
+                      <td>{item.label}{item.excerpt ? <div className="extHint">{item.excerpt}</div> : null}</td>
+                      <td>{item.kind}</td><td>{deliveryBadge(item.delivery)}</td><td>{item.storage}</td><td>{item.asOf ? extFmtDateTime(item.asOf) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {Array.isArray(pkg.contextGaps) && pkg.contextGaps.length > 0 ? (
+              <IaLazyBlock summary={`Lacunas de contexto declaradas (${pkg.contextGaps.length})`} text={iaText(pkg.contextGaps)} />
+            ) : null}
+          </div>
+
+          <div className="extCompare">
+            <strong>3. A justificativa que a IA declarou (não o treino)</strong>
+            {weekDecision ? (
+              <div style={{ margin: '6px 0' }}>
+                <div><strong>Semana:</strong> {weekDecision.summary}</div>
+                {weekDecision.rationale ? <pre className="extPre" style={{ whiteSpace: 'pre-wrap' }}>{iaText(weekDecision.rationale)}</pre> : <p className="extHint">Sem justificativa em texto livre registrada para a semana.</p>}
+              </div>
+            ) : null}
+            {sessionDecisions.length === 0 ? <p className="extHint">Nenhuma decisão por sessão registrada neste pacote.</p> : (
+              <div className="extTableWrap">
+                <table className="extTable">
+                  <thead><tr><th>Dia</th><th>Decisão</th><th>Intenção</th><th>Resultado esperado</th><th>Em que se baseou</th></tr></thead>
+                  <tbody>
+                    {sessionDecisions.map((decision) => {
+                      const basis = Array.isArray(decision.basis) ? (decision.basis as Array<{ source?: string; note?: string; decides?: string | null }>) : [];
+                      return (
+                        <tr key={decision.id}>
+                          <td>{decision.weekday != null ? IA_WEEKDAY[decision.weekday] : '—'} · {decision.modality ?? '—'}</td>
+                          <td>{decision.summary}{decision.traceStatus !== 'complete' ? <div className="extHint">rastro {decision.traceStatus === 'absent' ? 'ausente' : 'parcial'}</div> : null}</td>
+                          <td style={{ whiteSpace: 'pre-wrap' }}>{decision.intent ?? '—'}</td>
+                          <td style={{ whiteSpace: 'pre-wrap' }}>{decision.expected ? iaText(decision.expected) : '—'}</td>
+                          <td>{basis.length === 0 ? '—' : basis.map((item, index) => <div key={index}><code>{item.source ?? 'outro'}</code> {item.note ?? ''}{item.decides ? <span className="extHint"> (decide: {item.decides})</span> : null}</div>)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
+
+      <div className="extCompare">
+        <strong>4. Prontuário (como a IA o recebe)</strong>
+        {prontuario === null ? <p className="extHint">Não foi possível carregar o prontuário agora.</p> : (
+          <>
+            <p className="extHint" style={{ margin: '4px 0' }}>Resumo condensado{prontuario.summaryUpdatedAt ? `, atualizado em ${extFmtDateTime(prontuario.summaryUpdatedAt)}` : ''}. Os eventos <strong>ainda não condensados</strong> seguem crus para o Prescritor junto com ele.</p>
+            {prontuario.summary ? <pre className="extPre" style={{ whiteSpace: 'pre-wrap' }}>{prontuario.summary}</pre> : <p className="extHint">Resumo vazio.</p>}
+            <IaProntuarioList title="Eventos ainda não condensados" events={prontuario.pendingEvents} />
+            <IaLazyBlock summary={`Eventos já condensados (${prontuario.condensedEvents.length}, os mais recentes)`} text={prontuario.condensedEvents.map((event) => `${extFmtDateTime(event.createdAt)} · ${event.code}\n${event.content}`).join('\n\n')} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface ExtDuplicateScan {
   groups: Array<{
     observerKey: string; sport: string | null; startedAt: string; durationSec: number | null; canonicalActivityLogId: string; inflatedKm: number | null;
