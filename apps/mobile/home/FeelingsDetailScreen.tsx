@@ -121,7 +121,7 @@ function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { varia
   );
 }
 
-export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessToken: string; domain: FeelingDomain; onBack: () => void }) {
+export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 'Início' }: { accessToken: string; domain: FeelingDomain; onBack: () => void; backLabel?: string }) {
   const cfg = FEELING_DOMAINS[domain];
   const [snapshots, setSnapshots] = useState<Record<string, SnapshotLite | null> | null>(null);
 
@@ -139,7 +139,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessTo
     <View style={styles.container}>
       <Pressable onPress={onBack} style={styles.back}>
         <Ionicons name="chevron-back" size={16} color={HomeColors.panzeriInteraction} />
-        <Text style={styles.backText}>Início</Text>
+        <Text style={styles.backText}>{backLabel}</Text>
       </Pressable>
       <Text style={styles.title}>{cfg.title}</Text>
       <Text style={styles.subtitle}>{cfg.subtitle}</Text>

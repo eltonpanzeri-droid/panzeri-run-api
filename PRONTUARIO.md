@@ -3494,6 +3494,15 @@ Decisão de Elton (02/11): uma matemática só. A faixa cinza dos gráficos da a
 - Regra de dor (Elton): treino feito sem relato de dor vale ZERO, não "dado ausente"; só é ausente quando o treino não foi registrado. Vale para o gráfico de dor futuro.
 - Vale no PWA após o Deploy (aluna reinstala o ícone); app nativo só no próximo build. Não verificado visualmente no navegador (não há API local sem usar o banco de produção).
 
+### 02/11/2026 — Nova Evolução em seis áreas (lote 2: esqueleto)
+O item "Evolução" do menu (e o link da Home) agora abre `home/EvolutionHub.tsx`: aviso de interpretação no topo + seis áreas. Neste lote NADA novo é calculado: cada área abre o conteúdo que já existia.
+- Evolução do treinamento → volume, ritmo, cadência, treinos por modalidade (a tela `Progress` do `App.tsx` com `focus="training"`).
+- Resposta à carga → esforço percebido (RPE). Sono e recuperação → sono + atalho para "Minha recuperação" (dados do relógio). Bem-estar → Prontidão pré-treino e Resposta pós-treino. Aderência → aderência, sequência e sem registro (`Progress` com `focus="adherence"`).
+- Dor → área "Em construção" com atalho para "Relatar dor". O gráfico de dor vem em lote próprio; regra de Elton: treino feito sem relato de dor vale zero.
+- `Progress` sem `focus` continua mostrando a tela inteira de antes. Texto do topo (melhorado a partir da proposta de Elton) vai ao advogado junto com os demais textos de saúde.
+- Próximos lotes: textos "o que isso representa" por indicador (Elton escreve, advogado revisa), indicadores novos por área, gráfico de dor, volume semanal na mesma matemática do servidor.
+- Vale no PWA após o Deploy; app nativo só no próximo build. Não verificado visualmente (sem API local sem usar o banco de produção).
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

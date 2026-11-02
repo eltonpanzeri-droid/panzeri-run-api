@@ -43,6 +43,7 @@ import { HomeScreen } from './home/HomeScreen';
 import { MedalsScreen } from './home/MedalsScreen';
 import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
+import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
 import type { FeelingDomain } from './home/insights';
 import { BottomNav, BottomNavTab } from './home/BottomNav';
 import { PendingIdentitySection } from './home/PendingIdentity';
@@ -1968,7 +1969,14 @@ function AppInner() {
                 )}
               </View>
             )}
-            {activeTab === 'progress' && <Progress accessToken={accessToken} />}
+            {activeTab === 'progress' && (
+              <EvolutionHub
+                accessToken={accessToken}
+                renderProgress={(focus) => <Progress accessToken={accessToken} focus={focus} />}
+                onOpenRecovery={() => setActiveTab('recovery')}
+                onOpenPainReport={() => setActiveTab('painReport')}
+              />
+            )}
             {activeTab === 'recovery' && <RecoveryScreen accessToken={accessToken} apiUrl={API_URL} onOpenIntegrations={() => setActiveTab('devices')} />}
             {activeTab === 'history' && (
               <HistoryCalendar
@@ -6199,7 +6207,8 @@ const CHART_PERIODS = [
 ] as const;
 type ChartPeriodKey = (typeof CHART_PERIODS)[number]['key'];
 
-function Progress({ accessToken }: { accessToken: string }) {
+// `focus` (02/11/2026, nova Evolução em seis áreas): 'training' mostra só volume/ritmo/cadência; 'adherence' só aderência. Sem `focus`, a tela inteira de sempre.
+function Progress({ accessToken, focus }: { accessToken: string; focus?: ProgressFocus }) {
   const [data, setData] = useState<EvolutionOverviewMobile | null>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState<'allTime' | 'last4Weeks' | 'last8Weeks'>('last4Weeks');
@@ -6257,7 +6266,7 @@ function Progress({ accessToken }: { accessToken: string }) {
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 48 }}>
       <Text style={styles.sectionLabel}>Evolução</Text>
-      <Text style={[styles.titleSmall, { marginBottom: 16 }]}>Evolução objetiva do treinamento</Text>
+      <Text style={[styles.titleSmall, { marginBottom: 16 }]}>{focus === 'adherence' ? 'Aderência' : focus === 'training' ? 'Evolução do treinamento' : 'Evolução objetiva do treinamento'}</Text>
 
       {loading ? (
         <ActivityIndicator size="small" color={PRColors.ocean} />
@@ -6265,6 +6274,7 @@ function Progress({ accessToken }: { accessToken: string }) {
         <Text style={styles.formHint}>Não foi possível carregar os dados de evolução.</Text>
       ) : (
         <>
+          {focus !== 'training' ? (<>
           {/* Seletor de período */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
             {(['last4Weeks', 'last8Weeks', 'allTime'] as const).map((p) => (
@@ -6319,6 +6329,9 @@ function Progress({ accessToken }: { accessToken: string }) {
             </View>
           </View>
 
+          </>) : null}
+
+          {focus !== 'adherence' ? (<>
           {/* Cards de volume — linha 2 */}
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
             <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
@@ -6369,8 +6382,10 @@ function Progress({ accessToken }: { accessToken: string }) {
             </View>
           </View>
 
+          </>) : null}
+
           {/* Aviso de baixa cobertura */}
-          {adherence?.lowCoverageWarning ? (
+          {focus !== 'training' && adherence?.lowCoverageWarning ? (
             <View style={{ backgroundColor: '#fefce8', borderRadius: 10, padding: 10, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#fde047' }}>
               <Text style={{ fontSize: 12, color: '#92400e' }}>
                 ⚠ Aderência calculada sobre {adherence.coveragePercent}% dos treinos, registre mais para um número preciso.
@@ -6378,6 +6393,7 @@ function Progress({ accessToken }: { accessToken: string }) {
             </View>
           ) : null}
 
+          {focus !== 'adherence' ? (<>
           {/* Gráfico de km — linhas interativas, 10/09 */}
           <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
@@ -6463,6 +6479,8 @@ function Progress({ accessToken }: { accessToken: string }) {
               </View>
             ))}
           </View>
+
+          </>) : null}
 
           {/* Rodapé */}
           <Text style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
