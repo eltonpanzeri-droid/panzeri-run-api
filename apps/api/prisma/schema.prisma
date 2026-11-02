@@ -2298,6 +2298,13 @@ model AiGenerationCost {
   @@index([userId, createdAt])
 }
 
+// Marcos que o sistema ja avisou ao treinador (02/11/2026). A chave primaria garante um unico aviso por marco, mesmo com dois servidores ou reinicios. So' numeros e datas.
+model CoachMilestone {
+  key       String   @id
+  reachedAt DateTime @default(now())
+  detail    Json?
+}
+
 model BillingEvent {
   id          String   @id @default(uuid())
   userId      String

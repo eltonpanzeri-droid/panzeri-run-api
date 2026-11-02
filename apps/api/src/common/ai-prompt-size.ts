@@ -21,6 +21,21 @@ export function topFieldSizes(value: unknown, limit = 12): FieldSize[] {
 
 const formatFields = (fields: FieldSize[]) => fields.map((f) => `${f.field}=${f.chars}`).join(', ');
 
+/** Soma o tamanho de todos os campos `byModality` (blocos por modalidade) em qualquer profundidade do prompt. Mede a repeticao por modalidade do contexto do atleta. */
+export function byModalityFootprint(value: unknown): { chars: number; blocks: number } {
+  let chars = 0;
+  let blocks = 0;
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) { node.forEach(walk); return; }
+    for (const [key, inner] of Object.entries(node as Record<string, unknown>)) {
+      if (key === 'byModality' && inner && typeof inner === 'object') { chars += sizeOf(inner); blocks += 1; } else walk(inner);
+    }
+  };
+  walk(value);
+  return { chars, blocks };
+}
+
 export interface PromptSizeMeasure {
   totalChars: number;
   totalTokensEstimate: number;
@@ -29,6 +44,10 @@ export interface PromptSizeMeasure {
   userChars: number;
   userTokensEstimate: number;
   userFields: FieldSize[];
+  /** Tamanho do mesmo prompt do usuario escrito sem indentacao (so' para medir quanto a formatacao ocupa). null se o prompt nao for JSON. */
+  userCompactChars: number | null;
+  byModalityChars: number;
+  byModalityBlocks: number;
 }
 
 export interface OutputSizeMeasure {
@@ -46,8 +65,13 @@ export interface OutputSizeMeasure {
 export function measurePromptSize(params: { systemStable: string; systemExtra?: string; userPrompt: string }): PromptSizeMeasure {
   const { systemStable, systemExtra = '', userPrompt } = params;
   let userFields: FieldSize[] = [];
+  let userCompactChars: number | null = null;
+  let modality = { chars: 0, blocks: 0 };
   try {
-    userFields = topFieldSizes(JSON.parse(userPrompt), 14);
+    const parsed = JSON.parse(userPrompt);
+    userFields = topFieldSizes(parsed, 14);
+    userCompactChars = JSON.stringify(parsed).length;
+    modality = byModalityFootprint(parsed);
   } catch {
     userFields = [];
   }
@@ -60,6 +84,9 @@ export function measurePromptSize(params: { systemStable: string; systemExtra?: 
     userChars: userPrompt.length,
     userTokensEstimate: tokensOf(userPrompt.length),
     userFields,
+    userCompactChars,
+    byModalityChars: modality.chars,
+    byModalityBlocks: modality.blocks,
   };
 }
 
@@ -88,7 +115,8 @@ export function measureOutputSize(params: { content: ContentBlockLike[]; outputT
 
 export function describePromptSize(params: { systemStable: string; systemExtra?: string; userPrompt: string }): string {
   const m = measurePromptSize(params);
-  return `total_chars=${m.totalChars} (~${m.totalTokensEstimate} tokens) | sistema_fixo=${m.systemFixedChars} (~${tokensOf(m.systemFixedChars)}) sistema_seguranca=${m.systemSafetyChars} usuario=${m.userChars} (~${m.userTokensEstimate}) | maiores_campos_do_usuario: ${formatFields(m.userFields)}`;
+  const formatting = m.userCompactChars === null ? '' : ` | formatacao: usuario_sem_indentacao=${m.userCompactChars} espacos_e_quebras_de_linha=${m.userChars - m.userCompactChars}`;
+  return `total_chars=${m.totalChars} (~${m.totalTokensEstimate} tokens) | sistema_fixo=${m.systemFixedChars} (~${tokensOf(m.systemFixedChars)}) sistema_seguranca=${m.systemSafetyChars} usuario=${m.userChars} (~${m.userTokensEstimate}) | maiores_campos_do_usuario: ${formatFields(m.userFields)}${formatting} | por_modalidade: chars=${m.byModalityChars} blocos=${m.byModalityBlocks}`;
 }
 
 export function describeOutputSize(params: { content: ContentBlockLike[]; outputTokens: number; parsed?: unknown }): string {
