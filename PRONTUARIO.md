@@ -3503,6 +3503,14 @@ O item "Evolução" do menu (e o link da Home) agora abre `home/EvolutionHub.tsx
 - Próximos lotes: textos "o que isso representa" por indicador (Elton escreve, advogado revisa), indicadores novos por área, gráfico de dor, volume semanal na mesma matemática do servidor.
 - Vale no PWA após o Deploy; app nativo só no próximo build. Não verificado visualmente (sem API local sem usar o banco de produção).
 
+### 02/11/2026 — Evolução, lote 3: área Dor + aviso de feedbacks pendentes com atividades do relógio
+**Aviso "Feedbacks pendentes" (antes de gerar a semana):** descoberto que atividade do relógio SEM vínculo e ainda sem treino extra criado (a aluna nunca abriu o cartão) ficava fora da contagem — aparecia só como o número "atividades adicionais" do check-in. Agora `WeeklyCheckInService.pendingFeedbacksForPlan` inclui essas atividades (uma por evento, canônica; item com `sessionId: null` e `activityLogId`). Informativo: continua sem bloquear. Testes em `weekly-checkin-pending-feedbacks.spec.ts`.
+**Área Dor:** `GET /me/pain-reports/history` (só do próprio aluno, 26 semanas) devolve dor por treino registrado + relatos avulsos. Regra de Elton: treino registrado e que conta nas contas vale ZERO quando não há relato de dor. "Nenhuma" respondida = zero afirmado (`answered: true`); treino registrado sem resposta (vínculo ativo sem feedback, extra do relógio com registro sintético, atividade do relógio sem vínculo) = zero ASSUMIDO (`answered: false`), mostrado como círculo vazado. Nada é gravado em nome da aluna: a inferência existe só na leitura. Fora do gráfico: "não feito" explícito, sessão sem registro, e valor de dor desconhecido (nunca adivinha). Regra em `pain-reports/pain-history.ts`; testes em `pain-history.spec.ts`.
+- Tela: gráfico único com um ponto por sessão, cor por modalidade, botões para ocultar modalidade (mesma escala nas modalidades, ao contrário de km × kg); dois treinos no mesmo dia lado a lado. Relatos avulsos (escala 1–10, região, tendência) numa lista à parte. Texto "O que seus registros mostram" só descreve contagens (sem causa nem diagnóstico). `home/PainArea.tsx`.
+- A IA de prescrição NÃO mudou: ela continua sem receber "zero assumido" de dor. Mudar como a IA lê dor é decisão de prescrição (risco alto), a tratar à parte se Elton quiser.
+- Esqueleto pronto, mas ainda sem TODOS os indicadores combinados com Elton (ver listas dele de 02/11). Próximos lotes: indicadores novos por área, textos "o que isso representa", volume semanal na matemática do servidor.
+- Vale no PWA após o Deploy da API e do app; não verificado visualmente (sem API local sem usar o banco de produção).
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

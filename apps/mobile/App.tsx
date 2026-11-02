@@ -4622,7 +4622,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (response.ok) {
-        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean; pendingFeedbacks?: Array<{ sessionId: string }> };
+        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean; pendingFeedbacks?: Array<{ sessionId: string | null }> };
         // Guarda agora: se o aluno precisar do check-in e so' voltar aqui depois de concluir, o
         // estado ja esta pronto — skipCheckInAndGenerate/submitCheckInAndGenerate consultam esse flag.
         setGenerationTodayHasRoutine(data.todayHasRoutine ?? false);

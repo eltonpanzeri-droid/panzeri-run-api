@@ -5,6 +5,8 @@ import { CreatePainReportDto } from './dto/create-pain-report.dto';
 import { StudentProfileService, ProfileEventCode } from '../training-plans/student-profile.service';
 import { ReportTimelineService } from '../reporter/report-timeline.service';
 import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constants';
+import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { buildPainHistory } from './pain-history';
 
 const SEVERE_WINDOW_DAYS = 14;
 const REPORT_LOOKBACK_DAYS = 21;
@@ -25,6 +27,55 @@ export class PainReportsService {
 
   list(userId: string) {
     return this.prisma.painReport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  // 02/11/2026 — base da area "Dor" da Evolucao: dor por treino registrado (ver pain-history.ts) + relatos avulsos. So' leitura, so' do proprio aluno.
+  async history(userId: string) {
+    const since = new Date(Date.now() - 182 * 86_400_000);
+    const [sessions, materializedExtras, alternativeLogs, reports] = await Promise.all([
+      this.prisma.trainingSession.findMany({
+        where: {
+          userId,
+          scheduledDate: { gte: since },
+          OR: [{ completion: { is: { status: { in: ['done', 'adjusted'] } } } }, { executionLinks: { some: { status: 'active' } } }],
+        },
+        select: {
+          id: true,
+          modality: true,
+          scheduledDate: true,
+          origin: true,
+          completion: { select: { status: true, painFlag: true, painTiming: true } },
+          executionLinks: { where: { status: 'active' }, select: { id: true } },
+        },
+        orderBy: { scheduledDate: 'asc' },
+      }),
+      this.prisma.trainingSession.findMany({ where: { userId, origin: 'device_extra', scheduledDate: { gte: since } }, select: { structure: true } }),
+      // ai-scope: nao-ia (historico mostrado ao proprio aluno; nunca enviado a IA)
+      this.prisma.activityLog.findMany({ where: { userId, executionClassification: 'alternative', startedAt: { gte: since } } }),
+      this.prisma.painReport.findMany({
+        where: { userId, createdAt: { gte: since } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, createdAt: true, regions: true, otherLocation: true, intensity: true, worseningTrend: true, dailyLifeImpact: true },
+      }),
+    ]);
+
+    // Um evento fisico = uma atividade (canonica); a que ja virou treino extra aparece pela propria sessao.
+    // ai-scope: nao-ia (idem acima)
+    const picks = await pickCanonicalPerEvent(alternativeLogs, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
+    const materializedIds = new Set(
+      materializedExtras.map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId).filter((id): id is string => Boolean(id)),
+    );
+    const unlinkedActivities = picks
+      .filter((pick) => !materializedIds.has(pick.row.id) && !pick.members.some((m) => materializedIds.has(m.id)))
+      .map((pick) => ({ id: pick.row.id, sport: pick.row.sport, startedAt: pick.row.startedAt, utcOffsetMinutes: pick.row.utcOffsetMinutes }));
+
+    return {
+      entries: buildPainHistory({
+        sessions: sessions.map((s) => ({ id: s.id, modality: s.modality, scheduledDate: s.scheduledDate, origin: s.origin, completion: s.completion, hasActiveLink: s.executionLinks.length > 0 })),
+        unlinkedActivities,
+      }),
+      reports,
+    };
   }
 
   async previousRegions(userId: string) {

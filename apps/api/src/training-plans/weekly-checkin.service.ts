@@ -85,6 +85,8 @@ export class WeeklyCheckInService {
   // (vinculo ativo, ou atividade alternativa materializada) cujo feedback subjetivo ainda nao foi
   // respondido (sem completion ou sem RPE). INFORMATIVO: nunca bloqueia a geracao — o aluno pode
   // seguir sem completar tudo, como ja acontece com o check-in (pular / prosseguir).
+  // 02/11/2026: atividades do relogio SEM vinculo e ainda sem treino extra criado (a aluna nunca abriu o cartao) tambem contam como pendentes — antes so' apareciam como o
+  // numero "atividades adicionais" do check-in e ficavam fora do aviso. Sem sessao ainda, o item traz `sessionId: null` e o `activityLogId` da atividade canonica do evento.
   private async pendingFeedbacksForPlan(userId: string, plan: { startDate: Date }) {
     const weekEnd = new Date(plan.startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
     const sessions = await this.prisma.trainingSession.findMany({
@@ -93,12 +95,29 @@ export class WeeklyCheckInService {
         scheduledDate: { gte: plan.startDate, lt: weekEnd },
         OR: [{ executionLinks: { some: { status: 'active' } } }, { origin: 'device_extra' }],
       },
-      select: { id: true, title: true, scheduledDate: true, completion: { select: { perceivedEffort: true } } },
+      select: { id: true, title: true, scheduledDate: true, origin: true, structure: true, completion: { select: { perceivedEffort: true } } },
       orderBy: { scheduledDate: 'asc' },
     });
-    return sessions
+    const pending: Array<{ sessionId: string | null; title: string; isoDate: string; activityLogId?: string }> = sessions
       .filter((s) => !s.completion || s.completion.perceivedEffort == null)
       .map((s) => ({ sessionId: s.id, title: s.title, isoDate: s.scheduledDate.toISOString().slice(0, 10) }));
+
+    const materializedActivityIds = new Set(
+      sessions
+        .filter((s) => s.origin === 'device_extra')
+        .map((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    for (const pick of await this.additionalActivityPicks(userId, plan.startDate, todayInSaoPaulo())) {
+      if (materializedActivityIds.has(pick.row.id) || pick.members.some((m) => materializedActivityIds.has(m.id))) continue;
+      pending.push({
+        sessionId: null,
+        activityLogId: pick.row.id,
+        title: `${pick.row.sport ?? 'Atividade'} (relógio)`,
+        isoDate: activityLocalDate(pick.row.startedAt, pick.row.utcOffsetMinutes),
+      });
+    }
+    return pending.sort((a, b) => a.isoDate.localeCompare(b.isoDate));
   }
 
   async submit(userId: string, dto: SubmitWeeklyCheckInDto) {
@@ -291,6 +310,10 @@ export class WeeklyCheckInService {
 
   // Atividades fisicas adicionais/livres da semana do plano, um evento fisico = uma atividade (canonica da 3A).
   private async countAdditionalActivities(userId: string, planStart: Date, today: Date): Promise<number> {
+    return (await this.additionalActivityPicks(userId, planStart, today)).length;
+  }
+
+  private async additionalActivityPicks(userId: string, planStart: Date, today: Date) {
     const weekEnd = new Date(planStart.getTime() + 7 * 24 * 60 * 60 * 1000);
     const dayAfterToday = new Date(today.getTime() + 24 * 60 * 60 * 1000);
     const rangeEnd = weekEnd.getTime() < dayAfterToday.getTime() ? weekEnd : dayAfterToday;
@@ -303,7 +326,6 @@ export class WeeklyCheckInService {
       where: { userId, executionClassification: 'alternative', startedAt: { gte: new Date(planStart.getTime() - dayMs), lt: new Date(rangeEnd.getTime() + dayMs) } },
     })).filter((row) => { const day = activityLocalDate(row.startedAt, row.utcOffsetMinutes); return day >= firstDay && day <= lastDay; });
     // ai-scope: nao-ia (idem acima)
-    const picks = await pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
-    return picks.length;
+    return pickCanonicalPerEvent(rows, (ids) => this.prisma.activityLog.findMany({ where: { userId, id: { in: ids } } }));
   }
 }

@@ -14,6 +14,12 @@ export class PainReportsController {
     return this.painReports.list(user.sub);
   }
 
+  // Area "Dor" da Evolucao (02/11/2026): dor por treino registrado + relatos avulsos, so' do proprio aluno.
+  @Get('history')
+  history(@CurrentUser() user: CurrentUserPayload) {
+    return this.painReports.history(user.sub);
+  }
+
   @Get('previous-regions')
   previousRegions(@CurrentUser() user: CurrentUserPayload) {
     return this.painReports.previousRegions(user.sub);

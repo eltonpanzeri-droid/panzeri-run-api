@@ -23,6 +23,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 | 01/11/2026 | **Excluir ou ignorar atividade** (botão em cada atividade do relógio + seção "Atividades ignoradas" com Desfazer) — caso Duane | `apps/mobile/App.tsx` | Já vale no PWA; app nativo só no próximo build (a API e o painel já valem após o deploy) |
 | 02/11/2026 | **Evolução da aluna (lote 1):** faixa cinza dos gráficos agora vem do servidor (mesma matemática do painel) e seletor de modalidade dentro do gráfico; etiqueta "corrida" em Ritmo e Cadência | `apps/mobile/home/*`, `src/activityDetail.tsx`; servidor: `me.controller.ts` | Vale no deploy (PWA); app nativo só no próximo build |
 | 02/11/2026 | **Evolução em seis áreas (esqueleto):** menu "Evolução" abre o painel das seis áreas (treinamento, resposta à carga, sono e recuperação, bem-estar, dor, aderência) com aviso de interpretação no topo; Dor ainda "em construção" | `apps/mobile/home/EvolutionHub.tsx`, `App.tsx` (`Progress` com `focus`), `FeelingsDetailScreen.tsx` | Vale no deploy (PWA); app nativo só no próximo build |
+| 02/11/2026 | **Área Dor da Evolução:** gráfico de dor por treino (cor por modalidade; círculo cheio = respondeu, vazado = sem resposta, considerado zero) + lista de relatos avulsos; aviso de feedbacks pendentes passa a contar atividades do relógio sem vínculo | `apps/mobile/home/PainArea.tsx`, `EvolutionHub.tsx`; servidor: `pain-reports/*`, `weekly-checkin.service.ts` | Vale no deploy (servidor + PWA); app nativo só no próximo build |
 
 ## B. Ideias e decisões ainda NÃO implementadas
 
