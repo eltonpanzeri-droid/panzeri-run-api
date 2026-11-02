@@ -5525,6 +5525,17 @@ function extTriState(matched: boolean | null) {
   if (matched === false) return <span className="extBadge extBadgeDanger">falhou</span>;
   return <span className="extBadge extBadgeNeutral">sem dado</span>;
 }
+interface ExtDuplicateScan {
+  groups: Array<{
+    observerKey: string; sport: string | null; startedAt: string; durationSec: number | null; canonicalActivityLogId: string; inflatedKm: number | null;
+    members: Array<{ activityLogId: string; distanceMeters: number | null; avgHeartRateBpm: number | null; physicalIdentityStatus: string | null }>;
+  }>;
+  nearMisses: Array<{ observerKey: string; sport: string | null; activityLogIds: [string, string]; startDiffSec: number; durationSec: [number | null, number | null] }>;
+}
+interface ExtDuplicateAll {
+  examined: number; failed: number; studentsAffected: number; totalExtraRecords: number;
+  students: Array<{ studentId: string; name: string; studentCode: number | string | null; groups: number; extraRecords: number; inflatedKm: number; nearMisses: number }>;
+}
 function ExtMetric({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="extMetric">
@@ -5654,6 +5665,26 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
       if (!dryRun) await load();
     } catch {
       setReconcileState('error');
+    }
+  }
+
+  // Copias repetidas do MESMO app de origem (02/11/2026): simulacao SO' de leitura. Para aplicar, o caminho e' 'Reconciliar histórico' (reavalia a identidade e reconcilia).
+  const [dupState, setDupState] = React.useState<'idle' | 'loading' | 'error'>('idle');
+  const [dupScan, setDupScan] = React.useState<ExtDuplicateScan | null>(null);
+  const [dupAll, setDupAll] = React.useState<ExtDuplicateAll | null>(null);
+  async function simulateDuplicates(all: boolean) {
+    setDupState('loading');
+    setDupScan(null);
+    setDupAll(null);
+    try {
+      const url = all ? `${API_URL}/coach/external-activities/duplicates-preview` : `${API_URL}/coach/students/${studentId}/external-activities/duplicates-preview`;
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) { setDupState('error'); return; }
+      if (all) setDupAll((await response.json()) as ExtDuplicateAll);
+      else setDupScan((await response.json()) as ExtDuplicateScan);
+      setDupState('idle');
+    } catch {
+      setDupState('error');
     }
   }
 
@@ -5938,6 +5969,13 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
             Reconciliar histórico
           </button>
           {reconcileState === 'error' ? <span className="extBadge extBadgeDanger">Falha na reconciliação</span> : null}
+          <button type="button" className="secondaryOutlineButton" disabled={dupState === 'loading'} onClick={() => void simulateDuplicates(false)} title="Só leitura: mostra cópias do mesmo app com início e duração idênticos que passariam a contar como um treino só">
+            {dupState === 'loading' ? 'Simulando...' : 'Simular cópias repetidas (este aluno)'}
+          </button>
+          <button type="button" className="secondaryOutlineButton" disabled={dupState === 'loading'} onClick={() => void simulateDuplicates(true)} title="Só leitura: resumo de todas as alunas">
+            Simular cópias repetidas (todas as alunas)
+          </button>
+          {dupState === 'error' ? <span className="extBadge extBadgeDanger">Falha na simulação</span> : null}
           {identitySummary ? (
             <span className="extHint">
               avaliadas <strong>{identitySummary.evaluated}</strong> · eventos formados <strong>{identitySummary.matchedEvents}</strong> · ambíguas <strong>{identitySummary.ambiguous}</strong> · únicas <strong>{identitySummary.unique}</strong>
@@ -5954,6 +5992,84 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
           {compareState === 'error' ? <span className="extBadge extBadgeDanger">Falha ao comparar</span> : null}
         </div>
       </div>
+
+      {dupAll ? (
+        <div className="extCompare">
+          <div className="extRowBetween">
+            <div className="extToolbarGroup">
+              <strong>Cópias repetidas do mesmo app — todas as alunas (nada foi gravado)</strong>
+              <span className="extBadge extBadgeNeutral">alunas examinadas: {dupAll.examined}</span>
+              <span className={`extBadge ${dupAll.studentsAffected > 0 ? 'extBadgeWarn' : 'extBadgeOk'}`}>com cópias: {dupAll.studentsAffected}</span>
+              <span className="extBadge extBadgeNeutral">registros a mais: {dupAll.totalExtraRecords}</span>
+              {dupAll.failed > 0 ? <span className="extBadge extBadgeDanger">falhas: {dupAll.failed}</span> : null}
+            </div>
+            <button type="button" className="extLink" onClick={() => setDupAll(null)}>fechar</button>
+          </div>
+          {dupAll.students.length === 0 ? <p className="extHint">Nenhuma aluna com cópias repetidas ou quase iguais.</p> : (
+            <div className="extTableWrap">
+              <table className="extTable">
+                <thead><tr><th>Aluna</th><th>Treinos repetidos</th><th>Registros a mais</th><th>Km a mais (corrida)</th><th>Quase iguais (não unidos)</th></tr></thead>
+                <tbody>
+                  {dupAll.students.map((s) => (
+                    <tr key={s.studentId}>
+                      <td>{s.studentCode ?? '—'} · {s.name}{s.studentId === studentId ? ' (esta aluna)' : ''}</td>
+                      <td>{s.groups}</td><td>{s.extraRecords}</td><td>{s.inflatedKm}</td><td>{s.nearMisses}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {dupScan ? (
+        <div className="extCompare">
+          <div className="extRowBetween">
+            <div className="extToolbarGroup">
+              <strong>Cópias repetidas do mesmo app — esta aluna (nada foi gravado)</strong>
+              <span className={`extBadge ${dupScan.groups.length > 0 ? 'extBadgeWarn' : 'extBadgeOk'}`}>treinos repetidos: {dupScan.groups.length}</span>
+              <span className="extBadge extBadgeNeutral">quase iguais (não unidos): {dupScan.nearMisses.length}</span>
+            </div>
+            <button type="button" className="extLink" onClick={() => setDupScan(null)}>fechar</button>
+          </div>
+          <p className="extHint">Para aplicar: “Reconciliar histórico” reavalia a identidade, reconcilia os vínculos e dispara a reavaliação das medalhas. Registros já ignorados/excluídos não aparecem aqui.</p>
+          {dupScan.groups.length > 0 ? (
+            <div className="extTableWrap">
+              <table className="extTable">
+                <thead><tr><th>Treino</th><th>Cópias</th><th>Cópia oficial</th><th>Km a mais</th></tr></thead>
+                <tbody>
+                  {dupScan.groups.map((g) => (
+                    <tr key={g.canonicalActivityLogId}>
+                      <td>{extFmtDateTime(g.startedAt)} · {g.sport ?? '—'} · {extFmtDuration(g.durationSec)}<div className="extHint">{g.observerKey}</div></td>
+                      <td>{g.members.map((m) => (
+                        <div key={m.activityLogId}>{m.distanceMeters != null ? `${(m.distanceMeters / 1000).toFixed(2)} km` : 'sem distância'} · FC {m.avgHeartRateBpm ?? '—'} · {m.physicalIdentityStatus ?? 'não avaliada'}</div>
+                      ))}</td>
+                      <td><code>{g.canonicalActivityLogId.slice(0, 8)}</code> (a mais completa)</td>
+                      <td>{g.inflatedKm ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+          {dupScan.nearMisses.length > 0 ? (
+            <details className="extDetails">
+              <summary>Quase iguais (mesmo app, início até 90 s diferente — NÃO seriam unidos)</summary>
+              <div className="extTableWrap">
+                <table className="extTable">
+                  <thead><tr><th>Registros</th><th>Diferença de início</th><th>Durações</th></tr></thead>
+                  <tbody>
+                    {dupScan.nearMisses.map((n) => (
+                      <tr key={n.activityLogIds.join('-')}><td>{n.sport ?? '—'} · <code>{n.activityLogIds[0].slice(0, 8)}</code> / <code>{n.activityLogIds[1].slice(0, 8)}</code></td><td>{n.startDiffSec} s</td><td>{extFmtDuration(n.durationSec[0])} / {extFmtDuration(n.durationSec[1])}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
 
       {reconcileResult ? (
         <div className="extCompare">
