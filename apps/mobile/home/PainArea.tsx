@@ -5,6 +5,7 @@ import { Text } from '../src/PtText';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 import { fetchJsonAuth } from './homeApi';
 import { dayFromIso, formatDayLabel, formatDayLong, modalityName } from './chartData';
+import { IndicatorMeaning } from './IndicatorMeaning';
 
 // Area "Dor" da Evolucao (02/11/2026). Consumo PURO de GET /me/pain-reports/history: nenhuma conta aqui.
 // Regra de Elton: treino registrado vale zero quando a aluna nao relatou dor. Resposta "nenhuma" = circulo cheio; sem resposta (treino registrado, dor nao respondida) =
@@ -225,6 +226,7 @@ export function PainArea({ accessToken, onOpenPainReport }: { accessToken: strin
             <Text style={styles.hint}>
               Círculo cheio: você respondeu sobre dor naquele treino · círculo vazado: treino registrado sem resposta sobre dor, considerado sem dor. Cada treino é um ponto; dois treinos no mesmo dia aparecem lado a lado.
             </Text>
+            <IndicatorMeaning id="pain.perWorkout" />
           </View>
         </>
       )}
@@ -244,6 +246,7 @@ export function PainArea({ accessToken, onOpenPainReport }: { accessToken: strin
           </View>
         ))}
         <Text style={styles.hint}>É outro tipo de relato (escala de 1 a 10, com a região do corpo) e por isso aparece separado do gráfico.</Text>
+        <IndicatorMeaning id="pain.reports" />
       </View>
 
       <Pressable onPress={onOpenPainReport} style={styles.button}>

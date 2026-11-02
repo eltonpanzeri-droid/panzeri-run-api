@@ -29,8 +29,8 @@ import { MathLayerService, SeriesPoint } from './math-layer.service';
 import { getVariableDefinition, InstrumentVersionSpec, VariableDefinition, VariableSource } from './variable-registry';
 import { EXECUTION_ANALYSIS_VERSION, intensityBasisOf, RunExecutionAnalysis } from '../activity-execution/execution-analysis';
 import { loadInputRows } from '../coach/training-load-rows';
-import { classifySessions, loadModalityKey } from '../coach/training-load';
-import { SESSION_DURATION_VARIABLE_ID } from './internal-load';
+import { classifySessions, loadModalityKey, modalityGroup, weekStartOf } from '../coach/training-load';
+import { SESSION_DURATION_VARIABLE_ID, WEEKLY_INTERNAL_LOAD_VARIABLE_ID } from './internal-load';
 
 export interface Observation {
   athleteId: string;
@@ -225,6 +225,9 @@ export class ObservationReaderService {
     }
     if (definition.source === 'internal_load_session') {
       return this.readInternalLoadVariable(athleteId, definition);
+    }
+    if (definition.source === 'internal_load_weekly' && definition.variableId === WEEKLY_INTERNAL_LOAD_VARIABLE_ID) {
+      return this.readWeeklyInternalLoad(athleteId, definition);
     }
     if (definition.source === 'session_execution_analysis') {
       return this.readExecutionAnalysisVariable(athleteId, definition);
@@ -613,6 +616,36 @@ export class ObservationReaderService {
         },
       }))
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  }
+
+  // Carga SEMANAL (02/11/2026): soma, por semana (segunda a domingo), das cargas das sessoes elegiveis — a MESMA classificacao do painel e da carga por sessao (classifySessions). Semana sem sessao
+  // elegivel nao gera observacao (nunca zero). Uma serie GLOBAL (modalidade reservada 'global', como as demais variaveis semanais) e uma por grupo de modalidade (corrida, forca, outras).
+  private async readWeeklyInternalLoad(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+    const cutoff = TRAINING_INTELLIGENCE_DATA_CUTOFF.toISOString().slice(0, 10);
+    const { sessions } = classifySessions(await loadInputRows(this.prisma, athleteId));
+    const totals = new Map<string, { scope: string; weekStart: string; load: number; count: number }>();
+    for (const s of sessions) {
+      if (s.date < cutoff) continue;
+      const weekStart = weekStartOf(s.date);
+      for (const scope of [TRAINING_LOAD_GLOBAL_TAG, modalityGroup(s.modality)]) {
+        const key = `${scope}|${weekStart}`;
+        const entry = totals.get(key) ?? { scope, weekStart, load: 0, count: 0 };
+        entry.load += s.load;
+        entry.count += 1;
+        totals.set(key, entry);
+      }
+    }
+    return [...totals.values()]
+      .map((t): Observation => ({
+        athleteId,
+        variableId: definition.variableId,
+        value: Math.round(t.load * 10) / 10,
+        timestamp: new Date(`${t.weekStart}T12:00:00.000Z`),
+        source: 'internal_load_weekly',
+        instrumentVersion: 1,
+        context: { modality: t.scope, isPartialWeek: isCurrentPartialWeek(t.weekStart), numerator: t.count },
+      }))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime() || String(a.context.modality).localeCompare(String(b.context.modality)));
   }
 
   private async readTrainingLoadVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {

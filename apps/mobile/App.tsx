@@ -44,6 +44,7 @@ import { MedalsScreen } from './home/MedalsScreen';
 import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
+import { IndicatorMeaning } from './home/IndicatorMeaning';
 import type { FeelingDomain, SnapshotLite } from './home/insights';
 import { fetchSnapshot } from './home/homeApi';
 import { dayFromIso, referenceChannelPoints } from './home/chartData';
@@ -6480,6 +6481,9 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
               })}
             </View>
           </View>
+
+          {/* "O que isso representa" do volume por semana (02/11/2026; texto em home/indicatorMeanings.ts) */}
+          <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" /></View>
 
           {/* Interpretação em texto + ritmo + cadência (motor longitudinal; Evolução objetiva, 04/10/2026) */}
           <EvolutionObjectiveSections accessToken={accessToken} weeks={data.recentWeeks} todayIso={saoPauloDateString(new Date())} />

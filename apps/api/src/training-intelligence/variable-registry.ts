@@ -54,7 +54,9 @@ export type VariableSource =
   | 'wearable_health'
   // 01/11/2026 — carga interna percebida da sessão (PSE × minutos) e duração usada no cálculo: derivadas do feedback da aluna (PSE, duração) e da atividade importada vinculada (duração real),
   // pela MESMA fonte única do painel (coach/training-load-rows.ts). Uma linha = uma sessão elegível. Ver internal-load.ts.
-  | 'internal_load_session';
+  | 'internal_load_session'
+  // 02/11/2026 — carga interna percebida SEMANAL (soma das sessoes elegiveis da semana), derivada da mesma fonte unica da carga por sessao. Uma linha = uma semana com ao menos uma sessao elegivel.
+  | 'internal_load_weekly';
 
 export type MathStrategy = 'ordinal_or_continuous_stats' | 'categorical_frequency';
 
@@ -149,6 +151,7 @@ export function evidenceKindOf(definition: VariableDefinition): EvidenceKind {
     case 'session_execution_analysis':
     case 'weekly_training_load':
     case 'internal_load_session':
+    case 'internal_load_weekly':
       return 'system_calculation';
     default:
       return 'self_report';
@@ -966,6 +969,26 @@ export const VARIABLE_REGISTRY: Record<string, VariableDefinition> = {
     versionComparability: 'comparable_across_versions',
     excludeExtraSessions: false,
     notes: 'Minutos efetivamente usados em PSE × minutos (atividade importada vinculada quando existe; senão a duração informada pela aluna). A origem (durationSource) está no context. Mesmas sessões elegíveis da carga.',
+  },
+  // 02/11/2026 — carga semanal de esforco (pedido de Elton: grafico semanal com faixa e media movel do servidor). Soma das cargas (PSE x minutos) das sessoes ELEGIVEIS da semana; semana sem nenhuma
+  // sessao elegivel nao gera observacao (nunca zero: pode ser semana sem registro). GLOBAL (todas as modalidades, modalidade reservada 'global') + uma serie por grupo (corrida, forca, outras); a
+  // semana em andamento vem marcada isPartialWeek. So' leitura da Evolucao e do Explorar: nao esta na lista de variaveis da IA.
+  'workout.weeklyInternalLoad': {
+    variableId: 'workout.weeklyInternalLoad',
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: 'carga interna percebida da semana (soma de PSE × minutos)',
+    scale: { min: 0, max: 30000, unit: 'UA' },
+    direction: 'not_directional',
+    source: 'internal_load_weekly',
+    expectedFrequency: 'per_week',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'column' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'Soma, por semana (segunda a domingo), das cargas das sessoes elegiveis (feitas/ajustadas, com PSE 1-10 e duracao utilizavel — nada e estimado). Semana sem sessao elegivel NAO gera observacao. A visao GLOBAL soma cargas sRPE de modalidades diferentes (mesma UA, esforco nao equivalente): use as series por grupo para comparar. context.numerator = numero de sessoes da semana.',
   },
   'training.acwr': {
     variableId: 'training.acwr',

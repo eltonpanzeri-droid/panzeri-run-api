@@ -277,31 +277,10 @@ export function sessionMeanSentences(
 // Semana em andamento e semana cortada pelo período ficam fora do gráfico; semana sem nenhum treino com carga vira LACUNA (nunca zero: pode ser semana sem registro, nao semana sem treino).
 // ---------------------------------------------------------------------------------------------
 
-export interface LoadWeekLite { weekStart: string; inProgress: boolean; clipped: boolean; load: number; sessions: number; excluded: number }
 export interface LoadWindowLite { acuteLoad: number; chronicWeeklyAverage: number; ratio: number | null; sessionsInWindow: number; minSessions: number; note: string | null }
 
 const uaText = (v: number) => `${String(Math.round(v * 10) / 10).replace('.', ',')} UA`;
 const dayMonthOf = (isoDay: string) => `${isoDay.slice(8, 10)}/${isoDay.slice(5, 7)}`;
-const treinos = (n: number) => `${n} ${n === 1 ? 'treino' : 'treinos'}`;
-
-/** Pontos do grafico semanal: so' semanas completas; sem treino com carga = lacuna (load null), nunca zero. */
-export function loadChartWeeks(weeks: LoadWeekLite[]): Array<{ weekStart: string; load: number | null }> {
-  return weeks.filter((w) => !w.inProgress && !w.clipped).map((w) => ({ weekStart: w.weekStart, load: w.sessions > 0 ? w.load : null }));
-}
-
-export function loadWeekSentences(weeks: LoadWeekLite[]): string[] {
-  const lastComplete = [...weeks].reverse().find((w) => !w.inProgress && !w.clipped && w.sessions > 0);
-  const current = weeks.find((w) => w.inProgress && w.sessions > 0);
-  const out: string[] = [];
-  if (lastComplete) {
-    out.push(`Na última semana completa com treinos (semana de ${dayMonthOf(lastComplete.weekStart)}), a carga foi de ${uaText(lastComplete.load)}, em ${treinos(lastComplete.sessions)}.`);
-    if (lastComplete.excluded > 0) out.push(`${treinos(lastComplete.excluded)} dessa semana ${lastComplete.excluded === 1 ? 'ficou' : 'ficaram'} de fora do cálculo por falta de esforço percebido ou de duração.`);
-  } else {
-    out.push('Ainda não há semanas completas com carga registrada.');
-  }
-  if (current) out.push(`Nesta semana, até agora: ${uaText(current.load)} em ${treinos(current.sessions)} (fora do gráfico até a semana terminar).`);
-  return out;
-}
 
 export function loadWindowSentences(w: LoadWindowLite): string[] {
   if (w.sessionsInWindow <= 0) return [w.note ?? 'Ainda não há carga registrada nos últimos 28 dias.'];
@@ -438,8 +417,8 @@ export const WEARABLE_SLEEP_VARIABLES: DomainVariable[] = [
   { id: 'wearable.sleepDeepMin', label: 'Sono profundo (estimativa do relógio)', axisLabel: 'horas de sono profundo', format: minutesAsHours, scaleHint: 'As fases do sono são estimativas do aparelho, não medidas clínicas; cada marca calcula de um jeito.' },
   { id: 'wearable.sleepLightMin', label: 'Sono leve (estimativa do relógio)', axisLabel: 'horas de sono leve', format: minutesAsHours },
   { id: 'wearable.sleepRemMin', label: 'Sono REM (estimativa do relógio)', axisLabel: 'horas de sono REM', format: minutesAsHours },
-  { id: 'wearable.sleepScore', label: 'Pontuação do sono (calculada pelo relógio)', unit: 'pontos', axisLabel: 'pontos (0 a 100)', scaleHint: 'Cada marca calcula a pontuação do seu jeito; compare só com você mesma, na mesma fonte.' },
-  { id: 'wearable.hrvLastNightAvg', label: 'Variabilidade da frequência cardíaca (HRV) da noite', axisLabel: 'HRV da noite (unidade da sua fonte)', scaleHint: 'A unidade e o método da HRV dependem do aparelho; compare só com você mesma, na mesma fonte.' },
+  { id: 'wearable.sleepScore', label: 'Pontuação do sono (calculada pelo relógio)', unit: 'pontos', axisLabel: 'pontos (0 a 100)', scaleHint: 'Cada marca calcula a pontuação do seu jeito; compare só com o seu próprio histórico, na mesma fonte.' },
+  { id: 'wearable.hrvLastNightAvg', label: 'Variabilidade da frequência cardíaca (HRV) da noite', axisLabel: 'HRV da noite (unidade da sua fonte)', scaleHint: 'A unidade e o método da HRV dependem do aparelho; compare só com o seu próprio histórico, na mesma fonte.' },
 ];
 
 const SHIFT_LABELS: Record<string, string> = {

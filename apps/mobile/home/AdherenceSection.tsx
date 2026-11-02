@@ -26,6 +26,7 @@ export function AdherenceWeekly({ accessToken }: { accessToken: string }) {
   return (
     <WeeklyCard
       title="Aderência por semana"
+      meaningId="training.adherencePercent"
       snapshot={snapshot}
       descriptor={ADHERENCE}
       unit="% dos treinos registrados que foram feitos"

@@ -6,7 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
 import { PendingIdentityNotice } from './PendingIdentity';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
-import { isWeekInProgress, threeWeekMean, trailingChannel } from './trendChannel';
+import { isWeekInProgress } from './trendChannel';
+import { fetchSnapshot } from './homeApi';
+import { dayFromIso, referenceChannelPoints } from './chartData';
 import {
   HomeBorder,
   HomeColors,
@@ -274,6 +276,7 @@ export function HomeScreen({
         loading={evolutionLoading}
         error={evolutionError && !evolution}
         weeks={evolution?.recentWeeks ?? []}
+        accessToken={accessToken}
         onOpenProgress={onOpenProgress}
       />
 
@@ -491,16 +494,30 @@ function ProgressSection({
   loading,
   error,
   weeks,
+  accessToken,
   onOpenProgress,
 }: {
   loading: boolean;
   error: boolean;
   weeks: WeeklyVolumeLite[];
+  accessToken: string;
   onOpenProgress: () => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   // 15/10/2026 (pedido de Elton): o que aparece no grafico pode ser ligado/desligado pela aluna.
   const [show, setShow] = useState({ prescrito: true, media: true, faixa: true });
+  // 02/11/2026: media de 3 semanas e faixa habitual vem do SERVIDOR (mesma serie do painel, do texto e da Evolucao); antes eram calculadas aqui (media de 3 semanas e media de 8 semanas ± 2 desvios).
+  const [volumeSnapshot, setVolumeSnapshot] = useState<SnapshotLite | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchSnapshot('training.volumeCompletedTotalKm', accessToken, { reference: true }).then((s) => { if (alive) setVolumeSnapshot(s); });
+    return () => { alive = false; };
+  }, [accessToken]);
+  const serverWeekly = useMemo(() => {
+    const band = new Map(referenceChannelPoints(volumeSnapshot).map((p) => [p.x, p] as const));
+    const mean = new Map((volumeSnapshot?.movingAverageSeries?.short_21d ?? []).map((p) => [dayFromIso(p.timestamp), p.value] as const));
+    return { band, mean };
+  }, [volumeSnapshot]);
   if (loading) return <SkeletonBlock height={260} />;
   if (error || weeks.length === 0) {
     return (
@@ -524,9 +541,14 @@ function ProgressSection({
   // Media das ultimas 3 semanas (21 dias) e "faixa habitual" (media das ultimas 8 semanas ± 2 desvios): so com semanas COMPLETAS; a semana
   // em andamento nunca entra. Nada disso e' alerta nem meta: descreve o ritmo da propria aluna.
   const todayIso = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-  const kmValues = weeks.map((w) => (w.kmPercorridos == null || isWeekInProgress(w.weekStart, todayIso) ? null : w.kmPercorridos));
-  const mean3 = threeWeekMean(kmValues);
-  const channel = trailingChannel(kmValues, 8);
+  // Semana em andamento nunca entra; semana sem dado de km nao tem media nem faixa. Chave = meio-dia de segunda (mesmo carimbo das observacoes do servidor).
+  const weekKey = (w: WeeklyVolumeLite) => dayFromIso(`${w.weekStart.slice(0, 10)}T12:00:00.000Z`);
+  const eligible = (w: WeeklyVolumeLite) => w.kmPercorridos != null && !isWeekInProgress(w.weekStart, todayIso);
+  const mean3: Array<number | null> = weeks.map((w) => (eligible(w) ? serverWeekly.mean.get(weekKey(w)) ?? null : null));
+  const channel: Array<{ index: number; lower: number; upper: number; mean: number } | null> = weeks.map((w, index) => {
+    const band = eligible(w) ? serverWeekly.band.get(weekKey(w)) : undefined;
+    return band ? { index, lower: band.lower, upper: band.upper, mean: band.mean } : null;
+  });
   const hasMean = mean3.some((v) => v != null);
   const hasChannel = channel.some((c) => c != null);
   const maxRaw = Math.max(...weeks.map((w) => Math.max(w.kmPercorridos ?? 0, w.kmPrescritos ?? 0)), ...channel.map((c) => c?.upper ?? 0), 1);
@@ -635,7 +657,7 @@ function ProgressSection({
         <View style={styles.legendItem}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent }]} /><Text style={styles.legendText}>Realizado (km)</Text></View>
         <Pressable onPress={() => setShow((c) => ({ ...c, prescrito: !c.prescrito }))} style={[styles.legendItem, { opacity: show.prescrito ? 1 : 0.4 }]}><View style={[styles.legendLine, { backgroundColor: HomeColors.panzeriPrimary }]} /><Text style={styles.legendText}>Prescrito (km)</Text></Pressable>
         <Pressable onPress={() => hasMean && setShow((c) => ({ ...c, media: !c.media }))} style={[styles.legendItem, { opacity: show.media && hasMean ? 1 : 0.4 }]}><View style={[styles.legendLine, { backgroundColor: '#d97706' }]} /><Text style={styles.legendText}>{hasMean ? 'Média das últimas 3 semanas' : 'Média de 3 semanas (precisa de 3 semanas)'}</Text></Pressable>
-        <Pressable onPress={() => hasChannel && setShow((c) => ({ ...c, faixa: !c.faixa }))} style={[styles.legendItem, { opacity: show.faixa && hasChannel ? 1 : 0.4 }]}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent, opacity: 0.35 }]} /><Text style={styles.legendText}>{hasChannel ? 'Sua faixa habitual' : 'Sua faixa habitual (precisa de 8 semanas)'}</Text></Pressable>
+        <Pressable onPress={() => hasChannel && setShow((c) => ({ ...c, faixa: !c.faixa }))} style={[styles.legendItem, { opacity: show.faixa && hasChannel ? 1 : 0.4 }]}><View style={[styles.legendSwatch, { backgroundColor: HomeColors.panzeriAccent, opacity: 0.35 }]} /><Text style={styles.legendText}>{hasChannel ? 'Sua faixa habitual' : 'Sua faixa habitual (precisa de mais semanas de histórico)'}</Text></Pressable>
       </View>
       {selectedWeek ? (
         <View style={styles.tooltipPanel}>

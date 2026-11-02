@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { Text } from '../src/PtText';
 import { DetailChart } from '../src/activityDetail';
-import { fetchSnapshots } from './homeApi';
+import { fetchSnapshot, fetchSnapshots } from './homeApi';
 import {
   SnapshotLite,
   WeekVolumeLite,
@@ -15,8 +15,9 @@ import {
   volumeSentences,
   weeklySentences,
 } from './insights';
-import { dayFromIso, formatDayLabel, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
+import { dayFromIso, formatDayLabel, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
+import { IndicatorMeaning } from './IndicatorMeaning';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
 // prescrito/realizado/extra ja' existente em Progress (App.tsx): interpretacao em texto do volume,
@@ -75,6 +76,7 @@ function MetricCard({
   higherIsUp,
   masculine,
   subject,
+  meaningId,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
@@ -84,6 +86,8 @@ function MetricCard({
   masculine?: boolean;
   /** Sem genero fixo ("o tempo dentro da faixa..."): usa a frase por treino com este sujeito no lugar de "sua/seu {noun} média". */
   subject?: string;
+  /** Id do texto "O que isso representa" (indicatorMeanings.ts). */
+  meaningId?: string;
   emptyText: string;
   caution?: string;
   unit: string;
@@ -122,6 +126,7 @@ function MetricCard({
       )}
       <Sentences items={sentences} />
       {caution ? <Text style={styles.caution}>{caution}</Text> : null}
+      <IndicatorMeaning id={meaningId} />
     </Card>
   );
 }
@@ -130,12 +135,15 @@ function MetricCard({
 // vem do servidor (mesmos pontos, so' filtrados para as semanas completas).
 export function WeeklyCard({
   title,
-  snapshot,
+  snapshot: allSnapshot,
   descriptor,
   unit,
   formatY,
   emptyText,
   caution,
+  meaningId,
+  variableId,
+  accessToken,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
@@ -144,7 +152,31 @@ export function WeeklyCard({
   formatY: (v: number) => string;
   emptyText: string;
   caution?: string;
+  meaningId?: string;
+  /** Com `variableId` e `accessToken`, o cartao oferece o seletor de modalidade (Todas por padrao) a partir de `availableModalities`; a escolha busca a MESMA leitura do servidor filtrada. */
+  variableId?: string;
+  accessToken?: string;
 }) {
+  const [modality, setModality] = useState<string | null>(null);
+  const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
+  useEffect(() => {
+    if (!modality || !variableId || !accessToken) { setFiltered(undefined); return undefined; }
+    let alive = true;
+    setFiltered(undefined);
+    fetchSnapshot(variableId, accessToken, { reference: true, modality }).then((s) => { if (alive) setFiltered(s); });
+    return () => { alive = false; };
+  }, [modality, variableId, accessToken]);
+  const modalities = variableId && accessToken ? allSnapshot?.availableModalities ?? [] : [];
+  const snapshot = modality ? filtered : allSnapshot;
+  const chips = modalities.length >= 2 ? (
+    <View style={styles.chips}>
+      {[null, ...modalities].map((m) => (
+        <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
+          <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
+        </Pressable>
+      ))}
+    </View>
+  ) : null;
   const points = useMemo(() => completeWeekPoints(snapshot).map((p) => ({ x: dayFromIso(p.timestamp), y: p.value })), [snapshot]);
   const mm = useMemo(() => {
     const xs = new Set(points.map((p) => p.x));
@@ -155,11 +187,15 @@ export function WeeklyCard({
     return referenceChannelPoints(snapshot).filter((p) => xs.has(p.x));
   }, [snapshot, points]);
 
+  if (modality && snapshot === undefined) {
+    return <Card title={title}>{chips}<ActivityIndicator size="small" /></Card>;
+  }
   if (!snapshot || snapshot.evidence.n === 0) {
-    return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
+    return <Card title={title}>{chips}<Text style={styles.muted}>{modality ? `Sem registros de ${modalityName(modality)} ainda.` : emptyText}</Text></Card>;
   }
   return (
     <Card title={title}>
+      {chips}
       <Text style={styles.tag}>Uma bolinha por semana completa</Text>
       {points.length >= 2 ? (
         <DetailChart
@@ -179,6 +215,7 @@ export function WeeklyCard({
       )}
       <Sentences items={weeklySentences(snapshot, descriptor)} />
       {caution ? <Text style={styles.caution}>{caution}</Text> : null}
+      <IndicatorMeaning id={meaningId} />
     </Card>
   );
 }
@@ -205,6 +242,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       ) : null}
       <WeeklyCard
         title="Diferença: realizado − prescrito"
+        meaningId="training.volumeDiffAbsoluteKm"
         snapshot={snapshots['training.volumeDiffAbsoluteKm']}
         descriptor={DIFF}
         unit="km por semana (0 = igual ao prescrito)"
@@ -214,6 +252,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       />
       <WeeklyCard
         title="Razão: realizado ÷ prescrito"
+        meaningId="training.volumeRatioCompletedPrescribed"
         snapshot={snapshots['training.volumeRatioCompletedPrescribed']}
         descriptor={RATIO}
         unit="razão (1 = igual ao prescrito)"
@@ -223,6 +262,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       />
       <MetricCard
         title="Cadência ao longo do tempo"
+        meaningId="activity.cadenceAvg"
         snapshot={snapshots['activity.cadenceAvg']}
         descriptor={CADENCE}
         noun="cadência"
@@ -233,6 +273,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       />
       <MetricCard
         title="Ritmo ao longo do tempo"
+        meaningId="activity.avgPaceSecondsKm"
         snapshot={snapshots['activity.avgPaceSecondsKm']}
         descriptor={PACE}
         noun="ritmo"
@@ -245,6 +286,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       />
       <MetricCard
         title="Tempo dentro da faixa de ritmo prescrita"
+        meaningId="execution.timeInBandPct"
         snapshot={snapshots['execution.timeInBandPct']}
         descriptor={TIME_IN_BAND}
         noun="tempo dentro da faixa"
@@ -265,6 +307,11 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
   sentence: { fontSize: 13, color: '#334155', lineHeight: 19 },
   muted: { fontSize: 12, color: '#64748b' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f1f5f9' },
+  chipActive: { backgroundColor: '#1769AA' },
+  chipText: { fontSize: 11, fontWeight: '600', color: '#475569' },
+  chipTextActive: { color: '#fff' },
   tag: { alignSelf: 'flex-start', fontSize: 11, color: '#475569', backgroundColor: '#f1f5f9', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden' },
   caution: { fontSize: 11, color: '#94a3b8' },
 });

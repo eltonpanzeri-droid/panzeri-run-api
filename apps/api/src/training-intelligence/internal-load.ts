@@ -8,4 +8,7 @@
 export const INTERNAL_LOAD_VARIABLE_ID = 'workout.sessionInternalLoad';
 export const SESSION_DURATION_VARIABLE_ID = 'workout.sessionDurationUsedMin';
 export const SESSION_PSE_VARIABLE_ID = 'workout.perceivedEffort';
+// Carga SEMANAL (02/11/2026): soma das cargas das sessoes elegiveis da semana (segunda a domingo), para o grafico da Evolucao da aluna ter faixa e media movel do servidor. Fica FORA de
+// INTERNAL_LOAD_VARIABLE_IDS de proposito: nao entra no painel de sessoes nem no contexto da IA (so' leitura da aluna e do Explorar).
+export const WEEKLY_INTERNAL_LOAD_VARIABLE_ID = 'workout.weeklyInternalLoad';
 export const INTERNAL_LOAD_VARIABLE_IDS = [INTERNAL_LOAD_VARIABLE_ID, SESSION_DURATION_VARIABLE_ID] as const;

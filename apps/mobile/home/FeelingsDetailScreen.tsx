@@ -7,6 +7,7 @@ import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from '.
 import { fetchSnapshot, fetchSnapshots } from './homeApi';
 import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
+import { IndicatorMeaning } from './IndicatorMeaning';
 import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
@@ -104,6 +105,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
           </View>
         ))}
         <Text style={styles.hint}>Registro por treino; sem cálculo de tendência para categorias.</Text>
+        <IndicatorMeaning id={variable.id} />
       </View>
     );
   }
@@ -139,6 +141,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
       ) : (
         <Text style={styles.empty}>É preciso ao menos 2 registros para desenhar a evolução.</Text>
       )}
+      <IndicatorMeaning id={variable.id} />
     </View>
   );
 }
