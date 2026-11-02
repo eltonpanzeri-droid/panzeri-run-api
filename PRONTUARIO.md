@@ -3483,6 +3483,9 @@ Ordem do Elton (repetida várias vezes): todo app de integração deve tentar pe
 - **Sem aluna para validar:** COROS e Samsung (Elton usa Polar Pacer Pro + iPhone 12).
 - **Pendências abertas:** revisão do advogado (política/termos); 18+ no cadastro; Zepp sem validação com aluna real (envio de dado Zepp à Anthropic segue bloqueado); leitura em segundo plano do Health Connect nunca testada em aparelho; ajuste do catálogo da Samsung (não prometer HRV/FC de repouso), aguardando "vai".
 
+### 02/11/2026 — Medição real do peso do prompt e prompt do usuário compacto (sem indentação)
+Geração da Duda às 14:10 (Brasília), medida pelo `[contagem-tokens]`: entrada 139.441 tokens (US$ 0,303), saída 15.159 (US$ 0,152; ~83% é raciocínio não devolvido), total US$ 0,455, 162 s, cache sem leitura. Os espaços/quebras eram 37% dos caracteres mas só **13,4% dos tokens** (18.187 tokens, US$ 0,036); blocos por modalidade 21.398 tokens (18,2% do prompt compacto, US$ 0,043). O log estimava ~106 mil tokens contra 136 mil oficiais (estimativa por caractere subestima JSON). **Feito (etapa 1, sem perda):** os 3 montadores do prompt do usuário de `PrescriptionAgentService` passaram a `JSON.stringify` compacto (antes `null, 2`); teste `prescription-prompt-compact.spec.ts`. Vale no Deploy da API. **Não feito (fila):** cortar `null`/constantes dos blocos por modalidade (sem perda, ~US$ 0,01–0,02) e resumo das variáveis estáveis (com perda; exige comparação de qualidade lado a lado). Raciocínio NÃO será reduzido (decisão de Elton). O log `formatacao` passará a mostrar ~0 espaços: é esperado.
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

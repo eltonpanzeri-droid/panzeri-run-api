@@ -456,8 +456,6 @@ export class PrescriptionAgentService {
         lacunasDeContexto: params.contextGaps ?? [],
         analiseTecnicaDoAnalistaDeTreinos: params.trainingAnalysis ?? null,
       },
-      null,
-      2,
     );
   }
 
@@ -1157,8 +1155,6 @@ export class PrescriptionAgentService {
         // athleteStateContext.menstrualCycle (linha abaixo), baseado em evidencia real (nunca 28
         // dias/ovulacao dia 14 fixos). Ver regra de uso completa em buildSystemPromptStable.
       },
-      null,
-      2,
     );
   }
 
@@ -1207,8 +1203,6 @@ export class PrescriptionAgentService {
           ? runnerStrengthExercises.map((exercise) => ({ id: exercise.id, name: exercise.name, focus: exercise.focus, level: exercise.level }))
           : [],
       },
-      null,
-      2,
     );
   }
 }
