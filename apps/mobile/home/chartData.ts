@@ -27,6 +27,27 @@ export function observationPoints(snapshot: SnapshotLite): Array<{ x: number; y:
     .sort((a, b) => a.x - b.x);
 }
 
+/**
+ * Faixa habitual para o grafico: vem da serie de referencias do SERVIDOR (P10-P90 so' dos registros anteriores a cada ponto), a mesma do painel do treinador e a
+ * mesma funcao de faixa habitual usada no texto. Nada e' calculado aqui. Ponto sem faixa sustentada (basis 'none') nao desenha faixa: ausencia nunca vira "normal".
+ */
+export function referenceChannelPoints(snapshot: SnapshotLite | null | undefined): Array<{ x: number; lower: number; upper: number; mean: number }> {
+  const points = snapshot?.reference?.points ?? [];
+  const out: Array<{ x: number; lower: number; upper: number; mean: number }> = [];
+  for (const p of points) {
+    const { lower, upper, median, basis } = p.band;
+    if (basis === 'none' || lower == null || upper == null) continue;
+    out.push({ x: dayFromIso(p.timestamp), lower, upper, mean: median ?? (lower + upper) / 2 });
+  }
+  return out.sort((a, b) => a.x - b.x);
+}
+
+const MODALITY_NAMES: Record<string, string> = { corrida: 'Corrida', forca: 'Força', fortalecimento_corredores: 'Fortalecimento' };
+
+export function modalityName(modality: string): string {
+  return MODALITY_NAMES[modality] ?? modality.charAt(0).toUpperCase() + modality.slice(1).replace(/_/g, ' ');
+}
+
 export function movingAveragePoints(snapshot: SnapshotLite, key = 'short_21d'): Array<{ x: number; y: number | null }> {
   const series = snapshot.movingAverageSeries?.[key] ?? [];
   return series.map((p) => ({ x: dayFromIso(p.timestamp), y: p.value })).sort((a, b) => a.x - b.x);

@@ -4,11 +4,10 @@ import { Text } from '../src/PtText';
 import { Ionicons } from '@expo/vector-icons';
 import { DetailChart } from '../src/activityDetail';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
-import { fetchSnapshots } from './homeApi';
+import { fetchSnapshot, fetchSnapshots } from './homeApi';
 import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
-import { dayChannel } from './trendChannel';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
-import { formatDayLabel, formatDayLong, movingAveragePoints, observationPoints } from './chartData';
+import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
 // esforco e Resposta pos-treino. Consumo PURO de GET /me/observations/:variableId (mesmo motor
@@ -22,15 +21,51 @@ function fmtValue(v: number, variable: DomainVariable) {
   return `${String(rounded).replace('.', ',')}${variable.unit ? ` ${variable.unit}` : ''}`;
 }
 
-function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined }) {
+function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string }) {
+  // 02/11/2026: seletor de modalidade DENTRO do grafico (padrao: todas). So' aparece quando a variavel tem dado em 2+ modalidades; a escolha busca a MESMA leitura
+  // do servidor filtrada pela modalidade (nenhuma conta no app).
+  const [modality, setModality] = useState<string | null>(null);
+  const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
+  useEffect(() => {
+    if (!modality) { setFiltered(undefined); return undefined; }
+    let alive = true;
+    setFiltered(undefined);
+    fetchSnapshot(variable.id, accessToken, { reference: true, modality }).then((s) => { if (alive) setFiltered(s); });
+    return () => { alive = false; };
+  }, [modality, variable.id, accessToken]);
+  const modalities = allSnapshot?.availableModalities ?? [];
+  const snapshot = modality ? filtered : allSnapshot;
   const points = useMemo(() => (snapshot && !variable.categorical ? observationPoints(snapshot) : []), [snapshot, variable]);
   const mm = useMemo(() => (snapshot && !variable.categorical ? movingAveragePoints(snapshot, 'short_21d') : []), [snapshot, variable]);
+  const channelPoints = useMemo(() => referenceChannelPoints(snapshot), [snapshot]);
+
+  // Os botoes ficam em todos os estados (carregando/sem registro na modalidade) para a aluna sempre poder voltar a "Todas".
+  const chips = modalities.length >= 2 && !variable.categorical ? (
+    <View style={styles.chips}>
+      {[null, ...modalities].map((m) => (
+        <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
+          <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
+        </Pressable>
+      ))}
+    </View>
+  ) : null;
+
+  if (modality && snapshot === undefined) {
+    return (
+      <View style={[styles.block, HomeBorder.card]}>
+        <Text style={styles.blockTitle}>{variable.label}</Text>
+        {chips}
+        <ActivityIndicator size="small" color={HomeColors.panzeriInteraction} />
+      </View>
+    );
+  }
 
   if (!snapshot || snapshot.evidence.n === 0) {
     return (
       <View style={[styles.block, HomeBorder.card]}>
         <Text style={styles.blockTitle}>{variable.label}</Text>
-        <Text style={styles.empty}>Sem registros ainda.</Text>
+        {chips}
+        <Text style={styles.empty}>{modality ? `Sem registros de ${modalityName(modality)} ainda.` : 'Sem registros ainda.'}</Text>
       </View>
     );
   }
@@ -53,12 +88,12 @@ function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snaps
 
   const scale = snapshot.variable.scale;
   const fixedDomain = snapshot.variable.dataType === 'ordinal_scale' && scale ? { min: scale.min, max: scale.max } : undefined;
-  // 15/10/2026 (pedido de Elton): a faixa habitual fixa deu lugar ao canal de tendencia, que acompanha o ritmo da propria aluna.
-  const channelPoints = dayChannel(points, scale && snapshot.variable.dataType === 'ordinal_scale' ? { min: scale.min, max: scale.max } : undefined);
+  // 02/11/2026: a faixa cinza vem do servidor (referencias anteriores, P10-P90): mesma matematica do painel e do texto. Substitui o canal calculado no celular (15/10).
 
   return (
     <View style={[styles.block, HomeBorder.card]}>
       <Text style={styles.blockTitle}>{variable.label}</Text>
+      {chips}
       <Text style={styles.blockValue}>
         Último: {snapshot.current != null ? fmtValue(snapshot.current, variable) : '—'}
         {scale && snapshot.variable.dataType === 'ordinal_scale' ? ` / ${scale.max}` : ''}
@@ -76,7 +111,7 @@ function VariableBlock({ variable, snapshot }: { variable: DomainVariable; snaps
           higherIsUp
           yDomain={fixedDomain}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
-          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus registros costumam ficar)' } : undefined}
+          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus registros costumam ficar)', showMean: false } : undefined}
           seriesLabel="seus registros"
         />
       ) : (
@@ -93,7 +128,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessTo
   useEffect(() => {
     let alive = true;
     setSnapshots(null);
-    fetchSnapshots(cfg.variables.map((v) => v.id), accessToken).then((map) => { if (alive) setSnapshots(map); });
+    fetchSnapshots(cfg.variables.map((v) => v.id), accessToken, { reference: true }).then((map) => { if (alive) setSnapshots(map); });
     return () => { alive = false; };
   }, [accessToken, domain]);
 
@@ -122,7 +157,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack }: { accessTo
             )}
             <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>
           </View>
-          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} />)}
+          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}
           <SourcesLink themeIds={domain === 'sleep' ? ['ritmo-circadiano'] : ['neurociencia-comportamento']} />
         </>
       )}
@@ -142,6 +177,11 @@ const styles = StyleSheet.create({
   blockN: { ...HomeTypography.tertiary, color: HomeColors.textTertiary },
   hint: { ...HomeTypography.tertiary, color: HomeColors.textTertiary },
   empty: { ...HomeTypography.body, color: HomeColors.textSecondary },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14, backgroundColor: HomeColors.surfaceHighlight },
+  chipActive: { backgroundColor: HomeColors.panzeriInteraction },
+  chipText: { ...HomeTypography.tertiary, color: HomeColors.textSecondary },
+  chipTextActive: { color: '#fff' },
   categoricalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3, borderBottomWidth: 1, borderBottomColor: HomeColors.divider },
   categoricalDate: { ...HomeTypography.body, color: HomeColors.textSecondary },
   categoricalValue: { ...HomeTypography.bodyMedium, color: HomeColors.textPrimary },

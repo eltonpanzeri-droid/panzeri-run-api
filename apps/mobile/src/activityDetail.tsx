@@ -172,7 +172,7 @@ interface DetailChartProps {
   // Faixa horizontal (ex.: faixa habitual individual) sobre toda a largura.
   band?: { lower: number; upper: number; label: string };
   // 15/10/2026: canal de tendencia que ACOMPANHA a serie (media da janela ± 2 desvios), no lugar da faixa fixa nas telas da aluna.
-  channel?: { points: Array<{ x: number; lower: number; upper: number; mean: number }>; label: string };
+  channel?: { points: Array<{ x: number; lower: number; upper: number; mean: number }>; label: string; showMean?: boolean };
   // Rotulo da serie principal na legenda.
   seriesLabel?: string;
 }
@@ -283,7 +283,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
                 d={`M ${channel.points.map((c) => `${sx(c.x).toFixed(1)} ${sy(c.upper).toFixed(1)}`).join(' L ')} L ${[...channel.points].reverse().map((c) => `${sx(c.x).toFixed(1)} ${sy(c.lower).toFixed(1)}`).join(' L ')} Z`}
                 fill="#94a3b8" fillOpacity={0.2} stroke="#94a3b8" strokeOpacity={0.35} strokeWidth={1}
               />
-              <Path d={`M ${channel.points.map((c) => `${sx(c.x).toFixed(1)} ${sy(c.mean).toFixed(1)}`).join(' L ')}`} fill="none" stroke="#94a3b8" strokeOpacity={0.6} strokeWidth={1} strokeDasharray="3,3" />
+              {channel.showMean === false ? null : <Path d={`M ${channel.points.map((c) => `${sx(c.x).toFixed(1)} ${sy(c.mean).toFixed(1)}`).join(' L ')}`} fill="none" stroke="#94a3b8" strokeOpacity={0.6} strokeWidth={1} strokeDasharray="3,3" />}
             </>
           ) : null}
           {(bands ?? []).map((b, i) => {

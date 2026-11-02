@@ -15,8 +15,14 @@ export async function fetchJsonAuth<T>(path: string, accessToken: string): Promi
   }
 }
 
-export async function fetchSnapshots(ids: string[], accessToken: string): Promise<Record<string, SnapshotLite | null>> {
-  const results = await Promise.all(ids.map((id) => fetchJsonAuth<SnapshotLite>(`/me/observations/${id}`, accessToken)));
+// 02/11/2026: `reference` anexa a serie de referencias do servidor (faixa habitual) e `modality` filtra pela modalidade — os mesmos filtros do painel do treinador.
+export function fetchSnapshot(id: string, accessToken: string, options: { reference?: boolean; modality?: string | null } = {}): Promise<SnapshotLite | null> {
+  const query = [options.reference ? 'reference=1' : '', options.modality ? `modalities=${encodeURIComponent(options.modality)}` : ''].filter(Boolean).join('&');
+  return fetchJsonAuth<SnapshotLite>(`/me/observations/${id}${query ? `?${query}` : ''}`, accessToken);
+}
+
+export async function fetchSnapshots(ids: string[], accessToken: string, options: { reference?: boolean } = {}): Promise<Record<string, SnapshotLite | null>> {
+  const results = await Promise.all(ids.map((id) => fetchSnapshot(id, accessToken, options)));
   const map: Record<string, SnapshotLite | null> = {};
   ids.forEach((id, i) => { map[id] = results[i]; });
   return map;

@@ -30,6 +30,10 @@ export interface SnapshotLite {
   persistence?: { currentlyOutsideHabitualRange: boolean | null; direction?: 'above' | 'below' | null } | null;
   observations: Array<{ timestamp: string; value: number | string; context?: { modality?: string; activityLogId?: string } | null }>;
   evidence: { n: number };
+  /** Modalidades com dado (so' quando a variavel tem dimensao de modalidade). */
+  availableModalities?: string[];
+  /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. So' a faixa e' usada na tela da aluna. */
+  reference?: { points: Array<{ timestamp: string; band: { lower: number | null; upper: number | null; median: number | null; basis: 'individual' | 'limited' | 'none' } }> } | null;
 }
 
 // SUFICIENCIA DE EVIDENCIA pertence ao motor longitudinal, nunca a este arquivo. Sinais canonicos

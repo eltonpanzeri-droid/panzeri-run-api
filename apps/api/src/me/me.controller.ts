@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, GoneException, Optional, Param, Patch, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, GoneException, Optional, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { PatchAvailabilityDaysDto, UpdateAvailabilityDto } from './dto/update-availability.dto';
@@ -73,11 +73,19 @@ export class MeController {
   // exposta ao próprio dono do dado. Nenhum cálculo novo: é a MESMA função, só com athleteId=o
   // próprio usuário autenticado (nunca outro aluno — não repassa nenhum id da URL).
   @Get('observations/:variableId')
-  async getObservation(@CurrentUser() user: CurrentUserPayload, @Param('variableId') variableId: string) {
+  // 02/11/2026 — `modalities` ("corrida,forca") e `reference=1` sao os MESMOS filtros do painel do treinador (mesma pipeline, nenhuma formula nova): a tela da aluna passa a
+  // desenhar faixa e medias moveis a partir da serie de referencias do servidor e a oferecer o seletor de modalidade. Sem eles a resposta e' identica a anterior.
+  async getObservation(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('variableId') variableId: string,
+    @Query('modalities') modalities?: string,
+    @Query('reference') reference?: string,
+  ) {
+    const modalityList = modalities ? modalities.split(',').map((m) => m.trim()).filter(Boolean) : undefined;
     // Indicadores de execucao dependem de analises por sessao. Depois de uma correcao de atividade, tenta concluir a atualizacao pendente (orcamento curto) ANTES de
     // ler; se ainda restar algo, a resposta traz provisional — o app mostra o dado como em atualizacao, nunca como definitivo.
     const pending = variableId.startsWith('execution.') ? viewOf(await settlePendingReevaluation(this.prisma, user.sub, 1500)) : null;
-    const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId);
+    const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId, modalityList, undefined, { withReference: reference === '1' });
     if (!pending) return snapshot;
     return { ...snapshot, provisional: pending.analysisSessions > 0 ? { reason: 'correction_pending' as const, sessions: pending.analysisSessions, since: pending.since } : null };
   }

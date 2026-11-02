@@ -9,8 +9,23 @@ describe('MeController.getObservation', () => {
     const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true });
     const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);
     const result = await controller.getObservation({ sub: 'aluno-1' } as never, 'workout.preSleepQuality');
-    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.preSleepQuality');
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.preSleepQuality', undefined, undefined, { withReference: false });
     expect(result).toEqual({ mathApplicable: true });
+  });
+
+  // 02/11/2026 — a tela da aluna usa os MESMOS filtros do painel do treinador (modalidade e referencias anteriores), sempre sobre o proprio userId.
+  it('repassa modalidades e referencias ao servico canonico, sempre com o proprio userId', async () => {
+    const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true });
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);
+    await controller.getObservation({ sub: 'aluno-1' } as never, 'workout.perceivedEffort', ' corrida , forca,', '1');
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.perceivedEffort', ['corrida', 'forca'], undefined, { withReference: true });
+  });
+
+  it('reference diferente de "1" nao anexa referencias; modalities vazio vira sem filtro', async () => {
+    const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true });
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);
+    await controller.getObservation({ sub: 'aluno-1' } as never, 'workout.perceivedEffort', '', 'true');
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.perceivedEffort', undefined, undefined, { withReference: false });
   });
 });
 

@@ -11,8 +11,7 @@ import {
   recentVsLastSentences,
   volumeSentences,
 } from './insights';
-import { formatDayLabel, movingAveragePoints, observationPoints } from './chartData';
-import { dayChannel } from './trendChannel';
+import { formatDayLabel, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
@@ -67,11 +66,12 @@ function MetricCard({
   if (!snapshot || snapshot.evidence.n === 0) {
     return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
   }
-  // 15/10/2026 (pedido de Elton): canal de tendencia que acompanha a serie, no lugar da faixa habitual fixa.
-  const channelPoints = dayChannel(points);
+  // 02/11/2026: faixa habitual vinda do servidor (mesma matematica do painel e do texto), no lugar do canal calculado no celular.
+  const channelPoints = referenceChannelPoints(snapshot);
   const sentences = [...recentVsLastSentences(snapshot, { noun, fmt: descriptor.fmt }), ...describeVariable(snapshot, descriptor)];
   return (
     <Card title={title}>
+      <Text style={styles.tag}>Modalidade: corrida</Text>
       {points.length >= 2 ? (
         <DetailChart
           title=""
@@ -82,7 +82,7 @@ function MetricCard({
           formatY={formatY}
           higherIsUp={higherIsUp}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
-          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus treinos costumam ficar)' } : undefined}
+          channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde seus treinos costumam ficar)', showMean: false } : undefined}
           seriesLabel="cada treino"
         />
       ) : (
@@ -99,7 +99,7 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
 
   useEffect(() => {
     let alive = true;
-    fetchSnapshots([...IDS], accessToken).then((map) => { if (alive) setSnapshots(map); });
+    fetchSnapshots([...IDS], accessToken, { reference: true }).then((map) => { if (alive) setSnapshots(map); });
     return () => { alive = false; };
   }, [accessToken]);
 
@@ -145,5 +145,6 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 13, fontWeight: '700', color: '#1e293b' },
   sentence: { fontSize: 13, color: '#334155', lineHeight: 19 },
   muted: { fontSize: 12, color: '#64748b' },
+  tag: { alignSelf: 'flex-start', fontSize: 11, color: '#475569', backgroundColor: '#f1f5f9', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, overflow: 'hidden' },
   caution: { fontSize: 11, color: '#94a3b8' },
 });
