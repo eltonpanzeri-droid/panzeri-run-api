@@ -20,6 +20,7 @@ import { AiQueueService } from '../common/ai-queue.service';
 import { AI_MODELS, cacheControlFor, cacheTtlLabel } from '../common/ai-models.config';
 import { logAiUsage } from '../common/ai-usage-logger';
 import { describeOutputSize, describePromptSize, measureOutputSize, measurePromptSize } from '../common/ai-prompt-size';
+import { compactUserPrompt, compactUserPromptWithoutByModality, describeTokenComparison, tokenCompareLimit } from '../common/ai-token-compare';
 import { AgentCallTrace, BASIS_SOURCES, DECISION_VARIABLES, DeclaredReasoning, normalizeDeclaredReasoning, recordAgentCall } from './prescription-trace';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import { runnerStrengthExercises } from './runner-strength-library';
@@ -310,6 +311,26 @@ export class PrescriptionAgentService {
     this.client = apiKey ? new Anthropic({ apiKey }) : null;
   }
 
+  private tokenCompareRuns = 0;
+
+  // 02/11/2026: compara, pela contagem OFICIAL de tokens da Anthropic (gratuita, nao gera texto), o prompt como enviado x sem indentacao x sem os blocos byModality.
+  // So' mede: no maximo AI_TOKEN_COMPARE_MAX comparacoes por processo (padrao 3; 0 desliga), qualquer falha vira aviso no log e nunca afeta a geracao.
+  private async compareTokenCounts(client: Anthropic, p: { systemStable: string; safetyGuidance: string; userPrompt: string; realInputTotal: number }): Promise<void> {
+    try {
+      if (this.tokenCompareRuns >= tokenCompareLimit(this.config.get<string>('AI_TOKEN_COMPARE_MAX'))) return;
+      this.tokenCompareRuns += 1;
+      const compact = compactUserPrompt(p.userPrompt);
+      const withoutByModality = compactUserPromptWithoutByModality(p.userPrompt);
+      if (!compact || !withoutByModality) return;
+      const system = [{ type: 'text' as const, text: p.systemStable }, { type: 'text' as const, text: p.safetyGuidance }];
+      const count = async (content: string) => (await client.messages.countTokens({ model: AI_MODELS.SONNET_5, system, messages: [{ role: 'user', content }] })).input_tokens;
+      const [indentedTotal, compactTotal, compactWithoutByModalityTotal] = await Promise.all([count(p.userPrompt), count(compact), count(withoutByModality)]);
+      this.logger.log(`[contagem-tokens] agente=treinador_semana ${describeTokenComparison({ realInputTotal: p.realInputTotal, indentedTotal, compactTotal, compactWithoutByModalityTotal })}`);
+    } catch (error) {
+      this.logger.warn(`Contagem de tokens indisponivel: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
+    }
+  }
+
   // `trace` (opcional): recebe o registro EXATO do que foi enviado a IA (Etapa 1.2a). Nunca altera prompt, modelo nem resultado.
   async proposeWeeklyDecision(input: MethodologyInput, evidence: PaceEvidence, trace?: AgentCallTrace[], failure?: AiFailureInfo): Promise<WeeklyMethodologyDecision | null> {
     if (!this.client) {
@@ -581,6 +602,8 @@ export class PrescriptionAgentService {
         effort,
         detail: sizeDetail,
       });
+      // Medicao de tokens (02/11/2026): segundo plano, so' log, nunca atrasa nem altera a geracao.
+      void this.compareTokenCounts(client, { systemStable, safetyGuidance, userPrompt, realInputTotal: (response.usage.input_tokens ?? 0) + (response.usage.cache_creation_input_tokens ?? 0) + (response.usage.cache_read_input_tokens ?? 0) });
 
       // NAO existe mais rejeicao por pace lento (piso de 8:30/km): removido em 02/08 a pedido
       // explicito do treinador — pace lento e so uma recomendacao no prompt pra IA evitar, nunca

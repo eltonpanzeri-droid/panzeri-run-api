@@ -107,11 +107,15 @@ export class EvolutionAgentService {
     const client = this.client;
 
     const startedAt = Date.now();
+    // 02/11/2026: capturado durante o streaming para registrar stop_reason/usage se o parse falhar (mesmo padrao do Treinador da semana). So' contagens: o resumo do prontuario e' dado de saude e NAO vai para o log.
+    let lastSnapshot: Anthropic.Messages.Message | undefined;
     try {
-      const response = await this.aiQueue.run(() =>
-        client.messages.parse({
+      const response = await this.aiQueue.run(() => {
+        const stream = client.messages.stream({
           model: AI_MODELS.HAIKU_5_5,
-          max_tokens: 2400, // 1800 no Sonnet 5; idem (o limite de caracteres do resumo, em codigo, nao mudou)
+          // 2400 -> 4000 em 02/11/2026: o resumo pode ter ate 6000 caracteres (schema) e em portugues isso passa de 2.700 tokens, acima do teto antigo; em 02/11 uma
+          // condensacao foi cortada em ~5.350 caracteres ("Unterminated string in JSON") e 21 eventos seguiram crus para o Prescritor. So' paga o que a IA realmente escreve.
+          max_tokens: 4000,
           thinking: { type: 'disabled' },
           output_config: {
             effort: 'medium',
@@ -119,14 +123,20 @@ export class EvolutionAgentService {
           },
           system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), ...cacheControlFor('prontuario_condensacao') }],
           messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
-        }),
-        { agent: 'prontuario_condensacao', deviceData: true },
-      );
+        });
+        stream.on('streamEvent', (_event, snapshot) => {
+          lastSnapshot = snapshot;
+        });
+        return stream.finalMessage();
+      }, { agent: 'prontuario_condensacao', deviceData: true });
       logAiUsage(this.logger, { agent: 'prontuario_condensacao', model: AI_MODELS.HAIKU_5_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('prontuario_condensacao') });
 
       return response.parsed_output?.summary ?? null;
     } catch (error) {
-      this.logger.warn(`Falha ao condensar prontuario: ${(error as Error).message}`);
+      const snapshot = lastSnapshot as Anthropic.Messages.Message | undefined;
+      const rawChars = snapshot ? snapshot.content.reduce((sum, block) => sum + (block.type === 'text' ? block.text.length : 0), 0) : 0;
+      const detail = snapshot ? ` | stop_reason=${snapshot.stop_reason} output_tokens=${snapshot.usage?.output_tokens} texto_bruto_chars=${rawChars}` : '';
+      this.logger.warn(`Falha ao condensar prontuario: ${(error as Error).message}${detail}`);
       return null;
     }
   }
