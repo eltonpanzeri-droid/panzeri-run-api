@@ -402,7 +402,11 @@ export class TrainingPlansService {
   // treino novo na hora (concluir entrevista, mudar rotina, sincronizar disponibilidade) chama
   // generateWeek() explicitamente no proprio ponto da acao — nunca depende deste metodo.
   async current(userId: string) {
-    const weekStart = startOfWeek(new Date());
+    // Rolagem de domingo (01/11/2026, regra aprovada por Elton): de domingo 12h (Brasilia) em diante a "semana atual" da tela principal e' a SEMANA SEGUINTE — se ja foi gerada, ela;
+    // se nao, "nao gerada" (e o app mostra so' o botao). A semana que acabou continua em "Anterior" (getWeekByOffset ja usava a mesma rolagem; esta metade faltava aqui e era
+    // "emprestada" pelo app, que refazia a conta no aparelho e falhava no app nativo). Ver currentWeekWindow.
+    const window = currentWeekWindow(new Date());
+    const weekStart = window.weekStart;
     await this.fixStuckScheduledPlan(userId, weekStart);
     const [plan, latestTest, user, onboarding] = await Promise.all([
       // startDate: weekStart e essencial aqui (bug real 10/08 — aluna Eduarda): sem esse filtro,
@@ -423,7 +427,7 @@ export class TrainingPlansService {
       // atual quanto na semana seguinte (so pode existir UM active por vez, generateWeek() sempre
       // arquiva o anterior antes de criar o novo — entao nao ha risco de pegar o active errado).
       this.prisma.trainingPlan.findFirst({
-        where: { userId, status: 'active', startDate: { in: [weekStart, addDays(weekStart, 7)] } },
+        where: { userId, status: 'active', startDate: { in: window.searchStarts } },
         orderBy: { startDate: 'desc' },
         include: {
           sessions: {
@@ -458,8 +462,8 @@ export class TrainingPlansService {
       const anyPlanEver = await this.prisma.trainingPlan.findFirst({ where: { userId }, select: { id: true } });
       return {
         notGenerated: true,
-        startDate: weekStart,
-        endDate: addDays(weekStart, 6),
+        startDate: window.shownStart,
+        endDate: addDays(window.shownStart, 6),
         hasSubscriptionAccess: hasSubscriptionAccess(user.subscriptionStatus),
         hasEverHadPlan: Boolean(anyPlanEver),
       };
@@ -3429,6 +3433,25 @@ export function startOfWeek(date: Date) {
 export function todayInSaoPaulo() {
   const parts = saoPauloDateParts(new Date());
   return new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+}
+
+/**
+ * Janela da "semana atual" da tela principal (regra aprovada por Elton em 01/11/2026). Funcao pura, sempre no horario de Brasilia (America/Sao_Paulo):
+ *  - de segunda 00h ate domingo 11h59: a semana do calendario (ou a seguinte, se ja foi gerada antes da hora);
+ *  - de DOMINGO 12h (WEEKLY_RELEASE_HOUR) em diante: so' a SEMANA SEGUINTE (gerada, ou "nao gerada" -> o app mostra o botao). A semana que acabou fica em "Anterior".
+ * `getWeekByOffset` ja usava a mesma rolagem para os outros deslocamentos; assim o deslocamento 0 e os demais ficam na mesma numeracao (Anterior = semana que acabou, 0 = seguinte, +1 = a depois).
+ */
+export function currentWeekWindow(now: Date) {
+  const { weekday, hour } = saoPauloWeekdayAndHour(now);
+  const weekStart = startOfWeek(now);
+  const nextWeekStart = addDays(weekStart, 7);
+  const rolledPastRelease = weekday === 0 && hour >= WEEKLY_RELEASE_HOUR;
+  return {
+    weekStart,
+    rolledPastRelease,
+    searchStarts: rolledPastRelease ? [nextWeekStart] : [weekStart, nextWeekStart],
+    shownStart: rolledPastRelease ? nextWeekStart : weekStart,
+  };
 }
 
 function saoPauloDateParts(date: Date) {

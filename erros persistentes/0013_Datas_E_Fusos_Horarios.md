@@ -151,7 +151,7 @@ Recomendação: **A agora** (corrige o relato hoje, no servidor), **B** no próx
 Elton **não autorizou** as opções A/B/C da seção 7 ("não autorizo. nada") e passou a definir a regra do zero, uma pergunta por vez. Decisões dele, em ordem:
 1. O treino gerado fica na tela até a aluna gerar o seguinte; o botão só é liberado a partir de **domingo 12h**.
 2. Vale a regra **velha**: a partir de **segunda 00h** o treino da semana anterior sai da tela principal e fica só o botão (o velho vai para "Anterior").
-3. Entre **domingo 12h e segunda 00h**: treino velho **e** botão juntos na mesma tela.
+3. Entre **domingo 12h e segunda 00h**: ~~treino velho e botão juntos~~ → **REVISTO por Elton na noite de 01/11: vale a regra de 07/08, SÓ o botão** (o treino velho sai da tela principal e fica em "Anterior"; evita confusão e dispensa mudança no app).
 4. "Incluir hoje?" é perguntado **de segunda a domingo 11h59** (inclusive o domingo da semana alvo); **não** é perguntado ao gerar no domingo depois das 12h (gera a semana seguinte).
 5. Até **domingo 11h59** ela ainda gera a semana que não gerou; do domingo **12h** em diante o botão gera a semana seguinte e a semana não gerada fica "Treino não gerado nessa semana".
 6. Quem gera no domingo 12h–23h59 vê **imediatamente** a semana nova (02/11), sem botão; o treino do próprio domingo fica em "Anterior".
@@ -160,7 +160,9 @@ Elton **não autorizou** as opções A/B/C da seção 7 ("não autorizo. nada") 
 
 Texto completo, com a linha do tempo: `REGRA_SEMANA_DE_TREINO_PARA_APROVACAO.md` (raiz do repositório). **Diferenças em relação ao sistema de hoje:** (a) domingo depois das 12h a tela mostra só o botão, não o treino velho junto; (b) "incluir hoje?" não é perguntado no domingo e usa o relógio do celular (App.tsx 4641, 4838, 4878); (c) "Próxima" pode estar ativa e pular para 09/11; (d) a decisão do estado da semana está espalhada (2 funções no app, 3+ no servidor).
 
-**Rodada 1 (01/11/2026):** análise + simulação com o código real do servidor + inventário de datas; **nenhuma correção aplicada**; regra aprovada; implementação aguardando ordem de Elton.
+**Rodada 1 (01/11/2026):** análise + simulação com o código real do servidor + inventário de datas; **nenhuma correção aplicada**; regra aprovada.
+
+**Rodada 2 (01/11/2026, noite) — Passo 1, servidor:** Elton relatou que a Juliana tem o mesmo problema e que o TestFlight dele é a 1.0.2 (16), e ordenou resolver. Diagnóstico: o servidor só tinha a rolagem de domingo "pela metade" — os comentários diziam que `current()` já rolava, mas só `getWeekByOffset` rolava; o app "emprestava" a outra metade com uma conta no aparelho (`isSundayAfterNoon`, via `Intl`) que, no app nativo, não ligou a tela com o botão. Correção: `currentWeekWindow` (função pura, Brasília) e `current()` passa a devolver, de domingo 12h em diante, só a semana seguinte (gerada ou "não gerada"); numeração coerente: Anterior = semana que acabou, 0 = seguinte, +1 = a depois. Leitores de `current()`: só `training-plans.controller.ts` (rota `current` e `week-by-offset?offset=0`); no app, só a tela de Treinos (`loadPlan`) e a espera depois de gerar (que agora também espera de verdade). Testes: 14 novos (bordas 11h59/12h00/21h08/23h59/00h00 e 4 fusos de máquina) + 108 de regressão. **Resultado real: DESCONHECIDO até o Deploy e a conferência no aparelho de Elton e da Juliana.** Limite: se a falha do app nativo for a leitura da hora em si (hipótese não provada), o botão só volta com o Passo 2 (novo build). Passo 2 não autorizado.
 
 ## 9. Pendências desta investigação
 - Confirmar H1 (motor do app nativo) com o teste de 2 minutos descrito na seção 4.
