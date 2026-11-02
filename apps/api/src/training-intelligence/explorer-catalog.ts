@@ -21,7 +21,7 @@ const TRAINING_SUBGROUP_BY_ID: Record<string, TrainingSubgroup> = {
   'training.volumeExtraKm': 'volume_consistencia', 'training.volumeDiffAbsoluteKm': 'volume_consistencia', 'training.volumeRatioCompletedPrescribed': 'volume_consistencia',
   'training.adherencePercent': 'volume_consistencia', 'training.acwr': 'volume_consistencia', 'activity.elevationGainMeters': 'volume_consistencia',
   'workout.perceivedEffort': 'esforco_carga', 'workout.sessionInternalLoad': 'esforco_carga', 'workout.sessionDurationUsedMin': 'esforco_carga', 'checkin.weekDemandVsNormal': 'esforco_carga',
-  'activity.avgPaceSecondsKm': 'intensidade_resposta', 'execution.timeInBandPct': 'intensidade_resposta', 'execution.avgHeartRateInBandBpm': 'intensidade_resposta',
+  'activity.avgPaceSecondsKm': 'intensidade_resposta', 'activity.avgHeartRateBpm': 'intensidade_resposta', 'execution.timeInBandPct': 'intensidade_resposta', 'execution.avgHeartRateInBandBpm': 'intensidade_resposta',
   'activity.cadenceAvg': 'mecanica_eficiencia', 'activity.powerAvgWatts': 'mecanica_eficiencia',
 };
 // Quem nao esta na tabela cai no grupo do seu dominio: carga de treino -> volume; o resto -> execucao e experiencia.

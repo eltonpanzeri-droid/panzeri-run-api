@@ -16,8 +16,8 @@ export async function fetchJsonAuth<T>(path: string, accessToken: string): Promi
 }
 
 // 02/11/2026: `reference` anexa a serie de referencias do servidor (faixa habitual) e `modality` filtra pela modalidade — os mesmos filtros do painel do treinador.
-export function fetchSnapshot(id: string, accessToken: string, options: { reference?: boolean; modality?: string | null } = {}): Promise<SnapshotLite | null> {
-  const query = [options.reference ? 'reference=1' : '', options.modality ? `modalities=${encodeURIComponent(options.modality)}` : ''].filter(Boolean).join('&');
+export function fetchSnapshot(id: string, accessToken: string, options: { reference?: boolean; modality?: string | null; source?: string | null } = {}): Promise<SnapshotLite | null> {
+  const query = [options.reference ? 'reference=1' : '', options.modality ? `modalities=${encodeURIComponent(options.modality)}` : '', options.source ? `source=${encodeURIComponent(options.source)}` : ''].filter(Boolean).join('&');
   return fetchJsonAuth<SnapshotLite>(`/me/observations/${id}${query ? `?${query}` : ''}`, accessToken);
 }
 

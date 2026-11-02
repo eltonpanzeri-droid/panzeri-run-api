@@ -550,11 +550,15 @@ export class ObservationReaderService {
       orderBy: { startedAt: 'asc' },
     });
     const picks = await pickCanonicalPerEvent(rows.filter((row) => row.executionClassification !== 'ambiguous' || row.physicalIdentityStatus === 'unique' || row.physicalIdentityStatus === 'matched'), (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids }, ...aiActivityWhere() } }));
-    const logs = picks.map((pick) => pick.row).filter((log) => canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+    // FC media (02/11/2026): vale para qualquer modalidade; ritmo, cadencia, potencia e elevacao continuam so' de corrida.
+    const allSports = definition.variableId === 'activity.avgHeartRateBpm';
+    const logs = picks.map((pick) => pick.row).filter((log) => allSports || canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     const observations: Observation[] = [];
     for (const log of logs) {
       let value: number | null = null;
-      if (definition.variableId === 'activity.avgPaceSecondsKm') {
+      if (definition.variableId === 'activity.avgHeartRateBpm') {
+        if (log.avgHeartRateBpm != null && log.avgHeartRateBpm > 0) value = log.avgHeartRateBpm;
+      } else if (definition.variableId === 'activity.avgPaceSecondsKm') {
         if (log.distanceMeters != null && log.distanceMeters > 0 && log.durationSec != null && log.durationSec > 0) {
           value = Math.round(log.durationSec / (log.distanceMeters / 1000));
         }

@@ -7,19 +7,21 @@ import { FEELING_DOMAINS, FeelingDomain } from './insights';
 import { FeelingsDetailScreen } from './FeelingsDetailScreen';
 import { PainArea } from './PainArea';
 import { LoadSection } from './LoadSection';
+import { WearableSleepSection } from './WearableSleepSection';
+import { AdherenceWeekly } from './AdherenceSection';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
 // que já existe (mesma leitura do servidor e mesmos textos). Indicadores novos entram nas áreas nos próximos lotes. Sem diagnóstico: o aviso do topo diz isso.
 
 export type ProgressFocus = 'training' | 'adherence';
 
-type View_ = 'hub' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'pain' | 'adherence';
+type View_ = 'hub' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'weekly' | 'pain' | 'adherence';
 
-const AREAS: Array<{ id: Exclude<View_, 'hub' | 'readiness' | 'response'>; title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }> = [
+const AREAS: Array<{ id: Exclude<View_, 'hub' | 'readiness' | 'response' | 'weekly'>; title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }> = [
   { id: 'training', title: 'Evolução do treinamento', subtitle: 'Volume, ritmo e cadência', icon: 'trending-up-outline' },
   { id: 'load', title: 'Resposta à carga', subtitle: 'Esforço percebido e carga de treino', icon: 'barbell-outline' },
   { id: 'sleep', title: 'Sono e recuperação', subtitle: 'Como foram suas noites antes dos treinos', icon: 'moon-outline' },
-  { id: 'wellbeing', title: 'Bem-estar', subtitle: 'Cansaço, estresse e vontade de treinar', icon: 'heart-outline' },
+  { id: 'wellbeing', title: 'Bem-estar', subtitle: 'Cansaço, estresse, motivação e resposta do corpo', icon: 'heart-outline' },
   { id: 'pain', title: 'Dor', subtitle: 'Dor por treino e relatos', icon: 'bandage-outline' },
   { id: 'adherence', title: 'Aderência', subtitle: 'Treinos prescritos × realizados', icon: 'ribbon-outline' },
 ];
@@ -83,6 +85,7 @@ export function EvolutionHub({
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
         {renderProgress(view)}
+        {view === 'adherence' ? <AdherenceWeekly accessToken={accessToken} /> : null}
       </View>
     );
   }
@@ -93,6 +96,7 @@ export function EvolutionHub({
       <View style={styles.container}>
         <FeelingsDetailScreen accessToken={accessToken} domain={domain} onBack={() => setView('hub')} backLabel="Evolução" />
         {view === 'load' ? <LoadSection accessToken={accessToken} /> : null}
+        {view === 'sleep' ? <WearableSleepSection accessToken={accessToken} /> : null}
         {view === 'sleep' ? (
           <Pressable onPress={onOpenRecovery} style={[styles.card, HomeBorder.card]}>
             <View style={styles.cardIcon}><Ionicons name="pulse-outline" size={22} color={HomeColors.panzeriInteraction} /></View>
@@ -113,14 +117,14 @@ export function EvolutionHub({
         <BackRow label="Evolução" onPress={() => setView('hub')} />
         <Text style={styles.title}>Bem-estar</Text>
         <Text style={styles.subtitle}>Como você chega aos treinos e como responde a eles.</Text>
-        {(['readiness', 'response'] as const).map((d) => (
-          <AreaCard key={d} title={FEELING_DOMAINS[d].title} subtitle={FEELING_DOMAINS[d].subtitle} icon={d === 'readiness' ? 'battery-half-outline' : 'happy-outline'} onPress={() => setView(d)} />
+        {(['readiness', 'response', 'weekly'] as const).map((d) => (
+          <AreaCard key={d} title={FEELING_DOMAINS[d].title} subtitle={FEELING_DOMAINS[d].subtitle} icon={d === 'readiness' ? 'battery-half-outline' : d === 'response' ? 'happy-outline' : 'calendar-outline'} onPress={() => setView(d)} />
         ))}
       </View>
     );
   }
 
-  if (view === 'readiness' || view === 'response') {
+  if (view === 'readiness' || view === 'response' || view === 'weekly') {
     return (
       <View style={styles.container}>
         <FeelingsDetailScreen accessToken={accessToken} domain={view} onBack={() => setView('wellbeing')} backLabel="Bem-estar" />

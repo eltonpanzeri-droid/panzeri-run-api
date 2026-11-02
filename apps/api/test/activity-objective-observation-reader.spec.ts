@@ -36,6 +36,21 @@ describe('ObservationReaderService — activity.* (ActivityLog)', () => {
     expect(obs.map((o) => o.value)).toEqual([170]);
   });
 
+  // 02/11/2026 — FC media da atividade, de QUALQUER modalidade (ritmo/cadencia seguem so' de corrida); ausente ou 0 nunca vira observacao.
+  it('FC media: entra de qualquer modalidade, com a modalidade no contexto; ausente ou 0 nao gera observacao', async () => {
+    const { reader } = buildReader([
+      log({ id: 'run', sport: 'corrida', avgHeartRateBpm: 152 }),
+      log({ id: 'gym', sport: 'forca', avgHeartRateBpm: 118 }),
+      log({ id: 'none', avgHeartRateBpm: null }),
+      log({ id: 'zero', avgHeartRateBpm: 0 }),
+    ]);
+    const obs = await reader.getObservations('aluno-1', 'activity.avgHeartRateBpm');
+    // (mesma data/hora nos dois: so' o conjunto importa, nao a ordem)
+    expect(obs.map((o) => [o.value, o.context.modality]).sort()).toEqual([[118, 'forca'], [152, 'corrida']]);
+    // cadencia continua so' de corrida
+    expect((await buildReader([log({ id: 'gym', sport: 'forca', cadenceAvg: 90 })]).reader.getObservations('aluno-1', 'activity.cadenceAvg'))).toHaveLength(0);
+  });
+
   it('F: atividade sem distancia/duracao nao gera pace', async () => {
     const { reader } = buildReader([log({ id: 'a', distanceMeters: null }), log({ id: 'b', durationSec: null }), log({ id: 'c', distanceMeters: 0 })]);
     expect(await reader.getObservations('aluno-1', 'activity.avgPaceSecondsKm')).toHaveLength(0);

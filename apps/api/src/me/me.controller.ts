@@ -80,12 +80,16 @@ export class MeController {
     @Param('variableId') variableId: string,
     @Query('modalities') modalities?: string,
     @Query('reference') reference?: string,
+    // Fonte do relogio/aplicativo (variaveis nao comparaveis entre fontes: sono, HRV...). Sem ela vale a fonte principal escolhida pelo servidor. Igual ao painel do treinador.
+    @Query('source') source?: string,
   ) {
     const modalityList = modalities ? modalities.split(',').map((m) => m.trim()).filter(Boolean) : undefined;
     // Indicadores de execucao dependem de analises por sessao. Depois de uma correcao de atividade, tenta concluir a atualizacao pendente (orcamento curto) ANTES de
     // ler; se ainda restar algo, a resposta traz provisional — o app mostra o dado como em atualizacao, nunca como definitivo.
     const pending = variableId.startsWith('execution.') ? viewOf(await settlePendingReevaluation(this.prisma, user.sub, 1500)) : null;
-    const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId, modalityList, undefined, { withReference: reference === '1' });
+    const raw = await this.trainingIntelligenceQuery.getVariableSnapshot(user.sub, variableId, modalityList, source?.trim() || undefined, { withReference: reference === '1' });
+    // Nome legivel de cada fonte (ex.: "Health Connect · Samsung Health") para a tela da aluna; so' existe quando a variavel tem mais de uma fonte.
+    const snapshot = raw.availableSources ? { ...raw, availableSources: raw.availableSources.map((s) => ({ ...s, label: sourceDisplayName(s.key) })) } : raw;
     if (!pending) return snapshot;
     return { ...snapshot, provisional: pending.analysisSessions > 0 ? { reason: 'correction_pending' as const, sessions: pending.analysisSessions, since: pending.since } : null };
   }

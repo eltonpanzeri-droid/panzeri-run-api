@@ -21,6 +21,15 @@ describe('MeController.getObservation', () => {
     expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'workout.perceivedEffort', ['corrida', 'forca'], undefined, { withReference: true });
   });
 
+  // 02/11/2026 — variaveis de relogio nao comparaveis entre fontes: a aluna escolhe a fonte; cada fonte volta com o nome legivel.
+  it('repassa a fonte escolhida e devolve o nome legivel de cada fonte disponivel', async () => {
+    const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true, selectedSource: 'zepp', availableSources: [{ key: 'zepp', n: 10, lastObservationAt: null }, { key: 'health_connect:com.sec.android.app.shealth', n: 4, lastObservationAt: null }] });
+    const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);
+    const result: any = await controller.getObservation({ sub: 'aluno-1' } as never, 'wearable.sleepDurationMin', undefined, undefined, ' zepp ');
+    expect(getVariableSnapshot).toHaveBeenCalledWith('aluno-1', 'wearable.sleepDurationMin', undefined, 'zepp', { withReference: false });
+    expect(result.availableSources.map((s: { label: string }) => s.label)).toEqual(['Zepp / Amazfit', 'Health Connect · Samsung Health']);
+  });
+
   it('reference diferente de "1" nao anexa referencias; modalities vazio vira sem filtro', async () => {
     const getVariableSnapshot = jest.fn().mockResolvedValue({ mathApplicable: true });
     const controller = new MeController({} as never, { getVariableSnapshot } as never, {} as never, {} as never);

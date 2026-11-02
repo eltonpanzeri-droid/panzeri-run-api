@@ -1029,6 +1029,25 @@ VARIABLE_REGISTRY['activity.cadenceAvg'] = {
     'ActivityLog.cadenceAvg (media da serie canonica, ignorando leituras 0 = sem sinal de movimento). So entram atividades de corrida com cadencia valida fornecida pelo dispositivo — sem cadencia, a atividade nao gera observacao.',
 };
 
+// 02/11/2026 (pedido de Elton, "frequencia cardiaca media total"): FC media de cada atividade com FC valida informada pelo dispositivo, de QUALQUER modalidade (a observacao carrega a modalidade e o
+// provedor). So' LEITURA para a Evolucao da aluna: nao esta na lista de variaveis da IA (athlete-state-snapshot). O sensor ja' so' e' gravado em ActivityLog com o consentimento de sensores da fonte.
+VARIABLE_REGISTRY['activity.avgHeartRateBpm'] = {
+  variableId: 'activity.avgHeartRateBpm',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'frequencia cardiaca media da atividade (bpm)',
+  scale: { min: 30, max: 230, unit: 'bpm' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_workout',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'avgHeartRateBpm' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'ActivityLog.avgHeartRateBpm (media informada pelo dispositivo; valor 0 ou ausente nao gera observacao, nunca imputado). Todas as modalidades: contextos diferentes (treino leve, intervalado, longao, forca) NAO sao misturados em um julgamento — descreve o que aconteceu naquela atividade. Sensores de marcas diferentes divergem: a observacao carrega o provedor.',
+};
 VARIABLE_REGISTRY['activity.powerAvgWatts'] = {
   variableId: 'activity.powerAvgWatts',
   domain: 'training_load',

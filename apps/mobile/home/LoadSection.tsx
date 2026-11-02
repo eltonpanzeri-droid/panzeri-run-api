@@ -20,6 +20,7 @@ interface LoadView { weeks: LoadWeekLite[]; current: LoadWindowLite; totals: { s
 interface TrainingLoadLite { views: Record<ViewKey, LoadView>; method: { generalViewNote: string } }
 
 const SESSION_LOAD: DomainVariable = { id: 'workout.sessionInternalLoad', label: 'Carga de cada treino (esforço × minutos)', unit: 'UA', scaleHint: 'Esforço percebido (1 a 10) × minutos de treino, em UA (unidade arbitrária)' };
+const HEART_RATE: DomainVariable = { id: 'activity.avgHeartRateBpm', label: 'Frequência cardíaca média de cada atividade', unit: 'bpm', scaleHint: 'Média informada pelo seu relógio em cada atividade que tem frequência cardíaca.' };
 const WEEK_DEMAND: DomainVariable = { id: 'checkin.weekDemandVsNormal', label: 'Exigência da semana comparada ao seu normal', scaleHint: '1 = muito menos exigente · 3 = dentro do normal · 5 = muito mais exigente' };
 
 const ratio2 = (v: number) => v.toFixed(2).replace('.', ',');
@@ -40,7 +41,7 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
   useEffect(() => {
     let alive = true;
     fetchJsonAuth<TrainingLoadLite>('/me/training-load', accessToken).then((d) => { if (alive) setLoad(d); });
-    fetchSnapshots([SESSION_LOAD.id, 'training.acwr', WEEK_DEMAND.id], accessToken, { reference: true }).then((m) => { if (alive) setSnapshots(m); });
+    fetchSnapshots([SESSION_LOAD.id, 'training.acwr', HEART_RATE.id, WEEK_DEMAND.id], accessToken, { reference: true }).then((m) => { if (alive) setSnapshots(m); });
     return () => { alive = false; };
   }, [accessToken]);
 
@@ -108,6 +109,8 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
         emptyText="Ainda não há histórico de volume suficiente para esta relação."
         caution="Razão de volume em km (média de 28 dias ÷ média de 42 dias); não é a razão da carga de esforço acima. Descrição dos seus registros; não indica risco."
       />
+
+      <VariableBlock variable={HEART_RATE} snapshot={snapshots[HEART_RATE.id]} accessToken={accessToken} />
 
       <VariableBlock variable={WEEK_DEMAND} snapshot={snapshots[WEEK_DEMAND.id]} accessToken={accessToken} />
     </View>

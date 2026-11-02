@@ -17,6 +17,7 @@ import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, obser
 // significados diferentes nunca sao fundidas num mesmo grafico.
 
 function fmtValue(v: number, variable: DomainVariable) {
+  if (variable.format) return variable.format(v);
   const rounded = Math.round(v * 10) / 10;
   return `${String(rounded).replace('.', ',')}${variable.unit ? ` ${variable.unit}` : ''}`;
 }
@@ -24,33 +25,54 @@ function fmtValue(v: number, variable: DomainVariable) {
 export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string }) {
   // 02/11/2026: seletor de modalidade DENTRO do grafico (padrao: todas). So' aparece quando a variavel tem dado em 2+ modalidades; a escolha busca a MESMA leitura
   // do servidor filtrada pela modalidade (nenhuma conta no app).
+  // Variaveis de relogio (sono, HRV...) nao sao comparaveis entre fontes: com mais de uma fonte com dado, a aluna escolhe qual ver (a principal vem por padrao); fontes nunca se misturam.
   const [modality, setModality] = useState<string | null>(null);
+  const [source, setSource] = useState<string | null>(null);
   const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
+  const filterActive = modality != null || source != null;
   useEffect(() => {
-    if (!modality) { setFiltered(undefined); return undefined; }
+    if (!filterActive) { setFiltered(undefined); return undefined; }
     let alive = true;
     setFiltered(undefined);
-    fetchSnapshot(variable.id, accessToken, { reference: true, modality }).then((s) => { if (alive) setFiltered(s); });
+    fetchSnapshot(variable.id, accessToken, { reference: true, modality, source }).then((s) => { if (alive) setFiltered(s); });
     return () => { alive = false; };
-  }, [modality, variable.id, accessToken]);
+  }, [modality, source, filterActive, variable.id, accessToken]);
   const modalities = allSnapshot?.availableModalities ?? [];
-  const snapshot = modality ? filtered : allSnapshot;
+  const sources = allSnapshot?.availableSources ?? [];
+  const snapshot = filterActive ? filtered : allSnapshot;
   const points = useMemo(() => (snapshot && !variable.categorical ? observationPoints(snapshot) : []), [snapshot, variable]);
   const mm = useMemo(() => (snapshot && !variable.categorical ? movingAveragePoints(snapshot, 'short_21d') : []), [snapshot, variable]);
   const channelPoints = useMemo(() => referenceChannelPoints(snapshot), [snapshot]);
 
   // Os botoes ficam em todos os estados (carregando/sem registro na modalidade) para a aluna sempre poder voltar a "Todas".
-  const chips = modalities.length >= 2 && !variable.categorical ? (
-    <View style={styles.chips}>
-      {[null, ...modalities].map((m) => (
-        <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
-          <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
-        </Pressable>
-      ))}
+  const chips = (modalities.length >= 2 && !variable.categorical) || sources.length >= 2 ? (
+    <View style={{ gap: 6 }}>
+      {modalities.length >= 2 && !variable.categorical ? (
+        <View style={styles.chips}>
+          {[null, ...modalities].map((m) => (
+            <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
+              <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {sources.length >= 2 ? (
+        <View style={styles.chips}>
+          <Text style={styles.hint}>Fonte:</Text>
+          {sources.map((s, index) => {
+            const active = source != null ? source === s.key : index === 0;
+            return (
+              <Pressable key={s.key} onPress={() => setSource(index === 0 ? null : s.key)} style={[styles.chip, active && styles.chipActive]}>
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{s.label ?? s.key}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </View>
   ) : null;
 
-  if (modality && snapshot === undefined) {
+  if (filterActive && snapshot === undefined) {
     return (
       <View style={[styles.block, HomeBorder.card]}>
         <Text style={styles.blockTitle}>{variable.label}</Text>
@@ -65,7 +87,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
       <View style={[styles.block, HomeBorder.card]}>
         <Text style={styles.blockTitle}>{variable.label}</Text>
         {chips}
-        <Text style={styles.empty}>{modality ? `Sem registros de ${modalityName(modality)} ainda.` : 'Sem registros ainda.'}</Text>
+        <Text style={styles.empty}>{modality ? `Sem registros de ${modalityName(modality)} ainda.` : source ? 'Sem registros desta fonte ainda.' : 'Sem registros ainda.'}</Text>
       </View>
     );
   }
@@ -103,11 +125,11 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
       {points.length >= 2 ? (
         <DetailChart
           title=""
-          unit={variable.unit ?? (scale?.unit ?? 'pontos da escala')}
+          unit={variable.axisLabel ?? variable.unit ?? (scale?.unit ?? 'pontos da escala')}
           points={points}
           xLabel="data"
           formatX={formatDayLabel}
-          formatY={(v) => String(Math.round(v * 10) / 10).replace('.', ',')}
+          formatY={(v) => (variable.format ? variable.format(v) : String(Math.round(v * 10) / 10).replace('.', ','))}
           higherIsUp
           yDomain={fixedDomain}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}

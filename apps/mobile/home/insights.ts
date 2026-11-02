@@ -16,6 +16,9 @@ export interface PatternLite {
   run?: { days: number; spanDays: number } | null;
 }
 
+/** Contexto de cada observacao (so' o que a tela usa). numerator/denominator: aderencia semanal (treinos feitos ÷ feitos + nao feitos). */
+export interface ObservationContextLite { modality?: string; activityLogId?: string; isPartialWeek?: boolean; numerator?: number | null; denominator?: number | null }
+
 export interface SnapshotLite {
   variable: { id?: string; dataType?: string; constructLabel?: string; scale?: { min: number; max: number; unit?: string } };
   mathApplicable: boolean;
@@ -28,10 +31,12 @@ export interface SnapshotLite {
   habitualRange?: { lower: number | null; upper: number | null; median: number | null; n: number; isPartialWindow?: boolean } | null;
   variabilityChange?: { direction: string } | null;
   persistence?: { currentlyOutsideHabitualRange: boolean | null; direction?: 'above' | 'below' | null } | null;
-  observations: Array<{ timestamp: string; value: number | string; context?: { modality?: string; activityLogId?: string; isPartialWeek?: boolean } | null }>;
+  observations: Array<{ timestamp: string; value: number | string; context?: ObservationContextLite | null }>;
   evidence: { n: number };
   /** Modalidades com dado (so' quando a variavel tem dimensao de modalidade). */
   availableModalities?: string[];
+  /** Fontes de relogio com dado (variaveis nao comparaveis entre fontes), a principal primeiro; `label` e' o nome legivel. */
+  availableSources?: Array<{ key: string; n: number; label?: string; lastObservationAt?: string | null }>;
   /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. Faixa e lado da faixa (neutro) de cada ponto. */
   reference?: { points: Array<{ timestamp: string; value?: number; signal?: 'above' | 'below' | 'within' | 'no_reference'; band: { lower: number | null; upper: number | null; median: number | null; n?: number; basis: 'individual' | 'limited' | 'none' } }> } | null;
   /** Indicadores de execucao: dado ainda em atualizacao depois de uma correcao de atividade (devolvido so' em GET /me/observations/execution.*). */
@@ -315,11 +320,11 @@ export function loadWindowSentences(w: LoadWindowLite): string[] {
 // entra no grafico nem no texto ate terminar (uma razao de terca-feira nao e' comparavel com semanas fechadas). So' leitura: nenhuma conta de volume aqui.
 // ---------------------------------------------------------------------------------------------
 
-export function completeWeekPoints(snapshot: SnapshotLite | null | undefined): Array<{ timestamp: string; value: number }> {
+export function completeWeekPoints(snapshot: SnapshotLite | null | undefined): Array<{ timestamp: string; value: number; context: ObservationContextLite | null }> {
   if (!snapshot || !snapshot.mathApplicable) return [];
   return snapshot.observations
     .filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value) && o.context?.isPartialWeek !== true)
-    .map((o) => ({ timestamp: o.timestamp, value: o.value }));
+    .map((o) => ({ timestamp: o.timestamp, value: o.value, context: o.context ?? null }));
 }
 
 function dayMonth(iso: string): string {
@@ -330,14 +335,14 @@ function dayMonth(iso: string): string {
 export interface WeeklyDescriptor {
   fmt: (v: number) => string;
   /** Resto da frase depois de "Na última semana completa (semana de dd/mm), ": ex. "você realizou 3 km a mais do que o prescrito". */
-  lastLine: (v: number) => string;
+  lastLine: (v: number, context?: ObservationContextLite | null) => string;
 }
 
 export function weeklySentences(snapshot: SnapshotLite | null | undefined, d: WeeklyDescriptor): string[] {
   const weeks = completeWeekPoints(snapshot);
   if (!snapshot || weeks.length === 0) return ['Ainda não há semanas completas com este dado.'];
   const last = weeks[weeks.length - 1];
-  const out = [`Na última semana completa (semana de ${dayMonth(last.timestamp)}), ${d.lastLine(last.value)}.`];
+  const out = [`Na última semana completa (semana de ${dayMonth(last.timestamp)}), ${d.lastLine(last.value, last.context)}.`];
   const mm = snapshot.movingAverageSeries?.short_21d?.find((p) => p.timestamp === last.timestamp);
   if (mm && mm.value != null) out.push(`A média das últimas 3 semanas, até essa semana, é ${d.fmt(mm.value)}.`);
   const ref = snapshot.reference?.points.find((p) => p.timestamp === last.timestamp);
@@ -355,7 +360,8 @@ export function weeklySentences(snapshot: SnapshotLite | null | undefined, d: We
 // Dominios de "Como voce esta" — variaveis que PERTENCEM a cada dominio (nunca fundidas).
 // ---------------------------------------------------------------------------------------------
 
-export type FeelingDomain = 'sleep' | 'readiness' | 'effort' | 'response';
+// 'weekly' (02/11/2026): itens do check-in semanal que Elton listou em "Bem-estar" (resposta do corpo e motivacao). Nao aparece na Home (DOMAIN_ORDER la' e' fixo).
+export type FeelingDomain = 'sleep' | 'readiness' | 'effort' | 'response' | 'weekly';
 
 export interface DomainVariable {
   id: string;
@@ -364,6 +370,10 @@ export interface DomainVariable {
   scaleHint?: string;
   unit?: string;
   categorical?: boolean;
+  /** Rotulo do eixo do grafico (quando a unidade nao deve aparecer junto ao numero). */
+  axisLabel?: string;
+  /** Formatacao do valor (ex.: minutos -> "7h30"). Sem ela: numero com 1 casa e a unidade. */
+  format?: (v: number) => string;
 }
 
 export const FEELING_DOMAINS: Record<FeelingDomain, { title: string; subtitle: string; primary: string; variables: DomainVariable[] }> = {
@@ -388,6 +398,7 @@ export const FEELING_DOMAINS: Record<FeelingDomain, { title: string; subtitle: s
       { id: 'workout.prePhysicalFatigue', label: 'Cansaço físico antes do treino', scaleHint: '1 = muito baixo · 5 = muito alto' },
       { id: 'workout.preMentalFatigue', label: 'Cansaço mental antes do treino', scaleHint: '1 = muito baixo · 5 = muito alto' },
       { id: 'workout.preStressLevel', label: 'Nível de estresse', scaleHint: '1 = muito baixo · 5 = muito alto' },
+      { id: 'workout.stressEventFrequency', label: 'Frequência de momentos de estresse (últimas 24 h)', scaleHint: '1 = nenhuma vez · 5 = quase continuamente' },
       { id: 'workout.preMotivation', label: 'Vontade de treinar', scaleHint: '1 = muito baixa · 5 = muito alta' },
     ],
   },
@@ -408,7 +419,28 @@ export const FEELING_DOMAINS: Record<FeelingDomain, { title: string; subtitle: s
       { id: 'workout.mentalStateChangePrePost', label: 'Mudança do estado mental (antes × depois)', scaleHint: '1 = muito pior · 5 = muito melhor' },
     ],
   },
+  weekly: {
+    title: 'Check-in da semana',
+    subtitle: 'Como você termina cada semana de treinos.',
+    primary: 'checkin.bodyResponseVsNormal',
+    variables: [
+      { id: 'checkin.bodyResponseVsNormal', label: 'Resposta do corpo comparada ao seu normal', scaleHint: '1 = muito pior · 3 = dentro do normal · 5 = muito melhor' },
+      { id: 'checkin.postWeekMotivation', label: 'Vontade de continuar treinando (fim da semana)', scaleHint: '1 = muito baixa · 5 = muito alta' },
+    ],
+  },
 };
+
+const minutesAsHours = (minutes: number) => formatHours(minutes / 60);
+
+/** Medidas do RELOGIO no Sono e recuperacao (variaveis wearable.* do servidor; fonte unica por vez, nunca misturadas). Fases e pontuacao sao estimativas do aparelho, nao medidas clinicas. */
+export const WEARABLE_SLEEP_VARIABLES: DomainVariable[] = [
+  { id: 'wearable.sleepDurationMin', label: 'Duração do sono medida pelo relógio', axisLabel: 'horas de sono (relógio)', format: minutesAsHours },
+  { id: 'wearable.sleepDeepMin', label: 'Sono profundo (estimativa do relógio)', axisLabel: 'horas de sono profundo', format: minutesAsHours, scaleHint: 'As fases do sono são estimativas do aparelho, não medidas clínicas; cada marca calcula de um jeito.' },
+  { id: 'wearable.sleepLightMin', label: 'Sono leve (estimativa do relógio)', axisLabel: 'horas de sono leve', format: minutesAsHours },
+  { id: 'wearable.sleepRemMin', label: 'Sono REM (estimativa do relógio)', axisLabel: 'horas de sono REM', format: minutesAsHours },
+  { id: 'wearable.sleepScore', label: 'Pontuação do sono (calculada pelo relógio)', unit: 'pontos', axisLabel: 'pontos (0 a 100)', scaleHint: 'Cada marca calcula a pontuação do seu jeito; compare só com você mesma, na mesma fonte.' },
+  { id: 'wearable.hrvLastNightAvg', label: 'Variabilidade da frequência cardíaca (HRV) da noite', axisLabel: 'HRV da noite (unidade da sua fonte)', scaleHint: 'A unidade e o método da HRV dependem do aparelho; compare só com você mesma, na mesma fonte.' },
+];
 
 const SHIFT_LABELS: Record<string, string> = {
   much_earlier: 'Mais de 1h mais cedo',
@@ -453,6 +485,9 @@ const NARRATIVE_SUBJECTS: Record<string, NarrativeSubject> = {
   'workout.prePhysicalFatigue': { core: 'o cansaço físico', suffix: ' antes do treino' },
   'workout.preMentalFatigue': { core: 'o cansaço mental', suffix: ' antes do treino' },
   'workout.preStressLevel': { core: 'o estresse', suffix: '' },
+  'workout.stressEventFrequency': { core: 'a frequência de momentos de estresse', suffix: '' },
+  'checkin.bodyResponseVsNormal': { core: 'a resposta do corpo', suffix: ' aos treinos' },
+  'checkin.postWeekMotivation': { core: 'a vontade de continuar treinando', suffix: '' },
   'workout.preMotivation': { core: 'a vontade de treinar', suffix: '' },
   'workout.perceivedEffort': { core: 'o esforço percebido', suffix: '' },
   'workout.postPhysicalFatigue': { core: 'o cansaço físico', suffix: ' provocado pelos treinos' },
@@ -466,6 +501,7 @@ const DOMAIN_TEXT: Record<FeelingDomain, { intro: string; subject: string }> = {
   readiness: { intro: 'Você tem chegado aos treinos com algumas mudanças nas últimas semanas.', subject: 'como você tem chegado aos treinos' },
   effort: { intro: 'Seu esforço percebido tem apresentado mudanças nas últimas semanas.', subject: 'seu esforço percebido' },
   response: { intro: 'Sua resposta aos treinos apresentou mudanças nas últimas semanas.', subject: 'sua resposta aos treinos' },
+  weekly: { intro: 'Seu check-in semanal apresentou mudanças nas últimas semanas.', subject: 'seu check-in semanal' },
 };
 
 function joinList(items: string[]): string {
