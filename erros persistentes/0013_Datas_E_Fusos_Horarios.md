@@ -146,7 +146,23 @@ Recomendação: **A agora** (corrige o relato hoje, no servidor), **B** no próx
 
 ---
 
-## 8. Pendências desta investigação
+## 8. Regra de produto APROVADA por Elton (01/11/2026, status `active`)
+
+Elton **não autorizou** as opções A/B/C da seção 7 ("não autorizo. nada") e passou a definir a regra do zero, uma pergunta por vez. Decisões dele, em ordem:
+1. O treino gerado fica na tela até a aluna gerar o seguinte; o botão só é liberado a partir de **domingo 12h**.
+2. Vale a regra **velha**: a partir de **segunda 00h** o treino da semana anterior sai da tela principal e fica só o botão (o velho vai para "Anterior").
+3. Entre **domingo 12h e segunda 00h**: treino velho **e** botão juntos na mesma tela.
+4. "Incluir hoje?" é perguntado **de segunda a domingo 11h59** (inclusive o domingo da semana alvo); **não** é perguntado ao gerar no domingo depois das 12h (gera a semana seguinte).
+5. Até **domingo 11h59** ela ainda gera a semana que não gerou; do domingo **12h** em diante o botão gera a semana seguinte e a semana não gerada fica "Treino não gerado nessa semana".
+6. Quem gera no domingo 12h–23h59 vê **imediatamente** a semana nova (02/11), sem botão; o treino do próprio domingo fica em "Anterior".
+7. "Próxima" fica **apagada**, com a frase "A próxima semana é liberada no domingo ao meio-dia".
+8. Todos os horários são **sempre de Brasília** (`America/Sao_Paulo`), nunca o relógio do celular.
+
+Texto completo, com a linha do tempo: `REGRA_SEMANA_DE_TREINO_PARA_APROVACAO.md` (raiz do repositório). **Diferenças em relação ao sistema de hoje:** (a) domingo depois das 12h a tela mostra só o botão, não o treino velho junto; (b) "incluir hoje?" não é perguntado no domingo e usa o relógio do celular (App.tsx 4641, 4838, 4878); (c) "Próxima" pode estar ativa e pular para 09/11; (d) a decisão do estado da semana está espalhada (2 funções no app, 3+ no servidor).
+
+**Rodada 1 (01/11/2026):** análise + simulação com o código real do servidor + inventário de datas; **nenhuma correção aplicada**; regra aprovada; implementação aguardando ordem de Elton.
+
+## 9. Pendências desta investigação
 - Confirmar H1 (motor do app nativo) com o teste de 2 minutos descrito na seção 4.
 - Decidir A/B/C com Elton antes de editar (fonte compartilhada, alto impacto).
 - Quando houver correção: registrar neste dossiê a rodada, o resultado e o teste de regressão (bateria de horários).
