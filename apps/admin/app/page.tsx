@@ -5552,6 +5552,15 @@ function iaText(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
+// Soma, em todo o objeto, o tamanho (como foi enviado, com indentacao) de cada valor sob a chave `key`.
+function iaSumKey(node: unknown, key: string): number {
+  if (Array.isArray(node)) return node.reduce<number>((sum, item) => sum + iaSumKey(item, key), 0);
+  if (node && typeof node === 'object') {
+    return Object.entries(node as Record<string, unknown>).reduce<number>((sum, [k, v]) => sum + (k === key ? (JSON.stringify(v, null, 2) ?? '').length : iaSumKey(v, key)), 0);
+  }
+  return 0;
+}
+
 // Conteudo grande so' e' montado quando a secao e' aberta (o retrato do atleta passa de 100 mil caracteres).
 function IaLazyBlock({ summary, text }: { summary: React.ReactNode; text: string }) {
   const [open, setOpen] = React.useState(false);
@@ -5569,29 +5578,66 @@ function IaPromptSections({ call }: { call: IaCall }) {
   if (!parsed) {
     return <IaLazyBlock summary={`Prompt do usuário como texto (${iaFmtChars(total)})`} text={call.userPrompt} />;
   }
-  const sections = Object.entries(parsed).map(([key, value]) => {
+  const sized = (value: unknown) => {
     const text = JSON.stringify(value, null, 2) ?? '';
-    return { key, text, size: text.length };
-  }).sort((a, b) => b.size - a.size);
+    return { text, size: text.length };
+  };
+  const pct = (size: number) => (total > 0 ? `${Math.round((size / total) * 1000) / 10}%` : '—');
+  const sections = Object.entries(parsed).map(([key, value]) => ({ key, value, ...sized(value) })).sort((a, b) => b.size - a.size);
+  // Detalhe de uma secao grande: um nivel abaixo (e, nos filhos grandes, mais um nivel com os maiores). So' mede; nada e alterado.
+  const childrenOf = (value: unknown, minChars: number) => (value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.entries(value as Record<string, unknown>).map(([key, child]) => ({ key, value: child, ...sized(child) })).filter((child) => child.size >= minChars).sort((a, b) => b.size - a.size)
+    : []);
+  let compactLength = 0;
+  try { compactLength = JSON.stringify(parsed).length; } catch { compactLength = 0; }
+  const formatting = compactLength > 0 ? total - compactLength : 0;
+  const byModalityChars = iaSumKey(parsed, 'byModality');
   return (
     <div>
       <p className="extHint" style={{ margin: '0 0 6px' }}>
         {sections.length} seção(ões) no prompt do usuário, da maior para a menor. O percentual é sobre os {iaFmtChars(total)} enviados (texto exato, com a formatação que a IA recebeu).
       </p>
+      {compactLength > 0 ? (
+        <div className="extToolbarGroup" style={{ marginBottom: 6 }}>
+          <span className="extBadge extBadgeNeutral">espaços e quebras de linha da formatação: {iaFmtChars(formatting)} ({pct(formatting)})</span>
+          <span className="extBadge extBadgeNeutral">blocos “por modalidade” (byModality), somados em todo o prompt: {iaFmtChars(byModalityChars)} ({pct(byModalityChars)})</span>
+        </div>
+      ) : null}
       <div className="extTableWrap">
         <table className="extTable">
           <thead><tr><th>Seção</th><th>Tamanho</th><th>% do prompt</th></tr></thead>
           <tbody>
-            {sections.map((section) => (
-              <tr key={section.key}>
-                <td><IaLazyBlock summary={<code>{section.key}</code>} text={section.text} /></td>
-                <td>{iaFmtChars(section.size)}</td>
-                <td>{total > 0 ? `${Math.round((section.size / total) * 1000) / 10}%` : '—'}</td>
-              </tr>
-            ))}
+            {sections.flatMap((section) => {
+              const second = section.size >= 5000 ? childrenOf(section.value, 1000) : [];
+              return [
+                <tr key={section.key}>
+                  <td><IaLazyBlock summary={<code>{section.key}</code>} text={section.text} /></td>
+                  <td>{iaFmtChars(section.size)}</td>
+                  <td>{pct(section.size)}</td>
+                </tr>,
+                ...second.flatMap((child) => {
+                  const third = child.size >= 8000 ? childrenOf(child.value, 1500).slice(0, 15) : [];
+                  return [
+                    <tr key={`${section.key}.${child.key}`}>
+                      <td style={{ paddingLeft: 24 }}><IaLazyBlock summary={<code>↳ {section.key}.{child.key}</code>} text={child.text} /></td>
+                      <td>{iaFmtChars(child.size)}</td>
+                      <td>{pct(child.size)}</td>
+                    </tr>,
+                    ...third.map((grand) => (
+                      <tr key={`${section.key}.${child.key}.${grand.key}`}>
+                        <td style={{ paddingLeft: 48 }}><IaLazyBlock summary={<code>↳ ↳ {grand.key}</code>} text={grand.text} /></td>
+                        <td>{iaFmtChars(grand.size)}</td>
+                        <td>{pct(grand.size)}</td>
+                      </tr>
+                    )),
+                  ];
+                }),
+              ];
+            })}
           </tbody>
         </table>
       </div>
+      <p className="extHint" style={{ margin: '4px 0' }}>Itens abaixo de 1.000 caracteres dentro de uma seção grande, e os níveis mais fundos, não são listados; o tamanho da seção já os inclui.</p>
       <IaLazyBlock summary="Ver o prompt do usuário completo (texto exato enviado)" text={call.userPrompt} />
     </div>
   );
@@ -5752,14 +5798,17 @@ function IaRecebeuTab({ studentId, accessToken }: { studentId: string; accessTok
                   <thead><tr><th>Dia</th><th>Decisão</th><th>Intenção</th><th>Resultado esperado</th><th>Em que se baseou</th></tr></thead>
                   <tbody>
                     {sessionDecisions.map((decision) => {
-                      const basis = Array.isArray(decision.basis) ? (decision.basis as Array<{ source?: string; note?: string; decides?: string | null }>) : [];
+                      // basis guardado como { declared, nature, entries: [...] } (cada entrada: fonte, nota, o que decide, e se a fonte foi mesmo entregue a IA).
+                      const rawBasis = decision.basis as { entries?: unknown } | unknown[] | null;
+                      const basis = (Array.isArray(rawBasis) ? rawBasis : Array.isArray(rawBasis?.entries) ? rawBasis.entries : []) as Array<{ source?: string; note?: string | null; decides?: string | null; delivered?: boolean }>;
+                      const expectedText = decision.expected && typeof decision.expected === 'object' && typeof (decision.expected as { text?: unknown }).text === 'string' ? (decision.expected as { text: string }).text : decision.expected ? iaText(decision.expected) : '';
                       return (
                         <tr key={decision.id}>
                           <td>{decision.weekday != null ? IA_WEEKDAY[decision.weekday] : '—'} · {decision.modality ?? '—'}</td>
                           <td>{decision.summary}{decision.traceStatus !== 'complete' ? <div className="extHint">rastro {decision.traceStatus === 'absent' ? 'ausente' : 'parcial'}</div> : null}</td>
                           <td style={{ whiteSpace: 'pre-wrap' }}>{decision.intent ?? '—'}</td>
-                          <td style={{ whiteSpace: 'pre-wrap' }}>{decision.expected ? iaText(decision.expected) : '—'}</td>
-                          <td>{basis.length === 0 ? '—' : basis.map((item, index) => <div key={index}><code>{item.source ?? 'outro'}</code> {item.note ?? ''}{item.decides ? <span className="extHint"> (decide: {item.decides})</span> : null}</div>)}</td>
+                          <td style={{ whiteSpace: 'pre-wrap' }}>{expectedText || '—'}</td>
+                          <td>{basis.length === 0 ? '—' : basis.map((item, index) => <div key={index}><code>{item.source ?? 'outro'}</code> {item.note ?? ''}{item.decides ? <span className="extHint"> (decide: {item.decides})</span> : null}{item.delivered === false ? <span className="extBadge extBadgeWarn"> não entregue</span> : null}</div>)}</td>
                         </tr>
                       );
                     })}
