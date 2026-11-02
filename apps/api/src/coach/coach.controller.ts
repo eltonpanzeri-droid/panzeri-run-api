@@ -534,6 +534,17 @@ export class CoachController {
     return this.coachService.reconcileExternalActivityHistory(studentId, body?.dryRun !== false);
   }
 
+  // Simulacao (so' leitura, 02/11/2026): copias do MESMO app de origem que sao o mesmo treino regravado. Todos os alunos (resumo) ou um aluno (detalhe).
+  @Get('external-activities/duplicates-preview')
+  previewSameObserverDuplicatesForAll() {
+    return this.coachService.previewSameObserverDuplicatesForAll();
+  }
+
+  @Get('students/:studentId/external-activities/duplicates-preview')
+  previewSameObserverDuplicates(@Param('studentId') studentId: string) {
+    return this.coachService.previewSameObserverDuplicates(studentId);
+  }
+
   // Diagnostico (so' leitura): compara duas observacoes sob demanda com o matcher atual, sem persistir nada.
   @Get('students/:studentId/external-activities/compare')
   compareExternalActivities(@Param('studentId') studentId: string, @Query('a') a: string, @Query('b') b: string) {

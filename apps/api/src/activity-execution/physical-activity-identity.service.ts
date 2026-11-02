@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { compareObservations, IdentityComparison, ObservedActivity, observerKeyOf } from './physical-activity-identity';
 import { CanonicalCandidateInput, selectCanonicalObservation } from './physical-canonical';
 import { resolveExplicitOverride } from './athlete-primary-source';
+import { DuplicateScan, findSameObserverDuplicates } from './same-observer-duplicates';
 import { activeDecisions, applyHumanDecision, decisionForPair, decisionsOfEvidence, HumanDecisionState, HumanIdentityDecision, pairKey } from './physical-identity-decisions';
 
 // Janela de busca de candidatos (so' performance — quem decide e' compareObservations; a janela larga tolera diferenca de fuso).
@@ -203,7 +204,7 @@ export class PhysicalActivityIdentityService {
           let contested = false;
           for (let i = 0; i < members.length && !contested; i++) {
             for (let j = i + 1; j < members.length; j++) {
-              if (observed.get(members[i])!.observerKey === observed.get(members[j])!.observerKey && verdictOf(members[i], members[j]).reason !== 'human_decision_same') { contested = true; break; }
+              if (observed.get(members[i])!.observerKey === observed.get(members[j])!.observerKey && !['human_decision_same', 'same_observer_identical_record'].includes(verdictOf(members[i], members[j]).reason)) { contested = true; break; }
             }
           }
           if (contested) {
@@ -356,6 +357,13 @@ export class PhysicalActivityIdentityService {
     };
     const comparison = compareObservations(toObserved(a), toObserved(b));
     return { verdict: comparison.verdict, reason: comparison.reason, evidence: comparison.evidence, a: inputOf(a), b: inputOf(b) };
+  }
+
+  // SIMULACAO (so' leitura) das copias do mesmo app que a avaliacao de identidade passaria a agrupar. Nao grava nada. Atividades ja' excluidas/ignoradas ficam de fora
+  // (a leitura padrao do ActivityLog as esconde), entao uma duplicata que o aluno ja' tratou na mao nao volta.
+  async previewSameObserverDuplicates(userId: string): Promise<DuplicateScan> {
+    const rows = await this.prisma.activityLog.findMany({ where: { userId }, orderBy: { startedAt: 'asc' }, select: SELECT, take: MAX_HISTORY_BATCH });
+    return findSameObserverDuplicates((rows as unknown as Row[]).map((r) => ({ ...toCandidate(r), userId: r.userId, sport: r.sport, startedAt: r.startedAt, physicalIdentityStatus: r.physicalIdentityStatus })));
   }
 
   // Backfill sob demanda do historico de UM aluno (nao ha migration de dados nem processamento massivo automatico).

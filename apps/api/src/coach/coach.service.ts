@@ -364,6 +364,35 @@ export class CoachService {
     }
   }
 
+  // SIMULACAO (so' leitura, 02/11/2026): copias do mesmo app que sao o mesmo treino regravado (ex.: Garmin Connect reescrevendo no Apple Saude). Nao grava nada.
+  async previewSameObserverDuplicates(studentId: string) {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    return this.physicalIdentity.previewSameObserverDuplicates(studentId);
+  }
+
+  // Mesma simulacao para todos os alunos: so' lista quem teria algo a ser agrupado (ou quase). Um aluno por vez; falha de um nao derruba o resto.
+  async previewSameObserverDuplicatesForAll() {
+    if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
+    const students = await this.prisma.user.findMany({ where: { role: 'student', accountStatus: { not: 'archived' } }, select: { id: true, name: true, studentCode: true } });
+    const affected: Array<{ studentId: string; name: string; studentCode: number | string | null; groups: number; extraRecords: number; inflatedKm: number; nearMisses: number }> = [];
+    let failed = 0;
+    for (const student of students) {
+      try {
+        const scan = await this.physicalIdentity.previewSameObserverDuplicates(student.id);
+        if (scan.groups.length === 0 && scan.nearMisses.length === 0) continue;
+        affected.push({
+          studentId: student.id, name: student.name, studentCode: student.studentCode as number | string | null,
+          groups: scan.groups.length, extraRecords: scan.groups.reduce((sum, g) => sum + g.members.length - 1, 0),
+          inflatedKm: Math.round(scan.groups.reduce((sum, g) => sum + (g.inflatedKm ?? 0), 0) * 100) / 100, nearMisses: scan.nearMisses.length,
+        });
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`Simulacao de copias do mesmo app falhou (aluno ${student.id}): ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return { examined: students.length, failed, studentsAffected: affected.length, totalExtraRecords: affected.reduce((s, a) => s + a.extraRecords, 0), students: affected };
+  }
+
   // 3B: reconciliacao do HISTORICO de um aluno por PhysicalEvent (idempotente). dryRun (padrao) so' descreve o que mudaria, sem gravar
   // nada (nem a identidade). Com dryRun=false avalia a identidade fisica do aluno primeiro e depois reconcilia os eventos.
   async reconcileExternalActivityHistory(studentId: string, dryRun: boolean) {

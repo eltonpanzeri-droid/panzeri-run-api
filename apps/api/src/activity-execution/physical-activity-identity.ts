@@ -87,6 +87,15 @@ function endOf(activity: ObservedActivity): Date | null {
   return null;
 }
 
+// Dois registros do mesmo observador so' sao o mesmo evento quando coincidem EXATAMENTE (ao segundo) em inicio e duracao, na mesma modalidade canonica. Um treino
+// encerrado e outro iniciado em seguida nunca coincidem assim. Sem duracao nao ha coincidencia exata para afirmar.
+function isIdenticalRecordOfSameObserver(a: ObservedActivity, b: ObservedActivity): boolean {
+  const modalityA = canonicalModality(a.sport);
+  if (!modalityA || modalityA === 'outra' || modalityA !== canonicalModality(b.sport)) return false;
+  if (a.durationSec == null || b.durationSec == null || a.durationSec <= 0 || a.durationSec !== b.durationSec) return false;
+  return Math.floor(a.startedAt.getTime() / 1000) === Math.floor(b.startedAt.getTime() / 1000);
+}
+
 export function compareObservations(a: ObservedActivity, b: ObservedActivity): IdentityComparison {
   const evidence: IdentityEvidence[] = [];
   const done = (verdict: IdentityVerdict, reason: string): IdentityComparison => ({ verdict, reason, evidence });
@@ -104,7 +113,19 @@ export function compareObservations(a: ObservedActivity, b: ObservedActivity): I
 
   const sameObserver = a.observerKey === b.observerKey;
   evidence.push({ criterion: 'different_observer', matched: !sameObserver, detail: { a: a.observerKey, b: b.observerKey } });
-  if (sameObserver) return done('distinct', 'same_observer_two_records');
+  if (sameObserver) {
+    if (!isIdenticalRecordOfSameObserver(a, b)) return done('distinct', 'same_observer_two_records');
+    // Regravacao do MESMO treino pelo mesmo app de origem (ex.: Garmin Connect reescreve o treino no Apple Saude com outro UUID, agora com FC). Inicio e duracao
+    // IDENTICOS ao segundo na mesma modalidade; distancia, quando os dois informam, nao pode divergir. Divergindo, segue como antes: dois registros distintos.
+    const bothDistances = a.distanceMeters != null && b.distanceMeters != null;
+    const distanceDiff = bothDistances ? Math.abs((a.distanceMeters as number) - (b.distanceMeters as number)) : 0;
+    const distanceLevel = bothDistances ? grade(distanceDiff, Math.max(50, Math.max(a.distanceMeters as number, b.distanceMeters as number) * 0.01), Math.max(200, Math.max(a.distanceMeters as number, b.distanceMeters as number) * 0.03)) : null;
+    evidence.push({ criterion: 'start_proximity', matched: true, level: 'strong', detail: { diffSec: 0 } });
+    evidence.push({ criterion: 'duration_compatible', matched: true, level: 'strong', detail: { diffSec: 0 } });
+    evidence.push(bothDistances ? { criterion: 'distance_compatible', matched: distanceLevel !== 'no', level: distanceLevel as EvidenceLevel, detail: { diffMeters: Math.round(distanceDiff) } } : { criterion: 'distance_compatible', matched: null });
+    if (distanceLevel === 'no') return done('distinct', 'same_observer_two_records');
+    return done('same', 'same_observer_identical_record');
+  }
 
   const referenceDuration = Math.max(a.durationSec ?? 0, b.durationSec ?? 0);
 
