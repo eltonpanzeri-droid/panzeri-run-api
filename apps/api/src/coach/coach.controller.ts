@@ -140,6 +140,12 @@ export class CoachController {
     return this.trainingIntelligenceQuery.getVariableSnapshot(id, variableId, modalityList, source?.trim() || undefined, { withReference: reference === '1' });
   }
 
+  // 03/11/2026 — auditoria do desacoplamento da FC: todas as corridas consideradas, elegibilidade, motivo de exclusao, fonte, data, duracao, velocidade, FC e cobertura dos registros.
+  @Get('students/:id/hr-decoupling/audit')
+  getStudentHrDecouplingAudit(@Param('id') id: string) {
+    return this.trainingIntelligenceQuery.getHrDecouplingAudit(id);
+  }
+
   // 27/10/2026 — disponibilidade (n, primeiro e ultimo registro) de varios indicadores: alimenta a lista lateral da Evolucao sem baixar a serie de cada um.
   @Get('students/:id/observations-availability')
   getStudentObservationsAvailability(@Param('id') id: string, @Query('variables') variables?: string) {

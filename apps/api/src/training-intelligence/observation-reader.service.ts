@@ -31,8 +31,17 @@ import { EXECUTION_ANALYSIS_VERSION, intensityBasisOf, RunExecutionAnalysis } fr
 import { loadInputRows } from '../coach/training-load-rows';
 import { classifySessions, loadModalityKey, modalityGroup, weekStartOf } from '../coach/training-load';
 import { SESSION_DURATION_VARIABLE_ID, WEEKLY_INTERNAL_LOAD_VARIABLE_ID } from './internal-load';
-import { HR_DECOUPLING_CATEGORIES, HrDecouplingCategory, hrDecouplingVariableId } from './hr-decoupling';
+import { HR_DECOUPLING_CATEGORIES, HR_DECOUPLING_REASON_TEXT, HrDecouplingCategory, HrDecouplingExclusionReason, hrDecouplingVariableId } from './hr-decoupling';
 import { ensureHrDecouplings } from './hr-decoupling-store';
+
+export interface HrDecouplingAuditEntry {
+  activityLogId: string; startedAt: string; provider: string; sport: string | null; durationSec: number | null; distanceMeters: number | null;
+  eligible: boolean; category: HrDecouplingCategory | null; exclusionReason: HrDecouplingExclusionReason | null; exclusionText: string | null;
+  decouplingPct: number | null; speedCvPct: number | null; halfDiffPct: number | null;
+  meanSpeed1: number | null; meanSpeed2: number | null; meanHr1: number | null; meanHr2: number | null; movingSec: number | null;
+  coverageHr1: number | null; coverageHr2: number | null; coverageSpeed1: number | null; coverageSpeed2: number | null;
+  validHrSamples: number; validSpeedSamples: number; discardedHrSamples: number; discardedSpeedSamples: number; gapCount: number;
+}
 
 export interface Observation {
   athleteId: string;
@@ -548,16 +557,20 @@ export class ObservationReaderService {
     return observations;
   }
 
-  private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
+  // Atividades validas para as medidas objetivas (mesma selecao para as variaveis de atividade e para a auditoria do desacoplamento): uma por evento fisico, so' do que a analise pode usar.
+  private async objectiveActivityLogs(athleteId: string, allSports: boolean) {
     const rows = await this.prisma.activityLog.findMany({
       // 'ambiguous' (aguardando a resposta do aluno) tambem: as medidas objetivas (ritmo, cadencia, potencia, elevacao) nao dependem de a atividade ser prescrita ou extra.
       where: { userId: athleteId, executionClassification: { in: ['corresponding', 'alternative', 'ambiguous'] }, ...aiActivityWhere() },
       orderBy: { startedAt: 'asc' },
     });
     const picks = await pickCanonicalPerEvent(rows.filter((row) => row.executionClassification !== 'ambiguous' || row.physicalIdentityStatus === 'unique' || row.physicalIdentityStatus === 'matched'), (ids) => this.prisma.activityLog.findMany({ where: { userId: athleteId, id: { in: ids }, ...aiActivityWhere() } }));
+    return picks.map((pick) => pick.row).filter((log) => allSports || canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+  }
+
+  private async readActivityObjectiveVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     // FC media (02/11/2026): vale para qualquer modalidade; ritmo, cadencia, potencia e elevacao continuam so' de corrida.
-    const allSports = definition.variableId === 'activity.avgHeartRateBpm';
-    const logs = picks.map((pick) => pick.row).filter((log) => allSports || canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+    const logs = await this.objectiveActivityLogs(athleteId, definition.variableId === 'activity.avgHeartRateBpm');
     if (definition.variableId === 'activity.weeklyAvgPaceSecondsKm') return this.weeklyPaceObservations(athleteId, definition, logs);
     const decouplingCategory = HR_DECOUPLING_CATEGORIES.find((category) => hrDecouplingVariableId(category) === definition.variableId);
     if (decouplingCategory) return this.hrDecouplingObservations(athleteId, definition, decouplingCategory, logs);
@@ -591,6 +604,35 @@ export class ObservationReaderService {
     return observations;
   }
 
+  // Auditoria do desacoplamento da FC (03/11/2026): TODAS as corridas consideradas, elegiveis ou nao, com o motivo da exclusao e os dados que sustentam o calculo (painel do treinador e Evolucao da aluna).
+  async getHrDecouplingAudit(athleteId: string): Promise<HrDecouplingAuditEntry[]> {
+    const logs = await this.objectiveActivityLogs(athleteId, false);
+    const rows = await ensureHrDecouplings(this.prisma, logs.map((log) => log.id));
+    return logs.map((log): HrDecouplingAuditEntry => {
+      const row = rows.get(log.id);
+      return {
+        activityLogId: log.id,
+        startedAt: log.startedAt.toISOString(),
+        provider: log.provider,
+        sport: log.sport,
+        durationSec: log.durationSec,
+        distanceMeters: log.distanceMeters,
+        eligible: row?.eligible ?? false,
+        category: row?.category ?? null,
+        exclusionReason: row?.exclusionReason ?? null,
+        exclusionText: row?.exclusionReason ? HR_DECOUPLING_REASON_TEXT[row.exclusionReason] : null,
+        decouplingPct: row?.decouplingPct ?? null,
+        speedCvPct: row?.speedCvPct ?? null,
+        halfDiffPct: row?.halfDiffPct ?? null,
+        meanSpeed1: row?.meanSpeed1 ?? null, meanSpeed2: row?.meanSpeed2 ?? null, meanHr1: row?.meanHr1 ?? null, meanHr2: row?.meanHr2 ?? null,
+        movingSec: row?.movingSec ?? null,
+        coverageHr1: row?.coverageHr1 ?? null, coverageHr2: row?.coverageHr2 ?? null, coverageSpeed1: row?.coverageSpeed1 ?? null, coverageSpeed2: row?.coverageSpeed2 ?? null,
+        validHrSamples: row?.validHrSamples ?? 0, validSpeedSamples: row?.validSpeedSamples ?? 0, discardedHrSamples: row?.discardedHrSamples ?? 0, discardedSpeedSamples: row?.discardedSpeedSamples ?? 0,
+        gapCount: row?.gapCount ?? 0,
+      };
+    }).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
   // Desacoplamento da FC (03/11/2026): uma observacao por corrida ELEGIVEL da faixa de duracao pedida (resultado guardado em ActivityHrDecoupling, calculado da serie segundo a segundo).
   // Corrida sem serie, nao elegivel ou de outra faixa nao gera observacao (nunca zero). O timestamp e' o inicio da atividade.
   private async hrDecouplingObservations(athleteId: string, definition: VariableDefinition, category: HrDecouplingCategory, logs: Array<{ id: string; startedAt: Date; provider: string; sport: string | null }>): Promise<Observation[]> {
@@ -606,7 +648,8 @@ export class ObservationReaderService {
         timestamp: log.startedAt,
         source: 'activity_objective',
         instrumentVersion: 1,
-        context: { modality: log.sport ?? undefined, activityLogId: log.id, provider: log.provider },
+        // Modalidade fixa 'corrida' (a Evolucao nao oferece seletor); o nome bruto do provedor ('RUNNING', 'run'...) nao vira botao.
+        context: { modality: 'corrida', activityLogId: log.id, provider: log.provider },
       });
     }
     return observations;

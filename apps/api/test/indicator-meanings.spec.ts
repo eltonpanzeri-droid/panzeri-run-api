@@ -6,6 +6,7 @@ import { INDICATOR_MEANINGS, MEANING_FOOTER, meaningOf } from '../../mobile/home
 const OTHER_DISPLAYED_IDS = [
   'load.weekly', 'load.acuteChronic', 'training.acwr', 'activity.avgHeartRateBpm', 'workout.sessionInternalLoad',
   'training.volume', 'training.volumeDiffAbsoluteKm', 'training.volumeRatioCompletedPrescribed', 'activity.cadenceAvg', 'activity.avgPaceSecondsKm', 'activity.weeklyAvgPaceSecondsKm', 'execution.timeInBandPct',
+  'activity.hrDecoupling.d30', 'activity.hrDecoupling.d60', 'activity.hrDecoupling.d90', 'activity.hrDecoupling.d120', 'activity.hrDecoupling.d150',
   'training.adherencePercent', 'pain.perWorkout', 'pain.reports', 'checkin.weekDemandVsNormal',
 ];
 

@@ -8,10 +8,11 @@ import { TrainingIntelligenceQueryService } from './training-intelligence-query.
 import { AthleteStateSnapshotService } from './athlete-state-snapshot.service';
 import { ContextEventsModule } from '../context-events/context-events.module';
 import { HealthIndicatorsService } from './health-indicators.service';
+import { HrDecouplingBackfillService } from './hr-decoupling-backfill.service';
 
 @Module({
   imports: [EvolutionModule, ContextEventsModule, PhysiologyModule],
-  providers: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService, HealthIndicatorsService],
+  providers: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService, HealthIndicatorsService, HrDecouplingBackfillService],
   exports: [ObservationReaderService, MathLayerService, LongitudinalDynamicsService, TrainingIntelligenceQueryService, AthleteStateSnapshotService, HealthIndicatorsService],
 })
 export class TrainingIntelligenceModule {}

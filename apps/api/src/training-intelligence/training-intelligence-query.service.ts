@@ -146,6 +146,11 @@ export class TrainingIntelligenceQueryService {
    * os dois numa unica media/baseline seria uma composicao silenciosa). Variaveis sem dimensao de
    * modalidade (ex: checkin.* semanal, sem context.modality) ignoram o filtro.
    */
+  // Auditoria do desacoplamento da FC por corrida (03/11/2026): leitura pura, a mesma tabela que alimenta as cinco variaveis.
+  getHrDecouplingAudit(athleteId: string) {
+    return this.observationReader.getHrDecouplingAudit(athleteId);
+  }
+
   async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string, options: { withReference?: boolean } = {}): Promise<VariableSnapshotResponse> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {

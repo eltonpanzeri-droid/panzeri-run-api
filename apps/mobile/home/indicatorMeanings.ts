@@ -9,6 +9,8 @@
 //  - nenhum indicador é analisado sozinho: o rodapé padrão (MEANING_FOOTER) diz isso em toda explicação;
 //  - os números e as comparações que acompanham o gráfico vêm do servidor; aqui só há explicação geral, igual para todas as alunas.
 
+import { HR_DECOUPLING_CATEGORIES, HR_DECOUPLING_MEANING, hrDecouplingVariableId } from './hrDecouplingInfo';
+
 export const MEANING_TITLE = 'O que isso representa';
 export const MEANING_FOOTER = 'Nenhum indicador é analisado sozinho: usamos dezenas deles, em conjunto, para montar o seu programa. Isto não é diagnóstico médico.';
 
@@ -104,6 +106,9 @@ export const INDICATOR_MEANINGS: Record<string, string> = {
   // ---------------------------------------------------------------- Aderência
   'training.adherencePercent':
     'É a proporção de treinos feitos entre os que você registrou (feitos ÷ feitos + não feitos). Treinos sem registro não entram na conta, e por isso responder o feedback de cada treino é tão importante. Mostra a regularidade com que você cumpre o programa, e o que importa é o padrão ao longo das semanas.',
+
+  // ---------------------------------------------------------------- Desacoplamento da frequência cardíaca (uma explicação para as cinco faixas de duração)
+  ...Object.fromEntries(HR_DECOUPLING_CATEGORIES.map((c) => [hrDecouplingVariableId(c.id), HR_DECOUPLING_MEANING])),
 
   // ---------------------------------------------------------------- Dor
   'pain.perWorkout':

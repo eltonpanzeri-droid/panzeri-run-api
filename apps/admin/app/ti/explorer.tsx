@@ -8,6 +8,7 @@ import {
   type Availability, type ExplorerSnapshot, type ExplorerVariable, type ModalityGroupId,
 } from './explorer-data';
 import SleepComposition from './sleep-composition';
+import HrDecouplingAudit from './hr-decoupling-audit';
 import './explorer.css';
 
 export type PeriodSelection = { id: string; custom: [number, number] | null };
@@ -244,6 +245,7 @@ export default function EvolutionExplorer({ studentId, token, studentIsFemale, p
                 <ChartLegend snapshot={current} layers={layers} onToggle={toggleLayer} />
                 {colorByModality && <ModalityKey snapshot={current} range={range} />}
                 <Summary snapshot={current} unit={unit} lastObservation={lastObservation} lastReference={lastReference} />
+                {active.id.startsWith('activity.hrDecoupling.') && <HrDecouplingAudit key={studentId} studentId={studentId} token={token} />}
               </>
               : <CategoricalPanel snapshot={current} range={range} selected={selected} onSelect={setSelected} />)}
             {current && shown && <ObservationDetail snapshot={current} observation={shown} reference={shownReference} unit={unit} onClose={() => setSelected(null)} onOpenOriginal={onOpenOriginal} />}

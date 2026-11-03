@@ -7,6 +7,7 @@ import { DomainVariable, LoadWindowLite, SnapshotLite, WeeklyDescriptor, loadWin
 import { VariableBlock } from './FeelingsDetailScreen';
 import { WeeklyCard } from './EvolutionObjective';
 import { IndicatorMeaning } from './IndicatorMeaning';
+import { HrDecouplingSection } from './HrDecouplingSection';
 
 // "Resposta a carga" da Evolucao (02/11/2026, lotes 5 e 6): carga interna percebida (esforco x minutos) e relacoes aguda x cronica. Tudo vem do servidor: a carga por treino e a SEMANAL
 // (faixa e media movel da camada longitudinal, com seletor de modalidade) e, para a janela de 7 e 28 dias, a mesma conta do painel do treinador (GET /me/training-load).
@@ -94,6 +95,8 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
       <VariableBlock variable={HEART_RATE} snapshot={snapshots[HEART_RATE.id]} accessToken={accessToken} />
 
       <VariableBlock variable={WEEK_DEMAND} snapshot={snapshots[WEEK_DEMAND.id]} accessToken={accessToken} />
+
+      <HrDecouplingSection accessToken={accessToken} />
     </View>
   );
 }

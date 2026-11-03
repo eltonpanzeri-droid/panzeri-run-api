@@ -38,7 +38,7 @@ export interface SnapshotLite {
   /** Fontes de relogio com dado (variaveis nao comparaveis entre fontes), a principal primeiro; `label` e' o nome legivel. */
   availableSources?: Array<{ key: string; n: number; label?: string; lastObservationAt?: string | null }>;
   /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. Faixa e lado da faixa (neutro) de cada ponto. */
-  reference?: { points: Array<{ timestamp: string; value?: number; signal?: 'above' | 'below' | 'within' | 'no_reference'; band: { lower: number | null; upper: number | null; median: number | null; n?: number; basis: 'individual' | 'limited' | 'none' } }> } | null;
+  reference?: { points: Array<{ timestamp: string; value?: number; priorN?: number; historicalMean?: { value: number | null; n: number }; movingAverages?: Record<string, { value: number | null; n: number; isPartialWindow?: boolean }>; signal?: 'above' | 'below' | 'within' | 'no_reference'; band: { lower: number | null; upper: number | null; median: number | null; n?: number; basis: 'individual' | 'limited' | 'none' } }> } | null;
   /** Indicadores de execucao: dado ainda em atualizacao depois de uma correcao de atividade (devolvido so' em GET /me/observations/execution.*). */
   provisional?: { reason: string; sessions: number; since: string | null } | null;
 }

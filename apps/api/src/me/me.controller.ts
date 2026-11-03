@@ -94,6 +94,12 @@ export class MeController {
     return { ...snapshot, provisional: pending.analysisSessions > 0 ? { reason: 'correction_pending' as const, sessions: pending.analysisSessions, since: pending.since } : null };
   }
 
+  // Desacoplamento da FC (03/11/2026): as corridas consideradas e, para cada uma, o valor ou o motivo de nao entrar. SOMENTE as do proprio aluno (id do token).
+  @Get('hr-decoupling/audit')
+  getHrDecouplingAudit(@CurrentUser() user: CurrentUserPayload) {
+    return this.trainingIntelligenceQuery.getHrDecouplingAudit(user.sub);
+  }
+
   @Put('profile')
   updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateProfileDto) {
     return this.meService.updateProfile(user.sub, dto);
