@@ -41,9 +41,9 @@ export const styles = `
 @media(max-width:960px){.video-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.video-grid{grid-template-columns:1fr}}
 
-.hero-proof{display:flex;gap:13px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:11px 15px;margin-top:26px;max-width:420px}
-.hero-proof img{width:56px;border-radius:11px;flex-shrink:0;aspect-ratio:9/19.5;object-fit:cover}
-.hero-proof blockquote{margin:0;font-size:.82rem;color:#dbe6ea;font-style:italic;line-height:1.35}
+.hero-proof{display:flex;gap:16px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:14px 18px;margin-top:26px;max-width:460px}
+.hero-proof img{width:92px;border-radius:13px;flex-shrink:0;aspect-ratio:9/19.5;object-fit:cover}
+.hero-proof blockquote{margin:0;font-size:.92rem;color:#dbe6ea;font-style:italic;line-height:1.4}
 
 .experience-photo-card{position:relative;overflow:hidden;background-size:cover;background-position:center;color:#fff}
 .experience-photo-card:before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,23,36,.45),rgba(6,23,36,.3) 35%,rgba(6,23,36,.9))}
@@ -52,8 +52,9 @@ export const styles = `
 .experience-photo-card .experience-overlay h3,.experience-photo-card .experience-overlay p{text-shadow:0 1px 8px rgba(0,0,0,.55)}
 .experience-photo-card .experience-overlay p{color:#d7e2e6}
 
-.video-strip{display:flex;gap:16px;margin-top:36px;overflow-x:auto;scroll-snap-type:inline mandatory;padding-bottom:6px}
+.video-strip{display:flex;gap:16px;margin-top:36px;overflow-x:auto;scroll-snap-type:inline mandatory;padding-bottom:6px;align-items:flex-end}
 .video-strip .video-card{flex:0 0 auto;width:min(180px,42vw);scroll-snap-align:start}
+.video-strip .video-card-large{width:min(300px,68vw)}
 
 .mockup-shot{border-radius:20px;box-shadow:0 20px 50px rgba(6,23,36,.18)}
 .context-layout{display:grid;grid-template-columns:1.3fr .8fr;gap:36px;align-items:start}

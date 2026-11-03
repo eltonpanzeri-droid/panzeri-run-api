@@ -15,11 +15,15 @@ const storeButtons = (center = false) => `<div class="store-actions${center ? ' 
 const testimonialPhone = (file: string, alt: string, caption: string) =>
   `<figure class="testimonial-phone reveal"><div class="testimonial-device"><span class="device-speaker" aria-hidden="true"></span><img src="/landing2-assets/${file}" alt="${alt}" loading="lazy"></div><figcaption>${caption}</figcaption></figure>`;
 
-const videoCard = (file: string, label: string) =>
-  `<div class="video-card reveal"><video controls preload="none" data-name="${file}" poster="" playsinline><source src="/landing2-media/${file}" type="video/mp4"></video></div>`;
+const videoCard = (file: string, large = false) =>
+  `<div class="video-card${large ? ' video-card-large' : ''} reveal"><video controls preload="none" data-name="${file}" poster="" playsinline><source src="/landing2-media/${file}" type="video/mp4"></video></div>`;
 
-const videoStrip = (files: string[], ariaLabel: string) =>
-  `<div class="video-strip" aria-label="${ariaLabel}">${files.map((f) => videoCard(f, '')).join('')}</div>`;
+type VideoItem = string | { file: string; large?: boolean };
+
+const videoStrip = (items: VideoItem[], ariaLabel: string) =>
+  `<div class="video-strip" aria-label="${ariaLabel}">${items
+    .map((it) => (typeof it === 'string' ? videoCard(it) : videoCard(it.file, it.large)))
+    .join('')}</div>`;
 
 const mockupShot = (file: string, alt: string) =>
   `<img class="mockup-shot reveal" src="/landing2-assets/${file}" alt="${alt}" loading="lazy">`;
@@ -109,11 +113,11 @@ export const LANDING_PAGE_HTML = `<!doctype html>
       </div>
       <div class="experience-grid">
         <article class="experience experience-photo-card reveal" style="background-image:url('/landing2-assets/cards-pertencer.jpg')"><div class="experience-overlay"><span>01</span><h3>Pertencer</h3><p>Começar a correr com os amigos e fazer parte das histórias que antes pareciam distantes.</p></div></article>
-        <article class="experience experience-photo-card reveal" style="background-image:url('/landing2-assets/cards-confiar.jpg')"><div class="experience-overlay"><span>02</span><h3>Confiar</h3><p>Reconhecer, passo a passo, que você é capaz de construir algo importante.</p></div></article>
+        <article class="experience experience-photo-card reveal" style="background-image:url('/landing2-assets/cards-confiar.jpg');background-position:center 22%"><div class="experience-overlay"><span>02</span><h3>Confiar</h3><p>Reconhecer, passo a passo, que você é capaz de construir algo importante.</p></div></article>
         <article class="experience experience-photo-card reveal" style="background-image:url('/landing2-assets/cards-inspirar.jpg')"><div class="experience-overlay"><span>03</span><h3>Inspirar</h3><p>Ser o exemplo positivo que pode ajudar outra pessoa a cuidar de si também.</p></div></article>
         <figure class="experience-photo reveal"><img src="/landing2-assets/conquista-com-app.jpg" alt="Corredores comemorando a chegada em uma maratona, com tela do aplicativo Panzeri Run"><figcaption>A preparação constrói o momento.</figcaption></figure>
       </div>
-      ${videoStrip(['depoimento-video-01.mp4'], 'Depoimento em vídeo de uma aluna')}
+      ${videoStrip(['depoimento-video-06.mp4'], 'Depoimento em vídeo de uma aluna que correu 10km')}
     </section>
 
     <section class="profile section-light" id="sua-historia">
@@ -154,7 +158,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         ${testimonialPhone('testemunho-03-comparacao-apps-1.jpg', 'Aluno comparando o Panzeri Run com outros aplicativos de corrida', 'Já testou outros apps')}
         ${testimonialPhone('testemunho-05-comparacao-apps-3.jpg', 'Aluno descrevendo as primeiras impressões do Panzeri Run', 'Primeiras impressões')}
       </div>
-      ${videoStrip(['depoimento-video-02.mp4', 'depoimento-video-03.mp4'], 'Depoimentos em vídeo de alunos')}
+      ${videoStrip([{ file: 'depoimento-video-02.mp4', large: true }, 'depoimento-video-07.mp4'], 'Depoimentos em vídeo de alunos')}
     </section>
 
     <section class="product section-light" id="produto" data-track-view="product_view">
@@ -213,7 +217,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         ${testimonialPhone('testemunho-06-resultado-prova.jpg', 'Resultado de prova de 5km de um aluno, 11º lugar geral', 'Resultado de prova')}
         ${testimonialPhone('testemunho-07-medalha-puerto-iguazu.jpg', 'Aluna comemorando 21km completados em Puerto Iguazú', '"Fiz os 21km em 2h27"')}
       </div>
-      ${videoStrip(['depoimento-video-04.mp4', 'depoimento-video-05.mp4'], 'Depoimentos em vídeo de alunos')}
+      ${videoStrip([{ file: 'depoimento-video-04.mp4', large: true }, 'depoimento-video-05.mp4'], 'Depoimentos em vídeo de alunos')}
     </section>
 
     <section class="method">
@@ -241,7 +245,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         ${testimonialPhone('testemunho-09-atualizacao-luiza.jpg', 'Aluna elogiando as atualizações constantes do aplicativo', '"Cada dia que entro uma atualização nova"')}
       </div>
       <p class="privacy-note">Depoimentos reais. Nomes, telefones e imagens de perfil foram removidos para preservar a privacidade.</p>
-      ${videoStrip(['depoimento-video-06.mp4'], 'Depoimento em vídeo de uma aluna')}
+      ${videoStrip(['depoimento-video-01.mp4', 'depoimento-video-03.mp4'], 'Depoimentos em vídeo de alunas')}
     </section>
 
     <section class="pricing" id="assinar" data-track-view="pricing_view">
