@@ -26,3 +26,16 @@ Preencher em **Play Console → Política do app → Apps de saúde → Health C
 **Continua FORA do formulário:** qualquer permissão de **escrita**. O app só lê.
 
 Confira também: Política de Privacidade (seção 5) atualizada e publicada; declaração de segurança de dados da Play (dados de saúde e condicionamento coletados, criptografados em trânsito, exclusão a pedido).
+
+## Versão 1.0.3 (03/11/2026) — o Google recusou a versão 15; REMOVER da declaração e do manifesto
+
+Recusa de 2/11/2026: "Acesso excessivo a dados (escopo mínimo)" e "login da declaração inválido". Decisão de Elton: tirar as permissões abaixo e manter VO₂ máx.
+
+| Permissão a REMOVER | Estado no app 1.0.3 |
+|---|---|
+| `READ_TOTAL_CALORIES_BURNED` | fora do `app.json` e de `categories.ts` |
+| `READ_OXYGEN_SATURATION` | idem |
+| `READ_RESPIRATORY_RATE` | idem |
+| `READ_NUTRITION` e `READ_HYDRATION` | idem (mesmo grupo no app: saem juntas) |
+
+Continuam: exercício, distância, velocidade, FC, potência, passos/cadência, elevação, calorias ativas, sono, FC de repouso, HRV, VO₂ máx, histórico e segundo plano. **Ciclo menstrual NÃO é pedido no Android.** Depois de subir o build novo: apagar as linhas removidas do formulário, conferir o login (conta com acesso e dados nas telas de saúde; nunca colar a credencial em arquivo do repositório) e reenviar.

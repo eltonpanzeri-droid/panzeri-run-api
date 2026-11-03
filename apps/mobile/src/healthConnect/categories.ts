@@ -5,21 +5,21 @@
 // sessao): a autorizacao ja' e' perguntada, mas nada e' pedido ao Android para elas ate' a leitura existir.
 
 export const HC_CATEGORY_RECORD_TYPES: Readonly<Record<string, readonly string[]>> = {
-  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
+  activity: ['ExerciseSession', 'Distance', 'Speed', 'ActiveCaloriesBurned'],
   activity_sensors: ['HeartRate', 'Power', 'StepsCadence', 'ElevationGained'],
   activity_route: [],
   sleep: ['SleepSession'],
-  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned', 'TotalCaloriesBurned'],
+  daily_activity: ['Steps', 'Distance', 'ActiveCaloriesBurned'],
   resting_heart_rate: ['RestingHeartRate'],
   hrv: ['HeartRateVariabilityRmssd'],
   vo2_max: ['Vo2Max'],
   // Composicao corporal (peso, gordura, massa magra/ossea/de agua): NAO pedida ao Android nesta versao (30/10/2026, Play: acesso minimo). O peso do aluno vem da entrevista e da reavaliacao.
-// Calorias totais: REVERTIDO em 31/10/2026 por ordem de Elton (gasto energetico total do dia, para acompanhar disponibilidade energetica/REDs; a Samsung grava as calorias do exercicio como TOTAIS).
+// 03/11/2026 (Play recusou a versao 15 por acesso excessivo, ordem de Elton): NAO pedidos ao Android calorias totais, saturacao de oxigenio, frequencia respiratoria, nutricao e hidratacao. Ficam no Android so' tipos com funcao no app; VO2 max fica.
   body_composition: [],
-  pulse_ox: ['OxygenSaturation'],
+  pulse_ox: [],
   skin_temperature: [],
-  respiratory_rate: ['RespiratoryRate'],
-  nutrition: ['Nutrition', 'Hydration'],
+  respiratory_rate: [],
+  nutrition: [],
 };
 
 export const HC_HISTORY_PERMISSION = { accessType: 'read' as const, recordType: 'ReadHealthDataHistory' as const };
