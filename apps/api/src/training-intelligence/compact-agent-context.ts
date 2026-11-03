@@ -135,6 +135,8 @@ export interface CompactVariableState {
    * unica vez por modalidade, nunca uma segunda matematica.
    */
   byModality?: Record<string, Omit<CompactVariableState, 'byModality'>>;
+  /** Modalidades cuja ficha e' IGUAL a esta ficha geral (so' elas tem dados do indicador): a copia identica nao e' repetida em byModality. */
+  identicoAModalidade?: string[];
   /**
    * 22/10/2026 — presentes SO' quando ha mais de uma fonte de aparelho com dado nesta variavel (dados de relogio/Health Connect). As estatisticas deste objeto sao SOMENTE da
    * `mainSource`; `otherSources` traz cada outra fonte com a sua propria estatistica. Fontes diferentes usam metodos de medicao diferentes e NUNCA sao misturadas nem comparadas:
@@ -269,7 +271,7 @@ export function compactVariable(entry: CompactableSnapshot): CompactVariableStat
     ? Object.fromEntries(Object.entries(entry.bySource).map(([source, snap]) => [source, compactVariable(snap)]))
     : undefined;
 
-  return {
+  return dropModalitiesEqualToGeneral({
     current: entry.current,
     trend: {
       recent: entry.trend?.short_21d?.direction ?? 'insufficient_data',
@@ -302,7 +304,27 @@ export function compactVariable(entry: CompactableSnapshot): CompactVariableStat
     },
     ...(byModality ? { byModality } : {}),
     ...(otherSources ? { mainSource: entry.selectedSource ?? undefined, otherSources, ...(entry.omittedSecondarySources ? { omittedOtherSources: entry.omittedSecondarySources } : {}) } : {}),
-  };
+  });
+}
+
+/**
+ * 03/11/2026 (pedido de Elton): quando so UMA modalidade tem dados do indicador (ex.: volume em km da aluna que so corre; sessao de fortalecimento nao tem km), a ficha dessa modalidade e' IDENTICA a
+ * ficha geral e era enviada duas vezes. Aqui a copia identica sai e fica so' o nome da modalidade em `identicoAModalidade` (nenhuma informacao se perde: os numeros sao os mesmos). Modalidade com
+ * qualquer diferenca (n, tendencia, faixa...) continua em byModality — a comparacao e' pelo JSON completo da MESMA funcao compactVariable, nunca uma segunda matematica.
+ */
+function dropModalitiesEqualToGeneral(state: CompactVariableState): CompactVariableState {
+  const { byModality, otherSources, mainSource, omittedOtherSources, ...own } = state;
+  if (!byModality) return state;
+  const ownJson = JSON.stringify(own);
+  const equal = Object.entries(byModality).filter(([, modalityState]) => JSON.stringify(modalityState) === ownJson).map(([modality]) => modality);
+  if (equal.length === 0) return state;
+  const kept = Object.fromEntries(Object.entries(byModality).filter(([modality]) => !equal.includes(modality)));
+  return {
+    ...own,
+    ...(Object.keys(kept).length > 0 ? { byModality: kept } : {}),
+    identicoAModalidade: equal,
+    ...(otherSources ? { mainSource, otherSources, ...(omittedOtherSources ? { omittedOtherSources } : {}) } : {}),
+  } as CompactVariableState;
 }
 
 /**

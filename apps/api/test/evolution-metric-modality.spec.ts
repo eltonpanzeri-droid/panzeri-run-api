@@ -44,6 +44,19 @@ describe('EvolutionMetricService.getSeriesByModality', () => {
     expect(series.weeks[0].kmPercorridos).toBe(10);
   });
 
+  // 03/11/2026 (pedido de Elton): confirma com o codigo real que as variaveis em km NAO ganham ficha de forca — sessao de fortalecimento nao tem distancia, entao km fica AUSENTE (null), nunca 0.
+  it('sessao de fortalecimento/forca sem distancia: km prescrito/realizado/extra ficam null (ausencia nunca vira zero) e a aderencia continua existindo', async () => {
+    const { service } = buildService([
+      trainingSession({ modality: 'fortalecimento_corredores', distanceKm: null, completion: { status: 'done', completedAt: new Date('2026-08-03T00:00:00Z'), perceivedEffort: 3, distanceKm: null } }),
+    ]);
+    const series = await service.getSeriesByModality('aluno-1', 'fortalecimento_corredores');
+    expect(series.weeks).toHaveLength(1);
+    expect(series.weeks[0].kmPercorridos).toBeNull();
+    expect(series.weeks[0].kmPrescritos).toBeNull();
+    expect(series.weeks[0].kmExtras).toBeNull();
+    expect(series.weeks[0].sessoesPrescritas).toBe(1);
+  });
+
   it('série global (getSeries) não filtra por modalidade — comportamento pré-existente inalterado', async () => {
     const { service, findMany } = buildService([trainingSession({})]);
     await service.getSeries('aluno-1');

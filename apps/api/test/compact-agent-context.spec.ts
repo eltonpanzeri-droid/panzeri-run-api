@@ -270,6 +270,33 @@ describe('buildCompactAgentContext', () => {
     expect(v.byModality!.corrida).not.toHaveProperty('byModality');
   });
 
+  // 03/11/2026 (pedido de Elton): modalidade IGUAL a ficha geral nao e' enviada duas vezes.
+  describe('byModality identica a ficha geral (so uma modalidade tem dados)', () => {
+    const evidence = (n: number) => ({ n, observedSpan: { from: 'a', to: 'b' }, lastObservationAt: 'b', instrumentVersions: [2], comparabilityWarning: null });
+    const build = (entry: VariableStateEntry) => buildCompactAgentContext(snapshot({ trainingResponse: { availability: 'available', variables: { 'workout.perceivedEffort': entry } } })).variables['workout.perceivedEffort'];
+
+    it('a unica modalidade com a MESMA ficha sai de byModality e fica so o nome em identicoAModalidade', () => {
+      const v = build(variableEntry({ current: 6, evidence: evidence(12), byModality: { corrida: modalitySnapshot({ current: 6, evidence: evidence(12) }) } }));
+      expect(v.current).toBe(6);
+      expect(v).not.toHaveProperty('byModality');
+      expect(v.identicoAModalidade).toEqual(['corrida']);
+    });
+
+    it('modalidade com qualquer diferenca continua em byModality (so a identica sai)', () => {
+      const v = build(variableEntry({ current: 6, evidence: evidence(12), byModality: { corrida: modalitySnapshot({ current: 6, evidence: evidence(12) }), forca: modalitySnapshot({ current: 4, evidence: evidence(3) }) } }));
+      expect(Object.keys(v.byModality!)).toEqual(['forca']);
+      expect(v.byModality!.forca.current).toBe(4);
+      expect(v.identicoAModalidade).toEqual(['corrida']);
+    });
+
+    it('com duas modalidades diferentes entre si e da geral nada muda; sem byModality nada e inventado', () => {
+      const v = build(variableEntry({ current: 6, evidence: evidence(12), byModality: { corrida: modalitySnapshot({ current: 8, evidence: evidence(9) }), forca: modalitySnapshot({ current: 4, evidence: evidence(3) }) } }));
+      expect(Object.keys(v.byModality!).sort()).toEqual(['corrida', 'forca']);
+      expect(v).not.toHaveProperty('identicoAModalidade');
+      expect(build(variableEntry({ current: 6, evidence: evidence(12) }))).not.toHaveProperty('identicoAModalidade');
+    });
+  });
+
   it('26/09/2026 (auditoria Volume/Aderencia/ACWR, item 22): training NUNCA mais despeja recentWeeks/modalityBreakdown brutos — so resumo leve', () => {
     const snap = snapshot({
       training: { availability: 'available', dataAvailableSince: '2026-08-01', totalWeeksWithPlan: 8, adherence: { allTime: { period: 'all_time', sessoesPrescritas: 10, sessoesFeitas: 8, sessoesNaoFeitas: 2, sessoesSemRegistro: 0, adherencePercent: 80, coveragePercent: 100, lowCoverageWarning: false }, last4Weeks: { period: 'last_4_weeks', sessoesPrescritas: 4, sessoesFeitas: 3, sessoesNaoFeitas: 1, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false }, last8Weeks: { period: 'last_8_weeks', sessoesPrescritas: 8, sessoesFeitas: 6, sessoesNaoFeitas: 2, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false } }, consistency: { currentStreakWeeks: 3, longestStreakWeeks: 5, lastRegisteredDate: '2026-09-20', lastCompletedDate: '2026-09-20' }, modalityBreakdown: [{ modality: 'corrida', sessoesPrescritas: 10, sessoesFeitas: 8, adherencePercent: 80, coveragePercent: 100, percentOfTotalPrescribed: 100 }], recentWeeks: [{ weekStart: '2026-09-14', sessoesPrescritas: 4, sessoesFeitas: 3, sessoesNaoFeitas: 1, sessoesSemRegistro: 0, adherencePercent: 75, coveragePercent: 100, lowCoverageWarning: false, kmPercorridos: 20, kmPrescritos: 25, kmExtras: null }] },

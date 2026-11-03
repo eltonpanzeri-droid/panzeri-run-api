@@ -3599,6 +3599,14 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Riscos declarados**: tamanho real do contexto não medido (conferir `describeContextSize` após o deploy); 6 consultas extras de atividade por geração; sem revisão independente (só autorrevisão; recomendável `/code-review`); a leitura por indicador agora só existe no painel.
 - **Vale no deploy da API** (não precisa de build nativo).
 
+### 03/11/2026 — Contexto da IA: ficha por modalidade idêntica à geral deixa de ser enviada duas vezes
+- **Origem**: primeira geração real depois do Lote 4 (Sônia, 16:59): contexto de 132 mil caracteres; `variables` = 86% e blocos `byModality` = 38% do prompt. O teto de 45.000 caracteres só corta dado de relógio/integração, então não resolvia (aluna sem relógio fica inteira). Aba do painel: "O que a IA recebeu" (dentro do painel da aluna).
+- **Causa**: quando só UMA modalidade tem dados de um indicador (ex.: volume em km de quem só corre; sessão de fortalecimento não tem distância), a ficha da modalidade é igual à geral e ia duas vezes. Não havia nenhuma checagem.
+- **Correção** (`compact-agent-context.ts`, `dropModalitiesEqualToGeneral`): a modalidade cujo JSON compactado é IDÊNTICO ao da ficha geral sai de `byModality` e fica só o nome em `identicoAModalidade`; qualquer diferença mantém a modalidade. Mesma função de compactação, nenhuma matemática nova; nada se perde (números iguais). Estresse, motivação, cansaço, PSE, satisfação etc. continuam com quebra por modalidade (variam por treino e horário); sono, relógio e check-in semanal não têm modalidade.
+- **Confirmado no código** (teste novo em `evolution-metric-modality.spec.ts`): sessão de fortalecimento/força sem distância deixa km prescrito/realizado/extra como `null` (ausência nunca vira zero), então as variáveis em km não ganham ficha de força; a aderência continua existindo por modalidade. Só gera km de força se existir distância planejada, distância informada no feedback ou atividade importada com distância. Não confirmado com dado real da Sônia (sem acesso à produção).
+- **Não mexeu**: limite de modalidades (Elton disse que não), prompt, tela da aluna. **Vale no deploy da API**. Efeito esperado: menos caracteres por geração; o tamanho real só se confere na aba "O que a IA recebeu" da próxima geração.
+- **Pendente / ideias**: usar o prontuário (Agente de Evolução) para registrar o PADRÃO da aluna em palavras (ex.: "dorme de 5 a 7 h há meses"); erro de medida no painel (`athleteStateContext` aparece com 127,9% do prompt); decidir teto de 45.000 x 75.000 só com o tamanho real após esta correção.
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**
