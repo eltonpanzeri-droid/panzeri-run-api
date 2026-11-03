@@ -99,8 +99,8 @@ export interface VariableSnapshotResponse {
    */
   reference?: ReferenceSeries | null;
   /**
-   * Aguda × cronica (03/11/2026): media dos 7 registros mais recentes x media dos 28, com datas das janelas e a leitura cadastrada do indicador. So' com `options.withReference` (telas); o contexto da IA
-   * nao recebe nem paga esse custo ate' o Lote 3. Semana em andamento fica de fora. Ver acute-chronic.ts.
+   * Aguda × cronica (03/11/2026): media dos 7 registros mais recentes x media dos 28, com datas das janelas e a leitura cadastrada do indicador. So' com `options.withReference` (telas) ou `options.withAcuteChronic` (Athlete State Snapshot, que
+   * alimenta a IA em texto curto — Lote 3, ai-recent-trend-context.ts; sem a serie de referencia pesada). Semana em andamento fica de fora. Ver acute-chronic.ts.
    */
   acuteChronic?: AcuteChronic | null;
   /** Modalidades presentes no historico COMPLETO (nao filtrado) desta variavel — pra montar o seletor. Vazio quando a variavel nao tem dimensao de modalidade (ex: checkin.* semanal). */
@@ -157,7 +157,7 @@ export class TrainingIntelligenceQueryService {
     return this.observationReader.getHrDecouplingAudit(athleteId);
   }
 
-  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string, options: { withReference?: boolean } = {}): Promise<VariableSnapshotResponse> {
+  async getVariableSnapshot(athleteId: string, variableId: string, modalities?: string[], sourceKey?: string, options: { withReference?: boolean; withAcuteChronic?: boolean } = {}): Promise<VariableSnapshotResponse> {
     const definition = getVariableDefinition(variableId);
     if (!definition) {
       throw new NotFoundException(`Variavel desconhecida no VariableRegistry: ${variableId}`);
@@ -289,7 +289,7 @@ export class TrainingIntelligenceQueryService {
       movingAverages,
       movingAverageSeries,
       reference: options.withReference ? buildReferenceSeries(series, definition, this.mathLayer, this.longitudinalDynamics) : undefined,
-      acuteChronic: options.withReference ? buildAcuteChronic(this.mathLayer, completedSeries, definition, habitualRangeResult) : undefined,
+      acuteChronic: options.withReference || options.withAcuteChronic ? buildAcuteChronic(this.mathLayer, completedSeries, definition, habitualRangeResult) : undefined,
       baseline: baselineResult,
       deviation: deviationResult,
       trend,

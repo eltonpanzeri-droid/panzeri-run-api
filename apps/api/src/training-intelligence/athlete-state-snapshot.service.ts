@@ -37,6 +37,8 @@ import { MAX_SECONDARY_SOURCES } from './wearable-source';
 import { OperationalReferenceService } from '../physiology/operational-reference.service';
 import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
 import type { AgentReferenceView } from '../physiology/operational-reference';
+import { HR_DECOUPLING_CATEGORIES, hrDecouplingVariableId } from './hr-decoupling';
+import { buildAcuteChronicContext, buildHrDecouplingContext, type AcuteChronicContext, type HrDecouplingContext } from './ai-recent-trend-context';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -199,6 +201,9 @@ export interface AthleteStateSnapshotV1 {
   pairedEvidence?: PairedEvidence;
   // 01/11/2026: carga interna percebida (PSE x minutos) por modalidade, com a ultima sessao comparada so' com o historico ANTERIOR e a carga acumulada de 7 e 28 dias. null = sem sessoes elegiveis.
   internalLoad?: InternalLoadContext | null;
+  // 03/11/2026 (Lote 3): leitura curta do que vem acontecendo recentemente, pronta pelo servidor (a IA nao calcula). Desacoplamento da FC por faixa de duracao nas corridas dos ultimos 7 dias e aguda (7) x cronica (28) dos indicadores.
+  hrDecoupling?: HrDecouplingContext | null;
+  acuteChronicContext?: AcuteChronicContext | null;
   domains: {
     training: TrainingDomainState;
     trainingLoad: VariableBasedDomainState;
@@ -324,7 +329,7 @@ export class AthleteStateSnapshotService {
     const getVariable = async (variableId: string): Promise<VariableStateEntry> => {
       const cached = variableCache.get(variableId);
       if (cached) return cached;
-      const { observations: _observations, ...rest } = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId);
+      const { observations: _observations, ...rest } = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId, undefined, undefined, { withAcuteChronic: true });
 
       // Quebra por modalidade (25/09/2026, extensao da Exploracao Longitudinal ate o agente) —
       // FILTRAR -> CALCULAR -> gerar entrada, nunca "calcular global e filtrar visualmente depois".
@@ -416,15 +421,33 @@ export class AthleteStateSnapshotService {
     // Melhor esforco: falha na carga acumulada nunca derruba o snapshot (a IA segue com PSE e demais variaveis separadas).
     const internalLoad = await this.buildInternalLoad(athleteId).catch(() => null);
 
+    // Melhor esforco: falha na leitura recente (desacoplamento / aguda x cronica) nunca derruba o snapshot nem a geracao do treino; a IA segue sem esses blocos.
+    const now = new Date();
+    const hrDecoupling = await this.buildHrDecouplingContext(athleteId, now).catch(() => null);
+    const acuteChronicContext = buildAcuteChronicContext(ALL_DOMAIN_VARIABLE_IDS.map((variableId) => ({ variableId, acuteChronic: variableCache.get(variableId)?.acuteChronic })));
+
     return {
       athleteId,
-      generatedAt: new Date().toISOString(),
+      generatedAt: now.toISOString(),
       compact: this.buildCompact(domains),
       pairedEvidence,
       internalLoad,
+      hrDecoupling,
+      acuteChronicContext,
       domains,
       evidenceQuality,
     };
+  }
+
+  // Desacoplamento da FC por faixa de duracao: as 5 variaveis do registro, com referencia so' das corridas ANTERIORES (reference-series). Roda no escopo de IA do chamador (atividade de relogio sem consentimento nao entra).
+  private async buildHrDecouplingContext(athleteId: string, now: Date): Promise<HrDecouplingContext | null> {
+    const bands = await Promise.all(
+      HR_DECOUPLING_CATEGORIES.map(async (category) => {
+        const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, hrDecouplingVariableId(category), undefined, undefined, { withReference: true });
+        return { category, reference: snapshot.reference, acuteChronic: snapshot.acuteChronic };
+      }),
+    );
+    return buildHrDecouplingContext(bands, now);
   }
 
   // Carga interna percebida: mesma fonte unica do painel (coach/training-load-rows.ts). Roda DENTRO do escopo de IA quando o snapshot alimenta um agente: atividade de relogio sem consentimento nao entra.

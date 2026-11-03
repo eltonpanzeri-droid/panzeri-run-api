@@ -188,6 +188,8 @@ export class ReassessmentService {
       latestReassessmentExclusiveAnswers: extractExclusiveAnswers(asAnswerObject(completed.answers)),
       athleteStateSnapshot: snapshot?.compact ?? null,
       cargaInternaPercebida: snapshot?.internalLoad ?? null, // dentro do escopo de IA (runAi): atividade de relogio sem consentimento nao entra
+      desacoplamentoFC: snapshot?.hrDecoupling ?? null, // idem: calculado so' com atividade liberada para a IA
+      agudaCronica7x28: snapshot?.acuteChronicContext ?? null,
       executionHistory: aiPlans.map((plan) => ({
         weekStart: plan.startDate.toISOString().slice(0, 10),
         prescribedSessions: plan.sessions.length,

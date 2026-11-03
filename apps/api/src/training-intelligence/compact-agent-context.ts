@@ -57,6 +57,7 @@ import type { VariableSnapshotResponse } from './training-intelligence-query.ser
 import { evidenceKindOf, getVariableDefinition, type EvidenceKind } from './variable-registry';
 import type { PairedEvidence } from './paired-evidence';
 import type { InternalLoadContext } from './internal-load-context';
+import type { AcuteChronicContext, HrDecouplingContext } from './ai-recent-trend-context';
 
 export interface CompactExcursionSummary {
   direction: 'above' | 'below';
@@ -188,6 +189,10 @@ export interface CompactAgentContext {
   pairedEvidence?: PairedEvidence;
   /** Carga interna percebida (PSE x minutos) por modalidade: ultima sessao comparada so' com o historico ANTERIOR + carga acumulada de 7 e 28 dias (01/11/2026). Ausente quando nao ha sessao elegivel. Nao e' dado de relogio: nunca sai pelo teto de integracoes. */
   cargaInternaPercebida?: InternalLoadContext;
+  /** Desacoplamento da FC por faixa de duracao nas corridas dos ULTIMOS 7 DIAS, ja comparado pelo servidor com as corridas anteriores da mesma faixa (03/11/2026). Ausente quando nao houve corrida elegivel na semana. Ver ai-recent-trend-context.ts. */
+  desacoplamentoFC?: HrDecouplingContext;
+  /** Aguda (7 registros) x cronica (28) dos indicadores que mudaram de lado, ja calculada pelo servidor (03/11/2026). Ausente quando nenhum indicador tem 28 registros com diferenca. Indicadores de relogio saem junto com os demais dados de integracao se o teto de tamanho estourar. */
+  agudaCronica7x28?: AcuteChronicContext;
   evidenceQuality: {
     variablesWithData: number;
     variablesWithoutData: number;
@@ -384,6 +389,8 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     systemDynamics: snapshot.domains.systemDynamics,
     ...(snapshot.pairedEvidence && (snapshot.pairedEvidence.effortVsDevice.length > 0 || snapshot.pairedEvidence.sleepPerceivedVsDevice.length > 0) ? { pairedEvidence: snapshot.pairedEvidence } : {}),
     ...(snapshot.internalLoad ? { cargaInternaPercebida: snapshot.internalLoad } : {}),
+    ...(snapshot.hrDecoupling ? { desacoplamentoFC: snapshot.hrDecoupling } : {}),
+    ...(snapshot.acuteChronicContext ? { agudaCronica7x28: snapshot.acuteChronicContext } : {}),
     evidenceQuality: snapshot.evidenceQuality.overall,
   };
 }
@@ -430,13 +437,20 @@ export function describeContextSize(context: CompactAgentContext): string {
 export function limitCompactAgentContext(context: CompactAgentContext, maxChars: number = aiContextMaxChars()): LimitedCompactContext {
   const sizeChars = JSON.stringify(context).length;
   if (sizeChars <= maxChars) return { context, integrationDataOmitted: false, sizeChars, maxChars };
-  const hasIntegrationData = Object.keys(context.variables).some(isIntegrationVariable) || context.pairedEvidence !== undefined;
+  const hasIntegrationData = Object.keys(context.variables).some(isIntegrationVariable) || context.pairedEvidence !== undefined || context.desacoplamentoFC !== undefined;
   if (!hasIntegrationData) return { context, integrationDataOmitted: false, sizeChars, maxChars }; // grande por outro motivo: nada de integracao para tirar
   const variables = Object.fromEntries(Object.entries(context.variables).filter(([id]) => !isIntegrationVariable(id)));
   const variableLegend = Object.fromEntries(Object.entries(context.variableLegend).filter(([id]) => !isIntegrationVariable(id)));
   const ref = <T extends { variableIds: string[] }>(domain: T): T => ({ ...domain, variableIds: domain.variableIds.filter((id) => !isIntegrationVariable(id)) });
   const rest = { ...context };
   delete rest.pairedEvidence;
+  delete rest.desacoplamentoFC; // calculado da serie segundo a segundo do relogio: dado de integracao
+  // A aguda x cronica de indicadores de relogio e' dado de integracao: sai junto com os demais; os indicadores do proprio aluno ficam.
+  if (rest.agudaCronica7x28) {
+    const indicadores = rest.agudaCronica7x28.indicadores.filter((item) => !isIntegrationVariable(String(item.id)));
+    if (indicadores.length > 0) rest.agudaCronica7x28 = { ...rest.agudaCronica7x28, indicadores };
+    else delete rest.agudaCronica7x28;
+  }
   const limited: CompactAgentContext = {
     ...rest,
     variables,
