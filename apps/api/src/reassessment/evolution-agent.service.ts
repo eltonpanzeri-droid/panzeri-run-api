@@ -61,6 +61,12 @@ const ProfileCondensationSchema = z.object({
   summary: z.string().min(1).max(6000),
 });
 
+// 03/11/2026 (pedido de Elton): o resumo do prontuario tem teto duro de 6000 caracteres (o servidor corta o FINAL do texto se passar). Para nao chegar la, a IA recebe uma META menor e, se mesmo assim o
+// resumo voltar grande, ha UMA segunda passada so de reducao (antes de qualquer corte). Feedbacks antigos pesam cada vez menos, sempre; as excecoes (fatos persistentes, diretrizes etc.) ficam por ultimo.
+export const PROFILE_SUMMARY_MAX_CHARS = 6000;
+export const PROFILE_SUMMARY_TARGET_CHARS = 4500;
+export const PROFILE_SUMMARY_SHRINK_ABOVE_CHARS = 5200;
+
 export interface ProfileCondensationInput {
   currentSummary: string;
   newEvents: Array<{ code: string; content: string; createdAt: string }>;
@@ -109,6 +115,15 @@ export class EvolutionAgentService {
   }
 
   async condenseProfile(input: ProfileCondensationInput): Promise<string | null> {
+    const first = await this.requestCondensation(this.buildProfileCondensationUserPrompt(input));
+    if (first === null || first.length <= PROFILE_SUMMARY_SHRINK_ABOVE_CHARS) return first;
+    // Resumo acima da margem: segunda passada SO de reducao (o resumo ja inclui os eventos novos; nada e perdido). Falha ou resultado nao menor: fica o primeiro, que o servidor so corta no teto duro.
+    this.logger.warn(`Prontuario: resumo condensado com ${first.length} caracteres (meta ${PROFILE_SUMMARY_TARGET_CHARS}); pedindo reducao`);
+    const second = await this.requestCondensation(this.buildProfileShrinkUserPrompt(first));
+    return second !== null && second.length < first.length ? second : first;
+  }
+
+  private async requestCondensation(userPrompt: string): Promise<string | null> {
     if (!this.client) return null;
     const client = this.client;
 
@@ -128,7 +143,7 @@ export class EvolutionAgentService {
             format: zodOutputFormat(ProfileCondensationSchema),
           },
           system: [{ type: 'text', text: this.buildProfileCondensationSystemPrompt(), ...cacheControlFor('prontuario_condensacao') }],
-          messages: [{ role: 'user', content: this.buildProfileCondensationUserPrompt(input) }],
+          messages: [{ role: 'user', content: userPrompt }],
         });
         stream.on('streamEvent', (_event, snapshot) => {
           lastSnapshot = snapshot;
@@ -169,13 +184,29 @@ export class EvolutionAgentService {
       'Para feedback de treino (codigo WORKOUT_COMPLETED): se o feedback registrado for curto, mantenha como esta; se for longo, condense na frase que capture o essencial (ex: incomodo relatado, dificuldade, sensacao geral), sem preservar o texto inteiro.',
       'CAPACIDADE ATUAL x HISTORICA e eventos TRAINING_ANALYSIS_FINDINGS (achados deterministicos do Analista de Treinos, calculados a partir de registros e do relogio, com a data dos dados): use-os para manter TRAJETORIA e ESTADO ATUAL em dia, em poucas linhas — nunca copie o relatorio. Distinga sempre (a) o que o aluno ja demonstrou, (b) o que demonstra recentemente (so isso e capacidade ATUAL), (c) o que esta melhorando, (d) o que apresenta dificuldade e (e) o que ainda nao se sabe. Evidencia nova e mais recente ATUALIZA o ESTADO ATUAL: se o resumo diz que o aluno tinha dificuldade em correr mais de 15 km seguidos e agora ha longos regulares de 28 km, o ESTADO ATUAL registra a capacidade atual com a data, e a dificuldade anterior migra para TRAJETORIA como historico (nao a apague). Uma marca antiga (ex.: tiros a 3:50/km ha um ano) permanece como capacidade HISTORICA com a sua data; nunca a apresente como atual sem evidencia recente. Padroes e mudancas apontados pelo Analista sao PADRAO OBSERVADO ou INTERPRETACAO, nunca causa comprovada nem melhora fisiologica nao medida (nao conclua, por exemplo, que o VO2max subiu). Se o evento nao acrescenta nada ao que o resumo ja diz, ignore-o. Isto descreve o aluno; nao e recomendacao de treino.',
       'EVENTOS EXECUTION_LINK_CORRECTED (gerados por codigo quando o aluno ou o treinador corrige o vinculo de uma atividade com um treino prescrito, ou o treinador edita um treino que ja tinha feedback; o texto traz quando, quem, o que constava antes e o que passa a valer): a informacao corrigida PREVALECE sobre qualquer trecho anterior do resumo que dependa daquela atividade ou treino (achados do Analista, volume, aderencia, capacidade demonstrada, frases como "cumpriu o treino X"). ESTADO ATUAL deve refletir SO o estado corrigido. Em TRAJETORIA registre de forma curta e datada o que constava antes e quando foi corrigido (ex.: "ate 17/10 constava o longao de 28 km como cumprimento do treino de domingo; em 17/10 o aluno corrigiu: era atividade extra"). Nao apague o fato de a atividade ter existido — so a atribuicao mudou, e o registro antigo continua como historico (o que se acreditava ate a correcao), nunca como fato atual. A correcao nao e queixa nem mudanca de condicao fisica e nunca vira regra de treino. Nao copie os identificadores da linha "Ref". Se varias correcoes se sucederam sobre a mesma atividade, vale a mais recente.',
-      'PESO POR RECENCIA COM O TEMPO: conforme o resumo for crescendo ao longo de meses/anos, e normal que voce precise compactar trechos antigos pra manter o texto gerenciavel — mas so compacte topicos que ja estao claramente resolvidos/inativos ha bastante tempo, nunca os mais recentes (ultimos ~2 meses merecem mais detalhe). Compactar significa resumir em menos palavras, mantendo o fato central (ex: um paragrafo sobre "episodios de dor no joelho entre marco e maio de 2026, resolvidos desde entao" pode, um ano depois, virar so "teve episodio de dor no joelho em 2026, resolvido") — nunca apagar o fato por completo.',
+      'PESO POR RECENCIA, SEMPRE (nao so quando o resumo ficar grande): quanto mais antigo o feedback ou o episodio, menos relevancia e menos espaco ele recebe. A cada atualizacao, reescreva as partes antigas de forma mais curta: o que tem mais de ~2 meses vira uma frase com o fato central e a data aproximada; o que e dos ultimos ~2 meses mantem mais detalhe. Feedbacks de treino (WORKOUT_COMPLETED) e episodios ja resolvidos ou inativos sao os primeiros a encolher. Compactar significa dizer o mesmo fato com menos palavras, mantendo o fato central (ex: um paragrafo sobre "episodios de dor no joelho entre marco e maio de 2026, resolvidos desde entao" pode, um ano depois, virar so "teve episodio de dor no joelho em 2026, resolvido") — nunca apagar o fato por completo. NAO encolha, enquanto houver outra opcao: fatos persistentes, diretrizes do treinador, observacoes do proprio aluno, relatos MUDANCA_IMPORTANTE, historico de lesao, dor ou saude, e marcas ou capacidades demonstradas (com data); essas ficam completas na essencia.',
+      'TAMANHO: o campo limites do pedido traz metaDeCaracteres (' + PROFILE_SUMMARY_TARGET_CHARS + '), maximoAbsolutoDeCaracteres (' + PROFILE_SUMMARY_MAX_CHARS + ') e tamanhoDoResumoAtual. Mire SEMPRE em ficar ate a meta. Se o resumo atual ja esta acima dela, ou os eventos novos fariam passar, compacte mais as partes mais antigas e menos relevantes — primeiro feedbacks de treino antigos, depois episodios antigos ja resolvidos —, mantendo o fato central e a data de cada um; so mexa nas excecoes acima em ultimo caso, sem perder o essencial. Nunca devolva mais que o maximo absoluto.',
     ].join('\n\n');
+  }
+
+  /** Segunda passada (so reducao): o resumo recebido ja contem todos os eventos; pedimos o mesmo conteudo mais enxuto, antigo primeiro. */
+  private buildProfileShrinkUserPrompt(summary: string) {
+    return JSON.stringify(
+      {
+        resumoAtual: summary,
+        eventosNovos: [],
+        limites: { metaDeCaracteres: PROFILE_SUMMARY_TARGET_CHARS, maximoAbsolutoDeCaracteres: PROFILE_SUMMARY_MAX_CHARS, tamanhoDoResumoAtual: summary.length },
+        instrucaoDeReducao: `O resumo atual tem ${summary.length} caracteres, acima da meta de ${PROFILE_SUMMARY_TARGET_CHARS}. Nao ha evento novo: devolva o MESMO prontuario mais enxuto, compactando primeiro os feedbacks e episodios mais antigos e menos relevantes (fato central e data), sem apagar nenhum fato importante e sem inventar nada.`,
+      },
+      null,
+      2,
+    );
   }
 
   private buildProfileCondensationUserPrompt(input: ProfileCondensationInput) {
     return JSON.stringify(
       {
+        limites: { metaDeCaracteres: PROFILE_SUMMARY_TARGET_CHARS, maximoAbsolutoDeCaracteres: PROFILE_SUMMARY_MAX_CHARS, tamanhoDoResumoAtual: input.currentSummary.length },
         resumoAtual: input.currentSummary || '(vazio — primeira atualizacao deste aluno)',
         eventosNovos: input.newEvents.map((event) => ({
           data: event.createdAt.slice(0, 10),

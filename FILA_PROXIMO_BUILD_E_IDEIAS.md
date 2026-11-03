@@ -35,6 +35,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 | 03/11/2026 | **Lote 3 — IA recebe desacoplamento da FC por faixa (7 dias) e aguda × crônica 7×28 em texto curto** (prescritor e Agente de Evolução; hipótese cadastrada só como rascunho) | `training-intelligence/ai-recent-trend-context.ts`, `athlete-state-snapshot.service.ts`, `compact-agent-context.ts`, `training-plans/prescription-agent.service.ts`, `reassessment/*` | Só deploy da API (sem build nativo) |
 | 03/11/2026 | **Lote 4 — visão global por domínio (nível + tendência) para a IA e lógica de risco por conjunto de indicadores** (prescritor e Agente de Evolução) | `training-intelligence/domain-overview.ts`, `athlete-state-snapshot.service.ts`, `compact-agent-context.ts`, `training-plans/prescription-agent.service.ts`, `reassessment/*` | Só deploy da API (sem build nativo) |
 | 03/11/2026 | **Contexto da IA: ficha por modalidade idêntica à geral não é mais enviada duas vezes** (`identicoAModalidade`) | `training-intelligence/compact-agent-context.ts` | Só deploy da API (sem build nativo) |
+| 03/11/2026 | **Condensação do prontuário: feedback antigo pesa menos sempre + meta de 4.500 caracteres + segunda passada de redução** | `reassessment/evolution-agent.service.ts` | Só deploy da API (sem build nativo) |
 
 ## B. Ideias e decisões ainda NÃO implementadas
 

@@ -3607,6 +3607,14 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Não mexeu**: limite de modalidades (Elton disse que não), prompt, tela da aluna. **Vale no deploy da API**. Efeito esperado: menos caracteres por geração; o tamanho real só se confere na aba "O que a IA recebeu" da próxima geração.
 - **Pendente / ideias**: usar o prontuário (Agente de Evolução) para registrar o PADRÃO da aluna em palavras (ex.: "dorme de 5 a 7 h há meses"); erro de medida no painel (`athleteStateContext` aparece com 127,9% do prompt); decidir teto de 45.000 x 75.000 só com o tamanho real após esta correção.
 
+### 03/11/2026 — Condensação do prontuário: feedback antigo pesa cada vez menos, sempre, e há meta de tamanho
+- **Pedido de Elton**: instruir a IA que condensa o prontuário a SEMPRE resumir dando menos relevância aos feedbacks antigos, sem tirar nada importante, e dar um jeito de resumir mais quando o texto crescer (o teto duro é 6.000 caracteres e o servidor cortaria o FINAL do texto).
+- **Prompt** (`evolution-agent.service.ts`, regra "PESO POR RECENCIA, SEMPRE", substitui a antiga que só valia quando o resumo ficava grande): o que tem mais de ~2 meses vira uma frase com o fato central e a data; feedbacks de treino (WORKOUT_COMPLETED) e episódios resolvidos encolhem primeiro; nunca apagar o fato. NÃO encolher enquanto houver outra opção: fatos persistentes, diretrizes do treinador, observações do aluno, relatos MUDANÇA_IMPORTANTE, histórico de lesão/dor/saúde e marcas demonstradas (com data). Regra "TAMANHO": mirar sempre na meta.
+- **Meta e reduçao**: o pedido passa a trazer `limites` (meta 4.500, máximo 6.000, tamanho do resumo atual). Se o resumo voltar com mais de 5.200 caracteres, há UMA segunda passada só de redução (o resumo já inclui os eventos; nada novo entra), e fica o menor; se a redução falhar ou não encolher, fica o primeiro. O corte do servidor em 6.000 continua como último recurso.
+- **Custo/efeito**: Haiku, chamada curta; a segunda passada só acontece quando passa de 5.200 (hoje a Sônia tem 1.954). Não reescreve prontuários existentes agora: vale na próxima condensação de cada aluna. Constantes exportadas: `PROFILE_SUMMARY_MAX_CHARS`, `PROFILE_SUMMARY_TARGET_CHARS`, `PROFILE_SUMMARY_SHRINK_ABOVE_CHARS`.
+- **Risco declarado**: mudança de prompt de IA (alto risco pela regra do projeto) feita por ordem direta de Elton; sem revisão independente; não testado com a IA real (testes automáticos com IA simulada). Conferir os próximos prontuários condensados de alunas com texto longo na aba "O que a IA recebeu" (seção 4).
+- **Vale no deploy da API** (não precisa de build nativo).
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**
