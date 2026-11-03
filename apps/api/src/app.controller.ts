@@ -86,8 +86,8 @@ export class AppController {
   // abaixo, mas servidas de public/landing2 (fotos reais, telas do app, depoimentos tratados).
   private static readonly LANDING2_IMAGES = new Set([
     'hero-elton.jpg',
-    'conquista.jpg',
-    'treino-elton.jpg',
+    'conquista-com-app.jpg',
+    'metodologia-elton-floripa.jpg',
     'app-inicio.jpg',
     'app-treino.jpg',
     'app-historico.jpg',
@@ -95,7 +95,10 @@ export class AppController {
     'app-volume.jpg',
     'app-integracoes.jpg',
     'app-ritmo.jpg',
-    'testemunho-01-mental-confianca.jpg',
+    'cards-pertencer.jpg',
+    'cards-confiar.jpg',
+    'cards-inspirar.jpg',
+    'testemunho-01-reduzido.jpg',
     'testemunho-02-consultoria-humanizada.jpg',
     'testemunho-03-comparacao-apps-1.jpg',
     'testemunho-04-comparacao-apps-2.jpg',
@@ -104,6 +107,13 @@ export class AppController {
     'testemunho-07-medalha-puerto-iguazu.jpg',
     'testemunho-08-avaliacao-thais.jpg',
     'testemunho-09-atualizacao-luiza.jpg',
+    'mockup-evolucao-visao-geral.jpg',
+    'mockup-evolucao-grafico.jpg',
+    'mockup-integracoes.jpg',
+    'mockup-capacidade-aerobia.jpg',
+    'mockup-informar-teste.jpg',
+    'mockup-treinos-semana.jpg',
+    'mockup-treino-completo.jpg',
   ]);
 
   @Get('landing2-assets/:filename')
