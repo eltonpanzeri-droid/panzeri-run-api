@@ -82,6 +82,83 @@ export class AppController {
     return { url: url.href, statusCode: 302 };
   }
 
+  // Imagens da landing nova (redesign 03/11) — mesmo padrão de allowlist fixa do landing-assets
+  // abaixo, mas servidas de public/landing2 (fotos reais, telas do app, depoimentos tratados).
+  private static readonly LANDING2_IMAGES = new Set([
+    'hero-elton.jpg',
+    'conquista.jpg',
+    'treino-elton.jpg',
+    'app-inicio.png',
+    'app-treino.png',
+    'app-historico.png',
+    'app-evolucao.png',
+    'app-volume.png',
+    'app-integracoes.png',
+    'app-ritmo.png',
+    'testemunho-01-mental-confianca.png',
+    'testemunho-02-consultoria-humanizada.png',
+    'testemunho-03-comparacao-apps-1.png',
+    'testemunho-04-comparacao-apps-2.png',
+    'testemunho-05-comparacao-apps-3.png',
+    'testemunho-06-resultado-prova.png',
+    'testemunho-07-medalha-puerto-iguazu.png',
+    'testemunho-08-avaliacao-thais.png',
+    'testemunho-09-atualizacao-luiza.png',
+  ]);
+
+  @Get('landing2-assets/:filename')
+  landing2Asset(@Param('filename') filename: string, @Res() response: any) {
+    if (!AppController.LANDING2_IMAGES.has(filename)) return response.status(404).send('Arquivo não encontrado');
+    const filePath = join(process.cwd(), 'public', 'landing2', filename);
+    if (!existsSync(filePath)) return response.status(404).send('Arquivo não encontrado');
+    response.setHeader('Content-Type', filename.endsWith('.png') ? 'image/png' : 'image/jpeg');
+    response.setHeader('Cache-Control', 'public, max-age=3600');
+    return createReadStream(filePath).pipe(response);
+  }
+
+  // Vídeos de depoimento da landing nova — mesmo esquema de range-request do media/:filename
+  // abaixo, servidos de public/landing2/videos.
+  private static readonly LANDING2_VIDEOS = new Set([
+    'depoimento-video-01.mp4',
+    'depoimento-video-02.mp4',
+    'depoimento-video-03.mp4',
+    'depoimento-video-04.mp4',
+    'depoimento-video-05.mp4',
+    'depoimento-video-06.mp4',
+    'depoimento-video-07.mp4',
+  ]);
+
+  @Get('landing2-media/:filename')
+  landing2Media(
+    @Param('filename') filename: string,
+    @Headers('range') range: string | undefined,
+    @Res() response: any,
+  ) {
+    if (!AppController.LANDING2_VIDEOS.has(filename)) return response.status(404).send('Arquivo não encontrado');
+    const filePath = join(process.cwd(), 'public', 'landing2', 'videos', filename);
+    if (!existsSync(filePath)) return response.status(404).send('Arquivo não encontrado');
+    const fileSize = statSync(filePath).size;
+    response.setHeader('Accept-Ranges', 'bytes');
+    response.setHeader('Content-Type', 'video/mp4');
+    response.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+
+    if (!range) {
+      response.setHeader('Content-Length', fileSize);
+      return createReadStream(filePath).pipe(response);
+    }
+    const [startText, endText] = range.replace('bytes=', '').split('-');
+    const start = Number(startText);
+    const end = endText ? Number(endText) : Math.min(start + 1024 * 1024 - 1, fileSize - 1);
+    if (!Number.isFinite(start) || start < 0 || end >= fileSize || start > end) {
+      response.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
+      return response.end();
+    }
+    response.status(206);
+    response.setHeader('Content-Range', `bytes ${start}-${end}/${fileSize}`);
+    response.setHeader('Content-Length', end - start + 1);
+    return createReadStream(filePath, { start, end }).pipe(response);
+  }
+
   @Get('landing-assets/:filename')
   landingAsset(@Param('filename') filename: string, @Res() response: any) {
     // Fixed public asset set: never expose arbitrary files or originals outside this folder.
