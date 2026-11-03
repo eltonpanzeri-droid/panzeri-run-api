@@ -9,6 +9,7 @@ import { PainArea } from './PainArea';
 import { LoadSection } from './LoadSection';
 import { WearableSleepSection } from './WearableSleepSection';
 import { AdherenceWeekly } from './AdherenceSection';
+import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
 // que já existe (mesma leitura do servidor e mesmos textos). Indicadores novos entram nas áreas nos próximos lotes. Sem diagnóstico: o aviso do topo diz isso.
@@ -16,15 +17,6 @@ import { AdherenceWeekly } from './AdherenceSection';
 export type ProgressFocus = 'training' | 'adherence';
 
 type View_ = 'hub' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'weekly' | 'pain' | 'adherence';
-
-const AREAS: Array<{ id: Exclude<View_, 'hub' | 'readiness' | 'response' | 'weekly'>; title: string; subtitle: string; icon: keyof typeof Ionicons.glyphMap }> = [
-  { id: 'training', title: 'Evolução do treinamento', subtitle: 'Volume, ritmo e cadência', icon: 'trending-up-outline' },
-  { id: 'load', title: 'Resposta à carga', subtitle: 'Esforço percebido e carga de treino', icon: 'barbell-outline' },
-  { id: 'sleep', title: 'Sono e recuperação', subtitle: 'Como foram suas noites antes dos treinos', icon: 'moon-outline' },
-  { id: 'wellbeing', title: 'Bem-estar', subtitle: 'Cansaço, estresse, motivação e resposta do corpo', icon: 'heart-outline' },
-  { id: 'pain', title: 'Dor', subtitle: 'Dor por treino e relatos', icon: 'bandage-outline' },
-  { id: 'adherence', title: 'Aderência', subtitle: 'Treinos prescritos × realizados', icon: 'ribbon-outline' },
-];
 
 // Texto do topo: melhorado a partir da proposta de Elton. Passa pela revisão do advogado junto com os demais textos de saúde.
 const TOP_NOTICE = 'Os indicadores desta área descrevem padrões e mudanças nos seus próprios registros. Eles não são diagnóstico médico. O Panzeri Run analisa vários indicadores em conjunto para individualizar seus treinos e orientar sua evolução.';
@@ -53,17 +45,20 @@ function AreaCard({ title, subtitle, icon, onPress }: { title: string; subtitle:
 
 export function EvolutionHub({
   accessToken,
+  initialArea,
   renderProgress,
   onOpenRecovery,
   onOpenPainReport,
 }: {
   accessToken: string;
+  /** Área aberta ao entrar (toque numa das seis áreas da tela principal). Sem ela, abre a grade. */
+  initialArea?: EvolutionAreaId;
   /** A tela "Evolução objetiva" atual (App.tsx), com o recorte pedido: so' treinamento ou so' aderencia. */
   renderProgress: (focus: ProgressFocus) => React.ReactNode;
   onOpenRecovery: () => void;
   onOpenPainReport: () => void;
 }) {
-  const [view, setView] = useState<View_>('hub');
+  const [view, setView] = useState<View_>(initialArea ?? 'hub');
 
   if (view === 'hub') {
     return (
@@ -75,7 +70,7 @@ export function EvolutionHub({
           <Text style={styles.noticeTitle}>Como interpretar seus resultados</Text>
           <Text style={styles.noticeText}>{TOP_NOTICE}</Text>
         </View>
-        {AREAS.map((a) => <AreaCard key={a.id} title={a.title} subtitle={a.subtitle} icon={a.icon} onPress={() => setView(a.id)} />)}
+        <EvolutionAreaGrid onOpenArea={setView} />
       </View>
     );
   }

@@ -32,6 +32,7 @@ const IDS = [
   'training.volumeDiffAbsoluteKm',
   'training.volumeRatioCompletedPrescribed',
   'activity.avgPaceSecondsKm',
+  'activity.weeklyAvgPaceSecondsKm',
   'activity.cadenceAvg',
   'execution.timeInBandPct',
 ] as const;
@@ -39,6 +40,11 @@ const IDS = [
 const PACE = { label: 'Ritmo médio', fmt: (v: number) => formatPaceSeconds(v) };
 const CADENCE = { label: 'Cadência média', fmt: (v: number) => `${Math.round(v)} spm` };
 const TIME_IN_BAND = { label: 'Tempo dentro da faixa de ritmo prescrita', fmt: (v: number) => `${Math.round(v)}%` };
+
+const WEEKLY_PACE: WeeklyDescriptor = {
+  fmt: (v) => formatPaceSeconds(v),
+  lastLine: (v, c) => `seu ritmo médio foi de ${formatPaceSeconds(v)}${c?.numerator != null ? `, somando ${c.numerator} ${c.numerator === 1 ? 'corrida' : 'corridas'}` : ''}`,
+};
 
 const kmText = (v: number) => `${String(Math.round(Math.abs(v) * 10) / 10).replace('.', ',')} km`;
 const DIFF: WeeklyDescriptor = {
@@ -144,6 +150,7 @@ export function WeeklyCard({
   meaningId,
   variableId,
   accessToken,
+  higherIsUp = true,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
@@ -156,6 +163,8 @@ export function WeeklyCard({
   /** Com `variableId` e `accessToken`, o cartao oferece o seletor de modalidade (Todas por padrao) a partir de `availableModalities`; a escolha busca a MESMA leitura do servidor filtrada. */
   variableId?: string;
   accessToken?: string;
+  /** Ritmo: o mais rapido (menor s/km) fica no alto. So' representacao. */
+  higherIsUp?: boolean;
 }) {
   const [modality, setModality] = useState<string | null>(null);
   const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
@@ -205,7 +214,7 @@ export function WeeklyCard({
           xLabel="semana"
           formatX={formatDayLabel}
           formatY={formatY}
-          higherIsUp
+          higherIsUp={higherIsUp}
           secondary={mm.length > 1 ? { label: 'média das últimas 3 semanas', points: mm } : undefined}
           channel={channelPoints.length > 1 ? { points: channelPoints, label: 'sua faixa habitual (onde suas semanas costumam ficar)', showMean: false } : undefined}
           seriesLabel="cada semana"
@@ -270,6 +279,17 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         formatY={(v) => String(Math.round(v))}
         higherIsUp
         emptyText="Ainda não há corridas com cadência fornecida pelo seu dispositivo."
+      />
+      <WeeklyCard
+        title="Ritmo médio por semana"
+        meaningId="activity.weeklyAvgPaceSecondsKm"
+        snapshot={snapshots['activity.weeklyAvgPaceSecondsKm']}
+        descriptor={WEEKLY_PACE}
+        unit="min/km (mais rápido no alto)"
+        formatY={(v) => formatPaceSeconds(v).replace('/km', '')}
+        higherIsUp={false}
+        emptyText="Ainda não há semanas completas com corridas de distância e duração registradas pelo relógio."
+        caution="Tempo total ÷ distância total das corridas da semana: uma corrida longa pesa mais que um tiro curto. Mistura treinos leves, longões e intervalados; semana sem corrida registrada fica sem ponto. Descrição dos seus registros; não é uma nota."
       />
       <MetricCard
         title="Ritmo ao longo do tempo"

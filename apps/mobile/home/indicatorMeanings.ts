@@ -96,6 +96,8 @@ export const INDICATOR_MEANINGS: Record<string, string> = {
     'A cadência é o número de passos por minuto. Ela costuma subir com o ritmo e variar com o terreno, o cansaço e o tipo de treino, e é bem individual: não existe valor certo para todas as pessoas. O que observamos é como a sua cadência muda ao longo do tempo para treinos parecidos.',
   'activity.avgPaceSecondsKm':
     'O ritmo é o tempo médio que você levou para cada km. Depende do tipo de treino (leve, longão, intervalado), do terreno, do clima e do cansaço, por isso treinos diferentes não devem ser comparados entre si. Ritmo mais lento ou mais rápido não é bom nem ruim por si só: depende do objetivo daquele treino.',
+  'activity.weeklyAvgPaceSecondsKm':
+    'É o ritmo médio da semana: o tempo total de corrida dividido pela distância total, ou seja, quanto tempo você levou, em média, para cada km naquela semana. Uma corrida longa pesa mais que um tiro curto. Como mistura treinos leves, longões e intervalados, mostra o ritmo da semana como um todo, e uma semana com mais treinos leves tende a ter ritmo mais lento sem que isso seja um problema.',
   'execution.timeInBandPct':
     'Mostra a parte do tempo observável do treino em que o seu ritmo ficou dentro da faixa de ritmo prescrita. Só entram corridas com faixa prescrita e dados do relógio. Ficar fora da faixa nem sempre é falha: terreno, calor, cansaço e semáforos influenciam, e alguns treinos têm intenções diferentes em cada parte.',
 

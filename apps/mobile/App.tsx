@@ -44,6 +44,7 @@ import { MedalsScreen } from './home/MedalsScreen';
 import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
+import { EvolutionAreaId } from './home/EvolutionAreaGrid';
 import { IndicatorMeaning } from './home/IndicatorMeaning';
 import type { FeelingDomain, SnapshotLite } from './home/insights';
 import { fetchSnapshot } from './home/homeApi';
@@ -1510,6 +1511,9 @@ function AppInner() {
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
   const [weekTabOffset, setWeekTabOffset] = useState(0);
   const [feelingDomain, setFeelingDomain] = useState<FeelingDomain>('sleep');
+  const [evolutionArea, setEvolutionArea] = useState<EvolutionAreaId | undefined>(undefined);
+  // Sair da Evolução apaga a área escolhida: voltar pelo menu abre a grade, não a última área.
+  useEffect(() => { if (activeTab !== 'progress') setEvolutionArea(undefined); }, [activeTab]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
   // 09/09: modulo selecionado para correcao granular — quando nao-nulo, a aba fixAnswers mostra
@@ -1848,8 +1852,8 @@ function AppInner() {
                 onOpenWeek={() => setActiveTab('week')}
                 onOpenWeekTarget={(target) => { setWeekTabOffset(0); setWeekDeepLink(target); setActiveTab('week'); }}
                 onOpenHistory={() => setActiveTab('history')}
-                onOpenProgress={() => setActiveTab('progress')}
-                onOpenFeeling={(domain) => { setFeelingDomain(domain); setActiveTab('feelings'); }}
+                onOpenProgress={() => { setEvolutionArea(undefined); setActiveTab('progress'); }}
+                onOpenArea={(area) => { setEvolutionArea(area); setActiveTab('progress'); }}
                 onOpenMedalsAll={() => setActiveTab('medals')}
                 onOpenTargetRace={() => setActiveTab('targetRace')}
               />
@@ -1974,7 +1978,9 @@ function AppInner() {
             )}
             {activeTab === 'progress' && (
               <EvolutionHub
+                key={evolutionArea ?? 'hub'}
                 accessToken={accessToken}
+                initialArea={evolutionArea}
                 renderProgress={(focus) => <Progress accessToken={accessToken} focus={focus} />}
                 onOpenRecovery={() => setActiveTab('recovery')}
                 onOpenPainReport={() => setActiveTab('painReport')}

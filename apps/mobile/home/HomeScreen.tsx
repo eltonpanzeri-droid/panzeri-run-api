@@ -5,6 +5,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
 import { PendingIdentityNotice } from './PendingIdentity';
+import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
 import { isWeekInProgress } from './trendChannel';
 import { fetchSnapshot } from './homeApi';
@@ -114,7 +115,7 @@ export function HomeScreen({
   onOpenWeekTarget,
   onOpenHistory,
   onOpenProgress,
-  onOpenFeeling,
+  onOpenArea,
   onOpenMedalsAll,
   onOpenTargetRace,
 }: {
@@ -126,8 +127,8 @@ export function HomeScreen({
   // Calendario completo ja' existente (aba 'history') — nunca substituido pelo toque na bolinha.
   onOpenHistory: () => void;
   onOpenProgress: () => void;
-  // Tela de detalhe de cada dominio de "Como voce esta".
-  onOpenFeeling: (domain: FeelingDomain) => void;
+  // Uma das seis areas da Evolucao (grade da tela principal).
+  onOpenArea: (area: EvolutionAreaId) => void;
   onOpenMedalsAll: () => void;
   onOpenTargetRace: () => void;
 }) {
@@ -280,8 +281,12 @@ export function HomeScreen({
         onOpenProgress={onOpenProgress}
       />
 
-      {/* Bloco 4 — Como você está */}
-      <FeelingsSection loading={feelingsLoading} feelings={feelings} onOpenFeeling={onOpenFeeling} />
+      {/* Bloco 4 — Sua evolução: as seis áreas (02/11/2026, no lugar do antigo "Como você está") */}
+      <View style={{ gap: 4 }}>
+        <Text style={styles.sectionTitle}>Sua evolução</Text>
+        <Text style={styles.sectionSubtitle}>Escolha uma área para ver seus indicadores.</Text>
+      </View>
+      <EvolutionAreaGrid onOpenArea={onOpenArea} />
 
       {/* Bloco 5 — Seu acompanhamento */}
       <AcompanhamentoSection

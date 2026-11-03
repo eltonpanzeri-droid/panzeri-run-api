@@ -556,6 +556,7 @@ export class ObservationReaderService {
     // FC media (02/11/2026): vale para qualquer modalidade; ritmo, cadencia, potencia e elevacao continuam so' de corrida.
     const allSports = definition.variableId === 'activity.avgHeartRateBpm';
     const logs = picks.map((pick) => pick.row).filter((log) => allSports || canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
+    if (definition.variableId === 'activity.weeklyAvgPaceSecondsKm') return this.weeklyPaceObservations(athleteId, definition, logs);
     const observations: Observation[] = [];
     for (const log of logs) {
       let value: number | null = null;
@@ -584,6 +585,31 @@ export class ObservationReaderService {
       });
     }
     return observations;
+  }
+
+  // Ritmo medio SEMANAL (02/11/2026): soma do tempo ÷ soma da distancia das corridas validas da semana (segunda a domingo, data do relogio em Sao Paulo). Semana sem corrida valida nao tem observacao.
+  private weeklyPaceObservations(athleteId: string, definition: VariableDefinition, logs: Array<{ startedAt: Date; distanceMeters: number | null; durationSec: number | null }>): Observation[] {
+    const weeks = new Map<string, { durationSec: number; distanceMeters: number; count: number }>();
+    for (const log of logs) {
+      if (!(log.distanceMeters != null && log.distanceMeters > 0 && log.durationSec != null && log.durationSec > 0)) continue;
+      const weekStart = weekStartOf(new Date(log.startedAt.getTime() - 3 * 3600 * 1000).toISOString().slice(0, 10));
+      const entry = weeks.get(weekStart) ?? { durationSec: 0, distanceMeters: 0, count: 0 };
+      entry.durationSec += log.durationSec;
+      entry.distanceMeters += log.distanceMeters;
+      entry.count += 1;
+      weeks.set(weekStart, entry);
+    }
+    return [...weeks.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([weekStart, w]): Observation => ({
+        athleteId,
+        variableId: definition.variableId,
+        value: Math.round(w.durationSec / (w.distanceMeters / 1000)),
+        timestamp: new Date(`${weekStart}T12:00:00.000Z`),
+        source: 'activity_objective',
+        instrumentVersion: 1,
+        context: { modality: TRAINING_LOAD_GLOBAL_TAG, isPartialWeek: isCurrentPartialWeek(weekStart), numerator: w.count },
+      }));
   }
 
   // Carga interna percebida (01/11/2026): UMA observação por sessão ELEGÍVEL (feita/ajustada, PSE 1–10 e duração utilizável), pela MESMA fonte única do painel (coach/training-load-rows.ts + classifySessions).

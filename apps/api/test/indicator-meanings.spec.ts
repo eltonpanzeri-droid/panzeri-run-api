@@ -5,7 +5,7 @@ import { INDICATOR_MEANINGS, MEANING_FOOTER, meaningOf } from '../../mobile/home
 // Indicadores que a tela mostra com explicacao, alem dos de FEELING_DOMAINS e do relogio:
 const OTHER_DISPLAYED_IDS = [
   'load.weekly', 'load.acuteChronic', 'training.acwr', 'activity.avgHeartRateBpm', 'workout.sessionInternalLoad',
-  'training.volume', 'training.volumeDiffAbsoluteKm', 'training.volumeRatioCompletedPrescribed', 'activity.cadenceAvg', 'activity.avgPaceSecondsKm', 'execution.timeInBandPct',
+  'training.volume', 'training.volumeDiffAbsoluteKm', 'training.volumeRatioCompletedPrescribed', 'activity.cadenceAvg', 'activity.avgPaceSecondsKm', 'activity.weeklyAvgPaceSecondsKm', 'execution.timeInBandPct',
   'training.adherencePercent', 'pain.perWorkout', 'pain.reports', 'checkin.weekDemandVsNormal',
 ];
 

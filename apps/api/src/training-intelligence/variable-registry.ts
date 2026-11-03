@@ -1034,6 +1034,25 @@ VARIABLE_REGISTRY['activity.avgPaceSecondsKm'] = {
   notes:
     'duracao ÷ distancia da atividade (so corrida com distancia > 0). Contextos diferentes (treino leve, intervalado, longao) NAO sao misturados em um julgamento: o pace medio so descreve o que aconteceu naquela atividade. Observacao tem context.modality = ActivityLog.sport.',
 };
+// 02/11/2026 (pedido de Elton, "ritmo medio agregado"): ritmo da SEMANA = tempo total de corrida ÷ distancia total de corrida da semana (nao a media dos ritmos de cada corrida: uma corrida longa pesa mais que um tiro curto).
+// Fonte: as mesmas corridas de activity.avgPaceSecondsKm (so entram as que tem distancia e duracao validas). Semana sem corrida valida nao gera observacao (nunca zero). Fora da lista de variaveis da IA.
+VARIABLE_REGISTRY['activity.weeklyAvgPaceSecondsKm'] = {
+  variableId: 'activity.weeklyAvgPaceSecondsKm',
+  domain: 'training_load',
+  dataType: 'numeric_continuous',
+  constructLabel: 'ritmo medio da semana (segundos por km — valor MAIOR = mais lento)',
+  scale: { min: 120, max: 1200, unit: 's/km' },
+  direction: 'not_directional',
+  source: 'activity_objective',
+  expectedFrequency: 'per_week',
+  allowedMathStrategy: 'ordinal_or_continuous_stats',
+  missingPolicy: 'never_impute',
+  versions: [{ version: 1, storageLocation: 'column', field: 'durationSec/distanceMeters' }],
+  versionComparability: 'comparable_across_versions',
+  excludeExtraSessions: false,
+  notes:
+    'Soma da duracao ÷ soma da distancia das corridas da semana (segunda a domingo), so corridas com distancia > 0 e duracao > 0. Mistura treinos leves, longoes e intervalados: descreve o ritmo da semana, nao julga a intencao de cada treino. context.numerator = numero de corridas somadas; context.isPartialWeek marca a semana em andamento.',
+};
 VARIABLE_REGISTRY['activity.cadenceAvg'] = {
   variableId: 'activity.cadenceAvg',
   domain: 'training_load',
