@@ -12,16 +12,21 @@ import { TrainingPlansService, addDays, startOfWeek } from '../training-plans/tr
 //                o estado "expirada" vem do nosso banco e NAO depende de a Apple renovar/cancelar no Sandbox (por isso nunca "volta a ativa" sozinha).
 //                Ao comprar no Sandbox, o fluxo normal (RevenueCat -> /billing/store/sync) concede o acesso; rodar `seed` de novo restaura o estado expirado.
 
-export type ReviewKind = 'active' | 'expired';
+// 03/11/2026 (Google Play recusou a versao 15: o login da declaracao era invalido e o revisor nao viu nenhuma funcao): conta de revisao do GOOGLE ('google'), com acesso ativo igual a 'active' e, ALEM do
+// conteudo de treino, 35 dias de dados SINTETICOS de recuperacao (sono, VFC, FC de repouso, passos, calorias ativas, VO2 max; provider health_connect) para a tela "Minha recuperacao" mostrar o que as
+// permissoes do Health Connect entregam. E-mail precisa comecar com `revisao-google-`; nunca mistura com as contas da Apple (outra senha, outro e-mail, nenhuma interferencia).
+export type ReviewKind = 'active' | 'expired' | 'google';
 export interface ReviewAccountSpec { kind: ReviewKind; email: string; password: string }
 
 export const REVIEW_EMAIL_PREFIX = 'revisao-apple-';
+export const GOOGLE_REVIEW_EMAIL_PREFIX = 'revisao-google-';
+export const REVIEW_EMAIL_PREFIXES = [REVIEW_EMAIL_PREFIX, GOOGLE_REVIEW_EMAIL_PREFIX];
 export const MIN_REVIEW_PASSWORD_LENGTH = 12;
 
 export function normalizeReviewEmail(email: string): string {
   const value = email.trim().toLowerCase();
-  if (!/^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(value) || !value.startsWith(REVIEW_EMAIL_PREFIX)) {
-    throw new Error(`E-mail de revisao invalido: precisa comecar com "${REVIEW_EMAIL_PREFIX}".`);
+  if (!/^[a-z0-9._+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(value) || !REVIEW_EMAIL_PREFIXES.some((prefix) => value.startsWith(prefix))) {
+    throw new Error(`E-mail de revisao invalido: precisa comecar com "${REVIEW_EMAIL_PREFIX}" (Apple) ou "${GOOGLE_REVIEW_EMAIL_PREFIX}" (Google).`);
   }
   return value;
 }
@@ -95,6 +100,7 @@ interface Persona { name: string; sex: 'Feminino' | 'Masculino'; birthDate: Date
 const PERSONAS: Record<ReviewKind, Persona> = {
   active: { name: 'Aluna Demonstração (assinatura ativa)', sex: 'Feminino', birthDate: new Date('1990-05-15T00:00:00.000Z'), heightCm: 168, weightKg: 62, phone: '+5511900000001' },
   expired: { name: 'Aluno Demonstração (assinatura expirada)', sex: 'Masculino', birthDate: new Date('1988-03-20T00:00:00.000Z'), heightCm: 178, weightKg: 76, phone: '+5511900000002' },
+  google: { name: 'Aluna Demonstração (revisão Google Play)', sex: 'Feminino', birthDate: new Date('1991-08-10T00:00:00.000Z'), heightCm: 166, weightKg: 60, phone: '+5511900000003' },
 };
 
 function localToday(now: Date): Date {
@@ -106,6 +112,7 @@ function pace(distanceKm: number, durationMin: number): number { return Math.rou
 
 export async function seedReviewAccount(prisma: PrismaClient, spec: ReviewAccountSpec, now = new Date(), options: { resetAccess?: boolean } = {}): Promise<{ userId: string; email: string; kind: ReviewKind; created: boolean }> {
   const email = normalizeReviewEmail(spec.email);
+  if ((spec.kind === 'google') !== email.startsWith(GOOGLE_REVIEW_EMAIL_PREFIX)) throw new Error('Conta do Google usa e-mail "revisao-google-..."; contas da Apple usam "revisao-apple-...". Nada foi alterado.');
   if (spec.password.length < MIN_REVIEW_PASSWORD_LENGTH) throw new Error(`A senha precisa ter pelo menos ${MIN_REVIEW_PASSWORD_LENGTH} caracteres.`);
   const id = reviewUserId(email);
   const persona = PERSONAS[spec.kind];
@@ -121,7 +128,7 @@ export async function seedReviewAccount(prisma: PrismaClient, spec: ReviewAccoun
     const created = !existing;
     // Acesso/assinatura: NUNCA e' revertido por padrao (uma compra Sandbox legitima fica). So' e' (re)definido ao criar, se a conta foi excluida, ou com --reset-access.
     const writeAccess = !existing || byId?.accountStatus === 'deleted' || Boolean(options.resetAccess);
-    const access = spec.kind === 'active'
+    const access = spec.kind !== 'expired'
       ? { subscriptionStatus: 'manual_active', subscriptionProvider: 'revenuecat', subscriptionManualOverride: true, subscriptionCancelRequestedAt: null } // provedor 'revenuecat' = o app trata como assinatura da loja ("Gerenciar assinatura na loja", cancelamento recusado no servidor); o override manual impede qualquer reconciliacao de revogar
       : { subscriptionStatus: 'canceled', subscriptionProvider: 'revenuecat', subscriptionManualOverride: false, subscriptionCancelRequestedAt: null };
     const base = {
@@ -207,7 +214,7 @@ async function applyContent(tx: Prisma.TransactionClient, id: string, kind: Revi
   const persona = PERSONAS[kind];
   const today = localToday(now);
   const weekStart = startOfWeek(now);
-  await wipeOwnedData(tx, id);
+  await wipeOwnedData(tx, id, kind);
     await tx.healthProfile.create({ data: { userId: id, systolic: 118, diastolic: 76, diabetes: false, previousInjuries: 'Nenhuma lesão relevante.', healthProblems: 'Nenhum.', medications: 'Nenhum.', averageSleep: '7 a 8 horas', stressLevel: 'Moderado', anxietyLevel: 'Baixo' } });
     await tx.userPreferences.create({ data: { userId: id, preferredModalities: ['corrida', 'fortalecimento_corredores'], otherModalities: [], trainingLocations: ['Rua', 'Parque'], mainGoal: 'Correr 10 km com conforto', experienceLevel: 'iniciante_intermediario' } });
     const routine = [
@@ -231,13 +238,78 @@ async function applyContent(tx: Prisma.TransactionClient, id: string, kind: Revi
     await tx.shoe.create({ data: { userId: id, brand: 'ASICS', model: 'Novablast 5', nickname: 'Tênis de treino', startedUsingAt: addDays(weekStart, -60), status: 'active' } });
     await tx.targetRace.create({ data: { userId: id, name: 'Corrida de 10 km (demonstração)', raceDate: addDays(weekStart, 70), distanceKm: 10, targetSeconds: 3600, priority: 'principal', status: 'em_andamento', isFirstTimeAtDistance: true } });
     await tx.userNotification.create({ data: { userId: id, title: 'Bem-vinda ao Panzeri Run', message: 'Seu programa de treino da semana está disponível na aba Semana.', type: 'info' } });
-    if (kind === 'active') {
+    if (kind !== 'expired') {
       await tx.menstrualProfile.create({ data: { userId: id, hasActiveCycle: true, usesHormonalContraceptive: false, cycleLengthDays: 28, periodLengthDays: 5, cycleRegularity: 'regular', diuType: 'none', menopauseStatus: 'none' } });
     }
+    if (kind === 'google') await seedRecoveryData(tx, id, now);
+}
+
+const RECOVERY_DEMO_DAYS = 35;
+const RECOVERY_DEMO_PROVIDER = 'health_connect';
+
+// Dados SINTETICOS e deterministicos (sem aleatorio: o mesmo dia gera sempre o mesmo valor) de recuperacao e saude diaria, dos ultimos 35 dias ate hoje, no formato que o Health Connect gravaria. Servem so' para a
+// conta de revisao do Google ver a tela "Minha recuperacao" preenchida. Cada linha leva `review-demo-` no providerSummaryId (identifica que e' demonstracao). So' os tipos que o app pede ao Android: sono, VFC, FC de
+// repouso, passos, calorias ativas e VO2 max (nada de saturacao, respiracao, nutricao, hidratacao nem calorias totais).
+export function recoveryDemoRows(userId: string, now: Date) {
+  const today = localToday(now);
+  const sleep: Prisma.WearableSleepSummaryCreateManyInput[] = [];
+  const hrv: Prisma.WearableHrvSummaryCreateManyInput[] = [];
+  const daily: Prisma.WearableDailySummaryCreateManyInput[] = [];
+  const metrics: Prisma.WearableMetricRecordCreateManyInput[] = [];
+  for (let back = RECOVERY_DEMO_DAYS - 1; back >= 0; back -= 1) {
+    const day = addDays(today, -back);
+    const calendarDate = day.toISOString().slice(0, 10);
+    const midnightLocalSec = Math.floor(day.getTime() / 1000) + 3 * 3600; // meia-noite de Sao Paulo (UTC-3)
+    const wave = (period: number, spread: number) => ((back * 37 + period) % (2 * spread + 1)) - spread; // variacao deterministica pequena
+
+    const sleepSec = 25_200 + wave(3, 4) * 900 + wave(7, 2) * 300; // ~7 h, de 6 h a 8 h
+    const startTimeSec = midnightLocalSec - 3600; // dormiu as 23:00 do dia anterior
+    sleep.push({
+      userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec, startOffsetSec: -10_800, durationSec: sleepSec,
+      deepSleepSec: Math.round(sleepSec * 0.18), lightSleepSec: Math.round(sleepSec * 0.57), remSleepSec: Math.round(sleepSec * 0.22), awakeSec: Math.round(sleepSec * 0.03),
+      endTimeSec: startTimeSec + sleepSec, providerSummaryId: `review-demo-sleep-${calendarDate}`,
+    });
+    hrv.push({
+      userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec: midnightLocalSec + 6 * 3600, startOffsetSec: -10_800,
+      lastNightAvg: Number((52 + wave(5, 5) * 1.6).toFixed(1)), hrvValues: { metric: 'rmssd_ms', synthetic: true } as Prisma.InputJsonObject, providerSummaryId: `review-demo-hrv-${calendarDate}`,
+    });
+    const steps = 8_000 + wave(11, 6) * 450;
+    daily.push({
+      userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec: midnightLocalSec, startOffsetSec: -10_800, durationSec: 86_400,
+      steps, distanceMeters: Math.round(steps * 0.74), activeKilocalories: 380 + wave(2, 5) * 22, restingHeartRateBpm: 57 + wave(13, 2), providerSummaryId: `review-demo-daily-${calendarDate}`,
+    });
+    if (back % 7 === 0) {
+      metrics.push({
+        userId, provider: RECOVERY_DEMO_PROVIDER, metricKind: 'vo2_max', calendarDate, startTimeSec: midnightLocalSec + 12 * 3600, startOffsetSec: -10_800,
+        providerSummaryId: `review-demo-vo2-${calendarDate}`, identityKey: `review-demo-vo2-${calendarDate}`,
+        values: { vo2MillilitersPerMinuteKilogram: Number((46 + wave(17, 2) * 0.2).toFixed(1)), synthetic: true } as Prisma.InputJsonObject,
+      });
+    }
+  }
+  return { sleep, hrv, daily, metrics };
+}
+
+// Recria os dados de recuperacao da conta de revisao do Google (apaga os dela e grava de novo; rodado no seed e todo dia pela renovacao, para os 30 dias da tela nunca ficarem vazios).
+export async function seedRecoveryData(tx: Prisma.TransactionClient, userId: string, now: Date): Promise<void> {
+  await tx.wearableSleepSummary.deleteMany({ where: { userId } });
+  await tx.wearableHrvSummary.deleteMany({ where: { userId } });
+  await tx.wearableDailySummary.deleteMany({ where: { userId } });
+  await tx.wearableMetricRecord.deleteMany({ where: { userId } });
+  const rows = recoveryDemoRows(userId, now);
+  await tx.wearableSleepSummary.createMany({ data: rows.sleep });
+  await tx.wearableHrvSummary.createMany({ data: rows.hrv });
+  await tx.wearableDailySummary.createMany({ data: rows.daily });
+  await tx.wearableMetricRecord.createMany({ data: rows.metrics });
 }
 
 // Apaga SO' o que pertence a esta conta de revisao (id deterministico). Qualquer vinculo inesperado faz a transacao inteira falhar e nada muda.
-async function wipeOwnedData(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+async function wipeOwnedData(tx: Prisma.TransactionClient, userId: string, kind: ReviewKind): Promise<void> {
+  if (kind === 'google') {
+    await tx.wearableSleepSummary.deleteMany({ where: { userId } });
+    await tx.wearableHrvSummary.deleteMany({ where: { userId } });
+    await tx.wearableDailySummary.deleteMany({ where: { userId } });
+    await tx.wearableMetricRecord.deleteMany({ where: { userId } });
+  }
   await tx.shoeUsage.deleteMany({ where: { shoe: { userId } } });
   await tx.shoeEvent.deleteMany({ where: { shoe: { userId } } });
   await tx.shoePhoto.deleteMany({ where: { userId } });
@@ -267,34 +339,41 @@ export async function reviewAccountStatus(prisma: PrismaClient, emails: string[]
     const email = normalizeReviewEmail(raw);
     const user = await prisma.user.findUnique({ where: { email }, select: { id: true, subscriptionStatus: true, subscriptionProvider: true, accountStatus: true, studentCode: true } });
     if (!user) { rows.push({ email, exists: false }); continue; }
-    const [plans, sessions, completions, currentPlan] = await Promise.all([
+    const [plans, sessions, completions, currentPlan, recoveryDays] = await Promise.all([
       prisma.trainingPlan.count({ where: { userId: user.id } }), prisma.trainingSession.count({ where: { userId: user.id } }),
       prisma.workoutCompletion.count({ where: { userId: user.id } }),
       prisma.trainingPlan.findFirst({ where: { userId: user.id, status: 'active', startDate: { in: [weekStart, addDays(weekStart, 7)] } }, select: { id: true } }),
+      prisma.wearableSleepSummary.count({ where: { userId: user.id } }),
     ]);
-    rows.push({ email, exists: true, isReviewAccount: user.id === reviewUserId(email), status: user.subscriptionStatus, provider: user.subscriptionProvider, accountStatus: user.accountStatus, plans, sessions, completions, hasCurrentWeekPlan: Boolean(currentPlan) });
+    rows.push({ email, exists: true, isReviewAccount: user.id === reviewUserId(email), status: user.subscriptionStatus, provider: user.subscriptionProvider, accountStatus: user.accountStatus, plans, sessions, completions, hasCurrentWeekPlan: Boolean(currentPlan), recoveryDays });
   }
   return rows;
 }
 
 // Renovacao automatica (diaria): quando a semana vira e a conta de demonstracao fica sem programa na semana corrente, a semana nova e' ACRESCENTADA (nada e' apagado: feedbacks do revisor ficam). Nunca toca em senha,
 // assinatura, provedor, override nem cobranca (uma compra Sandbox legitima fica). So' age em contas criadas por este modulo (e-mail `revisao-apple-*` + id derivado + marca na entrevista).
-export async function refreshReviewContent(prisma: PrismaClient, now = new Date()): Promise<{ checked: number; refreshed: number }> {
+export async function refreshReviewContent(prisma: PrismaClient, now = new Date()): Promise<{ checked: number; refreshed: number; recoveryRefreshed: number }> {
   const weekStart = startOfWeek(now);
   const users = await prisma.user.findMany({
-    where: { email: { startsWith: REVIEW_EMAIL_PREFIX }, role: 'student', accountStatus: 'active' },
+    where: { OR: REVIEW_EMAIL_PREFIXES.map((prefix) => ({ email: { startsWith: prefix } })), role: 'student', accountStatus: 'active' },
     select: { id: true, email: true, onboardingInterview: { select: { answers: true } } },
   });
   let checked = 0;
   let refreshed = 0;
+  let recoveryRefreshed = 0;
   for (const user of users) {
     const kind = (user.onboardingInterview?.answers as { review_demo_kind?: string } | null | undefined)?.review_demo_kind;
-    if ((kind !== 'active' && kind !== 'expired') || user.id !== reviewUserId(user.email)) continue;
+    if ((kind !== 'active' && kind !== 'expired' && kind !== 'google') || user.id !== reviewUserId(user.email)) continue;
     checked += 1;
+    if (kind === 'google') {
+      // Os 35 dias de recuperacao andam com o calendario: sem isto a tela "Minha recuperacao" (ultimos 30 dias) esvaziaria sozinha em ~5 dias.
+      await prisma.$transaction((tx) => seedRecoveryData(tx, user.id, now), { timeout: 60_000, maxWait: 15_000 });
+      recoveryRefreshed += 1;
+    }
     const hasCurrent = await prisma.trainingPlan.findFirst({ where: { userId: user.id, status: 'active', startDate: { in: [weekStart, addDays(weekStart, 7)] } }, select: { id: true } });
     if (hasCurrent) continue;
     await prisma.$transaction((tx) => rollWeekForward(tx, user.id, now), { timeout: 60_000, maxWait: 15_000 });
     refreshed += 1;
   }
-  return { checked, refreshed };
+  return { checked, refreshed, recoveryRefreshed };
 }

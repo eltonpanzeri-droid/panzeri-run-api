@@ -38,6 +38,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 | 03/11/2026 | **Condensação do prontuário: feedback antigo pesa menos sempre + meta de 4.500 caracteres + segunda passada de redução** | `reassessment/evolution-agent.service.ts` | Só deploy da API (sem build nativo) |
 | 03/11/2026 | **Visão global por domínio: carga semanal e duração da sessão passam a ser alimentadas (fim das regras mortas) + teste-guarda** | `training-intelligence/domain-overview.ts`, `internal-load.ts` | Só deploy da API (sem build nativo) |
 | 03/11/2026 | **Google (versão 15 recusada): Health Connect sem calorias totais, saturação, frequência respiratória, nutrição e hidratação; consentimento v1.4; ciclo NÃO no Android.** Plano completo do build: `PLANO_PROXIMO_BUILD.md` | `apps/mobile/app.json`, `healthConnect/categories.ts`; servidor: `health-connect-consent.ts`, `legal-content.ts`; teste `google-play-minimum-scope.spec.ts` | Servidor (texto v1.4) vale no deploy; **o manifesto só chega com o build novo (Android 1.0.3)** |
+| 03/11/2026 | **Conta de revisão do Google Play** (`revisao-google-...`, acesso ativo + 35 dias de dados sintéticos de recuperação, comandos `status-google` e `seed-google`) | `app-review/review-accounts.ts`, `app-review/cli.ts`, `test/app-review-google.spec.ts` | Só deploy da API (sem build nativo); depois Elton roda o comando e testa o login |
 
 ## B. Ideias e decisões ainda NÃO implementadas
 
