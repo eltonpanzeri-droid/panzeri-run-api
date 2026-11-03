@@ -102,6 +102,24 @@ describe('domain-overview (visão global por domínio, 03/11/2026)', () => {
     expect(withoutIntegrationIndicators({ ...overview, dominios: overview.dominios.filter((d) => d.dominio === 'recuperacao_medida') })).toBeNull();
   });
 
+  it('guarda: toda regra da visão global tem quem a alimente no snapshot (nenhuma regra morta) e existe no cadastro', () => {
+    const { readFileSync } = require('fs');
+    const { join } = require('path');
+    const { listVariableIds } = require('../src/training-intelligence/variable-registry');
+    const { OVERVIEW_EXTRA_VARIABLE_IDS } = require('../src/training-intelligence/domain-overview');
+    const { HR_DECOUPLING_CATEGORIES, hrDecouplingVariableId } = require('../src/training-intelligence/hr-decoupling');
+    const snapshot = readFileSync(join(__dirname, '..', 'src', 'training-intelligence', 'athlete-state-snapshot.service.ts'), 'utf8') as string;
+    const lists = snapshot.slice(snapshot.indexOf('const SLEEP_RECOVERY_VARIABLES'), snapshot.indexOf('const ALL_DOMAIN_VARIABLE_IDS'));
+    const fed = new Set<string>([...lists.matchAll(/'([a-z]+\.[A-Za-z0-9.]+)'/g)].map((m) => m[1]));
+    ['workout.sessionInternalLoad', 'execution.distanceCompletionRatio', 'execution.timeInBandPct', 'execution.intervalStructureMatch', 'execution.avgHeartRateInBandBpm'].forEach((id) => fed.add(id));
+    OVERVIEW_EXTRA_VARIABLE_IDS.forEach((id: string) => fed.add(id));
+    HR_DECOUPLING_CATEGORIES.forEach((category: string) => fed.add(hrDecouplingVariableId(category)));
+    const registry = new Set<string>(listVariableIds());
+    const ids = Object.keys(INDICATOR_SPECS);
+    expect(ids.filter((id) => !registry.has(id))).toEqual([]);
+    expect(ids.filter((id) => !fed.has(id))).toEqual([]);
+  });
+
   it('todo indicador cadastrado pertence a um domínio conhecido', () => {
     for (const [id, spec] of Object.entries(INDICATOR_SPECS)) {
       expect(spec.domain).toBeTruthy();

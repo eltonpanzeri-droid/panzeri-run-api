@@ -306,7 +306,7 @@ export function withoutIntegrationIndicators(block: DomainOverviewContext): Doma
   return dominios.length > 0 ? { ...block, dominios } : null;
 }
 
-/** Ids extras que a visão global precisa e que não estão nas listas de domínio do snapshot (atividade objetiva). */
+/** Ids extras que a visão global precisa e que não estão nas listas de domínio do snapshot (atividade objetiva e a carga interna semanal/duração da sessão — 03/11/2026, ordem de Elton: usar todos os indicadores). */
 export const OVERVIEW_EXTRA_VARIABLE_IDS = [
   'activity.avgPaceSecondsKm',
   'activity.weeklyAvgPaceSecondsKm',
@@ -314,4 +314,6 @@ export const OVERVIEW_EXTRA_VARIABLE_IDS = [
   'activity.avgHeartRateBpm',
   'activity.powerAvgWatts',
   'activity.elevationGainMeters',
+  'workout.sessionDurationUsedMin',
+  'workout.weeklyInternalLoad',
 ] as const;
