@@ -1,3 +1,5 @@
+import { HR_DECOUPLING_CATEGORIES, HR_DECOUPLING_CATEGORY_LABELS, hrDecouplingVariableId } from './hr-decoupling';
+
 // VariableRegistry — fonte canonica da semantica das variaveis longitudinais do Panzeri Run.
 //
 // Por que isso existe (ver DIRETRIZ_MESTRA_TRAINING_INTELLIGENCE.md e
@@ -1053,6 +1055,30 @@ VARIABLE_REGISTRY['activity.weeklyAvgPaceSecondsKm'] = {
   notes:
     'Soma da duracao ÷ soma da distancia das corridas da semana (segunda a domingo), so corridas com distancia > 0 e duracao > 0. Mistura treinos leves, longoes e intervalados: descreve o ritmo da semana, nao julga a intencao de cada treino. context.numerator = numero de corridas somadas; context.isPartialWeek marca a semana em andamento.',
 };
+// 03/11/2026 (ordem de Elton, desacoplamento da frequencia cardiaca): UMA variavel por faixa de duracao em movimento, para que cada faixa tenha a propria media, faixa habitual e janelas e as faixas
+// nunca se misturem (comparacoes so' dentro da mesma faixa). Valor = 100 × (1 − R2/R1), R = velocidade media ÷ FC media de cada metade da corrida (ver hr-decoupling.ts); positivo, negativo e zero
+// sao preservados e NAO significam bom ou ruim. So' corridas elegiveis (CV da velocidade ate 10% e diferenca entre metades ate 5%) com serie segundo a segundo geram observacao. Calculado pelo
+// servidor e guardado em ActivityHrDecoupling; a observacao carrega activityLogId (rastro) e nunca o valor de outra faixa.
+for (const category of HR_DECOUPLING_CATEGORIES) {
+  const variableId = hrDecouplingVariableId(category);
+  VARIABLE_REGISTRY[variableId] = {
+    variableId,
+    domain: 'training_load',
+    dataType: 'numeric_continuous',
+    constructLabel: `desacoplamento da frequencia cardiaca em corridas de ${HR_DECOUPLING_CATEGORY_LABELS[category]} (%)`,
+    scale: { min: -100, max: 100, unit: '%' },
+    direction: 'not_directional',
+    source: 'activity_objective',
+    expectedFrequency: 'per_workout',
+    allowedMathStrategy: 'ordinal_or_continuous_stats',
+    missingPolicy: 'never_impute',
+    versions: [{ version: 1, storageLocation: 'column', field: 'ActivityHrDecoupling.decouplingPct' }],
+    versionComparability: 'comparable_across_versions',
+    excludeExtraSessions: false,
+    notes:
+      'Desacoplamento da FC entre as duas metades (de igual duracao) da corrida, na faixa de duracao em movimento indicada. Evidencia adicional da resposta fisiologica; nao determina melhora ou piora de desempenho e o aluno e comparado so consigo mesmo, na mesma faixa de duracao.',
+  };
+}
 VARIABLE_REGISTRY['activity.cadenceAvg'] = {
   variableId: 'activity.cadenceAvg',
   domain: 'training_load',

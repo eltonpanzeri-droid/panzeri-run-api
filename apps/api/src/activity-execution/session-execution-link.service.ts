@@ -1553,6 +1553,7 @@ export class SessionExecutionLinkService {
         await service.prisma.activityLog.update({ where: { id: member.id }, data: (mode === 'deleted' ? { ...mark, ...tombstoneMetricsPatch() } : mark) as Prisma.ActivityLogUncheckedUpdateInput });
         if (mode === 'deleted') {
           await service.prisma.activityTimeSeriesPoint.deleteMany({ where: { activityLogId: member.id } });
+          await service.prisma.activityHrDecoupling.deleteMany({ where: { activityLogId: member.id } });
           await service.prisma.rawActivitySample.deleteMany({ where: { activityLogId: member.id } });
           await service.prisma.rawExternalActivity.update({ where: { id: member.rawActivityId }, data: { payload: {}, ingestionMeta: Prisma.JsonNull } });
         }

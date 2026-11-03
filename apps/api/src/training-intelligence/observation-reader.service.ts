@@ -31,6 +31,8 @@ import { EXECUTION_ANALYSIS_VERSION, intensityBasisOf, RunExecutionAnalysis } fr
 import { loadInputRows } from '../coach/training-load-rows';
 import { classifySessions, loadModalityKey, modalityGroup, weekStartOf } from '../coach/training-load';
 import { SESSION_DURATION_VARIABLE_ID, WEEKLY_INTERNAL_LOAD_VARIABLE_ID } from './internal-load';
+import { HR_DECOUPLING_CATEGORIES, HrDecouplingCategory, hrDecouplingVariableId } from './hr-decoupling';
+import { ensureHrDecouplings } from './hr-decoupling-store';
 
 export interface Observation {
   athleteId: string;
@@ -557,6 +559,8 @@ export class ObservationReaderService {
     const allSports = definition.variableId === 'activity.avgHeartRateBpm';
     const logs = picks.map((pick) => pick.row).filter((log) => allSports || canonicalModality(log.sport) === 'corrida').sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
     if (definition.variableId === 'activity.weeklyAvgPaceSecondsKm') return this.weeklyPaceObservations(athleteId, definition, logs);
+    const decouplingCategory = HR_DECOUPLING_CATEGORIES.find((category) => hrDecouplingVariableId(category) === definition.variableId);
+    if (decouplingCategory) return this.hrDecouplingObservations(athleteId, definition, decouplingCategory, logs);
     const observations: Observation[] = [];
     for (const log of logs) {
       let value: number | null = null;
@@ -578,6 +582,27 @@ export class ObservationReaderService {
         athleteId,
         variableId: definition.variableId,
         value,
+        timestamp: log.startedAt,
+        source: 'activity_objective',
+        instrumentVersion: 1,
+        context: { modality: log.sport ?? undefined, activityLogId: log.id, provider: log.provider },
+      });
+    }
+    return observations;
+  }
+
+  // Desacoplamento da FC (03/11/2026): uma observacao por corrida ELEGIVEL da faixa de duracao pedida (resultado guardado em ActivityHrDecoupling, calculado da serie segundo a segundo).
+  // Corrida sem serie, nao elegivel ou de outra faixa nao gera observacao (nunca zero). O timestamp e' o inicio da atividade.
+  private async hrDecouplingObservations(athleteId: string, definition: VariableDefinition, category: HrDecouplingCategory, logs: Array<{ id: string; startedAt: Date; provider: string; sport: string | null }>): Promise<Observation[]> {
+    const rows = await ensureHrDecouplings(this.prisma, logs.map((log) => log.id));
+    const observations: Observation[] = [];
+    for (const log of logs) {
+      const row = rows.get(log.id);
+      if (!row || !row.eligible || row.category !== category || row.decouplingPct == null) continue;
+      observations.push({
+        athleteId,
+        variableId: definition.variableId,
+        value: row.decouplingPct,
         timestamp: log.startedAt,
         source: 'activity_objective',
         instrumentVersion: 1,

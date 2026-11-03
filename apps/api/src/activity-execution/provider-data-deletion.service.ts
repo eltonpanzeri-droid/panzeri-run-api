@@ -244,6 +244,8 @@ export class ProviderDataDeletionService {
 
       const samples = activityIds.length === 0 ? { count: 0 } : await tx.rawActivitySample.deleteMany({ where: { activityLogId: { in: activityIds } } });
       const points = activityIds.length === 0 ? { count: 0 } : await tx.activityTimeSeriesPoint.deleteMany({ where: { activityLogId: { in: activityIds } } });
+      // Desacoplamento da FC (03/11/2026): resultado derivado da serie; sai junto com ela.
+      if (activityIds.length > 0) await tx.activityHrDecoupling?.deleteMany({ where: { activityLogId: { in: activityIds } } });
 
       // Notificacoes geradas pela reconciliacao (externalRef 'activity-reconciled:<activityLogId>:...').
       const candidates = activityIds.length === 0 ? [] : await tx.userNotification.findMany({

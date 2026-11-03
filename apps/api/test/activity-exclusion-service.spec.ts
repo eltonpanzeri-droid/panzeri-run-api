@@ -34,6 +34,7 @@ function makeFake(activities: Row[], links: Row[] = [], sessions: Row[] = []) {
     sessionExecutionAnalysis: { deleteMany: jest.fn(async () => ({ count: 0 })) },
     trainingAnalysis: { deleteMany: jest.fn(async () => ({ count: 0 })) },
     activityTimeSeriesPoint: { deleteMany: jest.fn(async ({ where }: Row) => { state.wiped.series.push(where.activityLogId); }) },
+    activityHrDecoupling: { deleteMany: jest.fn(async () => ({ count: 0 })) },
     rawActivitySample: { deleteMany: jest.fn(async ({ where }: Row) => { state.wiped.samples.push(where.activityLogId); }) },
     rawExternalActivity: { update: jest.fn(async ({ where, data }: Row) => { state.wiped.raw.push({ id: where.id, data }); }) },
     studentProfileEvent: { create: jest.fn(async ({ data }: Row) => { state.notes.push(data); }) },

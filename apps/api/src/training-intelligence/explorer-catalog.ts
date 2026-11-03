@@ -2,6 +2,7 @@
 // So' leitura do VariableRegistry (fonte unica de significado): nada aqui cria indicador, valor ou formula.
 
 import { evidenceKindOf, type EvidenceKind, type VariableDefinition } from './variable-registry';
+import { HR_DECOUPLING_CATEGORIES, hrDecouplingVariableId } from './hr-decoupling';
 import { referenceUnitOf, type ReferenceUnit } from './reference-series';
 
 export type ExplorerCategory = 'treinos' | 'sono' | 'recuperacao' | 'atividade_diaria' | 'bem_estar' | 'saude';
@@ -23,6 +24,8 @@ const TRAINING_SUBGROUP_BY_ID: Record<string, TrainingSubgroup> = {
   'workout.perceivedEffort': 'esforco_carga', 'workout.sessionInternalLoad': 'esforco_carga', 'workout.sessionDurationUsedMin': 'esforco_carga', 'workout.weeklyInternalLoad': 'esforco_carga', 'checkin.weekDemandVsNormal': 'esforco_carga',
   'activity.avgPaceSecondsKm': 'intensidade_resposta', 'activity.weeklyAvgPaceSecondsKm': 'intensidade_resposta', 'activity.avgHeartRateBpm': 'intensidade_resposta', 'execution.timeInBandPct': 'intensidade_resposta', 'execution.avgHeartRateInBandBpm': 'intensidade_resposta',
   'activity.cadenceAvg': 'mecanica_eficiencia', 'activity.powerAvgWatts': 'mecanica_eficiencia',
+  // Desacoplamento da FC (03/11/2026): uma variavel por faixa de duracao, todas em "resposta ao esforco".
+  ...Object.fromEntries(HR_DECOUPLING_CATEGORIES.map((category) => [hrDecouplingVariableId(category), 'intensidade_resposta' as TrainingSubgroup])),
 };
 // Quem nao esta na tabela cai no grupo do seu dominio: carga de treino -> volume; o resto -> execucao e experiencia.
 export function trainingSubgroupOf(definition: Pick<VariableDefinition, 'variableId' | 'domain'>): TrainingSubgroup {

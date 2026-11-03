@@ -29,7 +29,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'weeklyExecutionReport', 'sessionExecutionAnalysis', 'trainingAnalysis',
   'shoeUsage', 'workoutDelivery', 'sessionExecutionLink', 'workoutFeedbackVersion', 'workoutCompletion', 'trainingSession', 'weeklyCheckIn',
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
-  'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'wearableMetricRecord', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
+  'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'wearableMetricRecord', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityHrDecoupling', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
   'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'passwordResetCode', 'loginLinkToken', 'userNotification',
   'messageLog', 'aiGenerationCost', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'weeklyRoutineChange', 'weeklyRoutineState', 'operationalReference', 'physiologicalIndicator', 'physiologicalAssessment', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
@@ -139,6 +139,7 @@ export class AccountDeletionService {
           case 'workoutDelivery': where = { trainingSessionId: { in: sessionIds } }; break;
           case 'rawActivitySample':
           case 'activityTimeSeriesPoint': where = { activityLogId: { in: logIds } }; break;
+          case 'activityHrDecoupling': where = { activityLogId: { in: logIds } }; break;
           case 'funnelEvent': where = journeyIds.size > 0 ? { OR: [{ userId }, { journeyId: { in: [...journeyIds] } }] } : { userId }; break;
           case 'freeTesterEmail': where = { id: { in: testerIds } }; break;
           default: where = { userId };

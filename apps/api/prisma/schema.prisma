@@ -1672,6 +1672,7 @@ model ActivityLog {
   executionLinks SessionExecutionLink[]
   samples        RawActivitySample[]
   timeSeriesPoints ActivityTimeSeriesPoint[]
+  hrDecouplings    ActivityHrDecoupling[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1794,6 +1795,51 @@ model ActivityTimeSeriesPoint {
   updatedAt DateTime @updatedAt
 
   @@unique([activityLogId, offsetSec, normalizationVersion])
+  @@index([activityLogId])
+}
+
+// Desacoplamento da frequencia cardiaca (03/11/2026): resultado DERIVADO por corrida (uma linha por atividade e versao do algoritmo), calculado a partir da serie temporal canonica e guardado para
+// auditoria (valor ou motivo da exclusao, cobertura, amostras descartadas) e para nao reler milhares de pontos a cada consulta. Nao e' fonte: se a serie mudar (pointCount) ou a versao do algoritmo
+// mudar, a linha e' recalculada. Rollback: DROP TABLE "ActivityHrDecoupling" (nada mais depende dela).
+model ActivityHrDecoupling {
+  id               String      @id @default(uuid())
+  activityLogId    String
+  activityLog      ActivityLog @relation(fields: [activityLogId], references: [id], onDelete: Cascade)
+  algorithmVersion Int
+  pointCount       Int
+
+  eligible        Boolean
+  exclusionReason String?
+  category        String?
+  analyzedStartSec Float?
+  analyzedEndSec   Float?
+  movingSec        Float?
+
+  meanSpeed1    Float?
+  meanSpeed2    Float?
+  meanHr1       Float?
+  meanHr2       Float?
+  r1            Float?
+  r2            Float?
+  decouplingPct Float?
+  speedCvPct    Float?
+  halfDiffPct   Float?
+
+  coverageHr1    Float?
+  coverageHr2    Float?
+  coverageSpeed1 Float?
+  coverageSpeed2 Float?
+
+  validHrSamples        Int
+  validSpeedSamples     Int
+  discardedHrSamples    Int
+  discardedSpeedSamples Int
+  gapCount              Int
+
+  computedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([activityLogId, algorithmVersion])
   @@index([activityLogId])
 }
 
