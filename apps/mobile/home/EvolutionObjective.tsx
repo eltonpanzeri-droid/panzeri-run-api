@@ -7,6 +7,7 @@ import {
   SnapshotLite,
   WeekVolumeLite,
   WeeklyDescriptor,
+  acuteChronicSentence,
   completeWeekPoints,
   describeVariable,
   formatPaceSeconds,
@@ -222,7 +223,7 @@ export function WeeklyCard({
       ) : (
         <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
       )}
-      <Sentences items={weeklySentences(snapshot, descriptor)} />
+      <Sentences items={[...weeklySentences(snapshot, descriptor), ...(acuteChronicSentence(snapshot, descriptor.fmt) ? [acuteChronicSentence(snapshot, descriptor.fmt) as string] : [])]} />
       {caution ? <Text style={styles.caution}>{caution}</Text> : null}
       <IndicatorMeaning id={meaningId} />
     </Card>

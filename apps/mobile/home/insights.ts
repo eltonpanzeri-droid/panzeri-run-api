@@ -19,6 +19,13 @@ export interface PatternLite {
 /** Contexto de cada observacao (so' o que a tela usa). numerator/denominator: aderencia semanal (treinos feitos ÷ feitos + nao feitos). */
 export interface ObservationContextLite { modality?: string; activityLogId?: string; isPartialWeek?: boolean; numerator?: number | null; denominator?: number | null }
 
+export interface AcuteChronicLite {
+  unit: string;
+  acute: { value: number | null; n: number; size: number; windowStart: string | null; windowEnd: string | null; complete: boolean };
+  chronic: { value: number | null; n: number; size: number; windowStart: string | null; windowEnd: string | null; complete: boolean };
+  direction: 'acute_above' | 'acute_below' | 'equal' | 'insufficient';
+}
+
 export interface SnapshotLite {
   variable: { id?: string; dataType?: string; constructLabel?: string; scale?: { min: number; max: number; unit?: string } };
   mathApplicable: boolean;
@@ -39,6 +46,8 @@ export interface SnapshotLite {
   availableSources?: Array<{ key: string; n: number; label?: string; lastObservationAt?: string | null }>;
   /** Serie de referencias do servidor (`?reference=1`): a MESMA do painel do treinador. Faixa e lado da faixa (neutro) de cada ponto. */
   reference?: { points: Array<{ timestamp: string; value?: number; priorN?: number; historicalMean?: { value: number | null; n: number }; movingAverages?: Record<string, { value: number | null; n: number; isPartialWindow?: boolean }>; signal?: 'above' | 'below' | 'within' | 'no_reference'; band: { lower: number | null; upper: number | null; median: number | null; n?: number; basis: 'individual' | 'limited' | 'none' } }> } | null;
+  /** Aguda x cronica do servidor (7 x 28 registros mais recentes), so' com `?reference=1`. */
+  acuteChronic?: AcuteChronicLite | null;
   /** Indicadores de execucao: dado ainda em atualizacao depois de uma correcao de atividade (devolvido so' em GET /me/observations/execution.*). */
   provisional?: { reason: string; sessions: number; since: string | null } | null;
 }
@@ -656,4 +665,15 @@ export function domainSentences(domain: FeelingDomain, snapshots: Record<string,
   const body = kept.filter((i) => i.priority !== 6);
   const ordered = intro ? [...body.filter((i) => i.priority < 2), intro, ...body.filter((i) => i.priority >= 2)] : body;
   return ordered.map((i) => i.text);
+}
+
+// Aguda x cronica em texto (03/11/2026). Os numeros vem do servidor (7 e 28 registros mais recentes; a aguda esta contida na cronica); aqui so' se escreve. Sem as duas janelas completas nao ha frase:
+// ausencia de comparacao nunca e' tratada como 'igual'. Descreve; nao diz se a mudanca e' boa ou ruim.
+const AC_UNIT_WORD: Record<string, string> = { registros: 'registros', semanas: 'semanas', ciclos: 'ciclos', dias: 'dias', noites: 'noites' };
+export function acuteChronicSentence(snapshot: SnapshotLite | null | undefined, fmt: (v: number) => string): string | null {
+  const ac = snapshot?.acuteChronic;
+  if (!ac || ac.direction === 'insufficient' || ac.acute.value == null || ac.chronic.value == null) return null;
+  const word = AC_UNIT_WORD[ac.unit] ?? 'registros';
+  const side = ac.direction === 'acute_above' ? 'acima' : ac.direction === 'acute_below' ? 'abaixo' : 'igual';
+  return `Recente × hábito: a média dos ${ac.acute.size} ${word} mais recentes é ${fmt(ac.acute.value)} e a dos ${ac.chronic.size} mais recentes é ${fmt(ac.chronic.value)} — a média recente está ${side}${side === 'igual' ? ' à' : ' da'} do seu hábito. É uma descrição do seu histórico, não um julgamento.`;
 }

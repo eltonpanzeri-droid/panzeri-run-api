@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DetailChart } from '../src/activityDetail';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 import { fetchSnapshot, fetchSnapshots } from './homeApi';
-import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, domainSentences, shiftLabel } from './insights';
+import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, acuteChronicSentence, domainSentences, shiftLabel } from './insights';
 import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 import { IndicatorMeaning } from './IndicatorMeaning';
 import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
@@ -124,6 +124,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
         <Text style={styles.blockN}>  ·  {snapshot.evidence.n} registro{snapshot.evidence.n === 1 ? '' : 's'}</Text>
       </Text>
       {variable.scaleHint ? <Text style={styles.hint}>{variable.scaleHint}</Text> : null}
+      {acuteChronicSentence(snapshot, (v) => fmtValue(v, variable)) ? <Text style={styles.hint}>{acuteChronicSentence(snapshot, (v) => fmtValue(v, variable))}</Text> : null}
       {points.length >= 2 ? (
         <DetailChart
           title=""

@@ -19,6 +19,7 @@ import {
   HistoricalReturnBehavior,
 } from './longitudinal-dynamics.service';
 import { getVariableDefinition, VariableDefinition } from './variable-registry';
+import { AcuteChronic, buildAcuteChronic } from './acute-chronic';
 import { buildReferenceSeries, ReferenceSeries } from './reference-series';
 import { isSourceSegmentationEnabled, rankSources, type SourceActivity } from './wearable-source';
 
@@ -97,6 +98,11 @@ export interface VariableSnapshotResponse {
    * (`options.withReference`): a Evolucao do painel usa; o Atlas, o Prescritor e demais consumidores nao recebem nem pagam esse custo.
    */
   reference?: ReferenceSeries | null;
+  /**
+   * Aguda × cronica (03/11/2026): media dos 7 registros mais recentes x media dos 28, com datas das janelas e a leitura cadastrada do indicador. So' com `options.withReference` (telas); o contexto da IA
+   * nao recebe nem paga esse custo ate' o Lote 3. Semana em andamento fica de fora. Ver acute-chronic.ts.
+   */
+  acuteChronic?: AcuteChronic | null;
   /** Modalidades presentes no historico COMPLETO (nao filtrado) desta variavel — pra montar o seletor. Vazio quando a variavel nao tem dimensao de modalidade (ex: checkin.* semanal). */
   availableModalities: string[];
   /**
@@ -220,6 +226,12 @@ export class TrainingIntelligenceQueryService {
       .map((o) => ({ value: o.value, timestamp: o.timestamp }))
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
+    // Aguda x cronica: so' o que ja' aconteceu por inteiro (semana em andamento nao entra, como nos graficos).
+    const completedSeries: SeriesPoint[] = observations
+      .filter((o): o is Observation & { value: number } => typeof o.value === 'number' && !o.context.isPartialWeek)
+      .map((o) => ({ value: o.value, timestamp: o.timestamp }))
+      .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+
     const current = series.length > 0 ? series[series.length - 1].value : null;
     const mean = this.mathLayer.periodMean(series);
 
@@ -277,6 +289,7 @@ export class TrainingIntelligenceQueryService {
       movingAverages,
       movingAverageSeries,
       reference: options.withReference ? buildReferenceSeries(series, definition, this.mathLayer, this.longitudinalDynamics) : undefined,
+      acuteChronic: options.withReference ? buildAcuteChronic(this.mathLayer, completedSeries, definition, habitualRangeResult) : undefined,
       baseline: baselineResult,
       deviation: deviationResult,
       trend,

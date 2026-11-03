@@ -269,8 +269,28 @@ function Summary({ snapshot, unit, lastObservation, lastReference }: { snapshot:
     <div className="evx-card"><span>Faixa habitual anterior</span><strong>{bandText}</strong><small>{bandNote}</small></div>
     <div className={`evx-card signal ${lastReference?.signal ?? 'no_reference'}`}><span>Posição do mais recente</span><strong>{lastReference ? SIGNAL_LABEL[lastReference.signal] : 'Sem referência suficiente'}</strong><small>{lastReference?.outsideBy != null ? `${lastReference.outsideBy > 0 ? '+' : ''}${fmtFor(unit)(lastReference.outsideBy)} ${unitLabel(unit) ?? ''} além do limite` : 'Sinal neutro: não indica melhora nem piora'}</small></div>
     {reference && lastReference && <div className="evx-refs"><b>Médias móveis anteriores ao mais recente</b>{reference.windows.map((window) => { const item = lastReference.movingAverages[window.key]; return <span key={window.key}>{window.label}: <em>{item.value == null ? 'sem base' : valueText(item.value, unit)}</em><small>{item.n} reg.{item.isPartialWindow && item.value != null ? ' · janela parcial' : ''}</small></span>; })}</div>}
+    {snapshot.acuteChronic && <AcuteChronicCard data={snapshot.acuteChronic} unit={unit} />}
     {lastReference && lastReference.priorN < (reference?.bandPolicy.individualMin ?? 12) && <p className="evx-low">Quantidade de registros ainda baixa ({lastReference.priorN} antes do mais recente): as referências são exploratórias.</p>}
   </section>;
+}
+
+const DIRECTION_TEXT = { acute_above: 'Aguda acima da crônica', acute_below: 'Aguda abaixo da crônica', equal: 'Aguda igual à crônica', insufficient: 'Registros insuficientes para comparar' } as const;
+const RANGE_TEXT = { above: 'acima', below: 'abaixo', within: 'dentro', no_reference: 'sem faixa para comparar' } as const;
+
+// Aguda x cronica (03/11/2026): 7 x 28 registros mais recentes, com as datas das janelas; a leitura cadastrada do indicador e' RASCUNHO ate' Elton revisar.
+function AcuteChronicCard({ data, unit }: { data: NonNullable<ExplorerSnapshot['acuteChronic']>; unit: string }) {
+  const windowText = (w: NonNullable<ExplorerSnapshot['acuteChronic']>['acute']) => (w.value == null ? '—' : `${valueText(w.value, unit)} · ${w.n} de ${w.size}${w.windowStart ? ` · de ${dateLabel(w.windowStart, true)} a ${dateLabel(w.windowEnd ?? w.windowStart, true)}` : ''}`);
+  return <div className="evx-acute" aria-label="Aguda e crônica">
+    <b>Aguda × crônica · {DIRECTION_TEXT[data.direction]}</b>
+    <dl>
+      <dt>Aguda (7 mais recentes)</dt><dd>{windowText(data.acute)}</dd>
+      <dt>Crônica (28 mais recentes)</dt><dd>{windowText(data.chronic)}</dd>
+      {data.difference != null && <><dt>Diferença (aguda − crônica)</dt><dd>{valueText(data.difference, unit)}{data.relativeDifferencePct != null ? ` (${data.relativeDifferencePct.toFixed(1).replace('.', ',')}%)` : ''}</dd></>}
+      <dt>Média aguda em relação à faixa habitual</dt><dd>{RANGE_TEXT[data.acuteVsHabitualRange]}</dd>
+    </dl>
+    {data.reading && <p className="evx-reading"><b>Leitura cadastrada{data.reading.status === 'rascunho_a_revisar' ? ' (rascunho a revisar)' : ''}:</b> {data.reading.text}.</p>}
+    <small>{data.note}</small>
+  </div>;
 }
 
 function ObservationDetail({ snapshot, observation, reference, unit, onClose, onOpenOriginal }: {

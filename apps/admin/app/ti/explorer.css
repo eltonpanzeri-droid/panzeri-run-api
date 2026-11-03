@@ -136,3 +136,10 @@ html[data-tema="escuro"] .evx-chart rect[data-modality], html[data-tema="escuro"
 .evx-audit-table { border-collapse: collapse; font-size: 12px; min-width: 1100px; }
 .evx-audit-table th, .evx-audit-table td { padding: 6px 8px; border-bottom: 1px solid rgba(128, 128, 128, 0.25); text-align: left; white-space: nowrap; }
 .evx-audit-table tr.excluded td { opacity: 0.7; }
+
+/* Aguda x cronica (03/11/2026) */
+.evx-acute { grid-column: 1 / -1; display: grid; gap: 6px; padding: 10px 12px; border-radius: 8px; background: rgba(128, 128, 128, 0.08); font-size: 13px; }
+.evx-acute dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 0; }
+.evx-acute dt { color: #6b6b6b; }
+.evx-acute dd { margin: 0; }
+.evx-acute .evx-reading { margin: 0; }

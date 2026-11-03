@@ -26,8 +26,15 @@ export type ReferenceSeries = {
   bandPolicy: { method: string; windowSize: number; individualMin: number; limitedMin: number };
   points: ReferencePoint[];
 };
+export type AcuteChronicWindow = { value: number | null; n: number; size: number; windowStart: string | null; windowEnd: string | null; complete: boolean };
+export type AcuteChronic = {
+  unit: string; acute: AcuteChronicWindow; chronic: AcuteChronicWindow; difference: number | null; relativeDifferencePct: number | null;
+  direction: 'acute_above' | 'acute_below' | 'equal' | 'insufficient'; acuteVsHabitualRange: 'above' | 'below' | 'within' | 'no_reference';
+  reading: { text: string; status: string } | null; note: string;
+};
 export type ExplorerSnapshot = Snapshot & {
   reference?: ReferenceSeries | null;
+  acuteChronic?: AcuteChronic | null;
   availableSources?: Array<{ key: string; n: number; lastObservationAt: string | null }>; mainSource?: string | null; selectedSource?: string | null;
 };
 export type Availability = { id: string; n: number; firstObservationAt: string | null; lastObservationAt: string | null; mathApplicable: boolean };
