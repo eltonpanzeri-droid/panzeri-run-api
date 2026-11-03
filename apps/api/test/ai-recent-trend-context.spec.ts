@@ -117,8 +117,8 @@ describe('agudaCronica7x28 para a IA', () => {
     expect(buildAcuteChronicContext([])).toBeNull();
   });
 
-  it('a hipotese cadastrada (rascunho) so acompanha o indicador cuja media aguda saiu da faixa habitual', () => {
-    expect(AI_INCLUDES_READING_GUIDE).toBe(true);
+  it('03/11/2026: a leitura por indicador saiu da IA (a fotografia por dominio a substitui); nenhuma hipotese cadastrada chega ao prompt', () => {
+    expect(AI_INCLUDES_READING_GUIDE).toBe(false);
     const block = buildAcuteChronicContext([
       { variableId: 'a', acuteChronic: ac({ acuteVsHabitualRange: 'above' }) },
       { variableId: 'b', acuteChronic: ac({ acuteVsHabitualRange: 'within' }) },
@@ -126,7 +126,7 @@ describe('agudaCronica7x28 para a IA', () => {
       { variableId: 'd', acuteChronic: ac({ acuteVsHabitualRange: 'below', reading: null }) },
     ])!;
     const byId = Object.fromEntries(block.indicadores.map((i) => [i.id, i]));
-    expect(byId.a.hipoteseCadastrada).toBe('leitura cadastrada de teste');
+    expect(byId.a.hipoteseCadastrada).toBeUndefined();
     expect(byId.b.hipoteseCadastrada).toBeUndefined();
     expect(byId.c.hipoteseCadastrada).toBeUndefined();
     expect(byId.d.hipoteseCadastrada).toBeUndefined();
@@ -185,7 +185,8 @@ describe('regra no prompt da IA', () => {
     const text = RECENT_TREND_INSTRUCTION;
     expect(text).toMatch(/NAO calcula/);
     expect(text).toMatch(/menos de 5 corridas anteriores/);
-    expect(text).toMatch(/NAO significa, sozinho, piora de desempenho/);
+    expect(text).toMatch(/NAO significa, por si so, pior desempenho/);
+    expect(text).toMatch(/PROVAVEL maior desgaste/);
     expect(text).toMatch(/MUDANCA DE TENDENCIA/);
     expect(text).toMatch(/HIPOTESE/);
     expect(text).toMatch(/nao crie regra automatica/i);
@@ -206,9 +207,11 @@ describe('regra no prompt da IA', () => {
   it('o snapshot pede a aguda x cronica sem a serie de referencia pesada e monta o desacoplamento so com escopo de IA do chamador', () => {
     const snapshot = readFileSync(join(__dirname, '..', 'src', 'training-intelligence', 'athlete-state-snapshot.service.ts'), 'utf8');
     expect(snapshot).toContain('{ withAcuteChronic: true }');
-    expect(snapshot).toContain('buildHrDecouplingContext(athleteId, now).catch(() => null)');
+    expect(snapshot).toContain('loadHrDecouplingBands(athleteId)');
+    expect(snapshot).toContain('buildDomainOverview(');
     const compact = readFileSync(join(__dirname, '..', 'src', 'training-intelligence', 'compact-agent-context.ts'), 'utf8');
     expect(compact).toContain('desacoplamentoFC: snapshot.hrDecoupling');
     expect(compact).toContain('agudaCronica7x28: snapshot.acuteChronicContext');
+    expect(compact).toContain('visaoGlobalPorDominio: snapshot.domainOverview');
   });
 });
