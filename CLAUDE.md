@@ -1,5 +1,10 @@
 # Panzeri Run — Constituição de Engenharia e Protocolo Operacional
 
+> **PASTA CORRETA DE TRABALHO — LEIA ANTES DE QUALQUER AÇÃO (regra de Elton, 03/11/2026):**
+> **`C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`** é a ÚNICA pasta do projeto. TUDO que for criado, editado ou salvo — código, planilha, relatório, documento, qualquer arquivo — vai nela.
+> A pasta `Aplicativo Panzeri Run` está DESCONTINUADA desde 02/10/2026: não ler como fonte, não editar, não salvar nada nela, mesmo que a sessão tenha aberto nela. Se o diretório de trabalho da sessão for a pasta antiga, trabalhar mesmo assim na pasta GitHub (caminho absoluto). Em dúvida sobre onde salvar: é a pasta GitHub; nunca perguntar de novo.
+
+
 > **Este é o documento canônico de comportamento do Claude para o Panzeri Run.**
 > Todas as regras de processo, linguagem, deploy, qualidade e continuidade estão aqui.
 > Quando houver conflito entre este arquivo e um arquivo de memória, este prevalece.
@@ -203,6 +208,7 @@ Como aplicar:
 
 ## Fluxo do repositório
 
+- **Todo arquivo criado em qualquer sessão (código, planilha, relatório, documento) é salvo na pasta GitHub `panzeri-run-api` — nunca em `Aplicativo Panzeri Run`, mesmo que o diretório de trabalho da sessão seja ele. Confirmar o caminho de destino ANTES de gravar.**
 - A fonte canônica é `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`; confirme que o diretório de trabalho da sessão é ele antes de qualquer edição.
 - Verifique `git status`, branch e último commit antes de build/commit.
 - Não faça commit, push, deploy ou publicação automaticamente.

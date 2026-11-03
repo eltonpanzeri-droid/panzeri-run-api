@@ -3584,6 +3584,11 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Pendente / não feito**: Elton revisar `variable-reading-guide.ts` (metodologia; enquanto for rascunho, só chega à IA como hipótese e só quando a média aguda saiu da faixa); medir o tamanho real do contexto após o deploy; conferir em uma geração real se o prescritor cita os blocos sem tratá-los como regra; a aluna continua vendo só os números (leitura direcional só no painel). Sem revisão independente ainda (só autorrevisão) — recomendável `/code-review` por tocar prompt da IA.
 - **Vale no deploy da API** (não precisa de build nativo).
 
+### 03/11/2026 — Regra reforçada: a ÚNICA pasta de trabalho é GitHub\panzeri-run-api
+- **Ocorrência**: Elton pediu uma planilha de indicadores; a sessão abriu na pasta antiga `Aplicativo Panzeri Run` (com `CLAUDE.md` desatualizado carregado) e o arquivo foi salvo lá; depois de cobrado, ainda houve confusão. Elton já havia definido em 02/10/2026 que só o clone Git é fonte de trabalho.
+- **Regra (permanente)**: tudo — código, planilha, relatório, documento — é criado e salvo em `C:\Users\elton\OneDrive\Documentos\GitHub\panzeri-run-api`, mesmo que o diretório da sessão seja a pasta antiga. Nunca perguntar de novo qual é a pasta.
+- **Onde foi registrado**: banner no topo do `CLAUDE.md` das DUAS pastas (a antiga é a que as sessões carregam primeiro) e do `PRONTUARIO.md` da pasta antiga; regra no "Fluxo do repositório" do `CLAUDE.md` do espelho; memória do Claude.
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**
