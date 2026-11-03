@@ -19,6 +19,10 @@ export interface RecoveryIndicator {
 export interface RecoveryUnavailable { id: string; label: string; reason: string }
 export interface RecoverySummary { generatedAt: string; periodDays: number; indicators: RecoveryIndicator[]; empty: boolean; unavailable: RecoveryUnavailable[] }
 
+// 03/11/2026 (Google Play, escopo minimo): o app NAO pede mais ao Android estes tipos (calorias totais, saturacao, respiracao, nutricao, hidratacao). Para quem usa so' o Health Connect nao ha o que autorizar,
+// entao eles NAO aparecem em "Dados que nao chegaram" (dado que ja' foi guardado continua aparecendo como indicador). Apple Saude e demais fontes seguem iguais.
+const NOT_REQUESTED_ON_ANDROID: ReadonlySet<string> = new Set(['totalKcal', 'spo2', 'resp', 'nutrition', 'hydration']);
+
 // Categoria de autorizacao do Health Connect de cada indicador (para separar "nao autorizado" de "o aparelho nao enviou").
 const CATALOG: ReadonlyArray<{ id: string; label: string; category: string }> = [
   { id: 'sleep', label: 'Sono', category: 'sleep' }, { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', category: 'hrv' }, { id: 'restingHr', label: 'Frequência cardíaca de repouso', category: 'resting_heart_rate' },
@@ -118,7 +122,7 @@ export function buildRecoverySummary(input: { sleep: SleepRowLite[]; hrv: HrvRow
   const present = new Set(indicators.map((i) => i.id.split('.')[0]));
   const names = [...sourceKeys].map((k) => input.sourceName(k)).slice(0, 2).join(' e ');
   const onlyHealthConnect = sourceKeys.size > 0 && [...sourceKeys].every((k) => ecosystemOfSourceKey(k) !== undefined && k.startsWith('health_connect'));
-  const unavailable: RecoveryUnavailable[] = sourceKeys.size === 0 ? [] : CATALOG.filter((c) => !present.has(c.id)).map((c) => ({
+  const unavailable: RecoveryUnavailable[] = sourceKeys.size === 0 ? [] : CATALOG.filter((c) => !present.has(c.id) && !(onlyHealthConnect && NOT_REQUESTED_ON_ANDROID.has(c.id))).map((c) => ({
     id: c.id,
     label: c.label,
     // Sem autorizacao do grupo nao ha o que cobrar do aparelho; so' se sabe disso para o Health Connect (unica fonte com a lista de autorizacoes aqui).

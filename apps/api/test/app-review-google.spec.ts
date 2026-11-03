@@ -28,7 +28,7 @@ describe('conta de revisao do Google', () => {
     for (const row of [...rows.sleep, ...rows.hrv, ...rows.daily, ...rows.metrics]) {
       expect(row.userId).toBe('user-google');
       expect(row.provider).toBe('health_connect');
-      expect(String(row.providerSummaryId)).toMatch(/^review-demo-/);
+      expect(String(row.providerSummaryId)).toMatch(/^review-demo\|/);
     }
     expect(rows.daily[rows.daily.length - 1].calendarDate).toBe('2026-11-03');
     expect(rows.daily[0].calendarDate).toBe('2026-09-30');
@@ -66,6 +66,15 @@ describe('conta de revisao do Google', () => {
       sourceName: (key: string) => key,
     } as never);
     expect(summary.empty).toBe(false);
+    // uma unica origem: cada indicador tem os ~30 dias (nao 1) e nenhuma nota de "outras fontes"
+    for (const indicator of summary.indicators) {
+      expect(indicator.sourceKey).toBe('health_connect:review-demo');
+      expect(indicator.note ?? '').not.toContain('outras fontes');
+    }
+    expect(summary.indicators.find((i) => i.id === 'sleep')?.days).toBeGreaterThanOrEqual(30);
+    expect(summary.indicators.find((i) => i.id === 'steps')?.days).toBeGreaterThanOrEqual(30);
+    // nao pede autorizar o que o app nao oferece mais no Android
+    expect(summary.unavailable.map((u) => u.id)).toEqual([]);
     const ids = summary.indicators.map((i) => i.id);
     for (const expected of ['sleep', 'hrv.rmssd', 'restingHr', 'steps', 'activeKcal', 'vo2']) expect(ids).toContain(expected);
   });

@@ -93,7 +93,7 @@ export interface HealthRecoveryResult {
 export interface HealthRecoveryQuery { from?: string; to?: string; source?: string; compareFrom?: string; compareTo?: string }
 
 const SOURCE_NAME: Record<string, string> = { zepp: 'Zepp / Amazfit', health_connect: 'Health Connect', polar: 'Polar', apple_health: 'Apple Saúde' };
-const ORIGIN_NAME: Record<string, string> = { 'com.sec.android.app.shealth': 'Samsung Health', 'com.google.android.apps.fitness': 'Google Fit', 'fi.polar.polarflow': 'Polar Flow', 'com.garmin.android.apps.connectmobile': 'Garmin Connect', 'com.strava': 'Strava' };
+const ORIGIN_NAME: Record<string, string> = { 'review-demo': 'dados de demonstração', 'com.sec.android.app.shealth': 'Samsung Health', 'com.google.android.apps.fitness': 'Google Fit', 'fi.polar.polarflow': 'Polar Flow', 'com.garmin.android.apps.connectmobile': 'Garmin Connect', 'com.strava': 'Strava' };
 export function sourceDisplayName(key: string): string {
   if (!key.startsWith('health_connect:')) return SOURCE_NAME[key] ?? key;
   const origin = key.slice('health_connect:'.length);

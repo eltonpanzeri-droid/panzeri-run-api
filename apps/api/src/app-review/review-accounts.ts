@@ -249,7 +249,8 @@ const RECOVERY_DEMO_PROVIDER = 'health_connect';
 
 // Dados SINTETICOS e deterministicos (sem aleatorio: o mesmo dia gera sempre o mesmo valor) de recuperacao e saude diaria, dos ultimos 35 dias ate hoje, no formato que o Health Connect gravaria. Servem so' para a
 // conta de revisao do Google ver a tela "Minha recuperacao" preenchida. Cada linha leva `review-demo-` no providerSummaryId (identifica que e' demonstracao). So' os tipos que o app pede ao Android: sono, VFC, FC de
-// repouso, passos, calorias ativas e VO2 max (nada de saturacao, respiracao, nutricao, hidratacao nem calorias totais).
+// repouso, passos, calorias ativas e VO2 max (nada de saturacao, respiracao, nutricao, hidratacao nem calorias totais). ATENCAO: a ORIGEM do dado e' o trecho de providerSummaryId antes do '|' (sourceKeyOf):
+// todas as linhas usam a MESMA origem `review-demo`, senao a tela trata cada dia como uma fonte diferente e mostra so' 1 dia.
 export function recoveryDemoRows(userId: string, now: Date) {
   const today = localToday(now);
   const sleep: Prisma.WearableSleepSummaryCreateManyInput[] = [];
@@ -267,21 +268,21 @@ export function recoveryDemoRows(userId: string, now: Date) {
     sleep.push({
       userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec, startOffsetSec: -10_800, durationSec: sleepSec,
       deepSleepSec: Math.round(sleepSec * 0.18), lightSleepSec: Math.round(sleepSec * 0.57), remSleepSec: Math.round(sleepSec * 0.22), awakeSec: Math.round(sleepSec * 0.03),
-      endTimeSec: startTimeSec + sleepSec, providerSummaryId: `review-demo-sleep-${calendarDate}`,
+      endTimeSec: startTimeSec + sleepSec, providerSummaryId: `review-demo|sleep-${calendarDate}`,
     });
     hrv.push({
       userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec: midnightLocalSec + 6 * 3600, startOffsetSec: -10_800,
-      lastNightAvg: Number((52 + wave(5, 5) * 1.6).toFixed(1)), hrvValues: { metric: 'rmssd_ms', synthetic: true } as Prisma.InputJsonObject, providerSummaryId: `review-demo-hrv-${calendarDate}`,
+      lastNightAvg: Number((52 + wave(5, 5) * 1.6).toFixed(1)), hrvValues: { metric: 'rmssd_ms', synthetic: true } as Prisma.InputJsonObject, providerSummaryId: `review-demo|hrv-${calendarDate}`,
     });
     const steps = 8_000 + wave(11, 6) * 450;
     daily.push({
       userId, provider: RECOVERY_DEMO_PROVIDER, calendarDate, startTimeSec: midnightLocalSec, startOffsetSec: -10_800, durationSec: 86_400,
-      steps, distanceMeters: Math.round(steps * 0.74), activeKilocalories: 380 + wave(2, 5) * 22, restingHeartRateBpm: 57 + wave(13, 2), providerSummaryId: `review-demo-daily-${calendarDate}`,
+      steps, distanceMeters: Math.round(steps * 0.74), activeKilocalories: 380 + wave(2, 5) * 22, restingHeartRateBpm: 57 + wave(13, 2), providerSummaryId: `review-demo|daily-${calendarDate}`,
     });
     if (back % 7 === 0) {
       metrics.push({
         userId, provider: RECOVERY_DEMO_PROVIDER, metricKind: 'vo2_max', calendarDate, startTimeSec: midnightLocalSec + 12 * 3600, startOffsetSec: -10_800,
-        providerSummaryId: `review-demo-vo2-${calendarDate}`, identityKey: `review-demo-vo2-${calendarDate}`,
+        providerSummaryId: `review-demo|vo2-${calendarDate}`, identityKey: `review-demo-vo2-${calendarDate}`,
         values: { vo2MillilitersPerMinuteKilogram: Number((46 + wave(17, 2) * 0.2).toFixed(1)), synthetic: true } as Prisma.InputJsonObject,
       });
     }
