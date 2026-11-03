@@ -7,4 +7,5 @@ allowBuilds:
   '@nestjs/core': true
   '@prisma/client': true
   '@prisma/engines': true
+  ffmpeg-static: true
   prisma: true
