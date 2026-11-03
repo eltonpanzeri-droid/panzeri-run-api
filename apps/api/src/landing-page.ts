@@ -94,7 +94,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
 
     <section class="section-light" style="padding-top:80px;padding-bottom:0">
       <div class="container" style="max-width:420px;margin:0 auto">
-        ${testimonialPhone('testemunho-01-mental-confianca.png', 'Aluna relatando que o teste foi mental e que está conseguindo', '"O teste foi pra mim. Mental. Eu consigo e estou conseguindo."')}
+        ${testimonialPhone('testemunho-01-mental-confianca.jpg', 'Aluna relatando que o teste foi mental e que está conseguindo', '"O teste foi pra mim. Mental. Eu consigo e estou conseguindo."')}
       </div>
     </section>
 
@@ -140,9 +140,9 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         <article class="context-card featured reveal"><span>04</span><h3>O próximo passo</h3><p>Avançar, manter ou reduzir depende da relação entre tudo isso — nunca de um número isolado.</p></article>
       </div>
       <div class="testimonial-phones" aria-label="O que alunos dizem sobre a diferença do Panzeri Run" style="margin-top:70px">
-        ${testimonialPhone('testemunho-03-comparacao-apps-1.png', 'Aluno comparando o Panzeri Run com outros aplicativos de corrida', 'Já testou outros apps')}
-        ${testimonialPhone('testemunho-04-comparacao-apps-2.png', 'Aluna comparando o Panzeri Run com outros aplicativos de corrida', '"O programa é top demais"')}
-        ${testimonialPhone('testemunho-05-comparacao-apps-3.png', 'Aluno descrevendo as primeiras impressões do Panzeri Run', 'Primeiras impressões')}
+        ${testimonialPhone('testemunho-03-comparacao-apps-1.jpg', 'Aluno comparando o Panzeri Run com outros aplicativos de corrida', 'Já testou outros apps')}
+        ${testimonialPhone('testemunho-04-comparacao-apps-2.jpg', 'Aluna comparando o Panzeri Run com outros aplicativos de corrida', '"O programa é top demais"')}
+        ${testimonialPhone('testemunho-05-comparacao-apps-3.jpg', 'Aluno descrevendo as primeiras impressões do Panzeri Run', 'Primeiras impressões')}
       </div>
     </section>
 
@@ -162,7 +162,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         <div class="tab-note" id="tab-note">Acompanhe o que foi feito, o que está previsto e como a semana está avançando.</div>
       </div>
       <div class="phone-stage reveal">
-        <div class="phone"><img id="product-screen" src="/landing2-assets/app-inicio.png" alt="Tela Minha semana do aplicativo Panzeri Run"></div>
+        <div class="phone"><img id="product-screen" src="/landing2-assets/app-inicio.jpg" alt="Tela Minha semana do aplicativo Panzeri Run"></div>
         <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
       </div>
     </section>
@@ -179,7 +179,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
     </section>
 
     <section class="feedback section-light">
-      <div class="feedback-visual reveal"><div class="phone phone-small"><img src="/landing2-assets/app-ritmo.png" alt="Gráficos reais de ritmo do aplicativo Panzeri Run"></div></div>
+      <div class="feedback-visual reveal"><div class="phone phone-small"><img src="/landing2-assets/app-ritmo.jpg" alt="Gráficos reais de ritmo do aplicativo Panzeri Run"></div></div>
       <div class="feedback-copy reveal"><span class="eyebrow">DADOS + EXPERIÊNCIA HUMANA</span><h2>Os números mostram parte do treino. Você completa a história.</h2><p>Velocidade, distância, frequência cardíaca e cadência são importantes. Mas nunca superam aquilo de mais humano: como você se sentiu. É dessa união que nasce uma orientação verdadeiramente individualizada.</p><div class="signal-grid"><span>Ritmo</span><span>Distância</span><span>Frequência cardíaca</span><span>Cadência</span><span>Sono e descanso</span><span>Prontidão emocional</span><span>Esforço percebido</span><span>Dor relatada</span></div></div>
     </section>
 
@@ -193,8 +193,8 @@ export const LANDING_PAGE_HTML = `<!doctype html>
       </div>
       <small class="progress-disclaimer">Progressão meramente ilustrativa. Seus objetivos e condições definem o caminho.</small>
       <div class="testimonial-phones" aria-label="Conquistas reais de alunos" style="margin-top:55px">
-        ${testimonialPhone('testemunho-06-resultado-prova.png', 'Resultado de prova de 5km de um aluno, 11º lugar geral', 'Resultado de prova')}
-        ${testimonialPhone('testemunho-07-medalha-puerto-iguazu.png', 'Aluna comemorando 21km completados em Puerto Iguazú', '"Fiz os 21km em 2h27"')}
+        ${testimonialPhone('testemunho-06-resultado-prova.jpg', 'Resultado de prova de 5km de um aluno, 11º lugar geral', 'Resultado de prova')}
+        ${testimonialPhone('testemunho-07-medalha-puerto-iguazu.jpg', 'Aluna comemorando 21km completados em Puerto Iguazú', '"Fiz os 21km em 2h27"')}
       </div>
     </section>
 
@@ -214,9 +214,9 @@ export const LANDING_PAGE_HTML = `<!doctype html>
     <section class="stories section-light" id="historias" data-track-view="stories_view">
       <div class="section-heading reveal"><span class="eyebrow">QUEM JÁ COMEÇOU</span><h2>Histórias reais. Conquistas que importam.</h2><p>Relatos espontâneos de pessoas que estão usando o Panzeri Run e construindo uma relação mais confiante com a corrida.</p></div>
       <div class="testimonial-phones" aria-label="Depoimentos reais de alunos do Panzeri Run">
-        ${testimonialPhone('testemunho-02-consultoria-humanizada.png', 'Aluna elogiando a consultoria humanizada e falando sobre planejar uma meia maratona', '"Apareceu sua consultoria muito humanizada"')}
-        ${testimonialPhone('testemunho-08-avaliacao-thais.png', 'Aluna se oferecendo para avaliar o aplicativo com 5 estrelas', '"A indicação é sempre a melhor propaganda"')}
-        ${testimonialPhone('testemunho-09-atualizacao-luiza.png', 'Aluna elogiando as atualizações constantes do aplicativo', '"Cada dia que entro uma atualização nova"')}
+        ${testimonialPhone('testemunho-02-consultoria-humanizada.jpg', 'Aluna elogiando a consultoria humanizada e falando sobre planejar uma meia maratona', '"Apareceu sua consultoria muito humanizada"')}
+        ${testimonialPhone('testemunho-08-avaliacao-thais.jpg', 'Aluna se oferecendo para avaliar o aplicativo com 5 estrelas', '"A indicação é sempre a melhor propaganda"')}
+        ${testimonialPhone('testemunho-09-atualizacao-luiza.jpg', 'Aluna elogiando as atualizações constantes do aplicativo', '"Cada dia que entro uma atualização nova"')}
       </div>
       <p class="privacy-note">Depoimentos reais. Nomes, telefones e imagens de perfil foram removidos para preservar a privacidade.</p>
       <div class="video-grid" aria-label="Depoimentos em vídeo de alunos">

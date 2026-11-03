@@ -44,12 +44,12 @@ if(topbar){const updateTopbar=()=>topbar.classList.toggle('is-scrolled',scrollY>
 
 // Abas "O aplicativo por dentro"
 const screenData={
-  inicio:{src:'/landing2-assets/app-inicio.png',alt:'Tela Minha semana do aplicativo Panzeri Run',note:'Acompanhe o que foi feito, o que está previsto e como a semana está avançando.'},
-  treino:{src:'/landing2-assets/app-treino.png',alt:'Tela de treino detalhado do aplicativo Panzeri Run',note:'Veja distância, duração, ritmo e orientações organizadas para cada parte do treino.'},
-  historico:{src:'/landing2-assets/app-historico.png',alt:'Histórico de treinos do aplicativo Panzeri Run',note:'Semanas, sessões realizadas e registros ficam organizados para que o contexto não dependa apenas da memória.'},
-  evolucao:{src:'/landing2-assets/app-evolucao.png',alt:'Tela de evolução do aplicativo Panzeri Run',note:'Aderência, sequência, volume e histórico ajudam a mostrar como o processo está sendo construído.'},
-  volume:{src:'/landing2-assets/app-volume.png',alt:'Gráfico de volume semanal do aplicativo Panzeri Run',note:'O volume semanal é acompanhado ao longo do tempo e comparado ao padrão recente do corredor.'},
-  integracoes:{src:'/landing2-assets/app-integracoes.png',alt:'Tela de integrações do aplicativo Panzeri Run',note:'Conecte os serviços disponíveis e mantenha as informações do seu treinamento reunidas.'}
+  inicio:{src:'/landing2-assets/app-inicio.jpg',alt:'Tela Minha semana do aplicativo Panzeri Run',note:'Acompanhe o que foi feito, o que está previsto e como a semana está avançando.'},
+  treino:{src:'/landing2-assets/app-treino.jpg',alt:'Tela de treino detalhado do aplicativo Panzeri Run',note:'Veja distância, duração, ritmo e orientações organizadas para cada parte do treino.'},
+  historico:{src:'/landing2-assets/app-historico.jpg',alt:'Histórico de treinos do aplicativo Panzeri Run',note:'Semanas, sessões realizadas e registros ficam organizados para que o contexto não dependa apenas da memória.'},
+  evolucao:{src:'/landing2-assets/app-evolucao.jpg',alt:'Tela de evolução do aplicativo Panzeri Run',note:'Aderência, sequência, volume e histórico ajudam a mostrar como o processo está sendo construído.'},
+  volume:{src:'/landing2-assets/app-volume.jpg',alt:'Gráfico de volume semanal do aplicativo Panzeri Run',note:'O volume semanal é acompanhado ao longo do tempo e comparado ao padrão recente do corredor.'},
+  integracoes:{src:'/landing2-assets/app-integracoes.jpg',alt:'Tela de integrações do aplicativo Panzeri Run',note:'Conecte os serviços disponíveis e mantenha as informações do seu treinamento reunidas.'}
 };
 document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(t=>{t.classList.remove('active');t.setAttribute('aria-selected','false')});
