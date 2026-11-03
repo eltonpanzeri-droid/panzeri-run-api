@@ -58,6 +58,7 @@ import { evidenceKindOf, getVariableDefinition, type EvidenceKind } from './vari
 import type { PairedEvidence } from './paired-evidence';
 import type { InternalLoadContext } from './internal-load-context';
 import type { AcuteChronicContext, HrDecouplingContext } from './ai-recent-trend-context';
+import { withoutIntegrationIndicators, type DomainOverviewContext } from './domain-overview';
 
 export interface CompactExcursionSummary {
   direction: 'above' | 'below';
@@ -193,6 +194,8 @@ export interface CompactAgentContext {
   desacoplamentoFC?: HrDecouplingContext;
   /** Aguda (7 registros) x cronica (28) dos indicadores que mudaram de lado, ja calculada pelo servidor (03/11/2026). Ausente quando nenhum indicador tem 28 registros com diferenca. Indicadores de relogio saem junto com os demais dados de integracao se o teto de tamanho estourar. */
   agudaCronica7x28?: AcuteChronicContext;
+  /** Fotografia global por dominio (nivel + tendencia + contagem descritiva, SEM nota), ja calculada pelo servidor (03/11/2026). Indicadores de relogio/atividade saem do bloco se o teto de tamanho estourar. */
+  visaoGlobalPorDominio?: DomainOverviewContext;
   evidenceQuality: {
     variablesWithData: number;
     variablesWithoutData: number;
@@ -391,6 +394,7 @@ export function buildCompactAgentContext(snapshot: AthleteStateSnapshotV1): Comp
     ...(snapshot.internalLoad ? { cargaInternaPercebida: snapshot.internalLoad } : {}),
     ...(snapshot.hrDecoupling ? { desacoplamentoFC: snapshot.hrDecoupling } : {}),
     ...(snapshot.acuteChronicContext ? { agudaCronica7x28: snapshot.acuteChronicContext } : {}),
+    ...(snapshot.domainOverview ? { visaoGlobalPorDominio: snapshot.domainOverview } : {}),
     evidenceQuality: snapshot.evidenceQuality.overall,
   };
 }
@@ -450,6 +454,11 @@ export function limitCompactAgentContext(context: CompactAgentContext, maxChars:
     const indicadores = rest.agudaCronica7x28.indicadores.filter((item) => !isIntegrationVariable(String(item.id)));
     if (indicadores.length > 0) rest.agudaCronica7x28 = { ...rest.agudaCronica7x28, indicadores };
     else delete rest.agudaCronica7x28;
+  }
+  if (rest.visaoGlobalPorDominio) {
+    const visao = withoutIntegrationIndicators(rest.visaoGlobalPorDominio);
+    if (visao) rest.visaoGlobalPorDominio = visao;
+    else delete rest.visaoGlobalPorDominio;
   }
   const limited: CompactAgentContext = {
     ...rest,

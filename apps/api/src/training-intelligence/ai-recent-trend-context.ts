@@ -14,7 +14,7 @@ export const HR_DECOUPLING_MIN_PRIOR_RUNS = 5;
  * A leitura cadastrada (variable-reading-guide.ts) ainda está em `rascunho_a_revisar` por Elton. Enquanto estiver, ela chega à IA só como HIPÓTESE, marcada como tal, e só nos indicadores cuja média
  * aguda saiu da faixa habitual do próprio aluno. Colocar false tira a leitura do contexto da IA (os números continuam).
  */
-export const AI_INCLUDES_READING_GUIDE = true;
+export const AI_INCLUDES_READING_GUIDE = false; // 03/11/2026: a leitura por indicador saiu da IA; a fotografia por dominio (domain-overview.ts: nivel + tendencia, melhor/pior, logica de Elton) a substitui. Continua no painel.
 
 const round = (value: number, decimals = 2) => {
   const factor = 10 ** decimals;
@@ -28,7 +28,7 @@ const BASIS_TEXT: Record<ReferencePoint['band']['basis'], string> = { individual
 export interface HrDecouplingBandInput {
   category: HrDecouplingCategory;
   reference: Pick<ReferenceSeries, 'points'> | null | undefined;
-  acuteChronic: Pick<AcuteChronic, 'direction'> | null | undefined;
+  acuteChronic: (Pick<AcuteChronic, 'direction'> & Partial<AcuteChronic>) | null | undefined;
 }
 
 function runBlock(point: ReferencePoint) {

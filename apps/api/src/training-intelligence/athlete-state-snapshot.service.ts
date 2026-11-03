@@ -38,7 +38,9 @@ import { OperationalReferenceService } from '../physiology/operational-reference
 import { calculateThreeKmMetrics } from '../fitness-tests/performance-calculations';
 import type { AgentReferenceView } from '../physiology/operational-reference';
 import { HR_DECOUPLING_CATEGORIES, hrDecouplingVariableId } from './hr-decoupling';
-import { buildAcuteChronicContext, buildHrDecouplingContext, type AcuteChronicContext, type HrDecouplingContext } from './ai-recent-trend-context';
+import { buildAcuteChronicContext, buildHrDecouplingContext, type AcuteChronicContext, type HrDecouplingBandInput, type HrDecouplingContext } from './ai-recent-trend-context';
+import type { AcuteChronic } from './acute-chronic';
+import { buildDomainOverview, OVERVIEW_EXTRA_VARIABLE_IDS, type DomainOverviewContext } from './domain-overview';
 
 export type DomainAvailability = 'available' | 'partial' | 'unavailable';
 
@@ -204,6 +206,8 @@ export interface AthleteStateSnapshotV1 {
   // 03/11/2026 (Lote 3): leitura curta do que vem acontecendo recentemente, pronta pelo servidor (a IA nao calcula). Desacoplamento da FC por faixa de duracao nas corridas dos ultimos 7 dias e aguda (7) x cronica (28) dos indicadores.
   hrDecoupling?: HrDecouplingContext | null;
   acuteChronicContext?: AcuteChronicContext | null;
+  /** Fotografia global por domínio (sono, recuperação, desgaste, psicológico, carga, volume, aderência, eficiência, movimento diário): nível + tendência + contagem descritiva, sem nota (03/11/2026). */
+  domainOverview?: DomainOverviewContext | null;
   domains: {
     training: TrainingDomainState;
     trainingLoad: VariableBasedDomainState;
@@ -423,8 +427,19 @@ export class AthleteStateSnapshotService {
 
     // Melhor esforco: falha na leitura recente (desacoplamento / aguda x cronica) nunca derruba o snapshot nem a geracao do treino; a IA segue sem esses blocos.
     const now = new Date();
-    const hrDecoupling = await this.buildHrDecouplingContext(athleteId, now).catch(() => null);
-    const acuteChronicContext = buildAcuteChronicContext(ALL_DOMAIN_VARIABLE_IDS.map((variableId) => ({ variableId, acuteChronic: variableCache.get(variableId)?.acuteChronic })));
+    const hrBands = await this.loadHrDecouplingBands(athleteId).catch(() => [] as Array<HrDecouplingBandInput & { acuteChronic: AcuteChronic | null | undefined }>);
+    const hrDecoupling = hrBands.length > 0 ? buildHrDecouplingContext(hrBands, now) : null;
+    const domainIndicators = ALL_DOMAIN_VARIABLE_IDS.map((variableId) => ({ variableId, acuteChronic: variableCache.get(variableId)?.acuteChronic }));
+    const acuteChronicContext = buildAcuteChronicContext(domainIndicators);
+    // Atividade objetiva (ritmo, cadência, FC média...) fora das listas de domínio: só a aguda x crônica, sem série de referência pesada. Falha de um indicador nunca derruba o snapshot.
+    const extraIndicators = await Promise.all(
+      OVERVIEW_EXTRA_VARIABLE_IDS.map(async (variableId) => {
+        const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, variableId, undefined, undefined, { withAcuteChronic: true }).catch(() => null);
+        return { variableId: variableId as string, acuteChronic: snapshot?.acuteChronic };
+      }),
+    );
+    const decouplingIndicators = hrBands.map((band) => ({ variableId: hrDecouplingVariableId(band.category), acuteChronic: band.acuteChronic }));
+    const domainOverview = buildDomainOverview([...domainIndicators, ...extraIndicators, ...decouplingIndicators]);
 
     return {
       athleteId,
@@ -434,20 +449,20 @@ export class AthleteStateSnapshotService {
       internalLoad,
       hrDecoupling,
       acuteChronicContext,
+      domainOverview,
       domains,
       evidenceQuality,
     };
   }
 
   // Desacoplamento da FC por faixa de duracao: as 5 variaveis do registro, com referencia so' das corridas ANTERIORES (reference-series). Roda no escopo de IA do chamador (atividade de relogio sem consentimento nao entra).
-  private async buildHrDecouplingContext(athleteId: string, now: Date): Promise<HrDecouplingContext | null> {
-    const bands = await Promise.all(
+  private async loadHrDecouplingBands(athleteId: string): Promise<Array<HrDecouplingBandInput & { acuteChronic: AcuteChronic | null | undefined }>> {
+    return Promise.all(
       HR_DECOUPLING_CATEGORIES.map(async (category) => {
         const snapshot = await this.trainingIntelligenceQuery.getVariableSnapshot(athleteId, hrDecouplingVariableId(category), undefined, undefined, { withReference: true });
         return { category, reference: snapshot.reference, acuteChronic: snapshot.acuteChronic };
       }),
     );
-    return buildHrDecouplingContext(bands, now);
   }
 
   // Carga interna percebida: mesma fonte unica do painel (coach/training-load-rows.ts). Roda DENTRO do escopo de IA quando o snapshot alimenta um agente: atividade de relogio sem consentimento nao entra.
