@@ -85,7 +85,6 @@ export const LANDING_PAGE_HTML = `<!doctype html>
         <h1>Corra para pertencer. Evolua para <em>inspirar.</em></h1>
         <p class="lead">Comece com os amigos, cuide da sua saúde e descubra uma confiança que aparece na corrida — e acompanha você para o resto da vida.</p>
         <div class="hero-actions">
-          <a class="button" href="#assinar" data-scroll-cta data-track="hero_cta_click">Quero começar minha jornada</a>
           <a class="text-link" href="#produto">Ver o aplicativo <span>↓</span></a>
         </div>
         <div class="trust-row" aria-label="Diferenciais">
@@ -276,6 +275,17 @@ export const LANDING_PAGE_HTML = `<!doctype html>
   </main>
 
   <div class="sticky-cta"><a class="button button-wide" href="#assinar" data-scroll-cta data-track="sticky_cta_click">Começar agora</a></div>
+
+  <div class="store-modal" id="store-modal" hidden>
+    <div class="store-modal-backdrop" data-modal-close></div>
+    <div class="store-modal-card" role="dialog" aria-modal="true" aria-labelledby="store-modal-title">
+      <button type="button" class="store-modal-close" data-modal-close aria-label="Fechar">✕</button>
+      <h3 id="store-modal-title">Baixe o Panzeri Run</h3>
+      <p>Escolha onde quer continuar.</p>
+      ${storeButtons(true)}
+      <a class="web-link" href="${CHECKOUT_URL}" data-checkout data-track="modal_web_click">Ou acesse pela versão web →</a>
+    </div>
+  </div>
 
   <footer class="footer"><a class="brand" href="#inicio"><span class="brand-mark">▥</span> PANZERI RUN</a><p>Metodologia, ciência e tecnologia a serviço da sua corrida.</p><div><span>Termos e privacidade disponíveis no fluxo de assinatura</span><a href="https://www.instagram.com/eltonpanzeripersonal/">Instagram</a></div></footer>
   <script id="landing-config" type="application/json">${config}</script>

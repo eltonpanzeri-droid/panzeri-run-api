@@ -33,8 +33,13 @@ document.querySelectorAll('[data-store]').forEach(link=>{
   link.addEventListener('click',()=>{trackEvent(link.dataset.track);internal('landing_cta_click',link.dataset.track,{cta:link.dataset.track})});
 });
 
-// Botões que só rolam até a seção de preço (header/hero) — ainda contam como intenção de CTA.
-document.querySelectorAll('[data-scroll-cta]').forEach(link=>{link.addEventListener('click',()=>{trackEvent(link.dataset.track);internal('landing_cta_click',link.dataset.track,{cta:link.dataset.track})})});
+// Botões de "Começar" (header/hero/fixo) abrem o seletor de loja em vez de rolar até o preço.
+const storeModal=document.getElementById('store-modal');
+const openStoreModal=()=>{if(!storeModal)return;storeModal.hidden=false;document.body.classList.add('modal-open');trackEvent('store_modal_open')};
+const closeStoreModal=()=>{if(!storeModal)return;storeModal.hidden=true;document.body.classList.remove('modal-open')};
+document.querySelectorAll('[data-scroll-cta]').forEach(link=>{link.addEventListener('click',(e)=>{e.preventDefault();trackEvent(link.dataset.track);internal('landing_cta_click',link.dataset.track,{cta:link.dataset.track});openStoreModal()})});
+document.querySelectorAll('[data-modal-close]').forEach(el=>el.addEventListener('click',closeStoreModal));
+addEventListener('keydown',e=>{if(e.key==='Escape')closeStoreModal()});
 
 trackEvent('landing_view');internal('landing_view');
 
