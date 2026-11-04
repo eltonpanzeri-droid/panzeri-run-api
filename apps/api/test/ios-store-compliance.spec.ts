@@ -117,7 +117,7 @@ describe('iPhone nativo: nada do Asaas e oferta acessivel para a revisao', () =>
     expect(config.expo.ios.bundleIdentifier).toBe('com.panzerirun.app');
     expect(config.expo.android.package).toBe('com.panzerirun.app');
     // 1.0.2 desde 31/10/2026: a 1.0.1 (build 15) está "Pronto para distribuição" na Apple; novo build precisa de versão maior (1.0.0 foi recusada em 29/10: ITMS-90186/90062).
-    expect(config.expo.version).toBe('1.0.2');
+    expect(config.expo.version).toBe('1.0.3');
     expect(app).toContain("IOS_STORE_PRODUCT_ID = 'panzeri_run_mensal'");
   });
 });
