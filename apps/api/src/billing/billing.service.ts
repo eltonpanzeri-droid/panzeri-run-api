@@ -373,7 +373,8 @@ export class BillingService {
     // treinador confirmou no painel), essa decisao nao pode ser desfeita sozinha so porque o
     // aluno abriu a aba de assinatura e o Asaas ainda nao registrou o pagamento daquele link
     // especifico — isso ja aconteceu e derrubou o acesso de uma aluna sem ninguem perceber.
-    if (billing?.externalSubscriptionId && asaasConfigured && !user.subscriptionManualOverride) {
+    // 04/11/2026: quem paga pela loja (provider 'revenuecat') nunca e' reconciliado com o Asaas — uma assinatura/cobranca antiga do Asaas nao pode bloquear quem esta em dia na loja.
+    if (billing?.externalSubscriptionId && asaasConfigured && !user.subscriptionManualOverride && user.subscriptionProvider !== 'revenuecat') {
       try {
         const refreshed = await this.refreshFromAsaas(billing.id, userId, billing.externalSubscriptionId);
         appStatus = refreshed.appStatus;
@@ -1186,7 +1187,24 @@ export class BillingService {
       return { received: true };
     }
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, studentCode: true, acquisitionAttribution: true } });
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { name: true, email: true, subscriptionStatus: true, subscriptionProvider: true, studentCode: true, acquisitionAttribution: true } });
+
+    // 04/11/2026 (caso Thais): aluna que paga pela LOJA (Google/Apple) e ainda tem assinatura ou cobranca no Asaas NAO pode ter o status mudado por um aviso do Asaas (a cobranca vencida de uma
+    // assinatura esquecida bloqueou os treinos e mandou e-mail de atraso a quem estava em dia na loja). So' registra o estado da cobranca, preserva o pagamento confirmado (registro financeiro,
+    // idempotente) e avisa o treinador UMA vez por mudanca de estado para cancelar a assinatura no Asaas (risco de cobranca em dobro). Nunca cancela nada sozinho.
+    if (user.subscriptionProvider === 'revenuecat') {
+      const stateChanged = billing.providerStatus !== current;
+      await this.prisma.billingSubscription.update({ where: { id: billing.id }, data: { providerStatus: current } });
+      if (appStatus === 'active' && payload.payment?.id && payload.payment?.value != null) {
+        await this.recordConfirmedPayment(billing.id, billing.userId, payload.payment.id, payload.payment.value, new Date(), false);
+      }
+      if (stateChanged) {
+        await this.telegram
+          .notifyCoach(`⚠️ <b>${user.name}</b> (Cod. ${formatStudentCode(user.studentCode)}) paga pela loja (Google/Apple), mas ainda tem assinatura ou cobranca no Asaas (evento ${payload.event ?? 'desconhecido'}). O status dela NAO foi alterado. Cancele a assinatura e apague as cobrancas dela no Asaas para evitar cobranca em dobro.`)
+          .catch(() => undefined);
+      }
+      return { received: true, ignored: 'store_managed' };
+    }
 
     // 04/09: corrigida uma corrida real de webhook duplicado (o Asaas pode reenviar o mesmo evento
     // 2x, comum apos timeout de resposta) — antes lia subscriptionStatus ANTES do update pra decidir
@@ -1557,6 +1575,11 @@ export class BillingService {
   // esperar o proximo webhook ou o proximo acesso do aluno ao app.
   async refreshStatusForStudent(userId: string) {
     this.assertConfigured();
+    // 04/11/2026: quem paga pela loja tem o status decidido pela loja, nao pelo Asaas; aplicar o resultado do Asaas aqui cancelaria ou bloquearia quem esta em dia (caso Thais).
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { subscriptionProvider: true } });
+    if (owner?.subscriptionProvider === 'revenuecat') {
+      throw new BadRequestException('Este aluno paga pela loja (Google Play ou App Store): o status vem da loja, nao do Asaas, e verificar o Asaas aqui nao se aplica. Se ele tiver assinatura ou cobranca antiga no Asaas, cancele-a no painel do Asaas.');
+    }
     const billing = await this.prisma.billingSubscription.findUnique({ where: { userId } });
     if (!billing?.externalSubscriptionId) {
       throw new BadRequestException('Este aluno nao tem uma assinatura Asaas vinculada para verificar. Gere um link de pagamento primeiro.');

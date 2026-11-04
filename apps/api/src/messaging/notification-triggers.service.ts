@@ -101,9 +101,12 @@ export class NotificationTriggersService {
     id: string;
     name: string;
     subscriptionStatus: string;
+    subscriptionProvider?: string | null;
     billingSubscription?: { checkoutUrl: string | null } | null;
   }) {
     if (student.subscriptionStatus !== 'pending' && student.subscriptionStatus !== 'overdue') return;
+    // 04/11/2026 (caso Thais): quem paga pela loja nao recebe o aviso de cobranca do Asaas (o link do Asaas nao se aplica a ela).
+    if (student.subscriptionProvider === 'revenuecat') return;
     if (await this.messaging.hasRecentTriggerMessage(student.id, 'payment_pending', REMINDER_COOLDOWN_DAYS)) return;
 
     const checkoutUrl = student.billingSubscription?.checkoutUrl;
