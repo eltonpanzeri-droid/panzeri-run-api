@@ -105,10 +105,21 @@ export function pendingNotes(counters: SyncCounters): string[] {
   return notes;
 }
 
-export function messageFor(outcome: SyncOutcome, counters: SyncCounters): { text: string; ok: boolean } {
+// 04/11/2026 (caso Andreia: "55 registros de saude" e nenhum treino, sem a aluna ser avisada): quando entram dados de saude mas NENHUM treino (nem novo, nem ja importado), a mensagem diz isso e por que
+// pode ser (grupo "Treinos" nao autorizado no Panzeri Run, ou acesso a "Treinos" negado no iPhone — o iPhone nao informa qual). Nao cria dado nem altera o que e' enviado.
+export function workoutsGuidance(counters: SyncCounters, context?: { workoutsGranted: boolean }): string {
+  if (!context) return '';
+  const workoutsSeen = counters.created + counters.enriched + counters.already + counters.workoutsNotSent + counters.rejected;
+  if (workoutsSeen > 0 || counters.healthStored === 0) return '';
+  return context.workoutsGranted
+    ? ' Nenhum treino do app Saúde chegou. Confira no iPhone: Ajustes → Saúde → Acesso a dados e dispositivos → Panzeri Run → ligue "Treinos", e toque de novo.'
+    : ' Os treinos não estão autorizados: marque "Treinos" nas autorizações acima do Panzeri Run para importá-los.';
+}
+
+export function messageFor(outcome: SyncOutcome, counters: SyncCounters, context?: { workoutsGranted: boolean }): { text: string; ok: boolean } {
   switch (outcome) {
     case 'completed':
-      return { ok: true, text: `Sincronização concluída. ${summarize(counters)}.${counters.healthUnreadable > 0 ? ` ${plural(counters.healthUnreadable, 'tipo de dado do app Saúde não existe ou não pôde ser lido neste iPhone', 'tipos de dado do app Saúde não existem ou não puderam ser lidos neste iPhone')}.` : ''}` };
+      return { ok: true, text: `Sincronização concluída. ${summarize(counters)}.${workoutsGuidance(counters, context)}${counters.healthUnreadable > 0 ? ` ${plural(counters.healthUnreadable, 'tipo de dado do app Saúde não existe ou não pôde ser lido neste iPhone', 'tipos de dado do app Saúde não existem ou não puderam ser lidos neste iPhone')}.` : ''}` };
     case 'partial':
       return { ok: false, text: `Sincronização parcial. ${summarize(counters)}. Pendente: ${pendingNotes(counters).join(' ')} Toque de novo para repetir só o que falta: o que já foi importado não é duplicado.` };
     case 'no_activities':

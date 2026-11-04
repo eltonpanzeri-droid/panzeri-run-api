@@ -233,10 +233,12 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
     setMessage(null);
     const counters = emptyCounters();
     let outcome: SyncOutcome = 'completed';
+    let workoutsGranted = false;
     try {
       if (!isHealthDataAvailable()) throw new NativeReadError('Saude indisponivel');
       // So' o que o consentimento do Panzeri Run cobre: nada alem disso e' pedido ao iPhone nem lido.
       const groups = new Set([...granted].filter((id) => id === 'workouts' || HEALTH_GROUPS.includes(id)));
+      workoutsGranted = groups.has('workouts');
       setProgress('Aguardando a permissão do iPhone…');
       try {
         await requestHealthAuthorizationFor(specsForGroups(groups).map((spec) => spec.identifier), categoryIdsForGroups(groups));
@@ -288,7 +290,7 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
       setProgress(null);
       setBusy(false);
     }
-    setMessage(messageFor(outcome, counters));
+    setMessage(messageFor(outcome, counters, { workoutsGranted }));
   }
 
   const disabled = busy || saving;

@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearCompletionDraft, persistCompletionDraft, restoreCompletionDrafts } from './src/completionDraftsStorage';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Device from 'expo-device';
@@ -1495,6 +1496,8 @@ function AppInner() {
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('home');
+  // 04/11/2026: quando o relato de dor e' aberto de dentro do feedback do treino, a tela oferece "Voltar ao feedback" e volta sozinha ao enviar.
+  const [painReportFromFeedback, setPainReportFromFeedback] = useState(false);
   // Fabricante que o hub de Dispositivos abre de cara (ex.: o convite da Zepp na tela de Treinos); undefined = lista normal.
   const [devicesProvider, setDevicesProvider] = useState<string | undefined>(undefined);
   useEffect(() => { if (activeTab !== 'devices') setDevicesProvider(undefined); }, [activeTab]); // sair do hub zera o atalho
@@ -1958,7 +1961,7 @@ function AppInner() {
                 initialWeekOffset={weekTabOffset}
                 onOpenInterview={() => setActiveTab('interview')}
                 onOpenTest={() => setActiveTab(PHYSICAL_TESTS_ENABLED ? 'physicalTests' : 'week')}
-                onOpenPainReport={() => setActiveTab('painReport')}
+                onOpenPainReport={() => { setPainReportFromFeedback(true); setActiveTab('painReport'); }}
                 onOpenZepp={() => { setDevicesProvider('zepp'); setActiveTab('devices'); }}
                 onOpenRoutine={() => setActiveTab('routine')}
               />
@@ -1983,7 +1986,7 @@ function AppInner() {
                 initialArea={evolutionArea}
                 renderProgress={(focus) => <Progress accessToken={accessToken} focus={focus} />}
                 onOpenRecovery={() => setActiveTab('recovery')}
-                onOpenPainReport={() => setActiveTab('painReport')}
+                onOpenPainReport={() => { setPainReportFromFeedback(true); setActiveTab('painReport'); }}
               />
             )}
             {activeTab === 'recovery' && <RecoveryScreen accessToken={accessToken} apiUrl={API_URL} onOpenIntegrations={() => setActiveTab('devices')} />}
@@ -1997,7 +2000,7 @@ function AppInner() {
               />
             )}
             {activeTab === 'targetRace' && <TargetRaceScreen accessToken={accessToken} />}
-            {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} />}
+            {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} onBack={painReportFromFeedback ? () => { setPainReportFromFeedback(false); setActiveTab('week'); } : undefined} />}
             {activeTab === 'shoes' && <EquipmentScreen apiUrl={API_URL} accessToken={accessToken} />}
             {activeTab === 'fontes' && <ScientificSourcesScreen focusThemeIds={sourcesThemeIds} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
@@ -4212,6 +4215,24 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   // quebrada: a opcao temporaria nunca enviava a rotina modificada pra API; a opcao permanente
   // duplicava o fluxo ja existente no menu "Rotina de treinos"). Ver diagnostico 09/09.
   const [completionDrafts, setCompletionDrafts] = useState<Record<string, CompletionDraft>>({});
+  // 04/11/2026: o feedback ainda nao enviado sobrevive a troca de aba (ex.: "Relatar dor em detalhes") e a fechar o app. So' sessoes sem feedback enviado; o servidor continua mandando no que ja foi salvo.
+  const dirtyDraftIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const pending = (plan?.sessions ?? []).filter((item) => !item.completion).map((item) => item.id);
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void restoreCompletionDrafts<CompletionDraft>(pending).then((restored) => {
+      if (cancelled || Object.keys(restored).length === 0) return;
+      setCompletionDrafts((current) => ({ ...restored, ...current }));
+    });
+    return () => { cancelled = true; };
+  }, [plan]);
+  useEffect(() => {
+    dirtyDraftIds.current.forEach((id) => {
+      const draft = completionDrafts[id];
+      if (draft) void persistCompletionDraft(id, draft);
+    });
+  }, [completionDrafts]);
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   // Bug real corrigido 12/09 (Juliana, Lucelane): isLoading começa true para que a primeira
@@ -4925,6 +4946,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   }
 
   function updateCompletionDraft(session: WeekPlanSession, patch: Partial<CompletionDraft>) {
+    dirtyDraftIds.current.add(session.id);
     setCompletionDrafts((current) => ({
       ...current,
       // Base com autoload (sono/estresse) aplicado quando ainda nao ha edicao local propria —
@@ -5025,6 +5047,8 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
         ...current,
         sessions: current.sessions.map((item) => item.id === session.id ? { ...item, completion: body } : item),
       } : current);
+      dirtyDraftIds.current.delete(session.id);
+      void clearCompletionDraft(session.id);
       return true;
     } catch {
       setCompletionMessages((current) => ({ ...current, [session.id]: 'Sem conexao. Tente salvar novamente.' }));
@@ -7621,7 +7645,7 @@ const PAIN_PREVIOUS_STATUS_OPTIONS = [
   option('Continua igual', 'unchanged'),
 ];
 
-function PainReportScreen({ accessToken }: { accessToken: string }) {
+function PainReportScreen({ accessToken, onBack }: { accessToken: string; onBack?: () => void }) {
   const [regions, setRegions] = useState<string[]>([]);
   const [otherLocation, setOtherLocation] = useState('');
   const [intensity, setIntensity] = useState<number | null>(null);
@@ -7695,6 +7719,7 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
       setComment('');
       setMessage('Relato enviado. Obrigado por avisar, vamos considerar isso no seu próximo treino.');
       await loadContext();
+      if (onBack) setTimeout(onBack, 1500); // volta sozinha ao feedback do treino, que continua preenchido
     } catch {
       setMessage('Não consegui enviar o relato.');
     } finally {
@@ -7704,6 +7729,11 @@ function PainReportScreen({ accessToken }: { accessToken: string }) {
 
   return (
     <View style={styles.section}>
+      {onBack ? (
+        <Pressable style={styles.secondaryButton} onPress={onBack} accessibilityRole="button">
+          <Text style={styles.secondaryButtonText}>← Voltar ao feedback do treino</Text>
+        </Pressable>
+      ) : null}
       <Text style={styles.sectionLabel}>Relatar dor</Text>
       <Text style={styles.titleSmall}>Conte para a gente o que você esta sentindo</Text>
       <Text style={styles.copyTight}>Use isto quando tiver uma dor que te preocupe ou incomode mais do que o normal. Para dor leve do dia a dia, o feedback logo após cada treino já e suficiente.</Text>
