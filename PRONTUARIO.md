@@ -3664,6 +3664,12 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Verificação no pacote**: o `.aab` 16 foi aberto e o manifesto tem 14 permissões de saúde (nenhuma das 5 retiradas; confere com `app.json`).
 - **Pendente**: respostas das duas lojas; teste do login no APK Android 1.0.3 (não feito; Elton recusou testar, risco aceito: se o Google recusar por login, investigar com o texto da recusa); o app Android da loja no celular de Elton é a versão 10 (1.0.0, de 21/10), anterior à correção do campo de senha; Deploy do app/PWA para a versão 1.0.3 aparecer no menu; avisar quando o Google ou a Apple responder.
 
+### 03/11/2026 (noite) — Passo a passo do Samsung Health no cartão do Health Connect (código pronto para o PRÓXIMO build; falha minha tê-lo deixado fora do build 1.0.3 sem avisar antes)
+- **Contexto**: o item estava decidido desde 31/10 ("passo a passo, dentro do app, para ligar o Health Connect no Samsung Health"). Antes de gerar o build 1.0.3 eu listei a Elton só três itens como "fora" (aceite do ciclo, junção das autorizações e Apple Saúde) e só citei o Samsung depois; Elton cobrou. Já o ciclo no Health Connect (Android) ficou de fora por ORDEM dele ("não coloque o ciclo no Google", 03/11), para não arriscar nova recusa.
+- **Feito** (`apps/mobile/src/healthConnect/samsungGuide.ts`, novo; `HealthConnectCard.tsx`): a frase solta de 22/10 virou um botão "Usa Galaxy Watch ou Samsung Health? Veja o passo a passo" que abre 5 passos (atualizar Samsung Health e Health Connect; Configurações → Health Connect no Samsung Health; ligar o compartilhamento; voltar e tocar em "Permitir no Android"; "Sincronizar agora") e o aviso de que os menus variam. Recolhido por padrão. O cartão do Samsung em Dispositivos e integrações abre esse mesmo cartão.
+- **Teste**: `apps/api/test/samsung-health-guide.spec.ts` (4); `tsc` do app limpo. **NÃO validado em Galaxy Watch real** (Elton não tem aparelho Samsung): os nomes de menu seguem o que já estava no app e o texto avisa que podem variar; vale uma aluna com Samsung conferir.
+- **Onde chega**: PWA e navegador com o Deploy do app; app nativo SÓ no próximo build (não está no 1.0.3 já enviado às lojas).
+
 ## BACKLOG DO PRÓXIMO BUILD (Play Store + Apple) — registro vivo (criado em 31/10/2026, por ordem de Elton)
 
 **Regras de processo (Elton, 31/10/2026 — valem para toda implementação nova):**

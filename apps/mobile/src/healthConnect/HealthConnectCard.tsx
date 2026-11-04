@@ -7,6 +7,7 @@ import { HealthConnectConsent } from './HealthConnectConsent';
 import { createNativeHealthConnectGateway } from './gateway';
 import { disableBackgroundSync, enableBackgroundSync, isBackgroundSyncRegistered } from './backgroundTask';
 import { useHealthConnectSync } from './useHealthConnect';
+import { SAMSUNG_HEALTH_NOTE, SAMSUNG_HEALTH_STEPS, SAMSUNG_HEALTH_TITLE } from './samsungGuide';
 
 // Tela do Health Connect dentro de "Dispositivos e integracoes". Conectar pede a autorizacao ao Android; Sincronizar agora le e envia; Desconectar para
 // novas leituras (o historico ja' importado NAO e' apagado). Textos objetivos, sem prometer marca especifica.
@@ -16,6 +17,7 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [samsungOpen, setSamsungOpen] = useState(false);
   // Leitura em segundo plano: 'on' = acesso do Android concedido E tarefa registrada.
   const [background, setBackground] = useState<'unknown' | 'on' | 'off'>('unknown');
   const mounted = useRef(true);
@@ -119,7 +121,16 @@ export function HealthConnectCard({ accessToken, apiUrl }: { accessToken: string
       <Text style={styles.hint}>{last ? `Última sincronização: ${last}` : 'Nenhuma sincronização concluída ainda.'}</Text>
       {note ? <Text style={styles.hint}>{note}</Text> : null}
       {status === 'unavailable' ? <Text style={styles.hint}>Instale ou atualize o Health Connect na Google Play para usar esta integração.</Text> : null}
-      <Text style={styles.hint}>Usa Galaxy Watch ou Samsung Health? No app Samsung Health, abra Configurações → Health Connect e ligue o compartilhamento dos dados. Sem isso o Health Connect fica vazio.</Text>
+      <Pressable onPress={() => setSamsungOpen((open) => !open)} accessibilityRole="button" accessibilityState={{ expanded: samsungOpen }}>
+        <Text style={styles.secondaryText}>{samsungOpen ? 'Ocultar o passo a passo do Samsung Health' : 'Usa Galaxy Watch ou Samsung Health? Veja o passo a passo'}</Text>
+      </Pressable>
+      {samsungOpen ? (
+        <View style={{ gap: 6 }}>
+          <Text style={[styles.hint, { fontWeight: '800' }]}>{SAMSUNG_HEALTH_TITLE}</Text>
+          {SAMSUNG_HEALTH_STEPS.map((step, index) => <Text key={index} style={styles.hint}>{`${index + 1}. ${step}`}</Text>)}
+          <Text style={styles.hint}>{SAMSUNG_HEALTH_NOTE}</Text>
+        </View>
+      ) : null}
       {status === 'insufficient_permissions' ? <Text style={styles.hint}>Permita no Android a leitura dos dados que você autorizou abaixo para que cheguem ao Panzeri Run.</Text> : null}
       {status === 'needs_consent' ? <Text style={styles.hint}>Escolha abaixo o que você quer compartilhar. Só depois disso o Android pede as permissões.</Text> : null}
       {status === 'error' ? <Text style={styles.hint}>Não foi possível sincronizar agora. Suas atividades não foram perdidas; tente novamente.</Text> : null}
