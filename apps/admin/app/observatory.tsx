@@ -69,7 +69,7 @@ const addDays = (date: string, days: number) => new Date(new Date(`${date}T12:00
 const dayDiff = (a: string, b: string) => Math.round((new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000);
 const dmy = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 const dm = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
-const emptyFilters = (): Filters => ({ from: addDays(localToday(), -(26 * 7 - 1)), to: localToday(), volumeBands: [], ageBands: [], strengthBands: [], sexes: [], mode: 'cross', groupBy: 'volume', includeZeroWeeks: false });
+const emptyFilters = (): Filters => ({ from: '2026-08-01', to: localToday(), volumeBands: [], ageBands: [], strengthBands: [], sexes: [], mode: 'cross', groupBy: 'volume', includeZeroWeeks: true });
 const paceText = (seconds: number | null | undefined) => (seconds == null ? '—' : `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}/km`);
 const signed = (value: number | null | undefined) => (value == null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value)} s/km`);
 
@@ -77,7 +77,7 @@ function toQuery(f: Filters): string {
   const params = new URLSearchParams();
   const put = (key: string, value: string | string[]) => { const text = Array.isArray(value) ? value.join(',') : value; if (text) params.set(key, text); };
   put('from', f.from); put('to', f.to); put('volumeBands', f.volumeBands); put('ageBands', f.ageBands); put('strengthBands', f.strengthBands); put('sexes', f.sexes);
-  put('mode', f.mode); put('groupBy', f.groupBy); if (f.includeZeroWeeks) params.set('includeZeroWeeks', 'true');
+  put('mode', f.mode); put('groupBy', f.groupBy); if (!f.includeZeroWeeks) params.set('includeZeroWeeks', 'false');
   return params.toString();
 }
 
@@ -227,7 +227,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   addList('Idade', applied.ageBands, AGE_OPTIONS, (n) => ({ ...applied, ageBands: n }));
   addList('Força', applied.strengthBands, STRENGTH_OPTIONS, (n) => ({ ...applied, strengthBands: n }));
   addList('Sexo', applied.sexes, SEX_OPTIONS, (n) => ({ ...applied, sexes: n }));
-  if (applied.includeZeroWeeks) chips.push({ key: 'zero', group: 'Semanas', text: 'com semanas sem treino (0 km)', remove: () => commit({ ...applied, includeZeroWeeks: false }) });
+  if (!applied.includeZeroWeeks) chips.push({ key: 'zero', group: 'Semanas', text: 'sem as semanas sem treino', remove: () => commit({ ...applied, includeZeroWeeks: true }) });
   const clearAll = () => commit({ ...emptyFilters(), from: applied.from, to: applied.to, mode: applied.mode, groupBy: applied.groupBy });
   const days = dayDiff(applied.from, applied.to) + 1;
   const r = result;
@@ -325,7 +325,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                 <Kpi icon={<Users size={16} />} label="Participantes" value={r.overview.participants} hint="alunas distintas com semanas completas no recorte" />
                 <Kpi icon={<Activity size={16} />} label="Treinos de corrida" value={r.overview.trainings} hint="eventos físicos deduplicados, só corrida" />
                 <Kpi icon={<Gauge size={16} />} label="Quilômetros" value={r.overview.km} suffix="km" hint="soma dos treinos de corrida elegíveis" />
-                <Kpi icon={<CalendarDays size={16} />} label="Semanas completas" value={r.overview.weeks.complete} hint={`participantes-semanas · ${nf(r.overview.weeks.incomplete)} incompletas e ${nf(r.overview.weeks.noData)} sem dados ficaram fora`} />
+                <Kpi icon={<CalendarDays size={16} />} label="Semanas completas" value={r.overview.weeks.complete} hint={`semanas de segunda a domingo, de ${r.period.from.split('-').reverse().join('/')} a ${r.period.to.split('-').reverse().join('/')} · a semana atual fica de fora`} />
               </div>
               <Card wide title="Distribuição do volume semanal" subtitle="Participantes-semanas por faixa de km semanal (semana completa, segunda a domingo, data de execução)">
                 <Columns data={volumeColumns} unit="participantes-semanas" emptyTitle="Sem semanas completas" emptyText="Nenhuma faixa tem participantes suficientes neste recorte." />
@@ -456,7 +456,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
           <ChipGroup label="Faixa etária" options={AGE_OPTIONS} selected={draft.ageBands} onChange={(n) => patch({ ageBands: n })} showCount={false} />
           <ChipGroup label="Treinos de força na semana" options={STRENGTH_OPTIONS} selected={draft.strengthBands} onChange={(n) => patch({ strengthBands: n })} showCount={false} />
           <ChipGroup label="Sexo (quando informado)" options={SEX_OPTIONS} selected={draft.sexes} onChange={(n) => patch({ sexes: n })} showCount={false} />
-          <label className="eqSwitch obsCheck"><input type="checkbox" checked={draft.includeZeroWeeks} onChange={(e) => patch({ includeZeroWeeks: e.target.checked })} /><span>Contar semanas sem treino registrado como 0 km (por padrão ficam fora: não dá para saber se foi descanso ou falta de sincronização)</span></label>
+          <label className="eqSwitch obsCheck"><input type="checkbox" checked={draft.includeZeroWeeks} onChange={(e) => patch({ includeZeroWeeks: e.target.checked })} /><span>Contar semanas sem treino registrado como 0 km (entre a primeira e a última semana com treino da aluna)</span></label>
           <p className="eqFine">Na evolução de grupos fixos, o filtro de força não se aplica; faixa de rodagem refere-se à linha de base.</p>
         </SheetFrame>
       ) : null}

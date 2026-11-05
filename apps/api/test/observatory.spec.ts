@@ -367,6 +367,15 @@ describe('Correções da revisão independente', () => {
   });
   it('filtros repetidos na query e período máximo de 2 anos', () => {
     expect(parseObservatoryFilters({ volumeBands: ['v1', 'v2'] as unknown as string }, today).volumeBands).toEqual(['v1', 'v2']);
-    expect(() => parseObservatoryFilters({ from: '2023-01-01', to: '2026-10-01' }, today)).toThrow();
+    // 05/11/2026 (regra do Elton): nunca antes de 01/08/2026, semanas inteiras de segunda a domingo e a semana atual fora; semana sem treino conta como 0 km por padrao.
+    const d = parseObservatoryFilters({}, '2026-11-05'); // quinta-feira
+    expect(d).toMatchObject({ from: '2026-08-03', to: '2026-11-01', includeZeroWeeks: true });
+    expect(parseObservatoryFilters({ from: '2023-01-01' }, '2026-11-05').from).toBe('2026-08-03'); // antes de 01/08 e' cortado (01/08 e' sabado: a primeira semana inteira comeca na segunda 03/08)
+    expect(parseObservatoryFilters({ from: '2026-08-10' }, '2026-11-05').from).toBe('2026-08-10');
+    expect(parseObservatoryFilters({ to: '2026-11-04' }, '2026-11-05').to).toBe('2026-11-01'); // quarta: so' a semana inteira anterior
+    expect(parseObservatoryFilters({ to: '2026-09-13' }, '2026-11-05').to).toBe('2026-09-13'); // domingo: fecha a semana
+    expect(parseObservatoryFilters({ to: '2026-12-31' }, '2026-11-05').to).toBe('2026-11-01'); // futuro/semana atual nunca entram
+    expect(parseObservatoryFilters({ includeZeroWeeks: 'false' }, '2026-11-05').includeZeroWeeks).toBe(false);
+    expect(() => parseObservatoryFilters({}, '2026-08-05')).toThrow(); // ainda nao ha semana encerrada desde 01/08
   });
 });

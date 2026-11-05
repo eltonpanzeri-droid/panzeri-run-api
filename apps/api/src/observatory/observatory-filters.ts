@@ -1,9 +1,12 @@
 import { BadRequestException } from '@nestjs/common';
-import { AGE_BANDS, STRENGTH_BANDS, VOLUME_BANDS, addDays } from './observatory-core';
+import { AGE_BANDS, STRENGTH_BANDS, VOLUME_BANDS, addDays, weekStartOf } from './observatory-core';
 import type { ObsFilters, ObsGroupBy } from './observatory.types';
 
 // Observatorio (24/10/2026) — leitura e validacao dos filtros (query string). Piso provisorio de 5 participantes distintos por celula divulgada.
 export const DEFAULT_MIN_PARTICIPANTS = 5;
+// Regra do Elton (05/11/2026): os dados comecam em 01/08/2026 e QUALQUER calculo usa so' semanas corridas (segunda a domingo, inteiras e ja' encerradas) desde essa data. A semana atual fica
+// sempre de fora e nenhuma semana e' descartada por ser "incompleta" ou "sem dados" (semana sem treino entre a primeira e a ultima da aluna conta como 0 km).
+export const OBSERVATORY_DATA_START = '2026-08-01';
 const GROUPS: ObsGroupBy[] = ['volume', 'age', 'strength', 'sex', 'priorVolume', 'priorStrength'];
 // aceita "a,b" e tambem parametros repetidos (?x=a&x=b)
 const list = (value: unknown): string[] => {
@@ -15,10 +18,14 @@ const isDay = (value: unknown): value is string => typeof value === 'string' && 
 export function parseObservatoryFilters(query: Record<string, string | undefined>, today: string): ObsFilters {
   if (query.to !== undefined && query.to !== '' && !isDay(query.to)) throw new BadRequestException('Data final inválida (use AAAA-MM-DD).');
   if (query.from !== undefined && query.from !== '' && !isDay(query.from)) throw new BadRequestException('Data inicial inválida (use AAAA-MM-DD).');
+  // Periodo SEMPRE alinhado a semanas inteiras: inicio na segunda-feira (a partir de 01/08/2026), fim no domingo da ultima semana encerrada (a semana atual nunca entra).
   const requestedTo = query.to || today;
-  const to = requestedTo > today ? today : requestedTo;
-  const from = query.from || addDays(to, -(26 * 7 - 1)); // 26 semanas por padrao
-  if (from > to) throw new BadRequestException('A data inicial não pode ser depois da data final.');
+  const lastClosedSunday = addDays(weekStartOf(today), -1);
+  const cappedTo = requestedTo > lastClosedSunday ? lastClosedSunday : requestedTo;
+  const to = addDays(weekStartOf(cappedTo), 6) === cappedTo ? cappedTo : addDays(weekStartOf(cappedTo), -1);
+  const requestedFrom = query.from && query.from > OBSERVATORY_DATA_START ? query.from : OBSERVATORY_DATA_START;
+  const from = weekStartOf(requestedFrom) === requestedFrom ? requestedFrom : addDays(weekStartOf(requestedFrom), 7);
+  if (from > to) throw new BadRequestException('Ainda não há semanas completas no período escolhido (a semana atual fica de fora).');
   if ((new Date(to).getTime() - new Date(from).getTime()) / 86_400_000 > 730) throw new BadRequestException('Período longo demais (máximo de 2 anos por consulta).');
   const known = (ids: string[], valid: string[], label: string) => { const bad = ids.filter((id) => !valid.includes(id)); if (bad.length) throw new BadRequestException(`${label} inválida: ${bad.join(', ')}.`); return ids; };
   const groupBy = (query.groupBy as ObsGroupBy | undefined) ?? 'volume';
@@ -33,6 +40,6 @@ export function parseObservatoryFilters(query: Record<string, string | undefined
     ageBands: known(list(query.ageBands), [...AGE_BANDS.map((b) => b.id), 'unk'], 'Faixa etária'),
     strengthBands: known(list(query.strengthBands), STRENGTH_BANDS.map((b) => b.id), 'Faixa de força'),
     sexes: known(list(query.sexes), ['F', 'M', 'other', 'unknown'], 'Sexo'),
-    mode, groupBy, includeZeroWeeks: query.includeZeroWeeks === 'true', minParticipants,
+    mode, groupBy, includeZeroWeeks: query.includeZeroWeeks !== 'false', minParticipants,
   };
 }
