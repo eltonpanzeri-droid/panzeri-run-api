@@ -66,6 +66,8 @@ export const gymExerciseLibrary: GymExercise[] = [
   item('flexao-braco', 'Flexao de Braco', 'peito', press, 'intermediate'),
   item('pulley-pronado', 'Pulley Anterior Pronado', 'costas', pull),
   item('pulley-supinado', 'Pulley Anterior Supinado', 'costas', pull),
+  item('barra-fixa-supinada', 'Barra Fixa Supinada', 'costas', pull, 'intermediate'),
+  item('barra-fixa-pronada-aberta', 'Barra Fixa Pronada Aberta', 'costas', pull, 'intermediate'),
   item('remada-baixa-pronada', 'Remada Baixa Polia Pronada', 'costas', pull),
   item('remada-baixa-supinada', 'Remada Baixa Polia Supinada', 'costas', pull),
   item('remada-curvada-barra', 'Remada Curvada Barra', 'costas', pull, 'advanced'),
