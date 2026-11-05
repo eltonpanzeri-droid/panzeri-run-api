@@ -79,38 +79,43 @@ describe('ActivityNotificationService.notifyReconciliation', () => {
     expect(push.send).toHaveBeenCalledTimes(1);
   });
 
-  // 05/11/2026 — Apple Saude e Health Connect passaram a avisar; como trazem historico de ate 3 anos, so' avisam de treino recente e que a aluna ainda nao comentou.
+  // 05/11/2026 — Apple Saude e Health Connect passaram a avisar; como trazem historico de ate 3 anos, so' avisam de treino da SEMANA ATUAL (segunda a domingo, Brasilia) e que a aluna ainda nao comentou.
   describe('opcoes dos canais com historico (Apple Saude / Health Connect)', () => {
-    const opts = { maxAgeDays: 3, skipIfFeedbackGiven: true };
-    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+    const opts = { currentWeekOnly: true, skipIfFeedbackGiven: true };
+    // Hoje fixo: quinta-feira 05/11/2026 (a semana atual comeca na segunda 02/11). So' o Date e' simulado.
+    beforeAll(() => { jest.useFakeTimers({ now: new Date('2026-11-05T15:00:00Z'), doNotFake: ['nextTick', 'setImmediate', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval', 'clearImmediate', 'queueMicrotask', 'performance', 'hrtime'] }); });
+    afterAll(() => { jest.useRealTimers(); });
+    const at = (iso: string) => new Date(iso);
 
-    it('treino de ontem sem feedback: avisa com o atalho para o feedback da sessao', async () => {
-      const { service, prisma, push } = build({ startedAt: daysAgo(1) });
+    it('treino de segunda desta semana sem feedback: avisa com o atalho para o feedback da sessao', async () => {
+      const { service, prisma, push } = build({ startedAt: at('2026-11-02T12:00:00Z') });
       await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(true);
       expect(prisma.userNotification.create.mock.calls[0][0].data).toMatchObject({ action: 'training_feedback:sess-30km' });
       expect(push.send).toHaveBeenCalledTimes(1);
     });
 
-    it('historico antigo (4 dias ou mais) nao avisa: a primeira sincronizacao nao vira enxurrada', async () => {
-      const { service, prisma, push } = build({ startedAt: daysAgo(40) });
-      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(false);
-      expect(prisma.userNotification.create).not.toHaveBeenCalled();
-      expect(push.send).not.toHaveBeenCalled();
+    it('domingo da semana passada e historico antigo nao avisam: a primeira sincronizacao nao vira enxurrada', async () => {
+      for (const startedAt of [at('2026-11-01T20:00:00Z'), at('2026-10-05T12:00:00Z'), at('2023-11-05T12:00:00Z')]) {
+        const { service, prisma, push } = build({ startedAt });
+        await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(false);
+        expect(prisma.userNotification.create).not.toHaveBeenCalled();
+        expect(push.send).not.toHaveBeenCalled();
+      }
     });
 
     it('feedback que a aluna ja escreveu: nao cobra de novo', async () => {
-      const { service, prisma } = build({ startedAt: daysAgo(0), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', perceivedEffort: 7, notes: 'cansada' } });
+      const { service, prisma } = build({ startedAt: at('2026-11-05T12:00:00Z'), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', perceivedEffort: 7, notes: 'cansada' } });
       await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(false);
       expect(prisma.userNotification.create).not.toHaveBeenCalled();
     });
 
     it('registro so com campos automaticos (sem conteudo da aluna) continua sendo cobrado', async () => {
-      const { service } = build({ startedAt: daysAgo(0), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', completedAt: new Date(), distanceKm: 6.6, durationMin: 40, source: 'device' } });
+      const { service } = build({ startedAt: at('2026-11-05T12:00:00Z'), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', completedAt: new Date(), distanceKm: 6.6, durationMin: 40, source: 'device' } });
       await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(true);
     });
 
     it('sem opcoes o comportamento dos outros provedores nao muda (avisa mesmo com atividade antiga)', async () => {
-      const { service } = build({ startedAt: daysAgo(400) });
+      const { service } = build({ startedAt: at('2025-01-05T12:00:00Z') });
       await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding')).resolves.toBe(true);
     });
   });

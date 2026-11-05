@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { completionHasStudentContent } from './session-execution-link.service';
+import { activityLocalDate } from '../common/local-date';
+import { weekStartOf } from './correction-hooks';
 
 // Notificacao pos-sincronizacao (03/10/2026). Canonica e provider-agnostica: qualquer adapter que
 // termina o pipeline (ingestao -> classify) chama isto com o resultado da reconciliacao. Reutiliza
@@ -22,15 +24,15 @@ export class ActivityNotificationService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  // options (05/11/2026, Apple Saude e Health Connect): esses canais trazem HISTORICO de ate' 3 anos na primeira sincronizacao, entao so' avisa de treino RECENTE (maxAgeDays) e nunca cobra
+  // options (05/11/2026, Apple Saude e Health Connect): esses canais trazem HISTORICO de ate' 3 anos na primeira sincronizacao, entao so' avisa de treino da SEMANA ATUAL (segunda a domingo, horario de Brasilia; currentWeekOnly) e nunca cobra
   // feedback que a aluna ja' registrou (skipIfFeedbackGiven: feedback com conteudo dela, nao o sintetico). Sem options o comportamento e' o de sempre (Polar, Zepp, COROS, Wahoo).
-  async notifyReconciliation(userId: string, activityLogId: string, classification: string | null, options: { maxAgeDays?: number; skipIfFeedbackGiven?: boolean } = {}): Promise<boolean> {
+  async notifyReconciliation(userId: string, activityLogId: string, classification: string | null, options: { currentWeekOnly?: boolean; skipIfFeedbackGiven?: boolean } = {}): Promise<boolean> {
     if (!classification) return false;
     const activity = await this.prisma.activityLog.findUnique({
       where: { id: activityLogId },
-      select: { id: true, startedAt: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
+      select: { id: true, startedAt: true, utcOffsetMinutes: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
     });
-    if (options.maxAgeDays != null && activity?.startedAt && Date.now() - activity.startedAt.getTime() > options.maxAgeDays * 86_400_000) return false;
+    if (options.currentWeekOnly && activity?.startedAt && weekStartOf(activityLocalDate(activity.startedAt, activity.utcOffsetMinutes)) !== weekStartOf(activityLocalDate(new Date()))) return false;
     const isEvent = activity?.physicalIdentityStatus === 'matched' && Boolean(activity.physicalEventId);
     // Observacao nao-canonica de um evento: quem origina a notificacao e' a canonica.
     if (isEvent && activity!.physicalCanonicalActivityLogId && activity!.physicalCanonicalActivityLogId !== activityLogId) return false;

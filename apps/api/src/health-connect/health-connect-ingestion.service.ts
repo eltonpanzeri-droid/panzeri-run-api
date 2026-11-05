@@ -132,10 +132,10 @@ export class HealthConnectIngestionService {
       this.logger.warn(`Falha ao classificar atividade Health Connect ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }
     await this.sessionExecutionLink?.reconcileAffectedByIdentity(identity, activityLogId);
-    // So' treino NOVO e RECENTE (a primeira sincronizacao traz historico) e que a aluna ainda nao comentou; o aviso e' idempotente por evento+transicao. Melhor esforco.
+    // So' treino NOVO e da SEMANA ATUAL (a primeira sincronizacao traz historico) e que a aluna ainda nao comentou; o aviso e' idempotente por evento+transicao. Melhor esforco.
     if (status === 'created') {
       try {
-        await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { maxAgeDays: 3, skipIfFeedbackGiven: true });
+        await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { currentWeekOnly: true, skipIfFeedbackGiven: true });
       } catch (error) {
         this.logger.warn(`Falha ao avisar treino sincronizado ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
       }

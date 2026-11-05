@@ -85,10 +85,10 @@ export class AppleHealthIngestionService {
     }
   }
 
-  // So' treino NOVO e RECENTE (o historico de ate' 3 anos entra na primeira sincronizacao e nao pode virar uma enxurrada de avisos); nunca cobra feedback ja' registrado. Melhor esforco.
+  // So' treino NOVO e da SEMANA ATUAL (o historico de ate' 3 anos entra na primeira sincronizacao e nao pode virar uma enxurrada de avisos); nunca cobra feedback ja' registrado. Melhor esforco.
   private async notifySyncedWorkout(userId: string, activityLogId: string, classification: string | null): Promise<void> {
     try {
-      await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { maxAgeDays: 3, skipIfFeedbackGiven: true });
+      await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { currentWeekOnly: true, skipIfFeedbackGiven: true });
     } catch (error) {
       this.logger.warn(`Falha ao avisar treino sincronizado ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }

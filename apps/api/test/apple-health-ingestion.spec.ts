@@ -262,7 +262,7 @@ describe('AppleHealthIngestionService', () => {
       const { service } = buildService({ identity, notify, classification: 'corresponding' });
       await service.importWorkouts('user-1', { workouts: [workout()] });
       expect(notify).toHaveBeenCalledTimes(1);
-      expect(notify).toHaveBeenCalledWith('user-1', expect.any(String), 'corresponding', { maxAgeDays: 3, skipIfFeedbackGiven: true });
+      expect(notify).toHaveBeenCalledWith('user-1', expect.any(String), 'corresponding', { currentWeekOnly: true, skipIfFeedbackGiven: true });
     });
 
     it('reenvio do mesmo treino e copia regravada (ja importado) nao avisam de novo', async () => {
