@@ -12,7 +12,7 @@ import StudentIntegrations from './student-integrations';
 import StudentTrainingLoad from './student-training-load';
 import AiCostSection from './ai-cost';
 import { EXCLUSION_REASON_LABEL } from './exclusion-reasons';
-import EquipmentIntelligence from './equipment-intelligence';
+import EquipmentArea from './equipment-area';
 import Observatory from './observatory';
 import StudentAvatar from './student-avatar';
 import type { CalendarSession } from './student-calendar';
@@ -2061,7 +2061,7 @@ export default function AdminHome() {
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} accessToken={token} /> : null}
 
-        {activeView === 'equipment' ? <EquipmentIntelligence accessToken={token} apiUrl={API_URL} /> : null}
+        {activeView === 'equipment' ? <EquipmentArea accessToken={token} apiUrl={API_URL} /> : null}
         {activeView === 'observatory' ? <Observatory accessToken={token} apiUrl={API_URL} /> : null}
 
         {activeView === 'raceCalendar' ? <RaceCalendarView races={raceCalendar} loading={loadingRaceCalendar} onRefresh={() => loadRaceCalendar()} /> : null}
