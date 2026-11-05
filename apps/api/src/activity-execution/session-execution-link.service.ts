@@ -252,7 +252,7 @@ export function localCalendarDate(startedAt: Date, utcOffsetMinutes: number | nu
 // Campos de WorkoutCompletion que a sessao sintetica (atividade extra materializada) ja' tem por si so'. Qualquer OUTRO campo preenchido e'
 // conteudo do aluno (esforco, notas, comportamento, dor, estado pre-treino...) e nunca pode ser descartado.
 const SYNTHETIC_COMPLETION_FIELDS = new Set(['id', 'sessionId', 'userId', 'status', 'completedAt', 'distanceKm', 'durationMin', 'avgHeartRate', 'maxHeartRate', 'source', 'createdAt', 'updatedAt']);
-function completionHasStudentContent(completion: Record<string, unknown>): boolean {
+export function completionHasStudentContent(completion: Record<string, unknown>): boolean {
   return Object.entries(completion).some(([key, value]) => !SYNTHETIC_COMPLETION_FIELDS.has(key) && value != null && value !== '' && value !== false && !(Array.isArray(value) && value.length === 0));
 }
 

@@ -106,7 +106,7 @@ describe('normalizeAppleHealthWorkout', () => {
 });
 
 // Banco em memoria com a mesma chave unica (provider, userId, externalId) do schema.
-function buildService(options: { failFirstCreateWithP2002?: boolean; consent?: { mode: 'legacy' | 'recorded' | 'blocked'; allowed: string[] }; failRouteWriteFor?: string[]; identity?: unknown } = {}) {
+function buildService(options: { failFirstCreateWithP2002?: boolean; consent?: { mode: 'legacy' | 'recorded' | 'blocked'; allowed: string[] }; failRouteWriteFor?: string[]; identity?: unknown; notify?: jest.Mock; classification?: string | null } = {}) {
   const points: Array<Record<string, unknown>> = [];
   const failRoutes = new Set(options.failRouteWriteFor ?? []);
   const raws = new Map<string, { id: string; userId: string; payload: unknown; payloadSchemaVersion?: string; ingestionMeta?: unknown }>();
@@ -161,8 +161,9 @@ function buildService(options: { failFirstCreateWithP2002?: boolean; consent?: {
   };
   const access = options.consent ? { mode: options.consent.mode, allowed: new Set(options.consent.allowed) } : null;
   const consent = access ? { access: jest.fn(async () => access), writeWhileAuthorized: jest.fn(async (_user: string, write: (t: typeof tx, a: typeof access) => Promise<unknown>) => write(tx, access)) } : undefined;
-  const link = options.identity ? { reconcileEvent: jest.fn(async () => ({})), reconcileAffectedByIdentity: jest.fn(async () => undefined) } : undefined;
-  return { service: new AppleHealthIngestionService(prisma as never, options.identity as never, link as never, undefined, consent as never), raws, logs, tx, prisma, points, consent, failRoutes };
+  const link = options.identity ? { reconcileEvent: jest.fn(async () => ({ classification: options.classification ?? null })), reconcileAffectedByIdentity: jest.fn(async () => undefined) } : undefined;
+  const notifications = options.notify ? { notifyReconciliation: options.notify } : undefined;
+  return { service: new AppleHealthIngestionService(prisma as never, options.identity as never, link as never, undefined, consent as never, notifications as never), raws, logs, tx, prisma, points, consent, failRoutes };
 }
 
 describe('AppleHealthIngestionService', () => {
@@ -249,6 +250,36 @@ describe('AppleHealthIngestionService', () => {
       await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
       await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: UUID_B, distanceMeters: 9000 })] });
       expect(logs.size).toBe(2);
+    });
+  });
+
+  // 05/11/2026 — o Apple Saude passou a avisar "seu treino foi sincronizado" (como Polar/Zepp/COROS/Wahoo), so' para treino NOVO, com o resultado da reconciliacao.
+  describe('aviso de treino sincronizado', () => {
+    const identity = { evaluateSafely: jest.fn(async () => ({ affectedActivityLogIds: [] })) };
+
+    it('treino novo: avisa uma vez com a classificacao da reconciliacao e as opcoes de historico', async () => {
+      const notify = jest.fn(async () => true);
+      const { service } = buildService({ identity, notify, classification: 'corresponding' });
+      await service.importWorkouts('user-1', { workouts: [workout()] });
+      expect(notify).toHaveBeenCalledTimes(1);
+      expect(notify).toHaveBeenCalledWith('user-1', expect.any(String), 'corresponding', { maxAgeDays: 3, skipIfFeedbackGiven: true });
+    });
+
+    it('reenvio do mesmo treino e copia regravada (ja importado) nao avisam de novo', async () => {
+      const notify = jest.fn(async () => true);
+      const { service } = buildService({ identity, notify, classification: 'corresponding' });
+      await service.importWorkouts('user-1', { workouts: [workout()] });
+      await service.importWorkouts('user-1', { workouts: [workout()] });
+      await service.importWorkouts('user-1', { workouts: [workout({ uuid: UUID_B })] }); // mesma origem, inicio e duracao: regravacao
+      expect(notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('falha ao avisar nunca derruba a importacao', async () => {
+      const notify = jest.fn(async () => { throw new Error('push fora do ar'); });
+      const { service, logs } = buildService({ identity, notify, classification: 'corresponding' });
+      const result = await service.importWorkouts('user-1', { workouts: [workout()] });
+      expect(result).toMatchObject({ created: 1, rejected: 0 });
+      expect(logs.size).toBe(1);
     });
   });
 

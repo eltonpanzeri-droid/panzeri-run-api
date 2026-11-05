@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { completionHasStudentContent } from './session-execution-link.service';
 
 // Notificacao pos-sincronizacao (03/10/2026). Canonica e provider-agnostica: qualquer adapter que
 // termina o pipeline (ingestao -> classify) chama isto com o resultado da reconciliacao. Reutiliza
@@ -21,17 +22,24 @@ export class ActivityNotificationService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async notifyReconciliation(userId: string, activityLogId: string, classification: string | null): Promise<boolean> {
+  // options (05/11/2026, Apple Saude e Health Connect): esses canais trazem HISTORICO de ate' 3 anos na primeira sincronizacao, entao so' avisa de treino RECENTE (maxAgeDays) e nunca cobra
+  // feedback que a aluna ja' registrou (skipIfFeedbackGiven: feedback com conteudo dela, nao o sintetico). Sem options o comportamento e' o de sempre (Polar, Zepp, COROS, Wahoo).
+  async notifyReconciliation(userId: string, activityLogId: string, classification: string | null, options: { maxAgeDays?: number; skipIfFeedbackGiven?: boolean } = {}): Promise<boolean> {
     if (!classification) return false;
     const activity = await this.prisma.activityLog.findUnique({
       where: { id: activityLogId },
-      select: { id: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
+      select: { id: true, startedAt: true, physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true },
     });
+    if (options.maxAgeDays != null && activity?.startedAt && Date.now() - activity.startedAt.getTime() > options.maxAgeDays * 86_400_000) return false;
     const isEvent = activity?.physicalIdentityStatus === 'matched' && Boolean(activity.physicalEventId);
     // Observacao nao-canonica de um evento: quem origina a notificacao e' a canonica.
     if (isEvent && activity!.physicalCanonicalActivityLogId && activity!.physicalCanonicalActivityLogId !== activityLogId) return false;
     const copy = await this.copyFor(activityLogId, classification);
     if (!copy) return false;
+    if (options.skipIfFeedbackGiven && copy.sessionId) {
+      const completion = await this.prisma.workoutCompletion.findUnique({ where: { sessionId: copy.sessionId } });
+      if (completion && completionHasStudentContent(completion as unknown as Record<string, unknown>)) return false;
+    }
     let externalRef = `activity-reconciled:${activityLogId}:${classification}`;
     if (isEvent) {
       const transition = classification === 'corresponding' ? `corresponding:${copy.sessionId ?? 'none'}` : classification;

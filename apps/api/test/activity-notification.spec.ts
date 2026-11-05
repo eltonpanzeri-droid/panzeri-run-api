@@ -5,10 +5,11 @@ import { NotificationsService } from '../src/notifications/notifications.service
 // externalRef atividade+classificacao, exercitada com o NotificationsService REAL (so' o Prisma e o
 // push sao simulados), entao o teste prova a deduplicacao de verdade, nao uma fake.
 
-function buildPrisma(opts: { link?: { trainingSessionId: string } | null; existingNotificationRef?: boolean } = {}) {
+function buildPrisma(opts: { link?: { trainingSessionId: string } | null; existingNotificationRef?: boolean; startedAt?: Date; completion?: Record<string, unknown> | null } = {}) {
   return {
     // 3C.3: a notificacao resolve a identidade fisica da atividade; por padrao uma atividade unique (formato de chave original).
-    activityLog: { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, physicalIdentityStatus: 'unique', physicalEventId: null, physicalCanonicalActivityLogId: null })) },
+    activityLog: { findUnique: jest.fn(async ({ where }: any) => ({ id: where.id, startedAt: opts.startedAt ?? new Date(), physicalIdentityStatus: 'unique', physicalEventId: null, physicalCanonicalActivityLogId: null })) },
+    workoutCompletion: { findUnique: jest.fn().mockResolvedValue(opts.completion ?? null) },
     sessionExecutionLink: {
       findFirst: jest.fn().mockResolvedValue(opts.link === undefined ? { trainingSessionId: 'sess-30km' } : opts.link),
     },
@@ -76,6 +77,42 @@ describe('ActivityNotificationService.notifyReconciliation', () => {
     expect(second).toBe(false);
     expect(prisma.userNotification.create).toHaveBeenCalledTimes(1);
     expect(push.send).toHaveBeenCalledTimes(1);
+  });
+
+  // 05/11/2026 — Apple Saude e Health Connect passaram a avisar; como trazem historico de ate 3 anos, so' avisam de treino recente e que a aluna ainda nao comentou.
+  describe('opcoes dos canais com historico (Apple Saude / Health Connect)', () => {
+    const opts = { maxAgeDays: 3, skipIfFeedbackGiven: true };
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+    it('treino de ontem sem feedback: avisa com o atalho para o feedback da sessao', async () => {
+      const { service, prisma, push } = build({ startedAt: daysAgo(1) });
+      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(true);
+      expect(prisma.userNotification.create.mock.calls[0][0].data).toMatchObject({ action: 'training_feedback:sess-30km' });
+      expect(push.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('historico antigo (4 dias ou mais) nao avisa: a primeira sincronizacao nao vira enxurrada', async () => {
+      const { service, prisma, push } = build({ startedAt: daysAgo(40) });
+      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(false);
+      expect(prisma.userNotification.create).not.toHaveBeenCalled();
+      expect(push.send).not.toHaveBeenCalled();
+    });
+
+    it('feedback que a aluna ja escreveu: nao cobra de novo', async () => {
+      const { service, prisma } = build({ startedAt: daysAgo(0), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', perceivedEffort: 7, notes: 'cansada' } });
+      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(false);
+      expect(prisma.userNotification.create).not.toHaveBeenCalled();
+    });
+
+    it('registro so com campos automaticos (sem conteudo da aluna) continua sendo cobrado', async () => {
+      const { service } = build({ startedAt: daysAgo(0), completion: { id: 'c1', sessionId: 'sess-30km', status: 'done', completedAt: new Date(), distanceKm: 6.6, durationMin: 40, source: 'device' } });
+      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding', opts)).resolves.toBe(true);
+    });
+
+    it('sem opcoes o comportamento dos outros provedores nao muda (avisa mesmo com atividade antiga)', async () => {
+      const { service } = build({ startedAt: daysAgo(400) });
+      await expect(service.notifyReconciliation('aluno-1', 'log-1', 'corresponding')).resolves.toBe(true);
+    });
   });
 
   it('mudanca real de estado (ambiguous -> corresponding) gera nova notificacao: e outro evento', async () => {

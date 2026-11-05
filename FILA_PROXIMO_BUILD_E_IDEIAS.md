@@ -46,6 +46,8 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## B. Ideias e decisões ainda NÃO implementadas
 
+- **(05/11/2026, EM AVALIAÇÃO — não implementar sem ordem do Elton)** Tela agrupada ao abrir o Panzeri Run: "feedback pendente de N treinos" (treino sincronizado sem feedback + dia anterior sem fiz/não fiz; exceto hoje e futuros). Ideias: um aviso só, botão "Depois" até o dia seguinte, redação neutra para "não registrou", limitar à semana corrente. Sugestão da aluna Roberta. Exige build nativo (PWA no deploy). Complementa o aviso push/sino já feito para Apple Saúde e Health Connect (ver PRONTUARIO 05/11).
+
 - **03/11/2026 — A combinar com Elton (Lote 5)**: (a) alerta GENTIL por notificação quando o volume extra passar de ~50% acima da variação normal da aluna, pedindo o motivo (uma por episódio, tom de pergunta); (b) relatório do ciclo menstrual por fase (dor, sono, recuperação, desempenho, aderência, psicológico, físico), com mínimo de ciclos registrados antes de apontar padrão; (c) mostrar a leitura à aluna só após revisão de Elton e do advogado.
 
 | Data | Ideia / decisão | Estado | Observações |

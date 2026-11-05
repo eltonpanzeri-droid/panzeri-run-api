@@ -7,6 +7,7 @@ import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
 import { compareObservations, observerKeyOf, type ObservedActivity } from '../activity-execution/physical-activity-identity';
+import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
 import { ForbiddenException } from '@nestjs/common';
 import { normalizeRoutes } from '../health-connect/health-connect-route';
 import { AppleHealthConsentService, type AppleConsentAccess } from './apple-health-consent.service';
@@ -70,13 +71,26 @@ export class AppleHealthIngestionService {
     @Optional() private readonly deviceRegistry?: DeviceRegistryService,
     // Consentimento por categoria (28/10/2026). Opcional so' para testes antigos: sem ele a importacao se comporta como o modo 'legacy'.
     @Optional() private readonly consent?: AppleHealthConsentService,
+    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Apple Saude nao avisava, ao contrario de Polar/Zepp/COROS/Wahoo. Opcional so' para testes antigos.
+    @Optional() private readonly activityNotifications?: ActivityNotificationService,
   ) {}
 
-  private async reconcileSafely(activityLogId: string): Promise<void> {
+  private async reconcileSafely(activityLogId: string): Promise<string | null> {
     try {
-      await this.sessionExecutionLink?.reconcileEvent(activityLogId);
+      const result = await this.sessionExecutionLink?.reconcileEvent(activityLogId);
+      return result?.classification ?? null;
     } catch (error) {
       this.logger.warn(`Falha ao reconciliar evento fisico da atividade ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  // So' treino NOVO e RECENTE (o historico de ate' 3 anos entra na primeira sincronizacao e nao pode virar uma enxurrada de avisos); nunca cobra feedback ja' registrado. Melhor esforco.
+  private async notifySyncedWorkout(userId: string, activityLogId: string, classification: string | null): Promise<void> {
+    try {
+      await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { maxAgeDays: 3, skipIfFeedbackGiven: true });
+    } catch (error) {
+      this.logger.warn(`Falha ao avisar treino sincronizado ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -106,9 +120,10 @@ export class AppleHealthIngestionService {
         if ((item.status === 'created' || item.distanceCompleted) && item.activityLogId) {
           this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
           const identity = await this.physicalIdentity?.evaluateSafely(item.activityLogId);
-          await this.reconcileSafely(item.activityLogId);
+          const classification = await this.reconcileSafely(item.activityLogId);
           // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).
           await this.sessionExecutionLink?.reconcileAffectedByIdentity(identity, item.activityLogId);
+          if (item.status === 'created') await this.notifySyncedWorkout(userId, item.activityLogId, classification);
         }
       } catch (error) {
         // Falha de um treino nunca derruba o lote inteiro nem vaza detalhe interno ao cliente.

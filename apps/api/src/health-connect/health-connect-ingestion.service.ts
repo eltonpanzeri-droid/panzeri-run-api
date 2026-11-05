@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
 import { HealthConnectConsentService } from './health-connect-consent.service';
 import { HEALTH_CONNECT_CHANNEL, HEALTH_CONNECT_PAYLOAD_SCHEMA, HEALTH_CONNECT_PROVIDER, normalizeHealthConnectExercise, NormalizedHealthConnectExercise } from './health-connect-normalizer';
 
@@ -65,6 +66,8 @@ export class HealthConnectIngestionService {
     private readonly consent?: HealthConnectConsentService,
     // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
     @Optional() private readonly deviceRegistry?: DeviceRegistryService,
+    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Health Connect nao avisava, ao contrario de Polar/Zepp/COROS/Wahoo. Opcional so' para testes antigos.
+    @Optional() private readonly activityNotifications?: ActivityNotificationService,
   ) {}
 
   async importExercises(userId: string, body: unknown): Promise<HealthConnectImportResult> {
@@ -121,13 +124,22 @@ export class HealthConnectIngestionService {
   private async afterWrite(status: 'created' | 'updated', activityLogId: string, userId: string): Promise<void> {
     this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
     const identity = await this.physicalIdentity?.evaluateSafely(activityLogId);
+    let classification: string | null = null;
     try {
-      if (status === 'created') await this.sessionExecutionLink?.classify(activityLogId);
-      else await this.sessionExecutionLink?.reconcileEvent(activityLogId);
+      if (status === 'created') classification = (await this.sessionExecutionLink?.classify(activityLogId)) ?? null;
+      else classification = (await this.sessionExecutionLink?.reconcileEvent(activityLogId))?.classification ?? null;
     } catch (error) {
       this.logger.warn(`Falha ao classificar atividade Health Connect ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
     }
     await this.sessionExecutionLink?.reconcileAffectedByIdentity(identity, activityLogId);
+    // So' treino NOVO e RECENTE (a primeira sincronizacao traz historico) e que a aluna ainda nao comentou; o aviso e' idempotente por evento+transicao. Melhor esforco.
+    if (status === 'created') {
+      try {
+        await this.activityNotifications?.notifyReconciliation(userId, activityLogId, classification, { maxAgeDays: 3, skipIfFeedbackGiven: true });
+      } catch (error) {
+        this.logger.warn(`Falha ao avisar treino sincronizado ${activityLogId}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   }
 
   private async persist(userId: string, exercise: NormalizedHealthConnectExercise): Promise<HealthConnectImportItemResult> {
