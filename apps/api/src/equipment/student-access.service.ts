@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { REVIEW_EMAIL_PREFIXES } from '../app-review/review-accounts';
+import { paymentGroupOf, type PaymentGroup } from '../coach/subscription-groups.util';
 
 // "Como cada aluna acessa" (05/11/2026, pedido do Elton). SOMENTE LEITURA. Mostra, por aluna, so' o que o servidor sabe de fato:
 //  - push: ha token de notificacao (so' o Panzeri Run instalado pela loja registra; o navegador/PWA nao);
@@ -16,6 +17,8 @@ export interface StudentAccessRow {
   studentCode: number | null;
   name: string | null;
   subscriptionStatus: string;
+  // Mesmo agrupamento do resto do painel (fonte unica): confirmed/courtesy/overdue = aluna atual; pending = prospecto; canceled = ex-aluna.
+  paymentGroup: PaymentGroup;
   accountStatus: string;
   push: boolean;
   access: StudentAccessKind;
@@ -69,7 +72,7 @@ export class StudentAccessService {
       const access = classifyAccess({ push, providers: conns.map((c) => c.provider) });
       counts[access] += 1;
       return {
-        id: s.id, studentCode: s.studentCode, name: s.name, subscriptionStatus: s.subscriptionStatus, accountStatus: s.accountStatus, push, access,
+        id: s.id, studentCode: s.studentCode, name: s.name, subscriptionStatus: s.subscriptionStatus, paymentGroup: paymentGroupOf(s.subscriptionStatus), accountStatus: s.accountStatus, push, access,
         connections: conns, activities: (activitiesOf.get(s.id) ?? []).sort((a, b) => (a.provider < b.provider ? -1 : 1)),
       };
     });

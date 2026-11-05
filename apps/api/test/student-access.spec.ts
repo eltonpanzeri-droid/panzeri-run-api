@@ -19,8 +19,8 @@ describe('StudentAccessService.run', () => {
         findMany: jest.fn().mockResolvedValue([
           { id: 'u1', name: 'Ana', studentCode: 1, subscriptionStatus: 'active', accountStatus: 'active', expoPushToken: null },
           { id: 'u2', name: 'Bia', studentCode: 2, subscriptionStatus: 'active', accountStatus: 'active', expoPushToken: 'ExponentPushToken[x]' },
-          { id: 'u3', name: 'Cris', studentCode: null, subscriptionStatus: 'manual', accountStatus: 'active', expoPushToken: null },
-          { id: 'u4', name: 'Dani', studentCode: 4, subscriptionStatus: 'active', accountStatus: 'active', expoPushToken: null },
+          { id: 'u3', name: 'Cris', studentCode: null, subscriptionStatus: 'manual_active', accountStatus: 'active', expoPushToken: null },
+          { id: 'u4', name: 'Dani', studentCode: null, subscriptionStatus: 'pending', accountStatus: 'active', expoPushToken: null },
         ]),
       },
       providerConnection: {
@@ -45,6 +45,8 @@ describe('StudentAccessService.run', () => {
     expect(byName.Bia).toMatchObject({ access: 'android', push: true, activities: [{ provider: 'health_connect', count: 7 }] });
     expect(byName.Cris).toMatchObject({ access: 'ios', activities: [] }); // conectou mas nenhuma atividade chegou: aparece vazio
     expect(byName.Ana.access).toBe('browser_probable');
+    // mesmo agrupamento do resto do painel: pagante/cortesia = aluna atual; pendente = prospecto (a tela separa)
+    expect([byName.Ana.paymentGroup, byName.Cris.paymentGroup, byName.Dani.paymentGroup]).toEqual(['confirmed', 'courtesy', 'pending']);
     expect(result.notes.join(' ')).toContain('estimativa');
   });
 

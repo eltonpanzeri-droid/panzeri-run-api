@@ -8,7 +8,7 @@ import { Copy, RefreshCw } from 'lucide-react';
 
 type Kind = 'android' | 'ios' | 'native_unknown' | 'browser_probable';
 type Row = {
-  id: string; studentCode: number | null; name: string | null; subscriptionStatus: string; accountStatus: string; push: boolean; access: Kind;
+  id: string; studentCode: number | null; name: string | null; subscriptionStatus: string; paymentGroup: 'confirmed' | 'courtesy' | 'overdue' | 'pending' | 'canceled' | 'desconhecido'; accountStatus: string; push: boolean; access: Kind;
   connections: Array<{ provider: string; lastSyncAt: string | null }>;
   activities: Array<{ provider: string; count: number; lastAt: string | null }>;
 };
@@ -16,10 +16,14 @@ type Result = { generatedAt: string; total: number; counts: Record<Kind, number>
 
 const KIND_LABEL: Record<Kind, string> = { browser_probable: 'Provavelmente só navegador', android: 'Android (Health Connect)', ios: 'iPhone (Apple Saúde)', native_unknown: 'Panzeri Run instalado, sem conexão de saúde' };
 const PROVIDER_LABEL: Record<string, string> = { health_connect: 'Health Connect', apple_health: 'Apple Saúde', polar: 'Polar', zepp: 'Zepp', coros: 'COROS', wahoo: 'Wahoo', strava: 'Strava' };
-const STATUS_LABEL: Record<string, string> = { active: 'Ativa', pending: 'Pendente', canceled: 'Cancelada', cancelled: 'Cancelada', expired: 'Expirada', past_due: 'Em atraso', overdue: 'Em atraso', manual: 'Cortesia' };
+const STATUS_LABEL: Record<string, string> = { active: 'Ativa', pending: 'Pendente', canceled: 'Cancelada', cancelled: 'Cancelada', expired: 'Expirada', past_due: 'Em atraso', overdue: 'Em atraso', manual_active: 'Cortesia', grace: 'Em carência' };
 const FILTERS: Array<{ key: 'all' | Kind; label: string }> = [
   { key: 'all', label: 'Todas' }, { key: 'browser_probable', label: 'Só navegador (estimado)' }, { key: 'android', label: 'Android' }, { key: 'ios', label: 'iPhone' }, { key: 'native_unknown', label: 'Instalado, sem conexão' },
 ];
+// Mesma definição do painel: aluna atual = confirmado, cortesia ou atrasado; pendente = prospecto (nunca pagou); cancelado = ex-aluna.
+type Situation = 'current' | 'pending' | 'canceled' | 'all';
+const SITUATIONS: Array<{ key: Situation; label: string }> = [{ key: 'current', label: 'Alunas atuais' }, { key: 'pending', label: 'Prospectos' }, { key: 'canceled', label: 'Ex-alunas' }, { key: 'all', label: 'Todas' }];
+const inSituation = (row: Row, situation: Situation) => situation === 'all' || (situation === 'current' ? ['confirmed', 'courtesy', 'overdue'].includes(row.paymentGroup) : row.paymentGroup === situation);
 const providerName = (id: string) => PROVIDER_LABEL[id] ?? id;
 const dmy = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—');
 const stripAccents = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -29,6 +33,7 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [filter, setFilter] = useState<'all' | Kind>('browser_probable');
+  const [situation, setSituation] = useState<Situation>('current');
   const [search, setSearch] = useState('');
   const [copied, setCopied] = useState('');
 
@@ -46,8 +51,12 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
 
   const rows = useMemo(() => {
     const term = stripAccents(search.trim());
-    return (result?.rows ?? []).filter((row) => (filter === 'all' || row.access === filter) && (!term || stripAccents(`${row.name ?? ''} ${row.studentCode ?? ''}`).includes(term)));
-  }, [result, filter, search]);
+    return (result?.rows ?? []).filter((row) => inSituation(row, situation) && (filter === 'all' || row.access === filter) && (!term || stripAccents(`${row.name ?? ''} ${row.studentCode ?? ''}`).includes(term)));
+  }, [result, filter, search, situation]);
+
+  // Contagens recalculadas sobre a situação escolhida (alunas atuais por padrão), para os números dos filtros baterem com a lista.
+  const scoped = useMemo(() => (result?.rows ?? []).filter((row) => inSituation(row, situation)), [result, situation]);
+  const countOf = (key: 'all' | Kind) => (key === 'all' ? scoped.length : scoped.filter((row) => row.access === key).length);
 
   const copyNames = async () => {
     const text = rows.map((r) => `${r.studentCode != null ? String(r.studentCode).padStart(7, '0') : '—'}\t${r.name ?? 'Sem nome'}`).join('\n');
@@ -65,10 +74,17 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
       {state === 'error' ? <p role="alert">{message}</p> : null}
       {result ? (
         <>
+          <div className="eqChips" role="group" aria-label="Filtrar por situação da assinatura">
+            {SITUATIONS.map((item) => (
+              <button key={item.key} type="button" className={`eqChip${situation === item.key ? ' on' : ''}`} aria-pressed={situation === item.key} onClick={() => setSituation(item.key)}>
+                {item.label} ({(result?.rows ?? []).filter((row) => inSituation(row, item.key)).length})
+              </button>
+            ))}
+          </div>
           <div className="eqChips" role="group" aria-label="Filtrar por forma de acesso">
             {FILTERS.map((item) => (
               <button key={item.key} type="button" className={`eqChip${filter === item.key ? ' on' : ''}`} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}>
-                {item.label} ({item.key === 'all' ? result.total : result.counts[item.key]})
+                {item.label} ({countOf(item.key)})
               </button>
             ))}
           </div>
