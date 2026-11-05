@@ -187,6 +187,7 @@ Como aplicar:
 - Sempre responder em português (pt-BR), incluindo sugestões de mensagem de commit.
 - Mensagem de commit: **título único, curto, imperativo, em português** — sem corpo/parágrafo explicativo. Elton usa o texto diretamente no campo "Summary" do GitHub Desktop.
 - Nunca usar "plano de treino" em texto visível para o usuário — usar sempre **"programa de treino"**. (O código interno pode manter `plan`/`trainingPlan`; só o texto que o aluno ou treinador lê precisa dizer "programa".)
+- Nunca chamar o produto de **"app"** ou "aplicativo" em texto visível ao Elton ou à aluna quando se referir ao que ele construiu — dizer **"Panzeri Run"** (regra de Elton, 05/11/2026). "App" só para falar de outro aplicativo (Apple Saúde, Garmin Connect, Polar etc.) ou de loja (App Store).
 - Nunca descrever o sistema de IA como **"motor"** — usar "a IA", "o agente de IA" ou o nome do serviço específico (`PrescriptionAgentService`). A palavra "motor" evoca o antigo fallback determinístico e causa alarme falso sobre a arquitetura.
 
 **Postura técnica:**

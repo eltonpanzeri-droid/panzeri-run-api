@@ -98,7 +98,9 @@ function setup() {
 }
 const workout = (uuid = UUID_A, extra: Record<string, unknown> = {}) => ({
   uuid, sourceName: 'Treino', sourceBundleId: 'com.apple.health.X', deviceName: 'Apple Watch', deviceManufacturer: 'Apple Inc.', startDate: '2026-10-03T09:00:00.000Z', endDate: '2026-10-03T09:45:00.000Z',
-  durationSeconds: 2700, distanceMeters: 6000, activityType: 'running', activityTypeRaw: 37, isIndoor: false, timeZone: 'America/Sao_Paulo', ...extra,
+  durationSeconds: 2700, distanceMeters: 6000, activityType: 'running', activityTypeRaw: 37, isIndoor: false, timeZone: 'America/Sao_Paulo',
+  // Outro UUID no mesmo horario e do mesmo app seria a MESMA atividade regravada (bloqueada): os demais treinos de teste comecam em outro horario.
+  ...(uuid === UUID_A ? {} : { startDate: '2026-10-03T12:00:00.000Z', endDate: '2026-10-03T12:45:00.000Z' }), ...extra,
 });
 const sensors = { avgHeartRateBpm: 150, maxHeartRateBpm: 175, stepCount: 6500, powerAvgWatts: 230, elevationGainMeters: 40 };
 const route = (id = UUID_A) => ({ routes: [{ recordId: id, points: Array.from({ length: 12 }, (_, i) => [i * 5, -23.5 + i * 0.0001, -46.6, 760]) }] });

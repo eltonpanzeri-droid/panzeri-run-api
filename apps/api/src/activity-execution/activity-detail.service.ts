@@ -8,6 +8,7 @@ import { assignSegments, summarizeSegments } from './activity-segments';
 import { buildExecutionSummary } from './execution-summary';
 import { ExecutionAnalysisService } from './execution-analysis.service';
 import { renderSessionReport } from './execution-report';
+import { sourceIdOf } from './physical-canonical';
 
 // "Ver treino completo" (03/10/2026): leitura de modelos canonicos apenas — ActivityLog, vinculo
 // ativo e ActivityTimeSeriesPoint. Provider aparece so' como origem. Pace e' derivado de
@@ -137,9 +138,14 @@ export class ActivityDetailService {
       // Aviso por EVIDENCIA, valido para qualquer marca: se a frequencia cardiaca deste treino chegou (o grupo de sensores esta autorizado) mas cadencia, potencia ou ganho de elevacao nao, foi o aparelho
       // ou aplicativo de origem que nao os enviou. Sem a FC nao ha como distinguir de "nao autorizado", entao nada e' afirmado.
       deviceNote: (() => {
-        if (log.avgHeartRateBpm == null) return null;
         const missing = [cadenceAvg == null ? 'a cadência' : null, log.powerAvgWatts == null ? 'a potência' : null, log.elevationGainMeters == null ? 'o ganho de elevação' : null].filter(Boolean);
-        return missing.length > 0 ? `O seu aparelho ou aplicativo de origem enviou a frequência cardíaca deste treino, mas não enviou ${missing.join(', ')}; por isso não aparece aqui.` : null;
+        const fromDevice = log.avgHeartRateBpm != null && missing.length > 0 ? `O seu aparelho ou aplicativo de origem enviou a frequência cardíaca deste treino, mas não enviou ${missing.join(', ')}; por isso não aparece aqui.` : null;
+        // 05/11/2026: treino vindo do Apple Saude sem curva: o Panzeri Run recebe so' o RESUMO do treino pelo Apple Saude (fato do nosso lado, nao do relogio), entao nao ha grafico de ritmo, FC e cadencia
+        // ao longo do treino. Quando o treino foi copiado de outro app (ex.: Garmin Connect) o Apple Saude guarda ainda menos do que o app de origem tem.
+        if (log.provider !== 'apple_health' || chartSeries.points.length > 0) return fromDevice;
+        const via = sourceIdOf(log.providerMetrics);
+        const copied = via != null && !via.startsWith('com.apple.') ? ' Este treino foi copiado de outro aplicativo para o Apple Saúde, que guarda menos detalhes do que o aplicativo de origem.' : '';
+        return `${fromDevice ? `${fromDevice} ` : ''}O Panzeri Run recebe do Apple Saúde apenas o resumo do treino: o gráfico de ritmo, frequência cardíaca e cadência ao longo do treino ainda não está disponível para treinos do Apple Saúde.${copied}`;
       })(),
       prescribed: link
         ? {

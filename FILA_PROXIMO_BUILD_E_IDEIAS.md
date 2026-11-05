@@ -42,6 +42,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 | 03/11/2026 | **Passo a passo do Samsung Health no cartão do Health Connect** (5 passos recolhidos; frase antiga substituída). Não validado em Galaxy Watch real | `apps/mobile/src/healthConnect/samsungGuide.ts`, `HealthConnectCard.tsx`; teste `samsung-health-guide.spec.ts` | PWA no deploy do app; **app nativo só no próximo build (não está no 1.0.3)** |
 | 04/11/2026 | **Feedback do treino: o rascunho não se perde mais ao detalhar a dor** (persistido; "Voltar ao feedback do treino" no relato de dor, volta sozinho ao enviar) | `apps/mobile/App.tsx`, `src/completionDrafts.ts`, `src/completionDraftsStorage.ts`; teste `completion-drafts.spec.ts` | PWA no deploy do app; **app nativo só no próximo build** |
 | 04/11/2026 | **Apple Saúde: aviso "nenhum treino chegou" na sincronização** (mostra o que conferir quando entram dados de saúde e nenhum treino) | `apps/mobile/src/appleHealthSync/appleHealthSyncLogic.ts`, `AppleHealthSyncCard.tsx`; teste `apple-health-sync-guidance.spec.ts` | **Só iPhone nativo: próximo build iOS** (não está no 1.0.3) |
+| 05/11/2026 | **Apple Saúde: ler FC e distância ao longo do treino** (montar série para gráfico de ritmo/FC/cadência, inclusive esteira); pendente confirmar no Saúde da aluna se a distância tem vários pontos | `PanzeriAppleHealthModule.swift`, `appleHealthSync`, ingestão + série | **Só iPhone nativo: próximo build iOS**; revisar texto de consentimento antes |
 
 ## B. Ideias e decisões ainda NÃO implementadas
 

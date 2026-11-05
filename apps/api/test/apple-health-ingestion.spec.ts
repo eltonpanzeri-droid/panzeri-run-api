@@ -12,6 +12,11 @@ import { classifySourceFamily, normalizeAppleHealthWorkout, utcOffsetMinutesAt }
 const UUID_A = '9F1C2A3B-1111-4222-8333-444455556666';
 const UUID_B = '0A0B0C0D-2222-4333-8444-555566667777';
 
+// Segundo treino da mesma aluna e do mesmo app de origem, em horario diferente (mesmo inicio e duracao seria a MESMA atividade regravada e seria bloqueado).
+function otherWorkout(overrides: Record<string, unknown> = {}) {
+  return workout({ uuid: UUID_B, startDate: '2026-10-03T12:00:00.000Z', endDate: '2026-10-03T12:45:00.000Z', ...overrides });
+}
+
 function workout(overrides: Record<string, unknown> = {}) {
   return {
     uuid: UUID_A,
@@ -115,6 +120,8 @@ function buildService(options: { failFirstCreateWithP2002?: boolean; consent?: {
   const tx = {
     activityLog: {
       findUnique: jest.fn(async ({ where }: any) => logs.get(k(where)) ?? null),
+      findMany: jest.fn(async ({ where }: any) => [...logs.values()].filter((l) => l.userId === where.userId && l.provider === where.provider
+        && (l.startedAt as Date).getTime() >= where.startedAt.gte.getTime() && (l.startedAt as Date).getTime() <= where.startedAt.lte.getTime())),
       update: jest.fn(async ({ where, data }: any) => { const row = [...logs.values()].find((l) => l.id === where.id)!; Object.assign(row, data); return row; }),
       create: jest.fn(async ({ data }: any) => {
         if (failOnce) {
@@ -192,6 +199,59 @@ describe('AppleHealthIngestionService', () => {
     expect(logs.size).toBe(1);
   });
 
+  // 05/11/2026 — "fechar a porta": o Garmin Connect (e apps parecidos) regrava o MESMO treino no Apple Saude com outro UUID; a cada sincronizacao isso virava um registro novo no painel.
+  describe('mesmo treino regravado com outro UUID (mesmo app de origem, inicio e duracao identicos)', () => {
+    const garmin = { sourceName: 'Connect', sourceBundleId: 'com.garmin.connect.mobile', deviceName: null, deviceManufacturer: null, deviceModel: null };
+
+    it('nao cria outro registro: completa o existente com o que faltava (FC) e responde ja importado', async () => {
+      const { service, logs, raws } = buildService({ consent: { mode: 'recorded', allowed: ['activity', 'activity_sensors'] } });
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
+      const again = await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: UUID_B, avgHeartRateBpm: 148, maxHeartRateBpm: 171 })] });
+      expect(again).toMatchObject({ created: 0, alreadyImported: 1, enriched: 1, rejected: 0 });
+      expect(logs.size).toBe(1);
+      expect(raws.size).toBe(1);
+      const log = [...logs.values()][0];
+      expect(log.externalId).toBe(UUID_A.toLowerCase());
+      expect(log).toMatchObject({ avgHeartRateBpm: 148, maxHeartRateBpm: 171 });
+      expect(again.items[0].activityLogId).toBe(log.id);
+    });
+
+    it('sincronizar varias vezes com copias novas nunca acumula registros', async () => {
+      const { service, logs } = buildService();
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
+      for (const uuid of ['1A1A1A1A-0000-4000-8000-000000000001', '1A1A1A1A-0000-4000-8000-000000000002', '1A1A1A1A-0000-4000-8000-000000000003']) {
+        await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid })] });
+      }
+      expect(logs.size).toBe(1);
+    });
+
+    it('treino ignorado pela aluna continua ignorado: a copia nova nao o ressuscita', async () => {
+      const { service, logs } = buildService();
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
+      [...logs.values()][0].exclusionMode = 'ignored';
+      const again = await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: UUID_B })] });
+      expect(again).toMatchObject({ created: 0, alreadyImported: 1 });
+      expect(logs.size).toBe(1);
+    });
+
+    it('NAO bloqueia o que e outro treino: duracao diferente, inicio diferente, outro app de origem ou outra aluna', async () => {
+      const { service, logs } = buildService();
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: '2B2B2B2B-0000-4000-8000-000000000001', durationSeconds: 2650 })] }); // duracao diferente
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: '2B2B2B2B-0000-4000-8000-000000000002', startDate: '2026-10-03T09:00:05.000Z', endDate: '2026-10-03T09:45:05.000Z' })] }); // inicio 5 s depois
+      await service.importWorkouts('user-1', { workouts: [workout({ uuid: '2B2B2B2B-0000-4000-8000-000000000003' })] }); // Apple Watch (outro observador)
+      await service.importWorkouts('user-2', { workouts: [workout({ ...garmin, uuid: '2B2B2B2B-0000-4000-8000-000000000004' })] }); // outra aluna
+      expect(logs.size).toBe(5);
+    });
+
+    it('distancia muito diferente no mesmo inicio e duracao continua sendo registro distinto', async () => {
+      const { service, logs } = buildService();
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin })] });
+      await service.importWorkouts('user-1', { workouts: [workout({ ...garmin, uuid: UUID_B, distanceMeters: 9000 })] });
+      expect(logs.size).toBe(2);
+    });
+  });
+
   it('corrida de concorrencia (P2002 na chave unica) vira already_imported, nao erro nem duplicata', async () => {
     const { service, logs } = buildService({ failFirstCreateWithP2002: true });
     const result = await service.importWorkouts('user-1', { workouts: [workout()] });
@@ -210,14 +270,14 @@ describe('AppleHealthIngestionService', () => {
     const owners = [...logs.values()].map((l) => l.userId).sort();
     expect(owners).toEqual(['user-1', 'user-2']);
     // Um userId no corpo nunca e' honrado.
-    const spoof = await service.importWorkouts('user-3', { workouts: [{ ...workout({ uuid: UUID_B }), userId: 'user-1' }] });
+    const spoof = await service.importWorkouts('user-3', { workouts: [{ ...otherWorkout(), userId: 'user-1' }] });
     expect(spoof.created).toBe(1);
     expect([...logs.values()].find((l) => l.externalId === UUID_B.toLowerCase())?.userId).toBe('user-3');
   });
 
   it('lote com item invalido: rejeita so aquele item e reporta o motivo', async () => {
     const { service, logs } = buildService();
-    const result = await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: 'x' }), workout({ uuid: UUID_B })] });
+    const result = await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: 'x' }), otherWorkout()] });
     expect(result).toMatchObject({ created: 2, rejected: 1 });
     expect(result.items[1]).toMatchObject({ status: 'rejected', reason: 'uuid_invalido' });
     expect(logs.size).toBe(2);
@@ -298,7 +358,7 @@ describe('Apple Saude — medidas do treino e distancia (28/10/2026, correcoes d
 
   it('compatibilidade: payload do aplicativo antigo (sem medidas novas, sem distanceStatus) importa em modo legacy e nada de sensor e aceito', async () => {
     const { service, logs } = buildService({ consent: { mode: 'legacy', allowed: [] } });
-    const result = await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B, distanceMeters: 0 })] });
+    const result = await service.importWorkouts('user-1', { workouts: [workout(), otherWorkout({ distanceMeters: 0 })] });
     expect(result).toMatchObject({ created: 2, rejected: 0, consent: { mode: 'legacy', sensors: false } });
     const rows = [...logs.values()];
     expect(rows[0]).toMatchObject({ distanceMeters: 6000, avgHeartRateBpm: null });
@@ -363,9 +423,9 @@ describe('Apple Saude — medidas do treino e distancia (28/10/2026, correcoes d
     expect(log.physicalIdentityStatus).toBe('ambiguous');
     expect(log.avgHeartRateBpm).toBe(152);
     // distancia ausente completada: insumo da identidade mudou, entao e' reavaliada
-    await service.importWorkouts('user-1', { workouts: [workout({ uuid: UUID_B, distanceMeters: undefined })] });
+    await service.importWorkouts('user-1', { workouts: [otherWorkout({ distanceMeters: undefined })] });
     log.distanceMeters = null;
-    await service.importWorkouts('user-1', { workouts: [workout({ uuid: UUID_B, distanceMeters: 5000 })] });
+    await service.importWorkouts('user-1', { workouts: [otherWorkout({ distanceMeters: 5000 })] });
     const second = [...logs.values()][1];
     expect(second.distanceMeters).toBe(5000);
     expect(identity.evaluateSafely).toHaveBeenCalledTimes(3); // 1a criacao + 2a criacao + distancia completada
@@ -414,7 +474,7 @@ describe('Apple Saude — percurso GPS (28/10/2026)', () => {
 
   it('falha parcial e recuperacao: a rota que falhou segue pendente e e enviada depois, sem duplicar a que ja foi guardada', async () => {
     const { service, logs, points, failRoutes } = buildService({ consent: recorded('activity_route'), failRouteWriteFor: [UUID_B.toLowerCase()] });
-    await service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    await service.importWorkouts('user-1', { workouts: [workout(), otherWorkout()] });
     const first = await service.importRoutes('user-1', { routes: [{ recordId: UUID_A, points: pts(20) }, { recordId: UUID_B, points: pts(20) }] });
     expect(first).toMatchObject({ stored: 1, rejected: 1 });
     expect(first.items.find((i) => i.recordId === UUID_B.toLowerCase())).toMatchObject({ status: 'rejected', reason: 'falha_ao_gravar' });
@@ -467,12 +527,12 @@ describe('Apple Saude — limite de 60.000 bytes por requisicao de percurso no S
     const accepted = bodyOfSize(APPLE_ROUTE_LIMITS.maxRequestBytes);
     expect(appleRoutesBodyBytes(accepted)).toBe(60_000);
     const ok = buildService({ consent: recorded });
-    await ok.service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    await ok.service.importWorkouts('user-1', { workouts: [workout(), otherWorkout()] });
     expect(await ok.service.importRoutes('user-1', accepted)).toMatchObject({ stored: 2, rejected: 0 });
     const over = bodyOfSize(APPLE_ROUTE_LIMITS.maxRequestBytes + 1);
     expect(appleRoutesBodyBytes(over)).toBe(60_001);
     const refused = buildService({ consent: recorded });
-    await refused.service.importWorkouts('user-1', { workouts: [workout(), workout({ uuid: UUID_B })] });
+    await refused.service.importWorkouts('user-1', { workouts: [workout(), otherWorkout()] });
     await expect(refused.service.importRoutes('user-1', over)).rejects.toBeInstanceOf(PayloadTooLargeException);
     await expect(refused.service.importRoutes('user-1', over)).rejects.toThrow('60001 bytes e o limite e 60000');
     expect(refused.points).toHaveLength(0);

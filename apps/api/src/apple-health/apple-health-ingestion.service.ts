@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { compareObservations, observerKeyOf, type ObservedActivity } from '../activity-execution/physical-activity-identity';
 import { ForbiddenException } from '@nestjs/common';
 import { normalizeRoutes } from '../health-connect/health-connect-route';
 import { AppleHealthConsentService, type AppleConsentAccess } from './apple-health-consent.service';
@@ -204,6 +205,27 @@ export class AppleHealthIngestionService {
     }
   }
 
+  private async findIdenticalRewrite(tx: Prisma.TransactionClient, userId: string, workout: NormalizedAppleWorkout) {
+    const start = workout.activity.startedAt;
+    if (workout.activity.durationSec == null || workout.activity.durationSec <= 0) return null; // sem duracao nao ha coincidencia exata para afirmar
+    const candidates = await includeExcludedActivities(() => tx.activityLog.findMany({
+      where: { userId, provider: APPLE_HEALTH_PROVIDER, startedAt: { gte: new Date(start.getTime() - 999), lte: new Date(start.getTime() + 999) } },
+      select: { exclusionMode: true, id: true, sport: true, startedAt: true, durationSec: true, distanceMeters: true, caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, providerMetrics: true },
+    }));
+    const incoming: ObservedActivity = {
+      id: 'incoming', userId, provider: APPLE_HEALTH_PROVIDER, sport: workout.activity.sport, startedAt: start, durationSec: workout.activity.durationSec,
+      distanceMeters: workout.activity.distanceMeters ?? null, observerKey: observerKeyOf(APPLE_HEALTH_PROVIDER, workout.providerMetrics),
+    };
+    // So' o MESMO app de origem: o mesmo treino visto por observadores diferentes (Apple Watch x Garmin Connect) NAO e' bloqueado aqui; continua guardado e agrupado pela identidade fisica.
+    return candidates.find((row) => {
+      const observerKey = observerKeyOf(APPLE_HEALTH_PROVIDER, row.providerMetrics);
+      return observerKey === incoming.observerKey && compareObservations({
+        id: row.id, userId, provider: APPLE_HEALTH_PROVIDER, sport: row.sport, startedAt: row.startedAt, durationSec: row.durationSec,
+        distanceMeters: row.distanceMeters, observerKey,
+      }, incoming).verdict === 'same';
+    }) ?? null;
+  }
+
   private async write(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -211,10 +233,13 @@ export class AppleHealthIngestionService {
     key: { provider_userId_externalId: { provider: string; userId: string; externalId: string } },
   ): Promise<AppleHealthImportItemResult> {
     {
-      const existing = await includeExcludedActivities(() => tx.activityLog.findUnique({
+      const byKey = await includeExcludedActivities(() => tx.activityLog.findUnique({
         where: key,
         select: { exclusionMode: true, id: true, distanceMeters: true, caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, providerMetrics: true },
       }));
+      // 05/11/2026: "fechar a porta" para a MESMA atividade regravada com outro UUID (ex.: Garmin Connect reescreve o treino no Apple Saude). Mesmo criterio exato da identidade fisica
+      // (mesmo app de origem, mesma modalidade, inicio e duracao identicos ao segundo, distancia sem divergir): nao cria outro registro, so' completa o existente.
+      const existing = byKey ?? await this.findIdenticalRewrite(tx, userId, workout);
       // Atividade ja excluida/ignorada pela aluna ou treinador: o reenvio NAO regrava nada (nem completa metricas) e nao dispara o pos-processamento.
       if (existing?.exclusionMode) return { uuid: workout.externalId, status: 'already_imported' as const };
       if (existing) {

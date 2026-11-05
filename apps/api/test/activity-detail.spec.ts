@@ -43,6 +43,32 @@ function build(opts: {
   return { service: new ActivityDetailService(prisma as never, timeSeries as never), prisma, timeSeries };
 }
 
+// 05/11/2026 — treino do Apple Saude sem curva: o aviso diz que o Panzeri Run recebe so' o resumo (nao culpa o relogio) e, se o treino foi copiado de outro app, que o Apple Saude guarda menos.
+describe('ActivityDetailService.getDetail — aviso de treino vindo do Apple Saude', () => {
+  const apple = (bundleId: string | null, extra: Record<string, unknown> = {}) => ({
+    id: 'log-a', provider: 'apple_health', startedAt: new Date('2026-11-05T08:21:14Z'), utcOffsetMinutes: -180, sport: 'esteira', distanceMeters: 6600, durationSec: 2434,
+    avgHeartRateBpm: 159, maxHeartRateBpm: 168, cadenceAvg: 161, caloriesKcal: 398, userId: 'aluno-1', providerMetrics: bundleId ? { source: { bundleId } } : {}, ...extra,
+  });
+
+  it('sem curva: explica que so o resumo chega do Apple Saude', async () => {
+    const detail = await build({ log: apple('com.apple.health.abc'), link: null }).service.getDetail('aluno-1', 'log-a');
+    expect(detail.deviceNote).toContain('apenas o resumo do treino');
+    expect(detail.deviceNote).not.toContain('copiado de outro aplicativo');
+  });
+
+  it('copiado de outro app (Garmin Connect): acrescenta que o Apple Saude guarda menos detalhes', async () => {
+    const detail = await build({ log: apple('com.garmin.connect.mobile'), link: null }).service.getDetail('aluno-1', 'log-a');
+    expect(detail.deviceNote).toContain('copiado de outro aplicativo para o Apple Saúde');
+  });
+
+  it('com curva (ou outro provedor) o aviso do Apple Saude nao aparece', async () => {
+    const withCurve = await build({ log: apple('com.apple.health.abc'), link: null, points: [{ offsetSec: 0, distanceMeters: 0, heartRateBpm: 100, speedKmh: 10, cadenceSpm: 160 }, { offsetSec: 60, distanceMeters: 170, heartRateBpm: 120, speedKmh: 10, cadenceSpm: 160 }] }).service.getDetail('aluno-1', 'log-a');
+    expect(withCurve.deviceNote ?? '').not.toContain('apenas o resumo');
+    const polar = await build({ link: null }).service.getDetail('aluno-1', 'log-1');
+    expect(polar.deviceNote ?? '').not.toContain('Apple Saúde');
+  });
+});
+
 describe('ActivityDetailService.getDetail', () => {
   it('atividade de outro aluno: 404, nunca vaza o detalhe (checagem de posse no findFirst)', async () => {
     const { service, prisma } = build({ log: null });
