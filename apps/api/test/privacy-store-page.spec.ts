@@ -27,7 +27,8 @@ describe('politica de privacidade das lojas', () => {
   it('Apple Watch: envio com autorizacao da aluna no cartao Apple Watch (06/11/2026: o botao saiu do card do treino)', () => {
     const button = read('mobile/src/appleWatchDelivery/AppleWatchWorkoutsCard.tsx');
     expect(button).toContain('Sincronizar envio de treinos ao relógio');
-    expect(all).toContain('O envio só acontece quando você toca nele');
+    expect(all).toContain('Autorizo o envio de treinos ao Apple Watch');
+    expect(all).toContain('só acontecia quando você tocava nele'); // versoes anteriores (botao no card do treino)
   });
 
   it('Health Connect: leitura por categoria autorizada (somente leitura, sem nenhuma escrita; segundo plano e percurso GPS so com a permissao da aluna) e coerente com o app', () => {

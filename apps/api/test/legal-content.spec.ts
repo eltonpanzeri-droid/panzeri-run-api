@@ -62,8 +62,12 @@ describe('fonte canonica unica e URLs preservadas', () => {
 });
 
 describe('conteudo fiel ao produto atual', () => {
-  it('nao afirma Garmin (nem na politica, nem nos termos, nem no resumo do app)', () => {
-    for (const doc of [PRIVACY, TERMS, SUMMARY]) expect(doc).not.toMatch(/garmin/i);
+  it('Garmin (decisao de Elton, 06/11/2026): aparece SO como integracao em aprovacao pela Garmin (secao 5D), nunca como conectada hoje', () => {
+    expect(PRIVACY).toContain('5D. Garmin');
+    expect(PRIVACY).toContain('A conexão está em aprovação pela Garmin e é opcional');
+    expect(TERMS).toContain('quando liberada pela Garmin');
+    expect(SUMMARY).toMatch(/Garmin/);
+    expect(PRIVACY).not.toMatch(/conectada à Garmin|conecte a Garmin hoje/i);
     expect(PRIVACY).toContain('Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo');
     expect(PRIVACY).toContain('Outros serviços poderão ser adicionados');
   });
@@ -190,9 +194,8 @@ describe('texto geral de privacidade reorganizado (30/10/2026, 2a revisao)', () 
     for (const doc of [PRIVACY, TERMS, SUMMARY]) expect(doc).not.toMatch(/060\.?903\.?666|06090366617|992538375/);
   });
 
-  it('continua sem afirmar conformidade legal, sem Garmin e sem a promessa antiga sobre publicidade', () => {
+  it('continua sem afirmar conformidade legal e sem a promessa antiga sobre publicidade', () => {
     expect(PRIVACY).not.toMatch(/em conformidade com a lgpd|compliant/i);
-    expect(PRIVACY).not.toMatch(/garmin/i);
     expect(PRIVACY).not.toContain('Não vendemos nem compartilhamos dados com terceiros para fins de publicidade');
   });
 });

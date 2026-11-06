@@ -12,8 +12,9 @@
 // Google Analytics na lista de terceiros, identificacao do responsavel). A versao muda porque o texto mudou (quem aceitar daqui em diante registra esta).
 // 01/11/2026: saude da Polar (sono, HRV, atividade diaria) passa a poder alimentar o Atlas SE a aluna autorizar o Atlas no cartao da Polar (frase da secao de dispositivos).
 // 01/11/2026 (2a): preco unico de R$19,90/mes em todos os canais (Asaas e Google Play; o Play foi de R$24,90 para R$19,90 por Elton). A versao muda porque o texto mudou.
-export const LEGAL_VERSION = '2026-11-03.1';
-export const LEGAL_UPDATED_LABEL = '1 de novembro de 2026';
+// 06/11/2026: secao da Garmin (5D) e declaracao de IA da Garmin; secao 4 (Apple Watch) descreve o cartao com autorizacao e o envio ao abrir o aplicativo. A versao muda porque o texto mudou.
+export const LEGAL_VERSION = '2026-11-06.1';
+export const LEGAL_UPDATED_LABEL = '6 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
@@ -33,11 +34,11 @@ export const DATA_CATEGORIES = [
   '- Feedback de treino: esforço percebido, dor, sono, estresse, motivação, cansaço físico e mental, e suas observações.',
   '- Relatos e registros opcionais: dores, observações escritas, testes de desempenho, prova alvo, tênis cadastrados e, para quem optar, registro do ciclo menstrual.',
   '- Treino: programa de treino, sessões prescritas e realizadas, histórico, métricas de evolução (como volume e aderência) e conquistas.',
-  '- Dados de dispositivos e serviços que você conectar, só dos grupos que você autorizar: atividades e desempenho, sono, recuperação e atividade diária (o que cada serviço pode oferecer está descrito nas seções 3 a 5A e, no aplicativo, em Dispositivos e integrações).',
+  '- Dados de dispositivos e serviços que você conectar, só dos grupos que você autorizar: atividades e desempenho, sono, recuperação e atividade diária (o que cada serviço pode oferecer está descrito nas seções 3 a 5D e, no aplicativo, em Dispositivos e integrações).',
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, só são enviados à inteligência artificial (Atlas) se você também autorizar o Atlas no mesmo cartão da Polar no aplicativo (a mesma autorização que cobre seus treinos da Polar), e você pode retirar cada autorização quando quiser, o que, para os grupos de saúde, apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A) e, em aprovação pela Garmin, com a Garmin (seção 5D). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, só são enviados à inteligência artificial (Atlas) se você também autorizar o Atlas no mesmo cartão da Polar no aplicativo (a mesma autorização que cobre seus treinos da Polar), e você pode retirar cada autorização quando quiser, o que, para os grupos de saúde, apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',
@@ -85,9 +86,24 @@ export const COROS_PARAGRAPHS = [
   'Seu controle: em Dispositivos e integrações > COROS você vê e retira cada autorização, desconecta a conta e pede a exclusão dos dados importados. Retenção: não há exclusão automática por prazo para os dados da COROS; eles ficam guardados enquanto a conexão estiver ativa e até você pedir a exclusão ou excluir a conta.',
 ];
 
+// ─── Garmin (06/11/2026) ───────────────────────────────────────────────────────────────────────────────
+// Texto exigido pelo programa Garmin Connect Developer (uso dos dados, TODOS os terceiros, nao venda, transparencia de IA com consentimento e retirada, acesso/correcao/exclusao/exportacao).
+// A integracao AINDA nao existe no codigo (acesso em aprovacao pela Garmin): o texto e' o COMPROMISSO que a implementacao precisa cumprir (ver FILA_PROXIMO_BUILD_E_IDEIAS.md, parte B).
+export const GARMIN_PARAGRAPHS = [
+  'A Garmin (Garmin Connect) é o serviço dos relógios e dispositivos Garmin, que você pode conectar ao Panzeri Run por escolha sua. A conexão está em aprovação pela Garmin e é opcional: só passa a existir depois que a Garmin liberar o acesso ao Panzeri Run e você autorizar no seu Garmin Connect. Existem autorizações separadas, cada uma com texto próprio, que você concede ou não de forma independente — nenhuma vem marcada: (1) importar suas atividades e os dados de saúde dos grupos que você escolher; (2) enviar seus treinos de corrida ao relógio; (3) usar seus dados Garmin em análises personalizadas com o Atlas (seção 7A). No Garmin Connect você também controla quais dados a Garmin compartilha conosco.',
+  'Dados que recebemos da Garmin, conforme o que você autorizar e o que o seu aparelho medir e a Garmin disponibilizar: o identificador da conta Garmin (apenas para vincular a conexão); atividades (data e horário, tipo, duração, distância, ritmo, calorias, frequência cardíaca, cadência, potência, elevação e demais métricas e séries ao longo da atividade); e dados de saúde e bem-estar, como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca (HRV), estresse, Body Battery, passos e atividade do dia. O Panzeri Run não armazena coordenadas nem trajetos GPS da Garmin. Não recebemos da Garmin dados de saúde da mulher, como o ciclo menstrual. Sono, frequência cardíaca e HRV são dados de saúde: só são guardados se você autorizar o grupo correspondente.',
+  'Dados que enviamos à Garmin: somente se você autorizar o envio de treinos ao relógio, o Panzeri Run envia à sua conta Garmin os treinos de corrida programados — nome, data, etapas (distância ou tempo) e ritmos-alvo. Não enviamos seu nome, dados de saúde, relatos seus nem comentários do treinador.',
+  'Como usamos esses dados: para mostrar suas atividades, comparar o que foi prescrito com o que foi realizado, acompanhar sua evolução e sua recuperação, manter seu histórico e personalizar seu treinamento. Seu treinador vê no painel os dados que você autorizou. Os dados da Garmin ficam separados por origem, e a origem de cada dado é preservada.',
+  'Quem recebe ou processa dados da Garmin: o Panzeri Run guarda esses dados no servidor, na infraestrutura de hospedagem do aplicativo e do banco de dados, e nas cópias de segurança criptografadas (Cloudflare R2). Somente a Anthropic, fornecedora de inteligência artificial, recebe resumos derivados desses dados, e apenas se você conceder a autorização separada do Atlas para a Garmin. Nenhum outro terceiro recebe dados da Garmin: eles não são enviados ao Google Analytics, à Meta, ao Expo, ao Resend nem ao Telegram.',
+  'Não há venda de dados da Garmin: não os comercializamos, não os compartilhamos com terceiros para uso próprio deles e não os usamos para publicidade nem para marketing.',
+  'Inteligência artificial (declaração de transparência): se você autorizar o Atlas para a Garmin, o Panzeri Run envia à Anthropic resumos e indicadores derivados das suas atividades e dos seus dados Garmin autorizados, apenas para gerar a análise ou a recomendação de treino que você pediu. O Panzeri Run não usa dados da Garmin, nem informações derivadas deles, para treinar, avaliar ou melhorar modelos de inteligência artificial. Essa autorização é separada, opcional, não vem marcada e pode ser retirada a qualquer momento no aplicativo; ao retirar, o uso futuro cessa e os resultados de inteligência artificial gerados com esses dados são invalidados. A Anthropic é uma empresa estrangeira, e esse envio configura transferência internacional de dados; as regras do fornecedor sobre guardar essas informações dependem dos termos dele, e o Panzeri Run não as afirma por ele.',
+  `Seu controle e seus direitos: em Dispositivos e integrações > Garmin você vê e retira cada autorização, desconecta a conta e pede a exclusão dos dados da Garmin; você também pode retirar a permissão no seu Garmin Connect. Acesso, correção e exportação: peça por e-mail para ${LEGAL_CONTACT}, do mesmo e-mail cadastrado, e fornecemos uma cópia dos seus dados da Garmin em formato legível. A exclusão dos dados da Garmin apaga o registro recebido, a atividade, as séries, os resumos de saúde, os vínculos com os treinos e os indicadores derivados. Permanecem as informações que você mesmo forneceu (como esforço percebido, dor e observações), os registros de pagamento e de auditoria sem identificação direta, o registro mínimo e criptografado da exclusão, mantido por 1 ano, e as cópias de segurança (seção 10).`,
+  'Retenção: não há exclusão automática por prazo para os dados da Garmin. Eles ficam guardados enquanto a conexão estiver ativa e até você pedir a exclusão ou excluir a conta.',
+];
+
 export const ATLAS_PARAGRAPHS = [
   'O Atlas é o nome da inteligência artificial usada pelo Panzeri Run para apoiar a prescrição e a análise do seu treinamento (seção 7). A tecnologia é fornecida pela Anthropic.',
-  'Dados da Zepp/Amazfit e da COROS só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas de cada integração. Sem essa autorização, os dados Zepp não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
+  'Dados da Zepp/Amazfit, da COROS e da Garmin só entram nas análises do Atlas se você conceder a autorização específica, separada e opcional do Atlas de cada integração. Sem essa autorização, os dados dessas integrações não são enviados à Anthropic — nem diretamente nem por meio de relatórios ou informações derivados deles. Recusar não impede conectar o Amazfit, enviar treinos ao relógio nem usar as funções que não dependam desse processamento.',
   'Com a autorização, o Panzeri Run envia à Anthropic os dados necessários à análise, sob a forma de resumos e indicadores derivados das suas atividades e dos seus dados de sono, HRV e saúde diária (como distância, ritmo, frequência cardíaca, cadência, potência, elevação, duração e pontuação do sono, HRV, frequência cardíaca de repouso e histórico), apenas nos grupos que você autorizou. O arquivo original, as séries completas de amostras, as etapas do sono minuto a minuto e as coordenadas do percurso não fazem parte do que o Panzeri Run envia à IA.',
   'As análises automatizadas podem apresentar limitações e erros, o acompanhamento é feito sob supervisão técnica do treinador e elas não substituem avaliação médica.',
   'A Anthropic é uma empresa estrangeira, e esse envio configura transferência internacional de dados. As regras da Anthropic sobre guardar essas informações ou usá-las para treinar modelos dependem dos termos do próprio fornecedor, e o Panzeri Run não as afirma por ele.',
@@ -112,6 +128,7 @@ export const THIRD_PARTIES = [
   '- Polar, Strava e Wahoo: serviços que você conecta, com suas próprias políticas.',
   '- COROS: serviço que você conecta para o Panzeri Run receber suas atividades e, se você autorizar, enviar treinos ao seu calendário e relógio, com política própria.',
   '- Zepp Health (Zepp/Amazfit): serviço que você conecta para o Panzeri Run receber suas atividades e, se você autorizar, enviar treinos ao seu relógio, com política própria.',
+  '- Garmin (Garmin Connect): serviço que você conecta, em aprovação pela Garmin, para o Panzeri Run receber suas atividades e dados de saúde e, se você autorizar, enviar treinos ao seu relógio, com política própria. Os dados da Garmin não são comercializados nem enviados a nenhum terceiro além do descrito na seção 5D.',
   '- Asaas, RevenueCat e as lojas de aplicativos (Google Play e App Store): cobrança e assinatura. Não armazenamos dados de cartão.',
   '- Resend: envio dos e-mails do serviço (como cadastro, recuperação de senha e avisos).',
   '- Cloudflare (R2): armazenamento das cópias de segurança do banco de dados, que são criptografadas antes de sair do servidor.',
@@ -144,7 +161,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     paragraphs: [
       'O Panzeri Run utiliza informações pessoais, esportivas e de saúde para oferecer um programa de treinamento individualizado, acompanhar a sua evolução e ajudar você a tomar decisões mais conscientes sobre a sua prática de exercícios físicos.',
       'Sabemos que algumas dessas informações são sensíveis. Por isso, tratamos seus dados com responsabilidade, transparência e medidas de segurança adequadas, respeitando as suas escolhas, a legislação aplicável e as autorizações que você conceder.',
-      'Este é o texto geral sobre como usamos os dados. As particularidades de cada dispositivo ou serviço que você conectar estão nas seções 3 a 5A abaixo e, no aplicativo, na tela de cada integração (Dispositivos e integrações), onde você também concede as autorizações específicas. Nem todas as informações descritas são necessárias para usar o Panzeri Run: o que é recebido depende das funcionalidades que você usa, dos registros existentes e das autorizações que você der.',
+      'Este é o texto geral sobre como usamos os dados. As particularidades de cada dispositivo ou serviço que você conectar estão nas seções 3 a 5D abaixo e, no aplicativo, na tela de cada integração (Dispositivos e integrações), onde você também concede as autorizações específicas. Nem todas as informações descritas são necessárias para usar o Panzeri Run: o que é recebido depende das funcionalidades que você usa, dos registros existentes e das autorizações que você der.',
     ],
   },
   {
@@ -185,7 +202,8 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     id: 'apple-watch',
     heading: '4. Envio de treinos ao Apple Watch (WorkoutKit) — iPhone',
     paragraphs: [
-      'Em treinos prescritos que o aplicativo consegue representar fielmente no Apple Watch, aparece o botão "Enviar ao Apple Watch". O envio só acontece quando você toca nele.',
+      'Os treinos prescritos que o aplicativo consegue representar fielmente no Apple Watch podem ser enviados ao relógio, sempre com a sua autorização.',
+      'Em Dispositivos e integrações > Apple Watch você marca "Autorizo o envio de treinos ao Apple Watch" e pode tocar em "Sincronizar envio de treinos ao relógio" quando quiser. Com a autorização marcada, os treinos dos próximos 7 dias também seguem ao seu relógio quando você abre o aplicativo; você pode desmarcar a autorização a qualquer momento e o envio automático para. Em versões anteriores do aplicativo, o envio era feito pelo botão "Enviar ao Apple Watch" no card do treino e só acontecia quando você tocava nele.',
       'Para isso, o iOS pede uma autorização própria para agendar treinos. Com ela, o Panzeri Run entrega ao seu iPhone e ao seu Apple Watch o treino prescrito (a estrutura da sessão, como partes e distâncias) e o dia em que ele deve aparecer. Agendar um treino não significa que ele foi executado.',
       'No servidor do Panzeri Run guardamos o registro dessa entrega (qual treino foi enviado, quando e com qual resultado), para não duplicar o envio. Este recurso não grava dados no app Saúde.',
     ],
@@ -204,6 +222,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
   },
   { id: 'zepp-amazfit', heading: '5A. Zepp/Amazfit: importar atividades e enviar treinos ao relógio', paragraphs: ZEPP_PARAGRAPHS },
   { id: 'coros', heading: '5C. COROS: importar atividades e enviar treinos ao relógio', paragraphs: COROS_PARAGRAPHS },
+  { id: 'garmin', heading: '5D. Garmin: importar atividades e dados de saúde e enviar treinos ao relógio', paragraphs: GARMIN_PARAGRAPHS },
   {
     id: 'saude-lojas',
     heading: '5B. Dados de saúde recebidos do Health Connect e do Apple Saúde: limites de uso',
@@ -229,7 +248,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     ],
   },
   { id: 'ia', heading: '7. Inteligência artificial', paragraphs: AI_PARAGRAPHS },
-  { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit e da COROS', paragraphs: ATLAS_PARAGRAPHS },
+  { id: 'atlas', heading: '7A. Atlas e a Anthropic com dados da Zepp/Amazfit, da COROS e da Garmin', paragraphs: ATLAS_PARAGRAPHS },
   { id: 'terceiros', heading: '8. Compartilhamento e serviços de terceiros', paragraphs: ['O Panzeri Run usa os seguintes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
   {
     id: 'compromissos',
@@ -313,6 +332,7 @@ export const TERMS_SECTIONS: LegalSection[] = [
       '- O Panzeri Run usa os dados desses serviços como parte do acompanhamento e da personalização do seu treino, conforme a Política de Privacidade.',
       '- Dados vindos de dispositivos podem conter erros ou limitações, e a disponibilidade da integração pode depender do próprio serviço, que pode mudar ou ficar indisponível.',
       '- A integração com a Zepp/Amazfit (importar atividades e enviar treinos ao relógio) depende da disponibilidade e da compatibilidade dos serviços e dos aparelhos Zepp/Amazfit, que podem mudar, ficar indisponíveis ou não comportar todos os recursos de um treino. Cada autorização dessa integração é opcional e pode ser retirada a qualquer momento.',
+      '- A integração com a Garmin (importar atividades e dados de saúde e enviar treinos ao relógio), quando liberada pela Garmin, depende da disponibilidade e da compatibilidade dos serviços e dos aparelhos Garmin, que podem mudar, ficar indisponíveis ou não comportar todos os recursos de um treino. Cada autorização dessa integração é opcional e pode ser retirada a qualquer momento.',
       '- Desconectar a Polar ou a Wahoo não apaga automaticamente o histórico já importado; a exclusão desses dados é uma ação separada, descrita na Política de Privacidade. Desconectar o Strava apaga os dados do Strava guardados, e esses dados só aparecem para o próprio aluno.',
     ],
   },
@@ -346,6 +366,7 @@ export const LEGAL_SUMMARY = {
     { id: 'ia', title: 'Inteligência Artificial', paragraphs: AI_PARAGRAPHS },
     { id: 'zepp', title: 'Zepp/Amazfit', paragraphs: ZEPP_PARAGRAPHS },
     { id: 'coros', title: 'COROS', paragraphs: COROS_PARAGRAPHS },
+    { id: 'garmin', title: 'Garmin', paragraphs: GARMIN_PARAGRAPHS },
     { id: 'atlas', title: 'Atlas e Anthropic', paragraphs: ATLAS_PARAGRAPHS },
     { id: 'gerenciar', title: 'Gerenciar dados da integração', paragraphs: [DISCONNECT_PARAGRAPH, ...DELETE_PARAGRAPHS, ...BACKUP_PARAGRAPHS.slice(1, 2)] },
     { id: 'terceiros', title: 'Terceiros e processamento', paragraphs: ['O Panzeri Run usa estes serviços externos, cada um para a finalidade indicada:', ...THIRD_PARTIES] },
