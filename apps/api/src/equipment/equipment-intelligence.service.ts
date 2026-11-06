@@ -60,7 +60,7 @@ export class EquipmentIntelligenceService {
 
   private async loadBase() {
     const [students, devices, shoes] = await Promise.all([
-      this.prisma.user.findMany({ where: { role: 'student', accountStatus: 'active' }, select: { id: true, subscriptionStatus: true } }),
+      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active' }, select: { id: true, subscriptionStatus: true } }),
       this.prisma.userDevice.findMany({ select: { userId: true, sourceProvider: true, observedManufacturer: true, observedModel: true, observedName: true, manufacturerBasis: true, manualManufacturer: true, manualModel: true, deviceType: true, firstSeenAt: true, lastSeenAt: true, activityCount: true } }),
       this.prisma.shoe.findMany({ select: { id: true, userId: true, brand: true, model: true, status: true } }),
     ]);

@@ -27,7 +27,7 @@ describe('CoachService — finance() e dataBusinessSummary() excluem contas arqu
     return { service, groupByCalls };
   }
 
-  const EXPECTED = { role: 'student', accountStatus: { not: 'archived' } };
+  const EXPECTED = { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } }; // 05/11/2026: cadastros de teste ficam fora
 
   it('finance() conta so alunas nao arquivadas', async () => {
     const { service, groupByCalls } = build();

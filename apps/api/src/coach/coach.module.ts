@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CoachController } from './coach.controller';
 import { CoachToolingController } from './coach-tooling.controller';
+import { TestAccountsService } from './test-accounts.service';
+import { TestAccountsController } from './test-accounts.controller';
 import { CoachService } from './coach.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
 import { StudentIntegrationsService } from './student-integrations.service';
@@ -22,7 +24,7 @@ import { ActivityExecutionModule } from '../activity-execution/activity-executio
 
 @Module({
   imports: [TrainingPlansModule, MessagingModule, BackupModule, MeModule, BillingModule, MenstrualCycleModule, TrainingIntelligenceModule, ContextEventsModule, ReassessmentModule, EvolutionModule, ActivityExecutionModule, AccountDeletionModule],
-  controllers: [CoachController, CoachToolingController, MeTrainingLoadController],
-  providers: [CoachService, BusinessIntelligenceService, StudentIntegrationsService, StudentHealthRecoveryService, StudentTrainingLoadService],
+  controllers: [CoachController, CoachToolingController, MeTrainingLoadController, TestAccountsController],
+  providers: [CoachService, BusinessIntelligenceService, StudentIntegrationsService, StudentHealthRecoveryService, StudentTrainingLoadService, TestAccountsService],
 })
 export class CoachModule {}

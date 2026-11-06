@@ -133,7 +133,7 @@ export async function seedReviewAccount(prisma: PrismaClient, spec: ReviewAccoun
       : { subscriptionStatus: 'canceled', subscriptionProvider: 'revenuecat', subscriptionManualOverride: false, subscriptionCancelRequestedAt: null };
     const base = {
       email, passwordHash, name: persona.name, phone: persona.phone, birthDate: persona.birthDate, sex: persona.sex, heightCm: persona.heightCm, weightKg: persona.weightKg,
-      role: 'student', accountStatus: 'active', refreshTokenHash: null, expoPushToken: null,
+      role: 'student', isTestAccount: true, accountStatus: 'active', refreshTokenHash: null, expoPushToken: null,
       acceptedTermsAt: now, acceptedPrivacyAt: now, acceptedTermsVersion: LEGAL_VERSION, acceptedPrivacyVersion: LEGAL_VERSION, acceptedExerciseResponsibilityAt: now,
       lastRoutineChangeAt: addDays(weekStart, -21),
       generationWeekStart: null, generationAttemptsUsed: 0, generationExtraAttempts: 0, lastGenerationAttemptAt: null, generationExhaustedAlertSent: false,

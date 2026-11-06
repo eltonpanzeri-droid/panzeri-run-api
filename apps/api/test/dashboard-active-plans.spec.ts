@@ -29,6 +29,7 @@ describe('CoachService.dashboard — activePlans usa a mesma populacao de totals
 
   const EXPECTED_STUDENT_POPULATION = {
     role: 'student',
+    isTestAccount: false,
     subscriptionStatus: { notIn: ['pending', 'canceled'] },
     accountStatus: { not: 'archived' },
   };

@@ -61,6 +61,14 @@ describe('StudentAccessService.run', () => {
     for (const model of Object.values(prisma)) expect(Object.keys(model as object).every((m) => m === 'findMany' || m === 'groupBy')).toBe(true);
   });
 
+  it('a leitura da tabela de conexoes nunca pede tokens (so userId, provider e ultima sincronizacao)', async () => {
+    const { service, prisma } = build();
+    await service.run();
+    const select = prisma.providerConnection.findMany.mock.calls[0][0].select;
+    expect(Object.keys(select).sort()).toEqual(['lastSyncCompletedAt', 'provider', 'userId']);
+    expect(JSON.stringify(select)).not.toMatch(/token|secret|Encrypted/i);
+  });
+
   it('conexao desconectada nao conta: a consulta filtra disconnectedAt nulo', async () => {
     const { service, prisma } = build();
     await service.run();

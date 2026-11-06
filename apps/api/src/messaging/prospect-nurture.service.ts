@@ -95,7 +95,7 @@ export class ProspectNurtureService {
   @Cron(CronExpression.EVERY_HOUR)
   async runNurtureSequence() {
     const prospects = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
       select: {
         id: true,
         name: true,

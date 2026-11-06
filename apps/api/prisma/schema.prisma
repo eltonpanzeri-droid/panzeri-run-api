@@ -40,6 +40,9 @@ model User {
   // aparecia no Telegram na hora e sumia — se o treinador nao visse na hora, nunca mais sabia.
   lastPlanGenerationFailedAt       DateTime?
   accountStatus                    String    @default("active")
+  // 05/11/2026 (ordem do Elton): cadastros de TESTE (contas de revisao Apple/Google e cadastros de teste) ficam FORA de todas as contas, contagens e listas de alunas; aparecem so na secao
+  // "Cadastros de teste" do painel. Continuam podendo entrar (as lojas precisam). Nunca e' preenchido sozinho para aluna real.
+  isTestAccount                    Boolean   @default(false)
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())
   subscriptionManualOverride       Boolean   @default(false)

@@ -259,13 +259,15 @@ describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
     expect(source.slice(source.indexOf("@Get('callback')") - 120, source.indexOf("@Get('callback')"))).not.toContain('AuthGuard');
   });
 
+  // 05/11/2026: equipment/student-access.service.ts (tela "Como as alunas acessam") le a tabela SO' para saber quem tem conexao ativa: seleciona userId, provider e lastSyncCompletedAt, nunca tokens
+  // (garantido em test/student-access.spec.ts).
   it('apenas o servico de conexao e o de consentimento leem a tabela de conexoes (tokens nao saem por outro caminho)', () => {
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|apple-health\/apple-health-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
+        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|equipment\/student-access\.service\.ts|apple-health\/apple-health-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
       }
     };
     walk(join(__dirname, '..', 'src'));

@@ -71,7 +71,7 @@ export class AppleHealthIngestionService {
     @Optional() private readonly deviceRegistry?: DeviceRegistryService,
     // Consentimento por categoria (28/10/2026). Opcional so' para testes antigos: sem ele a importacao se comporta como o modo 'legacy'.
     @Optional() private readonly consent?: AppleHealthConsentService,
-    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Apple Saude nao avisava, ao contrario de Polar/Zepp/COROS/Wahoo. Opcional so' para testes antigos.
+    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Apple Saude nao avisava, ao contrario de os provedores de relogio que ja avisavam. Opcional so' para testes antigos.
     @Optional() private readonly activityNotifications?: ActivityNotificationService,
   ) {}
 

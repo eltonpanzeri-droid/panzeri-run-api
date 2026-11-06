@@ -84,7 +84,7 @@ export class CoachService {
   // em 20, insuficiente pra um picker que precisa ver todo mundo).
   async allActiveStudentsLight() {
     return this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' } },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } },
       select: { id: true, name: true, studentCode: true },
       orderBy: { name: 'asc' },
     });
@@ -373,7 +373,7 @@ export class CoachService {
   // Mesma simulacao para todos os alunos: so' lista quem teria algo a ser agrupado (ou quase). Um aluno por vez; falha de um nao derruba o resto.
   async previewSameObserverDuplicatesForAll() {
     if (!this.physicalIdentity) throw new NotFoundException('Servico de identidade fisica indisponivel.');
-    const students = await this.prisma.user.findMany({ where: { role: 'student', accountStatus: { not: 'archived' } }, select: { id: true, name: true, studentCode: true } });
+    const students = await this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } }, select: { id: true, name: true, studentCode: true } });
     const affected: Array<{ studentId: string; name: string; studentCode: number | string | null; groups: number; extraRecords: number; inflatedKm: number; nearMisses: number }> = [];
     let failed = 0;
     for (const student of students) {
@@ -450,7 +450,7 @@ export class CoachService {
   // Nao inventa media populacional como descricao do individuo: devolve a lista real, nomeada.
   async variablePopulation(variableId: string, trainingIntelligenceQuery: TrainingIntelligenceQueryService) {
     const students = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' } },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } },
       select: { id: true, name: true, studentCode: true },
     });
 
@@ -484,7 +484,7 @@ export class CoachService {
   // observada durante o acompanhamento", nunca "o metodo causou".
   async methodResults() {
     const students = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' } },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } },
       select: { id: true, name: true, studentCode: true },
     });
 
@@ -526,7 +526,7 @@ export class CoachService {
   // revisar pra paginacao/paralelismo limitado).
   async trainingIntelligenceOverview() {
     const students = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' } },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } },
       select: { id: true, name: true, studentCode: true, subscriptionStatus: true },
     });
 
@@ -1079,6 +1079,7 @@ export class CoachService {
     // realmente entra na Lista operacional agora.
     const baseStudentWhere: Prisma.UserWhereInput = {
       role: 'student',
+      isTestAccount: false,
       // 18/08: quem nunca pagou (nem recebeu cortesia) e' prospecto, nao aluno — fica de fora da
       // lista operacional principal. Ver CoachService.prospects() pra essas pessoas, com nivel de
       // interesse (entrevista/cobranca) em vez de misturadas aqui como se ja fossem alunas.
@@ -1118,6 +1119,7 @@ export class CoachService {
     // e os planos ativos/criados-nesta-semana abaixo).
     const allStudentsWhere: Prisma.UserWhereInput = {
       role: 'student',
+      isTestAccount: false,
       subscriptionStatus: { notIn: ['pending', 'canceled'] },
       ...(input.includeArchived ? {} : { accountStatus: { not: 'archived' } }),
     };
@@ -1168,10 +1170,10 @@ export class CoachService {
       // arquivado/cancelado/pendente, ou ate' um plano orfao de conta removida). Agora exige que o
       // dono do plano esteja na mesma populacao de allStudentsWhere.
       this.prisma.trainingPlan.findMany({ where: { status: 'active', user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
-      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active' } } }),
-      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } }),
-      this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
-      this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active' } } } }),
+      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active', user: { isTestAccount: false } } } }),
+      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } }),
+      this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } } }),
+      this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: { in: [...CONFIRMED_STATUSES] } } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: COURTESY_STATUS } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: OVERDUE_STATUS } }),
@@ -1316,7 +1318,7 @@ export class CoachService {
 
   async prospects() {
     const rows = await this.prisma.user.findMany({
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -1374,7 +1376,7 @@ export class CoachService {
       // ou cortesia liberada pelo treinador) alguma vez — sem essa trava, um cadastro fantasma que
       // nunca pagou (subscriptionStatus vira 'canceled' se alguem chamar cancel() nele, sem nunca
       // ter tido assinatura de verdade) apareceria aqui como se fosse uma ex-aluna real.
-      where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: 'canceled', studentCode: { not: null } },
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, subscriptionStatus: 'canceled', studentCode: { not: null } },
       orderBy: { subscriptionUpdatedAt: 'desc' },
       select: {
         id: true,
@@ -1416,7 +1418,7 @@ export class CoachService {
   // cadastros completam a entrevista mas nunca pagam, e outros nem completam a entrevista).
   // So leitura, nenhuma chamada de IA — cruza User + OnboardingInterview + subscriptionStatus.
   async signupFunnel() {
-    const studentWhere: Prisma.UserWhereInput = { role: 'student', accountStatus: { not: 'archived' } };
+    const studentWhere: Prisma.UserWhereInput = { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } };
     const students = await this.prisma.user.findMany({
       where: studentWhere,
       select: {
@@ -2091,9 +2093,9 @@ export class CoachService {
 
   async dataGrowthAttribution() {
     const prisma = this.prisma as any;
-    const total: number = await this.prisma.user.count({ where: { role: 'student' } });
+    const total: number = await this.prisma.user.count({ where: { role: 'student', isTestAccount: false } });
     const allWithAttrib: { acquisitionAttribution: unknown }[] = await prisma.user.findMany({
-      where: { role: 'student', acquisitionAttribution: { not: null } },
+      where: { role: 'student', isTestAccount: false, acquisitionAttribution: { not: null } },
       select: { acquisitionAttribution: true },
     });
     const attributed = allWithAttrib.length;
@@ -2215,7 +2217,7 @@ export class CoachService {
 
     const [students, sessions, completions] = await Promise.all([
       this.prisma.user.findMany({
-        where: { role: 'student' },
+        where: { role: 'student', isTestAccount: false },
         select: { id: true, name: true, subscriptionStatus: true },
       }),
       this.prisma.trainingSession.findMany({

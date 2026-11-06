@@ -48,6 +48,7 @@ export class StudentAccessService {
     const students = await this.prisma.user.findMany({
       where: {
         role: 'student',
+        isTestAccount: false,
         accountStatus: { not: 'archived' },
         NOT: { OR: REVIEW_EMAIL_PREFIXES.map((prefix) => ({ email: { startsWith: prefix } })) },
       },

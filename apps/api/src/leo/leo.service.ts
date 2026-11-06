@@ -105,7 +105,7 @@ export class LeoService {
             AND "createdAt" <= ${end}
         `,
         this.prisma.user.count({
-          where: { role: 'student', createdAt: { gte: start, lte: end } },
+          where: { role: 'student', isTestAccount: false, createdAt: { gte: start, lte: end } },
         }),
         this.prisma.$queryRaw<[{ count: bigint }]>`
           SELECT COUNT(DISTINCT "sessionId") AS count
@@ -170,7 +170,7 @@ export class LeoService {
   async getAttribution(from?: string, to?: string) {
     const { start, end } = rangeBoundariesBRT(from, to);
 
-    const where: { role: string; createdAt?: { gte?: Date; lte?: Date } } = { role: 'student' };
+    const where: { role: string; isTestAccount: boolean; createdAt?: { gte?: Date; lte?: Date } } = { role: 'student', isTestAccount: false };
     if (start || end) {
       where.createdAt = {};
       if (start) where.createdAt.gte = start;

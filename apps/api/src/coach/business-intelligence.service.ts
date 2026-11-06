@@ -67,7 +67,7 @@ export class BusinessIntelligenceService {
   private async loadContexts(): Promise<Map<string, Ctx>> {
     const [users, events] = await Promise.all([
       this.prisma.user.findMany({
-        where: { role: 'student' },
+        where: { role: 'student', isTestAccount: false },
         select: {
           id: true,
           createdAt: true,
@@ -197,7 +197,7 @@ export class BusinessIntelligenceService {
     }
 
     const rawSessions = await this.prisma.trainingSession.findMany({
-      where: { scheduledDate: { gte: since, lte: until } },
+      where: { scheduledDate: { gte: since, lte: until }, plan: { user: { isTestAccount: false } } },
       select: {
         id: true,
         scheduledDate: true,

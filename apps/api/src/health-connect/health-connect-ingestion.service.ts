@@ -66,7 +66,7 @@ export class HealthConnectIngestionService {
     private readonly consent?: HealthConnectConsentService,
     // Registro automatico de dispositivos (23/10/2026). Opcional so' para testes antigos; em producao e' sempre injetado.
     @Optional() private readonly deviceRegistry?: DeviceRegistryService,
-    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Health Connect nao avisava, ao contrario de Polar/Zepp/COROS/Wahoo. Opcional so' para testes antigos.
+    // Aviso "seu treino foi sincronizado, conte como foi" (05/11/2026): o Health Connect nao avisava, ao contrario de os provedores de relogio que ja avisavam. Opcional so' para testes antigos.
     @Optional() private readonly activityNotifications?: ActivityNotificationService,
   ) {}
 

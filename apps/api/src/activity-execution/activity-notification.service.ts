@@ -25,7 +25,7 @@ export class ActivityNotificationService {
   ) {}
 
   // options (05/11/2026, Apple Saude e Health Connect): esses canais trazem HISTORICO de ate' 3 anos na primeira sincronizacao, entao so' avisa de treino da SEMANA ATUAL (segunda a domingo, horario de Brasilia; currentWeekOnly) e nunca cobra
-  // feedback que a aluna ja' registrou (skipIfFeedbackGiven: feedback com conteudo dela, nao o sintetico). Sem options o comportamento e' o de sempre (Polar, Zepp, COROS, Wahoo).
+  // feedback que a aluna ja' registrou (skipIfFeedbackGiven: feedback com conteudo dela, nao o sintetico). Sem options o comportamento e' o de sempre (os demais provedores).
   async notifyReconciliation(userId: string, activityLogId: string, classification: string | null, options: { currentWeekOnly?: boolean; skipIfFeedbackGiven?: boolean } = {}): Promise<boolean> {
     if (!classification) return false;
     const activity = await this.prisma.activityLog.findUnique({

@@ -49,7 +49,7 @@ describe('CacheMilestoneNotifierService', () => {
   it('conta so quem e do grupo confirmado (active/grace), sem arquivadas', async () => {
     const { service, count } = build({ count: 10 });
     await service.run();
-    expect(count).toHaveBeenCalledWith({ where: { role: 'student', accountStatus: { not: 'archived' }, subscriptionStatus: { in: ['active', 'grace'] } } });
+    expect(count).toHaveBeenCalledWith({ where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, subscriptionStatus: { in: ['active', 'grace'] } } });
   });
 
   it('o cron nunca lanca excecao (falha de banco vira aviso no log)', async () => {

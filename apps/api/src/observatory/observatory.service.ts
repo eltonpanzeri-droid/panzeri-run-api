@@ -46,8 +46,8 @@ export class ObservatoryService {
     const since = addDays(from, -35);
     const start = new Date(`${since}T00:00:00Z`);
     const end = new Date(`${addDays(to, 1)}T23:59:59Z`);
-    const [users, activities, completions, pains] = await Promise.all([
-      this.prisma.user.findMany({ where: { role: 'student', accountStatus: 'active' }, select: { id: true, birthDate: true, sex: true } }),
+    const [users, allActivities, allCompletions, allPains] = await Promise.all([
+      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active' }, select: { id: true, birthDate: true, sex: true } }),
       this.prisma.activityLog.findMany({ where: { provider: { notIn: HIDDEN_PROVIDERS }, startedAt: { gte: shiftDate(start, -1), lte: end } }, select: ACTIVITY_SELECT }),
       this.prisma.workoutCompletion.findMany({
         where: { status: { in: ['done', 'adjusted'] }, OR: [{ completedAt: { gte: start, lte: end } }, { session: { scheduledDate: { gte: start, lte: end } } }] },
@@ -55,6 +55,11 @@ export class ObservatoryService {
       }),
       this.prisma.painReport.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { id: true, userId: true, createdAt: true, intensity: true } }),
     ]);
+    // Cadastros de teste e contas fora da populacao nunca entram: so' atividades, treinos e relatos de quem esta em users.
+    const allowed = new Set(users.map((u) => u.id));
+    const activities = allActivities.filter((row) => allowed.has(row.userId));
+    const completions = allCompletions.filter((row) => allowed.has(row.userId));
+    const pains = allPains.filter((row) => allowed.has(row.userId));
     const sessionIds = [...new Set(completions.map((c) => c.sessionId).filter((id): id is string => Boolean(id)))];
     const links = sessionIds.length > 0
       ? await this.prisma.sessionExecutionLink.findMany({ where: { status: 'active', trainingSessionId: { in: sessionIds } }, orderBy: { createdAt: 'asc' }, select: { trainingSessionId: true, activityLogId: true } })

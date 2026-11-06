@@ -40,7 +40,8 @@ export const PAYMENT_GROUP_LABEL: Record<PaymentGroup, string> = {
 // grupo de pagamento (Financeiro, resumo de negocio) usa a mesma populacao da Visao geral — alunas sem
 // contas arquivadas. Antes, finance() e dataBusinessSummary() contavam arquivadas tambem e o mesmo grupo
 // aparecia com numeros diferentes em telas diferentes (cortesia 9 x 10, atrasadas 10 x 12, prospectos 24 x 26).
-export const STUDENT_METRICS_POPULATION = { role: 'student', accountStatus: { not: 'archived' } } as const;
+// 05/11/2026: cadastros de teste (isTestAccount) ficam fora de TODA contagem; aparecem so' na secao "Cadastros de teste".
+export const STUDENT_METRICS_POPULATION = { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' } } as const;
 
 // Preco atual por aluno pagante — unica fonte (ate existir plano com precos diferentes).
 export const PRICE_PER_STUDENT_CENTS = 1990;
