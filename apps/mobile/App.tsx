@@ -24,7 +24,7 @@ import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
-import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
+import { AppleWatchWorkoutsCard } from './src/appleWatchDelivery/AppleWatchWorkoutsCard';
 import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAutoSend';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -5728,8 +5728,6 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
                         {session.realized ? <ActivityLinkControls activityLogId={session.realized.activityLogId} linked accessToken={accessToken} onChanged={loadPlan} /> : null}
                         {session.isAlternative && session.alternativeActivityLogId ? <ActivityLinkControls activityLogId={session.alternativeActivityLogId} linked={false} accessToken={accessToken} onChanged={loadPlan} /> : null}
-                        {/* Envio ao Apple Watch (WorkoutKit): so' no app nativo iOS e so' p/ corrida continua externa por distancia (a API decide). */}
-                        <AppleWatchSendButton sessionId={session.id} accessToken={accessToken} apiUrl={API_URL} />
                         <SessionPrescription
                           session={session}
                           sessionNotes={'notes' in session && session.notes ? session.notes : undefined}
@@ -9307,7 +9305,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     strava: () => <StravaSync accessToken={accessToken} />,
     wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
     // Apple Saude: sincronizacao simples (so aparece no app nativo iOS; o proprio card se autolimita).
-    apple_watch: () => <AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} />,
+    // 06/11/2026: o envio de treinos ao relogio (autorizacao + "Sincronizar envio de treinos ao relogio") vive AQUI, e nao mais no card de cada treino.
+    apple_watch: () => (<><AppleWatchWorkoutsCard accessToken={accessToken} apiUrl={API_URL} /><AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} /></>),
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
     samsung: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,

@@ -258,6 +258,14 @@ Como aplicar:
 - Nunca executar ação financeira diretamente (cobrança, reembolso, transferência) — apresentar achado e deixar o Elton agir via Asaas.
 - Nunca fazer commit, push ou deploy automaticamente.
 
+## Regra de build (ordem de Elton, 06/11/2026 — OBRIGATÓRIA)
+
+Antes de gerar, preparar ou sequer sugerir QUALQUER build (Android, iPhone ou os dois):
+1. **Conferir TODOS os registros do build**: `FILA_PROXIMO_BUILD_E_IDEIAS.md` (partes A e B), `PLANO_PROXIMO_BUILD.md`, a seção "BACKLOG DO PRÓXIMO BUILD" do `PRONTUARIO.md` e as memórias de build (`MEMORY.md`).
+2. **Enviar a Elton, no chat, a LISTA COMPLETA do que foi registrado para esse build**, item por item (data, o que é, se o código está pronto ou não, e o que depende de decisão, advogado ou loja). Nunca resumir nem omitir item. Apontar qualquer divergência entre os registros.
+3. Dizer o que ficaria de fora e por quê; só gerar depois de ele autorizar na hora (nunca gerar build por conta própria).
+4. Toda mudança nova que exige build nasce registrada nesses lugares (já era regra; vale também para o que foi só conversado e decidido).
+
 ## Continuidade e compactação de contexto
 
 O Claude deve operar como colaborador técnico contínuo, não como uma sequência de conversas independentes. Informações necessárias para compreender o estado atual do projeto, decisões tomadas, erros relevantes, pendências e procedimentos recorrentes devem ser registradas nos locais permanentes ANTES que possam ser perdidas por compactação.

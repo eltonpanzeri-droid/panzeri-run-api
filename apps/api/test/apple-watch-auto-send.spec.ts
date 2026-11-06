@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { AUTO_SEND_STORAGE_KEY, autoSendWeekToAppleWatch, sessionsToAutoSend } from '../../mobile/src/appleWatchDelivery/autoSendWeekToAppleWatch';
+import { AUTO_SEND_STORAGE_KEY, autoSendWeekToAppleWatch, sessionsToAutoSend, syncSummaryMessage } from '../../mobile/src/appleWatchDelivery/autoSendWeekToAppleWatch';
 import type { AppleEligibility, AppleWatchApi, AppleWatchNative } from '../../mobile/src/appleWatchDelivery/sendSessionToAppleWatch';
 
 // 06/11/2026 — envio AUTOMATICO dos treinos da semana ao Apple Watch ao abrir o Panzeri Run (ordem de Elton). Esteira E corrida: a elegibilidade e decidida pela API.
@@ -80,11 +80,32 @@ describe('envio automatico', () => {
   });
 });
 
-describe('ligacao no Panzeri Run', () => {
-  it('so liga depois de um envio manual com sucesso (flag no aparelho) e a tela Semana chama o envio automatico', () => {
-    expect(mobile('src/appleWatchDelivery/AppleWatchSendButton.tsx')).toContain("if (result.ok) { try { await AsyncStorage.setItem(AUTO_SEND_STORAGE_KEY, '1')");
+describe('ligacao no Panzeri Run (06/11/2026: autorizacao + botao no cartao Apple Watch)', () => {
+  it('o cartao grava a autorizacao (flag) depois da folha do iPhone, o botao sincroniza e a tela Semana liga o envio automatico', () => {
+    const card = mobile('src/appleWatchDelivery/AppleWatchWorkoutsCard.tsx');
+    expect(card).toContain('Sincronizar envio de treinos ao relógio');
+    expect(card).toContain('Autorizo o envio de treinos ao Apple Watch');
+    expect(card).toContain("await AsyncStorage.setItem(AUTO_SEND_STORAGE_KEY, '1')");
+    expect(card).toContain("if (state !== 'authorized')"); // sem a autorizacao do iPhone a flag NAO e gravada
+    expect(card).toContain('attempted: new Set<string>()'); // toque manual tenta tudo de novo
     expect(mobile('src/appleWatchDelivery/useAppleWatchAutoSend.ts')).toContain("(await AsyncStorage.getItem(AUTO_SEND_STORAGE_KEY)) !== '1') return");
     expect(mobile('App.tsx')).toContain('useAppleWatchAutoSend(plan?.sessions, accessToken, API_URL);');
     expect(AUTO_SEND_STORAGE_KEY).toBe('panzeri:appleWatchAutoSend:v1');
+  });
+
+  it('o botao "Enviar ao Apple Watch" saiu do card de cada treino e o cartao fica em Dispositivos > Apple Watch', () => {
+    const app = mobile('App.tsx');
+    expect(app).not.toContain('<AppleWatchSendButton');
+    expect(app).toContain('apple_watch: () => (<><AppleWatchWorkoutsCard accessToken={accessToken} apiUrl={API_URL} /><AppleHealthSyncCard');
+  });
+});
+
+describe('mensagem do botao de sincronizar', () => {
+  it('diz o que aconteceu em linguagem simples', () => {
+    expect(syncSummaryMessage({ considered: 0, sent: 0, skipped: 0, failed: 0 })).toBe('Nenhum treino novo para enviar.');
+    expect(syncSummaryMessage({ considered: 3, sent: 2, skipped: 1, failed: 0 })).toBe('2 treino(s) enviado(s) ao relógio.');
+    expect(syncSummaryMessage({ considered: 2, sent: 1, skipped: 0, failed: 1 })).toBe('1 treino(s) enviado(s) ao relógio. 1 não puderam ser enviados agora.');
+    expect(syncSummaryMessage({ considered: 2, sent: 0, skipped: 2, failed: 0 })).toContain('já estão no relógio');
+    expect(syncSummaryMessage({ considered: 1, sent: 0, skipped: 0, failed: 1, stoppedReason: 'sem_autorizacao' })).toContain('Ajustes do iPhone');
   });
 });

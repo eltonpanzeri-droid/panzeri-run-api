@@ -24,9 +24,9 @@ describe('politica de privacidade das lojas', () => {
     expect(plugin).toContain('nao grava registros de saude');
   });
 
-  it('Apple Watch: envio so por toque do aluno (botao na sessao prescrita)', () => {
-    const button = read('mobile/src/appleWatchDelivery/AppleWatchSendButton.tsx');
-    expect(button).toContain('Enviar ao Apple Watch');
+  it('Apple Watch: envio com autorizacao da aluna no cartao Apple Watch (06/11/2026: o botao saiu do card do treino)', () => {
+    const button = read('mobile/src/appleWatchDelivery/AppleWatchWorkoutsCard.tsx');
+    expect(button).toContain('Sincronizar envio de treinos ao relógio');
     expect(all).toContain('O envio só acontece quando você toca nele');
   });
 

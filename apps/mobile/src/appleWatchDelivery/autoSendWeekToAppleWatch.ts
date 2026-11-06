@@ -86,3 +86,14 @@ export async function autoSendWeekToAppleWatch(sessions: AutoSendSession[] | nul
   }
   return summary;
 }
+
+// Texto do resultado do botao "Sincronizar envio de treinos ao relogio" (sem termos tecnicos).
+export function syncSummaryMessage(summary: AutoSendSummary): string {
+  if (summary.stoppedReason === 'sem_autorizacao') return 'O iPhone não autorizou o envio de treinos ao Apple Watch. Libere em Ajustes do iPhone e tente de novo.';
+  if (summary.considered === 0) return 'Nenhum treino novo para enviar.';
+  const parts: string[] = [];
+  if (summary.sent > 0) parts.push(`${summary.sent} treino(s) enviado(s) ao relógio`);
+  if (summary.skipped > 0 && summary.sent === 0 && summary.failed === 0) parts.push('Os treinos desta semana já estão no relógio ou não podem ser enviados');
+  if (summary.failed > 0) parts.push(`${summary.failed} não puderam ser enviados agora`);
+  return `${parts.join('. ')}.`;
+}
