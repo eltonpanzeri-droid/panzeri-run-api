@@ -175,6 +175,7 @@ export class AppController {
     if (
       filename !== 'elton.jpeg' &&
       filename !== 'panzeri-run-logo.png' &&
+      filename !== 'panzeri-run-brand-300.png' &&
       !/^result-(0[1-9]|1[0-9]|2[01])\.jpeg$/.test(filename)
     ) {
       return response.status(404).send('Arquivo não encontrado');
