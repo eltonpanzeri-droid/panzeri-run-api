@@ -40,7 +40,7 @@ export default function TestAccounts({ accessToken, apiUrl }: { accessToken: str
   return (
     <section className="eqRoot">
       <header className="eqTop">
-        <div className="eqTitle"><h2>Cadastros de teste</h2><p>Contas criadas para a Apple e o Google testarem o Panzeri Run e outros cadastros de teste. Não entram em nenhuma conta, contagem ou lista de alunas.</p></div>
+        <div className="eqTitle"><h2>Alunas de teste</h2><p>Contas criadas para a Apple e o Google testarem o Panzeri Run e outros cadastros de teste. Não entram em nenhuma conta, contagem ou lista de alunas.</p></div>
         <button type="button" className="eqBtn ghost" onClick={() => void load()} disabled={state === 'loading'}><RefreshCw size={14} aria-hidden="true" /> {state === 'loading' ? 'Atualizando...' : 'Atualizar'}</button>
       </header>
       {message ? <p role="alert">{message}</p> : null}

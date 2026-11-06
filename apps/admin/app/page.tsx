@@ -36,6 +36,7 @@ interface DashboardResponse {
     paymentOverdue: number;
     paymentPending: number;
     plansCreatedThisWeek: number;
+    testAccounts?: number;
     week?: { start: string; end: string };
   };
   students: StudentRow[];
@@ -1377,7 +1378,7 @@ export default function AdminHome() {
             </button>
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'testAccounts' ? 'Cadastros de teste' : activeView === 'observatory' ? 'Observatório Panzeri Run' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'testAccounts' ? 'Alunas de teste' : activeView === 'observatory' ? 'Observatório Panzeri Run' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1416,9 +1417,9 @@ export default function AdminHome() {
             { area: 'Alunas', view: 'students', label: `Alunos${dashboard?.totals.students != null ? ` (${dashboard.totals.students})` : ''}`, icon: <Users size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'Alunas', view: 'prospects', label: `Prospectos${prospects?.totals.total != null ? ` (${prospects.totals.total})` : ''}`, icon: <Flame size={19} />, papeis: ['treinador', 'empresario', 'marketing'] },
             { area: 'Alunas', view: 'exStudents', label: `Ex-alunos${exStudents?.total != null ? ` (${exStudents.total})` : ''}`, icon: <UserX size={19} />, papeis: ['treinador', 'empresario'] },
+            { area: 'Alunas', view: 'testAccounts', label: `Alunas de teste${dashboard?.totals.testAccounts != null ? ` (${dashboard.totals.testAccounts})` : ''}`, icon: <FlaskConical size={19} />, papeis: ['treinador', 'coordenador', 'empresario'] },
             { area: 'Alunas', view: 'raceCalendar', label: 'Provas', icon: <Flag size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'Alunas', view: 'equipment', label: 'Equipamentos', icon: <Footprints size={19} />, papeis: ['treinador', 'coordenador', 'empresario'] },
-            { area: 'Alunas', view: 'testAccounts', label: 'Cadastros de teste', icon: <FlaskConical size={19} />, papeis: ['treinador', 'coordenador', 'empresario'] },
             { area: 'Alunas', view: 'observatory', label: 'Observatório', icon: <Gauge size={19} />, papeis: ['treinador', 'coordenador', 'empresario'] },
             // 15/10/2026 (Fase 4 lote 4.7, decisao de Elton): o Training Intelligence saiu do menu — agora vive dentro da
             // Evolucao de cada aluna. A view 'trainingIntelligence' e o componente foram mantidos (sem botao) para reverter:
@@ -1522,6 +1523,7 @@ export default function AdminHome() {
               Quem esta' pending nunca teve compromisso de pagamento (nao e' aluno ainda), entao nao
               faz sentido misturar com atrasado/confirmado como se fosse um problema de cobranca. */}
           <Stat label="Prospectos" value={String(dashboard?.totals.paymentPending ?? 0)} detail="ainda nao pagaram, sem compromisso" onClick={() => changeView('prospects')} />
+          <Stat label="Alunas de teste" value={String(dashboard?.totals.testAccounts ?? 0)} detail="fora de todas as contas" onClick={() => changeView('testAccounts')} />
           <Stat
             label="Alunos com programa novo"
             value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)}

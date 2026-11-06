@@ -1190,6 +1190,9 @@ export class CoachService {
       this.prisma.trainingPlan.findMany({ where: { createdAt: { gte: closedWeekStart, lte: closedWeekEnd }, user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
+    // Cartao "Alunas de teste" (05/11/2026): so' a contagem; essas contas ficam fora de todas as outras.
+    const testAccountsCount = await this.prisma.user.count({ where: { role: 'student', isTestAccount: true } });
+
     const stravaConnections = await this.prisma.stravaConnection.findMany({
       where: { userId: { in: allMatching.map((student) => student.id) } },
       select: { userId: true, updatedAt: true },
@@ -1253,6 +1256,7 @@ export class CoachService {
         paymentOverdue,
         paymentPending,
         plansCreatedThisWeek: plansCreatedThisWeekUsers.length,
+        testAccounts: testAccountsCount,
         // semana corrida encerrada a que os cartoes semanais se referem (segunda e domingo, AAAA-MM-DD)
         week: { start: closedWeekStart.toISOString().slice(0, 10), end: closedWeekEnd.toISOString().slice(0, 10) },
       },
