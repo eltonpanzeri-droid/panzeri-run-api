@@ -129,6 +129,7 @@ Uma tarefa só está concluída quando todos os gates aplicáveis passam:
 - formatação dos arquivos tocados;
 - typecheck de cada app tocado (`tsc --noEmit` após **cada** rodada de edição, não só no final);
 - lint verde;
+- **ao tocar no painel admin, rodar o `next build` de verdade (apps/admin), não só o `tsc`**: o build roda o lint e quebra por coisa que o `tsc` não vê (falha real de 05/11/2026: comentário `eslint-disable` de regra inexistente derrubou o painel do Elton);
 - testes existentes verdes;
 - teste de regressão novo para bug relevante;
 - build/smoke test da superfície tocada;

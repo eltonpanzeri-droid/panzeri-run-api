@@ -24,7 +24,6 @@ export default function TestAccounts({ accessToken, apiUrl }: { accessToken: str
       if (!response.ok) throw new Error('Não foi possível carregar agora.');
       setRows(((await response.json()) as { rows: Row[] }).rows); setState('ready');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Sem conexão com a API.'); setState('error'); }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, apiUrl]);
   useEffect(() => { void load(); }, [load]);
 
