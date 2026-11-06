@@ -34,7 +34,7 @@ Evolução da aluna em seis áreas (lotes 1 a 8), Dor, resposta à carga, sono d
 4. **Passo a passo, dentro do app, para ligar o Health Connect no Samsung Health.**
 5. **A verificar antes de implementar:** (a) cartão simples do Apple Saúde (Autorizar, Sincronizar, confirmação) e desligar `appleHealthProof`, decisão de 27/10, não sei se já foi feito; (b) regra "toda integração envia o treino ao relógio" (Zepp tem o cartão "Treinos no relógio"; conferir as demais).
 6. **Teste em aparelho:** leitura em segundo plano do Health Connect nunca foi testada com dado real; avisar Elton quando o 1º dado chegar.
-7. **Apple Saúde: ler a série de FC e distância ao longo do treino** (gráfico de ritmo, FC e cadência, inclusive esteira; ritmo vem da diferença de distância). Antes: conferir no app Saúde se a distância tem vários pontos. Revisar texto de consentimento (advogado).
+7. **Apple Saúde: ler TODAS as séries do treino que o HealthKit tiver (frequência cardíaca, distância, passos/cadência, velocidade, potência, passada, tempo de contato com o solo, oscilação vertical, energia, altitude/elevação e percurso) ao longo do treino** (regra "pegar TUDO", nunca só parte; ritmo vem da diferença de distância quando não houver velocidade; esteira incluída). Antes: conferir no app Saúde se a distância tem vários pontos. Revisar texto de consentimento (advogado).
 8. **⚠ Texto legal do envio ao Apple Watch (OBRIGATÓRIO antes do build iOS):** o texto atual diz que o envio só acontece quando a aluna toca; com envio automático ao abrir isso fica falso. Ajustar, nova versão legal, reconfirmação, advogado.
 9. **Depois do build:** atualizar o texto do cartão "Apple Watch" do catálogo (servidor).
 
