@@ -25,6 +25,7 @@ import { describeTargetRaceError, validateTargetTime } from './src/targetRace/me
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
 import { AppleWatchSendButton } from './src/appleWatchDelivery/AppleWatchSendButton';
+import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAutoSend';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -4233,6 +4234,8 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
       if (draft) void persistCompletionDraft(id, draft);
     });
   }, [completionDrafts]);
+  // 06/11/2026: envio automatico dos treinos da semana ao Apple Watch ao abrir o Panzeri Run (so' iPhone nativo, so' depois do primeiro envio manual).
+  useAppleWatchAutoSend(plan?.sessions, accessToken, API_URL);
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
   // Bug real corrigido 12/09 (Juliana, Lucelane): isLoading começa true para que a primeira

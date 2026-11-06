@@ -8,6 +8,8 @@ import {
   validateCustomWorkoutSpec,
   listScheduledWorkouts,
 } from '../../modules/panzeri-apple-health/src';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AUTO_SEND_STORAGE_KEY } from './autoSendWeekToAppleWatch';
 import { AppleEligibility, ApplePrepare, AppleWatchApi, appleWatchAvailability, sendResultMessage, sendSessionToAppleWatch } from './sendSessionToAppleWatch';
 
 // "Enviar ao Apple Watch" no card da sessao prescrita. So' no app nativo iOS e SO' quando a API (tradutor Apple) consegue representar a corrida
@@ -76,6 +78,8 @@ export function AppleWatchSendButton({ sessionId, accessToken, apiUrl }: { sessi
         scheduleCustomWorkout: (planId, specJson, date) => scheduleCustomWorkoutSpec(planId, specJson, date),
       });
       setMessage(sendResultMessage(result));
+      // 06/11/2026: depois do PRIMEIRO envio com sucesso (permissao do iPhone ja dada) os treinos da semana passam a seguir sozinhos ao abrir o Panzeri Run (useAppleWatchAutoSend).
+      if (result.ok) { try { await AsyncStorage.setItem(AUTO_SEND_STORAGE_KEY, '1'); } catch { /* melhor esforco */ } }
       await loadEligibility();
     } catch {
       setMessage('Não foi possível enviar agora. Tente novamente.');
