@@ -37,7 +37,7 @@ import { NotificationTriggersService } from '../messaging/notification-triggers.
 import { computeProspectLevel } from '../messaging/prospect-level';
 import { ProspectNurtureService } from '../messaging/prospect-nurture.service';
 import { MenstrualCycleService } from '../menstrual-cycle/menstrual-cycle.service';
-import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, STUDENT_METRICS_POPULATION, estimatedMrrCents } from './subscription-groups.util';
+import { CONFIRMED_STATUSES, COURTESY_STATUS, OVERDUE_STATUS, PENDING_STATUS, PRICE_PER_STUDENT_CENTS, STUDENT_METRICS_POPULATION, estimatedMrrCents, statusAfterManualChange } from './subscription-groups.util';
 import { ContextEventsService } from '../context-events/context-events.service';
 import { ReassessmentService } from '../reassessment/reassessment.service';
 import { EvolutionMetricService } from '../evolution/evolution-metric.service';
@@ -733,8 +733,14 @@ export class CoachService {
       }
     }
 
-    if (dto.subscriptionStatus) {
-      data.subscriptionStatus = dto.subscriptionStatus;
+    // 05/11/2026 (regra de Elton): quem perde a cortesia vira EX-ALUNO ('canceled'), nunca prospecto ('pending').
+    const previousStatus = dto.subscriptionStatus
+      ? (await this.prisma.user.findUnique({ where: { id: studentId }, select: { subscriptionStatus: true } }))?.subscriptionStatus
+      : undefined;
+    const requestedStatus = dto.subscriptionStatus ? statusAfterManualChange(previousStatus, dto.subscriptionStatus) : undefined;
+
+    if (requestedStatus) {
+      data.subscriptionStatus = requestedStatus;
       data.subscriptionUpdatedAt = new Date();
       // Trava contra o auto-sync do Asaas (getMine/refreshFromAsaas) sobrescrever essa decisao
       // manual do treinador assim que o aluno abrir a aba de assinatura no app — foi exatamente
@@ -749,7 +755,7 @@ export class CoachService {
     // Treinador liberando o acesso manualmente pelo dropdown (ex: aluno pagou por fora, cortesia)
     // dispara a mesma geracao de primeira semana que a confirmacao automatica do Asaas dispara —
     // generateFirstWeekIfNeeded ja garante que so gera se for realmente a primeira vez.
-    if (dto.subscriptionStatus && hasSubscriptionAccess(dto.subscriptionStatus)) {
+    if (requestedStatus && hasSubscriptionAccess(requestedStatus)) {
       // Mesmo criterio de "virou aluno de verdade" usado no fluxo automatico do Asaas — o
       // treinador liberando manualmente pelo dropdown (cortesia, pagamento por fora) tambem conta.
       await this.billing.assignStudentCodeIfNeeded(studentId);
@@ -759,10 +765,6 @@ export class CoachService {
     }
 
     // 19/09: mudanca manual de status tambem entra no historico comercial (BillingEvent status_changed).
-    const previousStatus = dto.subscriptionStatus
-      ? (await this.prisma.user.findUnique({ where: { id: studentId }, select: { subscriptionStatus: true } }))?.subscriptionStatus
-      : undefined;
-
     const updated = await this.prisma.user.update({
       where: { id: studentId },
       data,
@@ -776,8 +778,8 @@ export class CoachService {
         updatedAt: true,
       },
     });
-    if (dto.subscriptionStatus) {
-      await this.billing.recordStatusTransition(studentId, previousStatus, dto.subscriptionStatus, 'coach:manual');
+    if (requestedStatus) {
+      await this.billing.recordStatusTransition(studentId, previousStatus, requestedStatus, 'coach:manual');
     }
     return updated;
   }
@@ -1126,6 +1128,12 @@ export class CoachService {
     const weekStart = coachWeekStart(new Date());
     const weekEnd = addDays(weekStart, 6);
     weekEnd.setUTCHours(23, 59, 59, 999);
+    // Regra de semanas de Elton (05/11/2026): os cartoes SEMANAIS somados entre alunas (treinos propostos/feitos, aderencia, programas novos) usam a ultima semana corrida ENCERRADA
+    // (segunda a domingo); a semana atual fica sempre de fora. A coluna "Treino" de cada aluna (plano da semana dela) segue usando weekStart acima.
+    const closedWeekStart = addDays(weekStart, -7);
+    const closedWeekEnd = addDays(closedWeekStart, 6);
+    closedWeekEnd.setUTCHours(23, 59, 59, 999);
+    const closedWeekSessions = { scheduledDate: { gte: closedWeekStart, lte: closedWeekEnd }, plan: { user: allStudentsWhere } } satisfies Prisma.TrainingSessionWhereInput;
     const [allMatching, totalStudents, activePlanUsers, prescribedSessions, eligibleSessions, completedSessions, differentSessions, paymentConfirmed, courtesyAccess, paymentOverdue, paymentPending, plansCreatedThisWeekUsers] = await Promise.all([
       // 23/09: SEM skip/take — antes a lista vinha paginada direto do banco (25 por vez) e os
       // filtros de Treino/Pagamento eram aplicados so' em cima dessa pagina no cliente, entao a
@@ -1170,15 +1178,16 @@ export class CoachService {
       // arquivado/cancelado/pendente, ou ate' um plano orfao de conta removida). Agora exige que o
       // dono do plano esteja na mesma populacao de allStudentsWhere.
       this.prisma.trainingPlan.findMany({ where: { status: 'active', user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
-      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: weekEnd }, plan: { status: 'active', user: { isTestAccount: false } } } }),
-      this.prisma.trainingSession.count({ where: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } }),
-      this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } } }),
-      this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: { scheduledDate: { gte: weekStart, lte: new Date() }, plan: { status: 'active', user: { isTestAccount: false } } } } }),
+      // A semana encerrada pode ter sessoes em programa ja arquivado (regeracao): conta a sessao se o programa e' ativo OU se ela tem feedback registrado (mesmo criterio da evolucao semanal).
+      this.prisma.trainingSession.count({ where: { ...closedWeekSessions, OR: [{ plan: { status: 'active' } }, { completion: { isNot: null } }] } }),
+      this.prisma.trainingSession.count({ where: { ...closedWeekSessions, OR: [{ plan: { status: 'active' } }, { completion: { isNot: null } }] } }),
+      this.prisma.workoutCompletion.count({ where: { status: { in: ['done', 'adjusted'] }, session: closedWeekSessions } }),
+      this.prisma.workoutCompletion.count({ where: { status: 'adjusted', session: closedWeekSessions } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: { in: [...CONFIRMED_STATUSES] } } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: COURTESY_STATUS } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: OVERDUE_STATUS } }),
       this.prisma.user.count({ where: { ...baseStudentWhere, subscriptionStatus: PENDING_STATUS } }),
-      this.prisma.trainingPlan.findMany({ where: { status: 'active', createdAt: { gte: weekStart }, user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
+      this.prisma.trainingPlan.findMany({ where: { createdAt: { gte: closedWeekStart, lte: closedWeekEnd }, user: allStudentsWhere }, distinct: ['userId'], select: { userId: true } }),
     ]);
 
     const stravaConnections = await this.prisma.stravaConnection.findMany({
@@ -1244,6 +1253,8 @@ export class CoachService {
         paymentOverdue,
         paymentPending,
         plansCreatedThisWeek: plansCreatedThisWeekUsers.length,
+        // semana corrida encerrada a que os cartoes semanais se referem (segunda e domingo, AAAA-MM-DD)
+        week: { start: closedWeekStart.toISOString().slice(0, 10), end: closedWeekEnd.toISOString().slice(0, 10) },
       },
       students: pageRows,
       pagination: {

@@ -60,6 +60,15 @@ Software determinístico pode garantir integridade técnica, consistência de da
 - Não descartar semanas por rótulos como "incompleta" ou "sem dados" (semana sem treino conta como 0 km entre a primeira e a última semana da aluna).
 - Antes de criar ou alterar qualquer métrica semanal, conferir esta regra. Aplicado até agora: Observatório (período fixo desde 01/08, grupo fixo por semanas do calendário).
 
+## Regras de negócio e de dados (ordens de Elton, 05/11/2026 — obedecer sem discussão)
+
+- **Prospecto NÃO é aluno.** Quem nunca pagou nem recebeu cortesia (`subscriptionStatus = pending`) fica fora de TODA conta, contagem e lista de alunas. "Aluna atual" = confirmado + cortesia + atrasado (`CURRENT_STUDENT_STATUSES`), a mesma definição do total "Alunos" da Visão geral. Antes de contar alunas em qualquer lugar, conferir isto.
+- **Quem perde a cortesia vira EX-ALUNO (`canceled`), nunca prospecto** (`statusAfterManualChange`).
+- **Nada fica oculto por ter uma ou poucas alunas.** Não criar nem manter piso de participantes, "Demais grupos", "oculto (<N alunas)" ou regra parecida: mostrar sempre o dado.
+- **Cadastros de teste** (`User.isTestAccount`: contas de revisão Apple/Google e cadastros de teste) ficam fora de todas as contas; aparecem só em "Cadastros de teste".
+- **Semanas somadas entre alunas**: nenhum cartão ou tabela soma semanas de alunas diferentes ("participantes-semanas", "semanas geradas"); mostrar alunas, sessões ou a semana do calendário. Cartões semanais da Visão geral usam a última semana corrida ENCERRADA (a semana atual fica de fora).
+- Elton avisou que provavelmente há erros nos cálculos: antes de afirmar que um número está certo, conferir a fonte e a definição de população/semana.
+
 ## Antes de mudar código
 
 Para tarefa não trivial:

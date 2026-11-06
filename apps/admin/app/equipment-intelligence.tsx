@@ -187,7 +187,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
   const shoeBrandItems = (metric: ShoeMetric): HItem[] => (r?.shoes.byBrand ?? []).map((b) => {
     const hidden = (metric === 'km' || metric === 'runs') && b.performanceHidden;
     const value = metric === 'students' ? b.students : metric === 'shoes' ? b.shoes : metric === 'km' ? b.km ?? 0 : b.runs ?? 0;
-    return { key: b.key, label: b.label, sub: `${nf(b.shoes)} tênis · ${nf(b.active)} em uso`, value: hidden ? 0 : value, display: hidden ? 'só contagem' : metric === 'km' ? `${nf(value, 0)} km` : nf(value), muted: hidden, title: hidden ? 'Menos de 3 alunas com corrida neste grupo: o desempenho fica oculto.' : undefined };
+    return { key: b.key, label: b.label, sub: `${nf(b.shoes)} tênis · ${nf(b.active)} em uso`, value: hidden ? 0 : value, display: hidden ? 'só contagem' : metric === 'km' ? `${nf(value, 0)} km` : nf(value), muted: hidden, title: hidden ? 'Nenhuma aluna com corrida neste grupo.' : undefined };
   }).sort((a, b) => b.value - a.value || (a.label < b.label ? -1 : 1));
   const shoeModelItems = (metric: ShoeMetric): HItem[] => (r?.shoes.byModel ?? []).map((m) => {
     const hidden = (metric === 'km' || metric === 'runs') && m.performanceHidden;
@@ -205,7 +205,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
   const kmDist = (r?.shoes.kmDistribution ?? []).map((b) => ({ key: b.key, label: SHORT_KM[b.key] ?? b.label, value: b.shoes, sub: b.label }));
   const bandDist = (r?.shoes.distanceBands ?? []).map((b) => ({ key: b.key, label: SHORT_BAND[b.key] ?? b.label, value: b.runs, sub: `${b.label} · ${nf(b.km, 1)} km` }));
   const totalShoeKm = r?.shoes.performanceHidden ? null : (r?.shoes.distanceBands ?? []).reduce((sum, b) => sum + b.km, 0);
-  const perfNote = r?.shoes.performanceHidden ? 'Menos de 3 alunas neste resultado: as contagens são exatas, mas corridas, km, pace e faixas ficam ocultos para não expor uma aluna.' : null;
+  const perfNote = r?.shoes.performanceHidden ? 'Nenhuma aluna com corrida neste resultado.' : null;
 
   // ── detalhes ──
   const renderSheet = () => {
@@ -264,7 +264,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
           <div className="eqSplit" aria-label="Em uso e aposentados"><span className="on" style={{ width: `${(group.active / total) * 100}%` }} /><span className="off" style={{ width: `${(group.retired / total) * 100}%` }} /></div>
           <Legend items={[{ className: 'on', label: 'Em uso' }, { className: 'off', label: 'Aposentados' }]} />
           {group.performanceHidden ? (
-            <Empty icon={<Info size={22} />} title="Desempenho oculto" text="Menos de 3 alunas com corrida neste grupo. As contagens acima são exatas; corridas, km, pace e faixas ficam ocultos para não expor uma aluna." />
+            <Empty icon={<Info size={22} />} title="Sem corridas" text="Nenhuma aluna com corrida neste grupo." />
           ) : (
             <>
               <div className="eqStats">{groupStat('Corridas', nf(group.runs))}{groupStat('Km', nf(group.km, 0))}{groupStat('Km médio por tênis', nf(group.avgKmPerShoe, 0))}{groupStat('Pace (descritivo)', group.pace ? group.pace.label : group.paceHidden ? 'amostra pequena' : '—')}</div>
@@ -283,7 +283,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
       const models = r.devices.byModel.filter((m) => nk(m.manufacturer) === nk(group.label));
       return (
         <SheetFrame title={group.label} subtitle="Fabricante de relógio/dispositivo" onClose={() => setSheet(null)}>
-          <div className="eqStats">{groupStat('Alunas', nf(group.students))}{groupStat('Dispositivos', nf(group.devices))}{groupStat('Atividades recebidas', group.activities == null ? 'oculto (<3 alunas)' : nf(group.activities))}</div>
+          <div className="eqStats">{groupStat('Alunas', nf(group.students))}{groupStat('Dispositivos', nf(group.devices))}{groupStat('Atividades recebidas', group.activities == null ? '—' : nf(group.activities))}</div>
           {group.label === UNIDENTIFIED ? <p className="eqFine">O fabricante só é mostrado quando a fonte informou ou a plataforma atende uma única marca. Nada é presumido.</p> : null}
           <h4 className="eqH4">Modelos</h4>
           <HBars items={models.map((m) => ({ key: m.key, label: m.label, sub: m.technicalIds?.length ? `${m.technicalIds.length} identificador(es) técnico(s)` : undefined, value: m.students, muted: m.label === MODEL_UNKNOWN }))} onSelect={(key) => setSheet({ kind: 'watchModel', key })} unit="alunas" empty="Nenhum modelo identificado" />
@@ -295,7 +295,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
     const brand = r.devices.byManufacturer.find((b) => nk(b.label) === nk(model.manufacturer));
     return (
       <SheetFrame title={model.label === MODEL_UNKNOWN ? `${model.manufacturer} · ${MODEL_UNKNOWN}` : `${model.manufacturer} ${model.label}`} subtitle="Modelo de relógio/dispositivo" onClose={() => setSheet(null)} back={brand ? () => setSheet({ kind: 'watchBrand', key: brand.key }) : undefined}>
-        <div className="eqStats">{groupStat('Alunas', nf(model.students))}{groupStat('Atividades recebidas', model.activities == null ? 'oculto (<3 alunas)' : nf(model.activities))}</div>
+        <div className="eqStats">{groupStat('Alunas', nf(model.students))}{groupStat('Atividades recebidas', model.activities == null ? '—' : nf(model.activities))}</div>
         {model.label === MODEL_UNKNOWN ? (
           <div className="eqTech">
             <strong>Modelo não identificado</strong>
@@ -362,7 +362,7 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
                   {platformItems.length > 0 ? <Legend items={[{ className: 'on', label: 'Enviando dados' }, { className: 'off', label: 'Sem envio no período' }]} /> : null}
                 </Card>
                 <Card title="Corridas por faixa de distância" subtitle={totalShoeKm != null ? `${nf(totalShoeKm, 0)} km com tênis associados no período` : 'Corridas associadas a tênis no período'}>
-                  <Columns data={bandDist} unit="corridas" emptyTitle={r.shoes.performanceHidden ? 'Desempenho oculto' : 'Sem corridas no período'} emptyText={r.shoes.performanceHidden ? 'Menos de 3 alunas neste resultado.' : 'Nenhuma corrida associada a tênis nos filtros.'} />
+                  <Columns data={bandDist} unit="corridas" emptyTitle={r.shoes.performanceHidden ? 'Sem corridas' : 'Sem corridas no período'} emptyText={r.shoes.performanceHidden ? 'Nenhuma aluna com corrida neste resultado.' : 'Nenhuma corrida associada a tênis nos filtros.'} />
                 </Card>
               </div>
             </>
@@ -385,10 +385,10 @@ export default function EquipmentIntelligence({ accessToken, apiUrl }: { accessT
                   <HBars items={shoeModelItems(shoeMetric)} limit={10} onSelect={(key) => setSheet({ kind: 'shoeModel', key })} unit={shoeMetric === 'students' ? 'alunas' : shoeMetric === 'shoes' ? 'tênis' : shoeMetric === 'runs' ? 'corridas' : undefined} empty="Nenhum tênis nos filtros" />
                 </Card>
                 <Card title="Quilometragem acumulada" subtitle="Tênis por faixa de km acumulado">
-                  <Columns data={kmDist} unit="tênis" emptyTitle={r.shoes.performanceHidden ? 'Desempenho oculto' : 'Sem tênis nos filtros'} emptyText={r.shoes.performanceHidden ? 'Menos de 3 alunas neste resultado.' : undefined} />
+                  <Columns data={kmDist} unit="tênis" emptyTitle={r.shoes.performanceHidden ? 'Sem corridas' : 'Sem tênis nos filtros'} emptyText={r.shoes.performanceHidden ? 'Nenhuma aluna com corrida neste resultado.' : undefined} />
                 </Card>
                 <Card title="Distâncias percorridas" subtitle="Corridas por faixa (cada corrida entra em uma só)">
-                  <Columns data={bandDist} unit="corridas" emptyTitle={r.shoes.performanceHidden ? 'Desempenho oculto' : 'Sem corridas no período'} emptyText={r.shoes.performanceHidden ? 'Menos de 3 alunas neste resultado.' : undefined} />
+                  <Columns data={bandDist} unit="corridas" emptyTitle={r.shoes.performanceHidden ? 'Sem corridas' : 'Sem corridas no período'} emptyText={r.shoes.performanceHidden ? 'Nenhuma aluna com corrida neste resultado.' : undefined} />
                 </Card>
               </div>
               <details className="eqDetails" open={openTable === 'tenis'} onToggle={(e) => setOpenTable((e.target as HTMLDetailsElement).open ? 'tenis' : null)}>
@@ -453,7 +453,7 @@ function ShoeTable({ title, rows, showBrand, onSelect }: { title: string; rows: 
               <td><button type="button" className="eqLinkBtn" onClick={() => onSelect(row.key)}>{showBrand && row.brand ? `${row.brand} ` : ''}{row.label}</button></td>
               <td>{nf(row.students)}</td><td>{nf(row.shoes)}</td><td>{nf(row.active)} / {nf(row.retired)}</td>
               <td>{row.performanceHidden ? '—' : nf(row.runs)}</td><td>{row.performanceHidden ? '—' : nf(row.km, 1)}</td><td>{row.performanceHidden ? '—' : nf(row.avgKmPerShoe, 1)}</td>
-              <td>{row.performanceHidden ? <span className="eqSmall" title="Menos de 3 alunas com corrida neste grupo: só a contagem é mostrada.">só contagem</span> : row.pace ? row.pace.label : row.paceHidden ? <span className="eqSmall" title="Menos de 3 alunas com tempo e distância.">amostra pequena</span> : '—'}</td>
+              <td>{row.performanceHidden ? <span className="eqSmall" title="Nenhuma aluna com corrida neste grupo.">só contagem</span> : row.pace ? row.pace.label : row.paceHidden ? <span className="eqSmall" title="Nenhuma aluna com tempo e distância.">amostra pequena</span> : '—'}</td>
             </tr>
           ))}
         </tbody>

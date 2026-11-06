@@ -5,11 +5,12 @@ import type { ShoeUsageFact } from './shoe-facts';
 // filtros combinaveis; devolve so' AGREGADOS (nenhum nome, id, e-mail ou dado individual de saude sai daqui). Estatistica descritiva: associacao entre equipamento e pace NAO e' causalidade.
 // Contagem de alunos sempre por alunos UNICOS. Ausencia de informacao nunca vira zero (pace sem dado = null). Pace de um grupo so' aparece com amostra minima (MIN_PACE_STUDENTS).
 
-export const MIN_PACE_STUDENTS = 3;
+export const MIN_PACE_STUDENTS = 1;
 // Privacidade (alunos unicos): as CONTAGENS (alunos, equipamentos, marcas, modelos) saem sempre, exatas — nenhum nome, id ou dado individual sai daqui. O que e' desempenho/volume
 // (km, corridas, pace, faixas de distancia, km acumulado) de um grupo so' sai com pelo menos esta quantidade de alunos nele; abaixo disso o grupo mostra so' a contagem. Vale tambem para os
 // totais de desempenho do resultado inteiro (cruzamentos muito especificos). Evita expor o desempenho de uma aluna sem esconder as contagens administrativas.
-export const MIN_GROUP_STUDENTS = 3;
+// 05/11/2026 (ordem de Elton): nada fica oculto por ter uma ou poucas alunas (antes 3).
+export const MIN_GROUP_STUDENTS = 1;
 export const SHOE_KM_BUCKETS = [
   { key: 'sem_corridas', label: 'Sem corridas registradas', min: -1, max: 0 },
   { key: 'ate_100', label: 'Até 100 km', min: 0, max: 100 },

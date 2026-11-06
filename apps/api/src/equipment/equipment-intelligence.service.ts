@@ -7,6 +7,7 @@ import { parseDay, validatePeriod } from '../coach/health-recovery';
 import { DISTANCE_BANDS, DISTANCE_BAND_KEYS, PLATFORM_LABEL, dominantLabel, effectiveDevice, normalizeKey, type DistanceBandKey } from './equipment-core';
 import { analyzeEquipment, modelOptionValue, type AnalysisData, type AnalysisFilters } from './equipment-analysis';
 import { loadShoeUsageFacts } from './shoe-facts';
+import { CURRENT_STUDENT_STATUSES } from '../coach/subscription-groups.util';
 
 // Inteligencia de Equipamentos (23/10/2026) — painel do treinador. SOMENTE LEITURA e SO' AGREGADOS: nenhum nome, id ou e-mail de aluno sai daqui. Strava nunca fornece dado (politica de dados).
 // A conta em si esta em equipment-analysis.ts (pura e testada); este servico so' le o banco e aplica os filtros combinaveis.
@@ -60,7 +61,7 @@ export class EquipmentIntelligenceService {
 
   private async loadBase() {
     const [students, devices, shoes] = await Promise.all([
-      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active' }, select: { id: true, subscriptionStatus: true } }),
+      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active', subscriptionStatus: { in: [...CURRENT_STUDENT_STATUSES] } }, select: { id: true, subscriptionStatus: true } }),
       this.prisma.userDevice.findMany({ select: { userId: true, sourceProvider: true, observedManufacturer: true, observedModel: true, observedName: true, manufacturerBasis: true, manualManufacturer: true, manualModel: true, deviceType: true, firstSeenAt: true, lastSeenAt: true, activityCount: true } }),
       this.prisma.shoe.findMany({ select: { id: true, userId: true, brand: true, model: true, status: true } }),
     ]);

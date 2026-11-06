@@ -47,7 +47,7 @@ export class ObservatoryService {
     const start = new Date(`${since}T00:00:00Z`);
     const end = new Date(`${addDays(to, 1)}T23:59:59Z`);
     const [users, allActivities, allCompletions, allPains] = await Promise.all([
-      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active' }, select: { id: true, birthDate: true, sex: true } }),
+      this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active', subscriptionStatus: { not: 'pending' } }, select: { id: true, birthDate: true, sex: true } }),
       this.prisma.activityLog.findMany({ where: { provider: { notIn: HIDDEN_PROVIDERS }, startedAt: { gte: shiftDate(start, -1), lte: end } }, select: ACTIVITY_SELECT }),
       this.prisma.workoutCompletion.findMany({
         where: { status: { in: ['done', 'adjusted'] }, OR: [{ completedAt: { gte: start, lte: end } }, { session: { scheduledDate: { gte: start, lte: end } } }] },

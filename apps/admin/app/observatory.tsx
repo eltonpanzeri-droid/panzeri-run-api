@@ -6,7 +6,7 @@ import { Card, ChipGroup, Columns, Empty, HBars, Kpi, SheetFrame, nf } from './v
 import type { HItem, Option } from './viz';
 
 // Observatório Panzeri Run (24/10/2026). SOMENTE LEITURA e SÓ AGREGADOS: GET /observatory/status e /observatory/analysis. Nenhum nome, e-mail ou id de aluna chega aqui.
-// Estatística descritiva: o que aparece são associações entre grupos, não causa. Cada número diz seu denominador (participantes, participantes-semanas, treinos, relatos ou km).
+// Estatística descritiva: o que aparece são associações entre grupos, não causa. Cada número diz seu denominador (alunas, treinos, relatos ou km). Semanas são sempre as do calendário (segunda a domingo), nunca somadas entre alunas.
 // Células com poucos participantes chegam suprimidas da API e aqui aparecem como "oculto" — nunca como zero.
 
 // ───────── tipos (espelham o contrato da API; apps/api/src/observatory/observatory-engine.ts) ─────────
@@ -141,7 +141,7 @@ function GroupedColumns({ clusters, groups }: { clusters: Array<{ key: string; l
   const [hover, setHover] = useState<string | null>(null);
   const max = Math.max(0.0001, ...clusters.flatMap((c) => c.values.map((v) => v.value ?? 0)));
   const height = 150;
-  if (groups.length === 0) return <Empty icon={<BarChart3 size={22} />} title="Sem grupos para comparar" text="Todos os grupos têm menos participantes que o mínimo ou não há relatos." />;
+  if (groups.length === 0) return <Empty icon={<BarChart3 size={22} />} title="Sem grupos para comparar" text="Não há relatos neste recorte." />;
   return (
     <div className="obsGrouped" role="img" aria-label="Relatos de dor por 1.000 km, por faixa de intensidade e por grupo">
       <div className="obsGroupedPlot" style={{ height: height + 40 }}>
@@ -231,7 +231,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   const clearAll = () => commit({ ...emptyFilters(), from: applied.from, to: applied.to, mode: applied.mode, groupBy: applied.groupBy });
   const days = dayDiff(applied.from, applied.to) + 1;
   const r = result;
-  const min = r?.minParticipants ?? 5;
+  const min = r?.minParticipants ?? 1;
 
   // ── estados sem dados ──
   if (statusError) return <section className="eqRoot obsRoot"><Empty icon={<ShieldCheck size={22} />} title="Observatório indisponível" text={statusError} /></section>;
@@ -252,7 +252,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
 
   // ── dados derivados ──
   const volumeRows = r?.volume.rows ?? [];
-  const volumeColumns = volumeRows.filter((row) => !row.suppressed && row.data).map((row) => ({ key: row.key, label: row.label.replace(' km', '').replace('Acima de ', '> ').replace('Até ', '≤ ').replace(' a ', '–'), value: row.data!.participantWeeks, sub: `${row.label}: ${nf(row.participants)} participantes · ${nf(row.data!.pctOfWeeks, 1)}% das participantes-semanas` }));
+  const volumeColumns = volumeRows.filter((row) => !row.suppressed && row.data).map((row) => ({ key: row.key, label: row.label.replace(' km', '').replace('Acima de ', '> ').replace('Até ', '≤ ').replace(' a ', '–'), value: row.participants ?? 0, sub: `${row.label}: ${nf(row.participants)} alunas · ${nf(row.data!.avgKmPerWeek, 1)} km por semana corrida` }));
   const hiddenVolume = volumeRows.filter((row) => row.suppressed).length;
   const painGroups = (r?.pain.rows ?? []).filter((row) => !row.suppressed && row.data && row.data.trainings > 0);
   const painGroupDefs = painGroups.map((row, index) => ({ key: row.key, label: row.label, color: PALETTE[(r!.pain.groupBy === 'volume' ? COLOR_INDEX[row.key] ?? index : index) % PALETTE.length] }));
@@ -325,19 +325,19 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                 <Kpi icon={<Users size={16} />} label="Participantes" value={r.overview.participants} hint="alunas distintas com semanas completas no recorte" />
                 <Kpi icon={<Activity size={16} />} label="Treinos de corrida" value={r.overview.trainings} hint="eventos físicos deduplicados, só corrida" />
                 <Kpi icon={<Gauge size={16} />} label="Quilômetros" value={r.overview.km} suffix="km" hint="soma dos treinos de corrida elegíveis" />
-                <Kpi icon={<CalendarDays size={16} />} label="Semanas completas" value={r.overview.weeks.complete} hint={`semanas de segunda a domingo, de ${r.period.from.split('-').reverse().join('/')} a ${r.period.to.split('-').reverse().join('/')} · a semana atual fica de fora`} />
+                <Kpi icon={<CalendarDays size={16} />} label="Semanas corridas" value={Math.round((new Date(`${r.period.to}T12:00:00Z`).getTime() - new Date(`${r.period.from}T12:00:00Z`).getTime()) / 86_400_000 / 7 + 1 / 7)} hint={`do calendário, de segunda a domingo, de ${r.period.from.split('-').reverse().join('/')} a ${r.period.to.split('-').reverse().join('/')} · a semana atual fica de fora`} />
               </div>
-              <Card wide title="Distribuição do volume semanal" subtitle="Participantes-semanas por faixa de km semanal (semana completa, segunda a domingo, data de execução)">
-                <Columns data={volumeColumns} unit="participantes-semanas" emptyTitle="Sem semanas completas" emptyText="Nenhuma faixa tem participantes suficientes neste recorte." />
+              <Card wide title="Distribuição do volume semanal" subtitle="Alunas por faixa de km semanal (semanas corridas do calendário, segunda a domingo, data de execução)">
+                <Columns data={volumeColumns} unit="alunas" emptyTitle="Sem semanas corridas" emptyText="Nenhuma aluna tem corrida neste recorte." />
                 {hiddenVolume > 0 ? <p className="eqFine">{hiddenVolume} faixa(s) com menos de {min} participantes ficam ocultas na tabela e no gráfico.</p> : null}
               </Card>
-              <Table caption="Volume semanal por faixa" head={['Faixa', 'Participantes', 'Participantes-semanas', '% das participantes-semanas', 'Km acumulados', 'Km médio por semana']}>
+              <Table caption="Volume semanal por faixa" head={['Faixa', 'Alunas', 'Km acumulados', 'Km médio por semana corrida']}>
                 {volumeRows.map((row) => (
                   <tr key={row.key}><td><b>{row.label}</b></td><td>{pcount(row, min)}</td>
-                    {row.suppressed || !row.data ? <td colSpan={4}><Hidden row={row} min={min} /></td> : <><td>{nf(row.data.participantWeeks)}</td><td>{nf(row.data.pctOfWeeks, 1)}%</td><td>{nf(row.data.km, 0)} km</td><td>{nf(row.data.avgKmPerWeek, 1)} km</td></>}
+                    {row.suppressed || !row.data ? <td colSpan={2}><Hidden row={row} min={min} /></td> : <><td>{nf(row.data.km, 0)} km</td><td>{nf(row.data.avgKmPerWeek, 1)} km</td></>}
                   </tr>
                 ))}
-                {r.volume.total ? <tr className="obsTotal"><td><b>Total</b></td><td>{nf(r.volume.total.participants)}</td><td>{nf(r.volume.total.participantWeeks)}</td><td>100%</td><td>{nf(r.volume.total.km, 0)} km</td><td>—</td></tr> : <tr className="obsTotal"><td><b>Total</b></td><td colSpan={5}><span className="obsHidden">omitido porque há faixas ocultas (impede reconstruir uma faixa pequena por diferença)</span></td></tr>}
+                {r.volume.total ? <tr className="obsTotal"><td><b>Total</b></td><td>{nf(r.volume.total.participants)}</td><td>{nf(r.volume.total.km, 0)} km</td><td>—</td></tr> : <tr className="obsTotal"><td><b>Total</b></td><td colSpan={3}>—</td></tr>}
               </Table>
             </>
           ) : null}
@@ -433,7 +433,6 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
               <li>Estatística descritiva: diferenças entre grupos são associações, não efeito do treino ou do equipamento.</li>
               <li>Semanas de segunda a domingo, pela data de execução do treino (não a programada). Só semanas completas entram nas faixas.</li>
               <li>Pace agregado = tempo total ÷ distância total. A média simples dos paces é outra métrica e não é usada aqui.</li>
-              <li>Grupos com menos de {min} participantes ficam ocultos; quando só um grupo seria ocultado, outro também é, para não permitir reconstruí-lo por diferença. O piso de {min} é provisório e não garante anonimização.</li>
               <li>Atividades do Strava (inclusive por origem indireta) e de identidade ambígua ficam fora dos totais principais.</li>
             </ul>
             <small>Atualizado em {new Date(r.dataAsOf).toLocaleString('pt-BR')}</small>
@@ -477,8 +476,6 @@ function QualityTab({ r }: { r: Result }) {
     ['Treinos manuais que repetiam atividade importada', q.duplicateManualEvents, 'descartados para não contar o mesmo treino duas vezes'],
     ['Relatos de dor sem treino elegível no dia', q.painReportsWithoutTraining, 'não entram nas taxas por 1.000 km (sem exposição para dividir)'],
     ['Conflitos: relato de dor no treino marcado “sem dor”', q.painConflicts, 'prevalece o relato de dor'],
-    ['Participantes-semanas incompletas', q.participantWeeksIncomplete, 'semana ainda em andamento ou parcialmente fora do período'],
-    ['Participantes-semanas sem dados suficientes', q.participantWeeksNoData, 'semana sem treino entre semanas com treino: descanso ou falta de sincronização?'],
     ['Participantes fora por causa dos filtros', q.participantsExcludedByFilters, 'efeito dos filtros escolhidos'],
   ];
   return (
@@ -486,7 +483,6 @@ function QualityTab({ r }: { r: Result }) {
       <div className="eqKpis">
         <Kpi icon={<ShieldCheck size={16} />} label="Treinos elegíveis" value={q.eligibleTrainings} hint={`${nf(q.activityTrainings)} de atividade importada e ${nf(q.manualTrainings)} manuais`} />
         <Kpi icon={<TriangleAlert size={16} />} label="Excluídos (Strava + ambíguos)" value={q.stravaExcludedEvents + q.ambiguousIdentityEvents} hint="fora dos totais principais" />
-        <Kpi icon={<CalendarDays size={16} />} label="Semanas sem dados suficientes" value={q.participantWeeksNoData} hint="participantes-semanas fora das faixas" />
         <Kpi icon={<Info size={16} />} label="Relatos sem treino no dia" value={q.painReportsWithoutTraining} hint="fora das taxas por 1.000 km" />
       </div>
       <Table caption="Qualidade e cobertura dos dados" head={['Item', 'Quantidade', 'O que significa']}>
@@ -497,7 +493,6 @@ function QualityTab({ r }: { r: Result }) {
           <div><dt>Tipo de dado</dt><dd>{r.dataset === 'synthetic' ? 'Sintético (teste)' : 'Real'}</dd></div>
           <div><dt>Período analisado</dt><dd>{dmy(r.period.from)} a {dmy(r.period.to)}</dd></div>
           <div><dt>Atualizado em</dt><dd>{new Date(r.dataAsOf).toLocaleString('pt-BR')}</dd></div>
-          <div><dt>Piso de participantes por célula</dt><dd>{r.minParticipants} (provisório)</dd></div>
           <div><dt>Restrição de origem</dt><dd>Strava (inclusive via Health Connect/Apple Saúde) não alimenta este produto</dd></div>
         </dl>
         <p className="eqFine">{q.note}</p>

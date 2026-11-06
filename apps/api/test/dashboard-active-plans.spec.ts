@@ -45,8 +45,9 @@ describe('CoachService.dashboard — activePlans usa a mesma populacao de totals
     await service.dashboard({ search: '', page: 1, pageSize: 20 });
 
     expect(trainingPlanFindManyCalls.length).toBeGreaterThanOrEqual(2);
-    for (const call of trainingPlanFindManyCalls as Array<{ where: { status: string; user?: unknown } }>) {
-      expect(call.where.status).toBe('active');
+    for (const call of trainingPlanFindManyCalls as Array<{ where: { status?: string; user?: unknown } }>) {
+      // programas ativos usam status 'active'; "alunos com programa novo" olha a ultima semana corrida encerrada (o programa pode ja estar arquivado), sem filtro de status
+      if (call.where.status !== undefined) expect(call.where.status).toBe('active');
       expect(call.where.user).toEqual(EXPECTED_STUDENT_POPULATION);
     }
   });

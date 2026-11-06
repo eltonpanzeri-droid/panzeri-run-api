@@ -49,6 +49,7 @@ export class StudentAccessService {
       where: {
         role: 'student',
         isTestAccount: false,
+        subscriptionStatus: { not: 'pending' }, // prospecto nao e' aluno (regra de Elton, 05/11/2026); ex-alunas aparecem so' no filtro proprio
         accountStatus: { not: 'archived' },
         NOT: { OR: REVIEW_EMAIL_PREFIXES.map((prefix) => ({ email: { startsWith: prefix } })) },
       },

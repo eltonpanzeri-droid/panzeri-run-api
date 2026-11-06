@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BadRequestException } from '@nestjs/common';
 import { DISTANCE_BAND_KEYS, bandOf, canonicalManufacturer, deriveDevice, effectiveDevice, looksTechnicalIdentifier, emptyBands, addToBands, formatPace, normalizeKey, pooledPace, raceKindOf, retrospectiveText } from '../src/equipment/equipment-core';
-import { analyzeEquipment, MIN_PACE_STUDENTS, type AnalysisData, type AnalysisFilters } from '../src/equipment/equipment-analysis';
+import { analyzeEquipment, MIN_GROUP_STUDENTS, MIN_PACE_STUDENTS, type AnalysisData, type AnalysisFilters } from '../src/equipment/equipment-analysis';
 import { buildShoeStats } from '../src/equipment/shoe-stats';
 import { parseEquipmentFilters } from '../src/equipment/equipment-intelligence.service';
 import { DevicesService } from '../src/equipment/devices.service';
@@ -255,16 +255,15 @@ describe('analise do painel: filtros combinados, alunos unicos e privacidade', (
     expect(low.population.studentsIncluded).toBe(1); // b; c e d nao tem volume conhecido e nao entram
   });
 
-  it('pace do grupo so aparece com amostra minima de alunos (privacidade) e e calculado por totais', () => {
+  it('pace do grupo aparece mesmo com 1 aluna (sem ocultacao por poucas alunas) e e calculado por totais', () => {
     const r = analyze1(data(), { ...base(), studentStatuses: ['active'] });
     const asics = r.shoes.byBrand.find((b) => b.key === 'asics')!;
-    expect(MIN_PACE_STUDENTS).toBe(3);
-    expect(asics.pace).not.toBeNull(); // a, b, d = 3 alunos
+    expect(MIN_PACE_STUDENTS).toBe(1);
+    expect(asics.pace).not.toBeNull();
     // total: (10+21+8+10+12) km em (3000+7000+2400+3300+3600) s = 61 km / 19300 s = 316 s/km
     expect(asics.pace?.secondsPerKm).toBe(316);
     const nike = r.shoes.byBrand.find((b) => b.key === 'nike')!;
-    expect(nike.pace).toBeNull();
-    expect(nike.paceHidden).toBe(true);
+    expect(nike.paceHidden).toBe(false); // nada fica oculto por ter uma ou poucas alunas
   });
 
   it('dispositivos: por plataforma com quem efetivamente envia dados no periodo; aluno sem dispositivo contado a parte', () => {
@@ -292,41 +291,30 @@ describe('privacidade: piso de alunos e prova com teto', () => {
     facts: Array.from({ length: n }, (_, i) => fact({ shoeId: 'h' + i, userId: 's' + i, distanceKm: 10 + i })),
     activeByProvider: new Map(), runnerKm: null,
   });
-  it('contagens sempre reais, mesmo com base pequena: 2 alunos mostram alunos, marcas, modelos e equipamentos; desempenho fica oculto', () => {
+  it('base pequena: com 2 alunos tudo aparece (contagens E desempenho), nada fica oculto', () => {
     const r = analyzeEquipment(world(2), filters());
     expect(r.population).toMatchObject({ studentsIncluded: 2, studentsWithDevice: 2, studentsWithShoe: 2 });
     expect(r.shoes.totals).toMatchObject({ shoes: 2, students: 2 });
     expect(r.shoes.byBrand.map((b) => [b.label, b.students, b.shoes])).toEqual(expect.arrayContaining([['Marca Rara', 1, 1], ['ASICS', 1, 1]]));
     expect(r.devices.byManufacturer.map((m) => [m.label, m.students])).toEqual(expect.arrayContaining([['Raro', 1], ['Polar', 1]]));
-    // desempenho (corridas, km, pace, faixas) nao sai para grupos de menos de 3 alunos nem no total do resultado
-    expect(r.shoes.performanceHidden).toBe(true);
-    expect(r.shoes.byBrand.every((b) => b.performanceHidden && b.km === null && b.runs === null && b.pace === null && b.bands.length === 0)).toBe(true);
-    expect(r.shoes.distanceBands).toEqual([]);
-    expect(r.shoes.kmDistribution).toEqual([]);
-    expect(JSON.stringify(r)).not.toMatch(/"km":\s*\d/);
-  });
-  it('base maior: grupos com >=3 alunos mostram o desempenho; o grupo de 1 aluno mostra so a contagem', () => {
-    const r = analyzeEquipment(world(5), filters());
-    const asics = r.shoes.byBrand.find((b) => b.label === 'ASICS')!;
-    const rare = r.shoes.byBrand.find((b) => b.label === 'Marca Rara')!;
-    expect(asics).toMatchObject({ students: 4, performanceHidden: false });
-    expect(asics.km).toBeGreaterThan(0);
-    expect(rare).toMatchObject({ students: 1, shoes: 1, performanceHidden: true, km: null });
+    expect(MIN_GROUP_STUDENTS).toBe(1);
     expect(r.shoes.performanceHidden).toBe(false);
-    expect(r.devices.byManufacturer.find((m) => m.label === 'Raro')).toMatchObject({ students: 1, devices: 1 });
+    expect(r.shoes.byBrand.every((b) => !b.performanceHidden)).toBe(true);
+    expect(r.shoes.byBrand.some((b) => b.km != null && b.km > 0)).toBe(true);
   });
-  it('desempenho exige 3 alunas COM CORRIDA: tres donas de tenis com so uma corredora nao liberam km/corridas/faixas; atividades de relogio de grupo pequeno tambem ficam ocultas', () => {
+  it('grupo de 1 aluna mostra km, corridas e pace; atividades de relogio de grupo pequeno tambem aparecem', () => {
+    const r = analyzeEquipment(world(5), filters());
+    const rare = r.shoes.byBrand.find((b) => b.label === 'Marca Rara')!;
+    expect(rare).toMatchObject({ students: 1, shoes: 1, performanceHidden: false });
+    expect(r.devices.byManufacturer.find((m) => m.label === 'Raro')).toMatchObject({ students: 1, devices: 1 });
+    const raro = r.devices.byManufacturer.find((m) => m.label === 'Raro')!;
+    expect(raro.activities).not.toBeNull();
     const d = world(5);
-    // tres alunas com ASICS, mas so uma tem corrida associada
     d.shoes = [0, 1, 2].map((i) => ({ id: 'z' + i, userId: 's' + i, brand: 'ASICS', model: 'X', status: 'active' }));
     d.facts = [fact({ shoeId: 'z0', userId: 's0', distanceKm: 12 })];
-    const r = analyzeEquipment(d, filters());
-    const asics = r.shoes.byBrand.find((b) => b.label === 'ASICS')!;
-    expect(asics).toMatchObject({ students: 3, shoes: 3, performanceHidden: true, km: null, runs: null });
-    expect(asics.bands).toEqual([]);
-    const raro = r.devices.byManufacturer.find((m) => m.label === 'Raro')!;
-    expect(raro).toMatchObject({ students: 1, devices: 1, activities: null });
-    expect(r.devices.byManufacturer.find((m) => m.label === 'Polar')!.activities).toBeGreaterThan(0);
+    const asics = analyzeEquipment(d, filters()).shoes.byBrand.find((b) => b.label === 'ASICS')!;
+    expect(asics).toMatchObject({ students: 3, shoes: 3, performanceHidden: false });
+    expect(asics.km).toBeGreaterThan(0); // uma so corredora ja libera km e corridas
   });
   it('maratona/meia: tem teto — 50 km num dia de meia nao confirma a meia; aquecimento de 20 km no dia da maratona nao confirma', () => {
     const half = [{ raceDate: '2026-05-10', distanceKm: 21.0975 }];

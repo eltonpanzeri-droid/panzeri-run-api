@@ -17,7 +17,7 @@ describe('populacao das metricas', () => {
     expect(coach).toContain("baseStudentWhere: Prisma.UserWhereInput = {\n      role: 'student',\n      isTestAccount: false,");
     expect(coach).toContain("allStudentsWhere: Prisma.UserWhereInput = {\n      role: 'student',\n      isTestAccount: false,");
     // treinos propostos/feitos e aderencia da semana (Visao geral) nao somam sessoes das contas de teste
-    expect(coach).toContain("plan: { status: 'active', user: { isTestAccount: false } }");
+    expect(coach).toContain('plan: { user: allStudentsWhere }'); // cartoes semanais usam a mesma populacao (que ja exclui testes)
     expect(src('coach/business-intelligence.service.ts')).toContain("plan: { user: { isTestAccount: false } }");
     for (const file of ['observatory/observatory.service.ts', 'equipment/equipment-intelligence.service.ts', 'equipment/student-access.service.ts', 'leo/leo.service.ts', 'messaging/prospect-nurture.service.ts']) {
       expect(src(file)).toContain('isTestAccount: false');

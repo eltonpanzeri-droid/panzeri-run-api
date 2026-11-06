@@ -21,8 +21,8 @@ const FILTERS: Array<{ key: 'all' | Kind; label: string }> = [
   { key: 'all', label: 'Todas' }, { key: 'browser_probable', label: 'Só navegador (estimado)' }, { key: 'android', label: 'Android' }, { key: 'ios', label: 'iPhone' }, { key: 'native_unknown', label: 'Instalado, sem conexão' },
 ];
 // Mesma definição do painel: aluna atual = confirmado, cortesia ou atrasado; pendente = prospecto (nunca pagou); cancelado = ex-aluna.
-type Situation = 'current' | 'pending' | 'canceled' | 'all';
-const SITUATIONS: Array<{ key: Situation; label: string }> = [{ key: 'current', label: 'Alunas atuais' }, { key: 'pending', label: 'Prospectos' }, { key: 'canceled', label: 'Ex-alunas' }, { key: 'all', label: 'Todas' }];
+type Situation = 'current' | 'canceled' | 'all';
+const SITUATIONS: Array<{ key: Situation; label: string }> = [{ key: 'current', label: 'Alunas atuais' }, { key: 'canceled', label: 'Ex-alunas' }, { key: 'all', label: 'Todas' }];
 const inSituation = (row: Row, situation: Situation) => situation === 'all' || (situation === 'current' ? ['confirmed', 'courtesy', 'overdue'].includes(row.paymentGroup) : row.paymentGroup === situation);
 const providerName = (id: string) => PROVIDER_LABEL[id] ?? id;
 const dmy = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—');

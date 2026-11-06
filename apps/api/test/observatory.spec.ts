@@ -249,8 +249,9 @@ describe('Bloco D — API, acesso e privacidade', () => {
     expect(r.pain.overall).toBeNull();
     expect(r.volume.total).toBeNull();
   });
-  it('o piso nao pode ser reduzido pelo cliente; filtros invalidos viram erro', () => {
-    expect(parseObservatoryFilters({ minParticipants: '1' }, today).minParticipants).toBe(5);
+  it('nada fica oculto por poucas alunas (piso padrao 1, ordem de Elton 05/11/2026); filtros invalidos viram erro', () => {
+    expect(parseObservatoryFilters({}, today).minParticipants).toBe(1);
+    expect(parseObservatoryFilters({ minParticipants: '0' }, today).minParticipants).toBe(1);
     expect(parseObservatoryFilters({ minParticipants: '12' }, today).minParticipants).toBe(12);
     expect(() => parseObservatoryFilters({ volumeBands: 'v99' }, today)).toThrow();
     expect(() => parseObservatoryFilters({ from: 'ontem' }, today)).toThrow();

@@ -16,6 +16,8 @@ export const CONFIRMED_STATUSES = ['active', 'grace'] as const;
 export const COURTESY_STATUS = 'manual_active';
 export const OVERDUE_STATUS = 'overdue';
 export const PENDING_STATUS = 'pending';
+// Aluna ATUAL = confirmado + cortesia + atrasado (a mesma definicao do total "Alunos" da Visao geral). Prospecto (pending) e ex-aluno (canceled) nao entram.
+export const CURRENT_STUDENT_STATUSES = ['active', 'grace', 'manual_active', 'overdue'] as const;
 export const CANCELED_STATUS = 'canceled';
 
 export function paymentGroupOf(subscriptionStatus: string | null | undefined): PaymentGroup {
@@ -45,6 +47,12 @@ export const STUDENT_METRICS_POPULATION = { role: 'student', isTestAccount: fals
 
 // Preco atual por aluno pagante — unica fonte (ate existir plano com precos diferentes).
 export const PRICE_PER_STUDENT_CENTS = 1990;
+
+// Regras de Elton (05/11/2026): (1) PROSPECTO (subscriptionStatus 'pending', nunca pagou nem recebeu cortesia) NAO e' aluno: fica fora de toda conta/lista de alunas. (2) Quem PERDE a cortesia
+// ('manual_active') NAO vira prospecto: vira EX-ALUNO ('canceled'). Esta funcao e' a unica que decide isso na mudanca manual de status.
+export function statusAfterManualChange(previous: string | null | undefined, requested: string): string {
+  return previous === COURTESY_STATUS && requested === PENDING_STATUS ? CANCELED_STATUS : requested;
+}
 
 // "Pagante" = grupo 'confirmed' (subscriptionStatus active/grace). Cortesia NAO entra aqui de
 // proposito — consolida a formula que estava duplicada em finance()/dashboard()/dataBusinessSummary().

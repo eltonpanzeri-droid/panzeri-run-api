@@ -3,7 +3,8 @@ import { AGE_BANDS, STRENGTH_BANDS, VOLUME_BANDS, addDays, weekStartOf } from '.
 import type { ObsFilters, ObsGroupBy } from './observatory.types';
 
 // Observatorio (24/10/2026) — leitura e validacao dos filtros (query string). Piso provisorio de 5 participantes distintos por celula divulgada.
-export const DEFAULT_MIN_PARTICIPANTS = 5;
+// 05/11/2026 (ordem de Elton, sem discussao): NADA fica oculto por ter uma ou poucas alunas. O piso passa a 1 (so' nao mostra grupo vazio).
+export const DEFAULT_MIN_PARTICIPANTS = 1;
 // Regra do Elton (05/11/2026): os dados comecam em 01/08/2026 e QUALQUER calculo usa so' semanas corridas (segunda a domingo, inteiras e ja' encerradas) desde essa data. A semana atual fica
 // sempre de fora e nenhuma semana e' descartada por ser "incompleta" ou "sem dados" (semana sem treino entre a primeira e a ultima da aluna conta como 0 km).
 export const OBSERVATORY_DATA_START = '2026-08-01';

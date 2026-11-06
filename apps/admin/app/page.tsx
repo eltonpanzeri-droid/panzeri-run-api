@@ -36,6 +36,7 @@ interface DashboardResponse {
     paymentOverdue: number;
     paymentPending: number;
     plansCreatedThisWeek: number;
+    week?: { start: string; end: string };
   };
   students: StudentRow[];
   pagination: {
@@ -1509,11 +1510,11 @@ export default function AdminHome() {
           <Stat
             label="Treinos propostos"
             value={String(dashboard?.totals.prescribedSessions ?? 0)}
-            detail="sessões da semana atual"
-            info="Conta SESSÕES de treino (cada corrida, força etc.) prescritas para a semana atual, somando todos os alunos com programa ativo. Diferente de 'Semanas geradas': aqui é sessão individual, lá é aluno."
+            detail={dashboard?.totals.week ? `sessões de ${dashboard.totals.week.start.slice(8, 10)}/${dashboard.totals.week.start.slice(5, 7)} a ${dashboard.totals.week.end.slice(8, 10)}/${dashboard.totals.week.end.slice(5, 7)}` : 'sessões da última semana encerrada'}
+            info="Conta SESSÕES de treino (cada corrida, força etc.) prescritas na última semana corrida encerrada (segunda a domingo) para os alunos atuais. A semana atual fica de fora. Diferente de 'Alunos com programa novo': aqui é sessão individual, lá é aluno."
           />
           <Stat label="Treinos feitos" value={String(dashboard?.totals.completedSessions ?? 0)} detail={`${dashboard?.totals.differentSessions ?? 0} diferentes`} />
-          <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos" />
+          <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos, mesma semana" />
           <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" onClick={() => goToStudentsFilteredByPayment('confirmed')} />
           <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" onClick={() => goToStudentsFilteredByPayment('courtesy')} />
           <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" onClick={() => goToStudentsFilteredByPayment('overdue')} />
@@ -1522,10 +1523,10 @@ export default function AdminHome() {
               faz sentido misturar com atrasado/confirmado como se fosse um problema de cobranca. */}
           <Stat label="Prospectos" value={String(dashboard?.totals.paymentPending ?? 0)} detail="ainda nao pagaram, sem compromisso" onClick={() => changeView('prospects')} />
           <Stat
-            label="Semanas geradas"
+            label="Alunos com programa novo"
             value={String(dashboard?.totals.plansCreatedThisWeek ?? 0)}
-            detail="alunos com semana nova, nesta semana"
-            info="Conta ALUNOS (não sessões) que tiveram uma semana nova de treino gerada nos últimos dias. Diferente de 'Treinos propostos': aqui é aluno, lá é sessão individual — um aluno gera 1 semana, que pode ter 4, 5 ou 6 sessões dentro."
+            detail={dashboard?.totals.week ? `programa gerado de ${dashboard.totals.week.start.slice(8, 10)}/${dashboard.totals.week.start.slice(5, 7)} a ${dashboard.totals.week.end.slice(8, 10)}/${dashboard.totals.week.end.slice(5, 7)}` : 'na última semana encerrada'}
+            info="Conta ALUNOS (pessoas, não semanas nem sessões) que tiveram um programa novo gerado na última semana corrida encerrada. A semana atual fica de fora."
           />
         </section> : null}
 
@@ -1547,17 +1548,16 @@ export default function AdminHome() {
                 onApplyCustom={(from, to) => { const period = { from, to }; setBusinessPeriod(period); void loadBusinessEvolution(token, period); }}
               />
             </div>
-            <p className="chartDesc">Confirmado, cortesia, atrasado, pendente e cancelado ao fim de cada mês. Clique numa barra para investigar.</p>
+            <p className="chartDesc">Confirmado, cortesia, atrasado e cancelado (ex-aluno) ao fim de cada mês. Prospecto não é aluno e fica fora. Clique numa barra para investigar.</p>
             {monthlyEvolution && monthlyEvolution.length ? (
               <MonthlyTrendChart
                 height={300}
                 trendKey="Confirmado"
-                rows={monthlyEvolution.map((m) => ({ month: m.month, Confirmado: m.groups.confirmed, Cortesia: m.groups.courtesy, Atrasado: m.groups.overdue, Pendente: m.groups.pending, Cancelado: m.groups.canceled }))}
+                rows={monthlyEvolution.map((m) => ({ month: m.month, Confirmado: m.groups.confirmed, Cortesia: m.groups.courtesy, Atrasado: m.groups.overdue, Cancelado: m.groups.canceled }))}
                 series={[
                   { key: 'Confirmado', label: 'Confirmado', kind: 'bar', color: '#1a7f5a' },
                   { key: 'Cortesia', label: 'Cortesia', kind: 'bar', color: '#7aa8ff' },
                   { key: 'Atrasado', label: 'Atrasado', kind: 'bar', color: '#e0a72d' },
-                  { key: 'Pendente', label: 'Pendente', kind: 'bar', color: '#c9c9c9' },
                   { key: 'Cancelado', label: 'Cancelado', kind: 'bar', color: '#d9534f' },
                 ]}
               />
