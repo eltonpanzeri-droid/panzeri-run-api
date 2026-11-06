@@ -1,4 +1,4 @@
-import { canonicalModality } from '../activity-execution/canonical-modality';
+import { isRunModality } from '../activity-execution/canonical-modality';
 import { buildCanonicalWorkout, CanonicalWorkout } from '../training-plans/canonical-workout';
 import { AppleCustomWorkoutSpec, AppleTranslationLoss, translateToAppleCustomWorkout } from './apple-custom-workout-spec';
 
@@ -39,8 +39,8 @@ export function appleWorkoutEligibility(session: AppleWorkoutSessionInput, today
   const structure = (session.structure && typeof session.structure === 'object' ? session.structure : {}) as { type?: unknown };
 
   if (session.origin === 'device_extra' || structure.type === 'extra') return no('sessao_extra');
-  // Modalidade pela representacao canonica; 'esteira' (indoor) fica fora desta etapa.
-  if (canonicalModality(session.modality) !== 'corrida') return no('modalidade_nao_suportada');
+  // Modalidade pela representacao canonica; esteira E' corrida (ordem de Elton, 05/11/2026): mesmo tratamento.
+  if (!isRunModality(session.modality)) return no('modalidade_nao_suportada');
   if (structure.type !== 'run') return no('estrutura_nao_suportada');
   if (session.completionStatus) return no('sessao_ja_registrada');
 

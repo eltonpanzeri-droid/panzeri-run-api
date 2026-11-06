@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor COROS (30/10/2026): CanonicalWorkout -> `course` da ferramenta createScheduledWorkout / updateScheduledWorkout do COROS MCP. SO' traduz a estrutura que a IA/o treinador
 // ja' decidiu (Principio da prescricao): nao escolhe treino, ritmo, distancia nem carga. Sem rede e sem banco.
@@ -66,7 +67,7 @@ export function translateToCorosCourse(workout: CanonicalWorkout, context: Coros
   const refusals: CorosTranslationRefusal[] = [];
   const refuse = (code: string, message: string, path: string) => refusals.push({ code, message, path });
 
-  if (workout.modality !== 'corrida') refuse('modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida; so' corrida e' enviada.`, 'modality');
+  if (!isRunModality(workout.modality)) refuse('modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida; so' corrida e' enviada.`, 'modality');
   if (!workout.complete) {
     for (const loss of workout.losses) refuse(`canonical_${loss.code}`, loss.message, loss.path);
     if (workout.losses.length === 0) refuse('canonical_incomplete', 'O CanonicalWorkout nao esta completo.', 'items');

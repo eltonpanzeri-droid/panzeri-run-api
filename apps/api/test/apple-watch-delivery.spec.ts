@@ -68,7 +68,6 @@ describe('appleWorkoutEligibility — o tradutor Apple e a unica fonte de verdad
   });
 
   it.each([
-    ['esteira', { modality: 'esteira' }, 'modalidade_nao_suportada'],
     ['forca', { modality: 'forca', structure: { type: 'strength' } }, 'modalidade_nao_suportada'],
     ['sessao extra (device_extra)', { origin: 'device_extra' }, 'sessao_extra'],
     ['data passada', { scheduledDate: new Date('2020-01-01T00:00:00Z') }, 'data_passada'],

@@ -18,6 +18,12 @@ const ALIASES: Record<string, string> = {
   other: 'outra',
 };
 
+// REGRA DE ELTON (05/11/2026): ESTEIRA E' A MESMA COISA QUE CORRIDA. Nunca tratar como modalidade diferente sem ordem expressa dele. Use isto sempre que a pergunta for "e' corrida?".
+export function isRunModality(raw: unknown): boolean {
+  const modality = canonicalModality(raw);
+  return modality === 'corrida' || modality === 'esteira';
+}
+
 export function canonicalModality(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const key = raw.trim().toLowerCase();

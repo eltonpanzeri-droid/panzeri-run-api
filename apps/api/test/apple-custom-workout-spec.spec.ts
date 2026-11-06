@@ -121,9 +121,11 @@ describe('Tradutor Apple — recusas explicitas (nunca inventar informacao)', ()
     ] }] })).toContain('passive_recovery_not_supported_yet');
   });
 
-  it('modalidade que nao e corrida ao ar livre: esteira e outras sao recusadas', () => {
+  it('esteira E corrida (ordem de Elton, 05/11/2026): mesmo tratamento; so o que nao e corrida e recusado', () => {
     const structure = { type: 'run', blocks: [{ durationType: 'distance', distanceValue: 5, distanceUnit: 'km' }] };
-    expect(refusalCodes(structure, 'esteira')).toContain('indoor_not_supported_yet');
+    expect(refusalCodes(structure, 'esteira')).toEqual(refusalCodes(structure, 'corrida'));
+    expect(refusalCodes(structure, 'esteira')).not.toContain('indoor_not_supported_yet');
+    expect(refusalCodes(structure, 'esteira')).not.toContain('modality_not_running');
     expect(refusalCodes(structure, 'bike')).toContain('modality_not_running');
     expect(refusalCodes({ type: 'strength', exercises: [] }, 'forca')).toEqual(expect.arrayContaining(['modality_not_running', 'canonical_structure_not_run']));
   });

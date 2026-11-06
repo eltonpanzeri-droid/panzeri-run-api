@@ -64,6 +64,7 @@ Software determinístico pode garantir integridade técnica, consistência de da
 
 - **Prospecto NÃO é aluno.** Quem nunca pagou nem recebeu cortesia (`subscriptionStatus = pending`) fica fora de TODA conta, contagem e lista de alunas. "Aluna atual" = confirmado + cortesia + atrasado (`CURRENT_STUDENT_STATUSES`), a mesma definição do total "Alunos" da Visão geral. Antes de contar alunas em qualquer lugar, conferir isto.
 - **Quem perde a cortesia vira EX-ALUNO (`canceled`), nunca prospecto** (`statusAfterManualChange`).
+- **ESTEIRA É A MESMA COISA QUE CORRIDA.** Nunca tratar como modalidade diferente (nem em envio ao relógio, nem em contagem, filtro, texto ou explicação) sem ordem expressa de Elton. Usar `isRunModality` (`canonical-modality.ts`) sempre que a pergunta for "é corrida?". Ele já avisou isso mais de uma vez.
 - **Nada fica oculto por ter uma ou poucas alunas.** Não criar nem manter piso de participantes, "Demais grupos", "oculto (<N alunas)" ou regra parecida: mostrar sempre o dado.
 - **Cadastros de teste** (`User.isTestAccount`: contas de revisão Apple/Google e cadastros de teste) ficam fora de todas as contas; aparecem só em "Cadastros de teste".
 - **Semanas somadas entre alunas**: nenhum cartão ou tabela soma semanas de alunas diferentes ("participantes-semanas", "semanas geradas"); mostrar alunas, sessões ou a semana do calendário. Cartões semanais da Visão geral usam a última semana corrida ENCERRADA (a semana atual fica de fora).

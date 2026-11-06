@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WorkoutDeliveryService } from '../workout-delivery/workout-delivery.service';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
-import { canonicalModality } from '../activity-execution/canonical-modality';
+import { isRunModality } from '../activity-execution/canonical-modality';
 import { buildCanonicalWorkout, CanonicalWorkout } from '../training-plans/canonical-workout';
 import { ZEPP_PROVIDER_ID } from './zepp.connector';
 import { ZEPP_WORKOUT_PROFILE } from './zepp-workout-profile';
@@ -334,7 +334,7 @@ export class ZeppWorkoutPublisherService {
       const skip = (reason: string, pendingZeppAnswer = false) => skipped.push({ sessionId: session.id, reason, pendingZeppAnswer });
       const structure = (session.structure && typeof session.structure === 'object' ? session.structure : {}) as { type?: unknown };
       if (session.origin === 'device_extra' || session.origin === 'student_extra' || structure.type === 'extra') { skip('sessao_extra'); continue; }
-      if (canonicalModality(session.modality) !== 'corrida') { skip('modalidade_nao_suportada'); continue; }
+      if (!isRunModality(session.modality)) { skip('modalidade_nao_suportada'); continue; }
       if (structure.type !== 'run') { skip('estrutura_nao_suportada'); continue; }
       if (session.completion || session.executionLinks.length > 0) { skip('sessao_ja_realizada'); continue; }
 

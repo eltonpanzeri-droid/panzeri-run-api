@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor Zepp (Lote 2, 20/10/2026): CanonicalWorkout -> treino da Workout API V2 (`POST /users/-/workouts?version=2.0.0`). Esta camada SO' traduz a estrutura que a
 // IA/treinador ja' decidiu: nao escolhe treino, ritmo, distancia nem carga (Principio da prescricao). Nao fala com rede, banco nem WorkoutDelivery.
@@ -111,7 +112,7 @@ export function translateToZeppWorkout(workout: CanonicalWorkout, context: ZeppT
   const refusals: ZeppTranslationRefusal[] = [];
   const refuse = (code: string, message: string, path: string, pendingZeppAnswer = false) => refusals.push({ code, message, path, pendingZeppAnswer });
 
-  if (workout.modality !== 'corrida') refuse('modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida; so' corrida e' enviada.`, 'modality');
+  if (!isRunModality(workout.modality)) refuse('modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida; so' corrida e' enviada.`, 'modality');
   if (!workout.complete) {
     for (const loss of workout.losses) refuse(`canonical_${loss.code}`, loss.message, loss.path);
     if (workout.losses.length === 0) refuse('canonical_incomplete', 'O CanonicalWorkout nao esta completo.', 'items');

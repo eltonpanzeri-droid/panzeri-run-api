@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor Apple: CanonicalWorkout -> AppleCustomWorkoutSpec (especificacao INTERMEDIARIA, em JSON, que o modulo Swift vai montar como
 // WorkoutKit CustomWorkout em uma etapa posterior). Esta camada NAO agenda nada, NAO fala com o WorkoutKit e NAO conhece WorkoutDelivery.
@@ -68,8 +69,9 @@ export function translateToAppleCustomWorkout(workout: CanonicalWorkout): AppleT
   const losses: AppleTranslationLoss[] = [];
   const refuse = (code: string, message: string, path: string) => refusals.push({ code, message, path });
 
-  if (workout.modality !== 'corrida') {
-    refuse(workout.modality === 'esteira' ? 'indoor_not_supported_yet' : 'modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida em ambiente aberto.`, 'modality');
+  // esteira E' corrida (ordem de Elton, 05/11/2026): so' o que nao e' corrida e' recusado.
+  if (!isRunModality(workout.modality)) {
+    refuse('modality_not_running', `Modalidade "${workout.modality ?? 'desconhecida'}" nao e corrida.`, 'modality');
   }
   if (!workout.complete) {
     for (const loss of workout.losses) refuse(`canonical_${loss.code}`, loss.message, loss.path);

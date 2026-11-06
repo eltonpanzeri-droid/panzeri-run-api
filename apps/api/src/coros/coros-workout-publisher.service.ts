@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WorkoutDeliveryService } from '../workout-delivery/workout-delivery.service';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
-import { canonicalModality } from '../activity-execution/canonical-modality';
+import { isRunModality } from '../activity-execution/canonical-modality';
 import { buildCanonicalWorkout, CanonicalWorkout } from '../training-plans/canonical-workout';
 import { COROS_PROVIDER_ID } from './coros.connector';
 import { CorosMcpClient, CorosMcpError } from './coros-mcp-client';
@@ -240,7 +240,7 @@ export class CorosWorkoutPublisherService {
       const skip = (reason: string) => skipped.push({ sessionId: session.id, reason });
       const structure = (session.structure && typeof session.structure === 'object' ? session.structure : {}) as { type?: unknown };
       if (session.origin === 'device_extra' || session.origin === 'student_extra' || structure.type === 'extra') { skip('sessao_extra'); continue; }
-      if (canonicalModality(session.modality) !== 'corrida') { skip('modalidade_nao_suportada'); continue; }
+      if (!isRunModality(session.modality)) { skip('modalidade_nao_suportada'); continue; }
       if (structure.type !== 'run') { skip('estrutura_nao_suportada'); continue; }
       if (session.completion || session.executionLinks.length > 0) { skip('sessao_ja_realizada'); continue; }
       const canonical = buildCanonicalWorkout({ id: session.id, modality: session.modality, structure: session.structure });
