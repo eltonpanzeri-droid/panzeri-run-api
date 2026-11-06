@@ -53,6 +53,13 @@ Software determinístico pode garantir integridade técnica, consistência de da
 - Nova evidência pode confirmar, enfraquecer ou substituir interpretação anterior sem reescrever o passado.
 - Não invente histórico. Quando faltarem dados, marque como desconhecido.
 
+## Regra de semanas (ordem de Elton, 05/11/2026 — vale para ABSOLUTAMENTE TUDO no Panzeri Run)
+
+- Os dados começam em **01/08/2026**. Todo cálculo semanal usa só **semanas corridas** (calendário, segunda a domingo, inteiras e já encerradas) desde essa data; a **semana atual fica sempre de fora**.
+- **Nunca alinhar semanas de pessoas diferentes pela posição relativa** ("semana 1 de cada aluna", "as 8 primeiras semanas de cada uma") nem somar "a mesma semana" de alunas diferentes como se fosse a mesma: tudo é pela semana do calendário.
+- Não descartar semanas por rótulos como "incompleta" ou "sem dados" (semana sem treino conta como 0 km entre a primeira e a última semana da aluna).
+- Antes de criar ou alterar qualquer métrica semanal, conferir esta regra. Aplicado até agora: Observatório (período fixo desde 01/08, grupo fixo por semanas do calendário).
+
 ## Antes de mudar código
 
 Para tarefa não trivial:

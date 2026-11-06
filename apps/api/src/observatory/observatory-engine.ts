@@ -42,7 +42,7 @@ export interface ObservatoryResult {
       baselineWeeks: number; maxWeeks: number; eligibleParticipants: number | null; note: string;
       groups: Array<ObsRow<{
         baselinePace: { secondsPerKm: number; label: string } | null; baselineAvgKm: number | null;
-        series: Array<{ relativeWeek: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean }>;
+        series: Array<{ week: string; weekNumber: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean }>;
         paceChange: { participants: number | null; medianDeltaSecPerKm: number | null; p25: number | null; p75: number | null } | null;
       }>>;
     };
@@ -215,58 +215,68 @@ function priorExposure(event: ObsRunEvent, runs: ObsRunEvent[], strengthDays: st
   return { vol: classify(round2(km / (PRIOR_DAYS / 7)), VOLUME_BANDS)?.id ?? 'v1', strength: classify(sessions / (PRIOR_DAYS / 7), STRENGTH_BANDS)?.id ?? 's0' };
 }
 
+// Grupo fixo por SEMANAS CORRIDAS (regra do Elton, 05/11/2026): nunca se alinha a 'semana 1 de cada pessoa' (semana relativa). A linha de base sao as BASELINE_WEEKS primeiras semanas
+// do CALENDARIO do periodo (a partir de 01/08/2026); so' entra quem tem TODAS essas semanas; depois o grupo nao muda e o grafico mostra cada semana do calendario seguinte.
 function computeCohort(pws: PW[], participants: Map<string, { birthDate: string | null; sex: string | null }>, f: ObsFilters): ObservatoryResult['pace']['cohort'] {
   const min = f.minParticipants;
-  const byP = new Map<string, PW[]>();
-  for (const w of pws) { if (!w.complete || w.noData) continue; const list = byP.get(w.p) ?? []; list.push(w); byP.set(w.p, list); }
-  type Member = { p: string; baselineKm: number; baselineEvents: ObsRunEvent[]; follow: PW[]; baselineEnd: string };
+  const yesterday = addDays(f.today, -1);
+  const calendar: string[] = [];
+  for (let w = weekStartOf(f.from); w <= weekStartOf(f.to); w = addDays(w, 7)) if (w >= f.from && addDays(w, 6) <= f.to && addDays(w, 6) <= yesterday) calendar.push(w);
+  const baselineCalendar = calendar.slice(0, BASELINE_WEEKS);
+  const followCalendar = calendar.slice(BASELINE_WEEKS);
+  const byP = new Map<string, Map<string, PW>>();
+  for (const w of pws) { if (!w.complete || (w.noData && !f.includeZeroWeeks)) continue; const weeks = byP.get(w.p) ?? new Map<string, PW>(); weeks.set(w.week, w); byP.set(w.p, weeks); }
+  type Member = { p: string; baselineKm: number; baselineEvents: ObsRunEvent[]; weeks: Map<string, PW> };
   const groups = new Map<string, Member[]>();
   let eligible = 0;
-  for (const [p, list] of byP) {
-    list.sort((a, b) => (a.week < b.week ? -1 : 1));
-    if (list.length < BASELINE_WEEKS) continue;
-    const person = participants.get(p);
-    const sample = list[0];
-    if (f.ageBands.length > 0 && !f.ageBands.includes(sample.age)) continue;
-    if (f.sexes.length > 0 && !f.sexes.includes(normalizeSex(person?.sex))) continue;
-    const base = list.slice(0, BASELINE_WEEKS);
-    const baselineKm = base.reduce((s, w) => s + w.km, 0) / BASELINE_WEEKS;
-    const vb = classify(round2(baselineKm), VOLUME_BANDS);
-    if (!vb || (f.volumeBands.length > 0 && !f.volumeBands.includes(vb.id))) continue;
-    eligible += 1;
-    const g = groups.get(vb.id) ?? [];
-    g.push({ p, baselineKm, baselineEvents: base.flatMap((w) => w.events), follow: list.slice(BASELINE_WEEKS), baselineEnd: base[base.length - 1].week });
-    groups.set(vb.id, g);
+  if (baselineCalendar.length === BASELINE_WEEKS) {
+    for (const [p, weeks] of byP) {
+      if (!baselineCalendar.every((w) => weeks.has(w))) continue; // sem todas as semanas da linha de base (calendario): fora do grupo fixo
+      const person = participants.get(p);
+      const sample = weeks.get(baselineCalendar[0])!;
+      if (f.ageBands.length > 0 && !f.ageBands.includes(sample.age)) continue;
+      if (f.sexes.length > 0 && !f.sexes.includes(normalizeSex(person?.sex))) continue;
+      const base = baselineCalendar.map((w) => weeks.get(w)!);
+      const baselineKm = base.reduce((s, w) => s + w.km, 0) / BASELINE_WEEKS;
+      const vb = classify(round2(baselineKm), VOLUME_BANDS);
+      if (!vb || (f.volumeBands.length > 0 && !f.volumeBands.includes(vb.id))) continue;
+      eligible += 1;
+      const g = groups.get(vb.id) ?? [];
+      g.push({ p, baselineKm, baselineEvents: base.flatMap((w) => w.events), weeks });
+      groups.set(vb.id, g);
+    }
   }
   const rows = VOLUME_BANDS.map((b) => {
     const members = groups.get(b.id) ?? [];
     const withBasePace = members.filter((m) => pooledPaceOf(m.baselineEvents)).length;
     const baselinePace = withBasePace >= min ? pooledPaceOf(members.flatMap((m) => m.baselineEvents)) : null;
-    const series: Array<{ relativeWeek: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean }> = [];
-    for (let rel = 1; rel <= MAX_COHORT_WEEKS; rel += 1) {
-      const points = members.map((m) => ({ m, w: m.follow.find((x) => daysBetween(m.baselineEnd, x.week) / 7 === rel) })).filter((x) => x.w);
-      if (points.length === 0) continue;
-      if (points.length < min) { series.push({ relativeWeek: rel, participants: null, avgKm: null, paceSecondsPerKm: null, paceLabel: null, suppressed: true }); continue; }
+    const series: Array<{ week: string; weekNumber: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean }> = [];
+    followCalendar.forEach((week, index) => {
+      const weekNumber = BASELINE_WEEKS + index + 1; // numero da semana corrida do periodo (1 = primeira semana desde 01/08)
+      const points = members.map((m) => ({ m, w: m.weeks.get(week) })).filter((x) => x.w);
+      if (points.length === 0) return;
+      if (points.length < min) { series.push({ week, weekNumber, participants: null, avgKm: null, paceSecondsPerKm: null, paceLabel: null, suppressed: true }); return; }
       const withPace = points.filter((x) => pooledPaceOf(x.w!.events)).length;
       const pace = withPace >= min ? pooledPaceOf(points.flatMap((x) => x.w!.events)) : null; // pace so' com >= min pessoas COM pace no ponto
-      series.push({ relativeWeek: rel, participants: points.length, avgKm: round2(points.reduce((s, x) => s + x.w!.km, 0) / points.length), paceSecondsPerKm: pace?.secondsPerKm ?? null, paceLabel: pace?.label ?? null, suppressed: false });
-    }
-    // variacao individual de pace: pace agregado das primeiras 8 semanas contra as 8 primeiras semanas seguintes (pessoas com as duas medidas)
+      series.push({ week, weekNumber, participants: points.length, avgKm: round2(points.reduce((s, x) => s + x.w!.km, 0) / points.length), paceSecondsPerKm: pace?.secondsPerKm ?? null, paceLabel: pace?.label ?? null, suppressed: false });
+    });
+    // variacao individual de pace: pace agregado das 8 semanas da linha de base contra as (ate) 8 semanas corridas seguintes (pessoas com as duas medidas)
+    const nextWeeks = followCalendar.slice(0, BASELINE_WEEKS);
     const deltas: number[] = [];
     for (const m of members) {
       const bp = pooledPaceOf(m.baselineEvents);
-      const fp = pooledPaceOf(m.follow.filter((w) => daysBetween(m.baselineEnd, w.week) / 7 <= BASELINE_WEEKS).flatMap((w) => w.events));
+      const fp = pooledPaceOf(nextWeeks.flatMap((w) => m.weeks.get(w)?.events ?? []));
       if (bp && fp) deltas.push(fp.secondsPerKm - bp.secondsPerKm);
     }
-    deltas.sort((a, b) => a - b);
+    deltas.sort((x, y) => x - y);
     const paceChange = deltas.length === 0 ? null : deltas.length < min ? { participants: null, medianDeltaSecPerKm: null, p25: null, p75: null } : { participants: deltas.length, medianDeltaSecPerKm: Math.round(quantile(deltas, 0.5)!), p25: Math.round(quantile(deltas, 0.25)!), p75: Math.round(quantile(deltas, 0.75)!) };
     return { key: b.id, label: b.label, participants: members.length, data: { baselinePace: baselinePace ? { secondsPerKm: baselinePace.secondsPerKm, label: baselinePace.label } : null, baselineAvgKm: members.length > 0 ? round2(members.reduce((s, m) => s + m.baselineKm, 0) / members.length) : null, series, paceChange } };
   });
   return {
     baselineWeeks: BASELINE_WEEKS,
-    maxWeeks: MAX_COHORT_WEEKS,
+    maxWeeks: followCalendar.length,
     eligibleParticipants: eligible >= min ? eligible : null,
-    note: 'O grupo fixo é definido DENTRO do período escolhido (as 8 primeiras semanas completas de cada pessoa nesse período) e depois não muda. Mudar a data inicial muda quem entra em cada grupo: para acompanhar a evolução ao longo do tempo, mantenha a data inicial fixa. Semanas sem treino registrado ficam fora da linha de base. O filtro de força não se aplica ao grupo fixo.',
+    note: 'O grupo fixo usa semanas corridas do calendário: a linha de base são as ' + BASELINE_WEEKS + ' primeiras semanas do período (a partir de 01/08/2026) e só entra quem tem todas elas. Depois o grupo não muda, e o gráfico mostra cada semana do calendário seguinte. Nenhuma semana de uma pessoa é alinhada à semana de outra pela posição dela. O filtro de força não se aplica ao grupo fixo.',
     groups: protect(rows, min).rows,
   };
 }

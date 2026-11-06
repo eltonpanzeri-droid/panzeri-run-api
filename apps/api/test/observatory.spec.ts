@@ -183,20 +183,20 @@ describe('Bloco C — pace e grupos', () => {
           events.push(ev(w < 8 ? 30 : laterKm, 'no_pain_report', 0, { participant: 'p' + p, day, seconds: (w < 8 ? 30 : laterKm) * 330 }));
         }
       }
-      return computeObservatory(factsOf(events), baseFilters({ mode: 'cohort' }));
+      return computeObservatory(factsOf(events), baseFilters({ mode: 'cohort', from: '2026-05-04' }));
     };
     const low = make(5); const high = make(150);
     const group = (r: ReturnType<typeof make>) => r.pace.cohort.groups.filter((g) => (g.participants ?? 0) > 0).map((g) => [g.key, g.participants]);
     expect(group(low)).toEqual([['v2', 6]]); // 30 km/sem na linha de base => 20–40, independente do que veio depois
     expect(group(high)).toEqual([['v2', 6]]);
     const series = low.pace.cohort.groups.find((g) => g.key === 'v2')!.data!.series;
-    expect(series[0].relativeWeek).toBe(1);
+    expect(series[0]).toMatchObject({ week: '2026-06-29', weekNumber: 9 }); // 9a semana corrida do periodo (calendario), nunca a posicao relativa de cada pessoa
     expect(series[0].avgKm).toBe(5);
   });
   it('cobertura insuficiente: participante com menos de 8 semanas completas fica fora do grupo fixo', () => {
     const events: ObsRunEvent[] = [];
     for (let p = 0; p < 6; p += 1) for (let w = 0; w < 5; w += 1) events.push(ev(20, 'no_pain_report', 0, { participant: 'p' + p, day: new Date(Date.UTC(2026, 4, 4 + w * 7)).toISOString().slice(0, 10) }));
-    const r = computeObservatory(factsOf(events), baseFilters({ mode: 'cohort' }));
+    const r = computeObservatory(factsOf(events), baseFilters({ mode: 'cohort', from: '2026-05-04' }));
     expect(r.pace.cohort.eligibleParticipants).toBeNull(); // 0 elegiveis (< piso): nao divulgado
     expect(r.pace.cohort.groups.every((g) => g.participants === 0)).toBe(true);
   });

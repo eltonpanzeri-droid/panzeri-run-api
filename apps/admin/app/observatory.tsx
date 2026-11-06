@@ -18,7 +18,7 @@ type PainMetrics = {
   coverage: { trainings: number; withFeedback: number; withoutFeedback: number; numericIntensityTrainings: number; intensityCoveragePct: number | null };
   zeroOrigins: { explicitNoPain: number; noPainReport: number };
 };
-type CohortSeriesPoint = { relativeWeek: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean };
+type CohortSeriesPoint = { week: string; weekNumber: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean };
 type Result = {
   dataset: 'real' | 'synthetic'; dataAsOf: string; period: { from: string; to: string }; mode: 'cross' | 'cohort'; minParticipants: number;
   overview: { participants: number | null; participantWeeks: number | null; trainings: number | null; km: number | null; belowMinimum: boolean; weeks: { complete: number; incomplete: number; noData: number } };
@@ -265,7 +265,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   const cohortGroups = (r?.pace.cohort.groups ?? []).filter((g) => !g.suppressed && g.data && g.data.series.some((p) => !p.suppressed));
   const cohortSeries: LineSeries[] = cohortGroups.map((g, i) => ({
     key: g.key, label: g.label, color: PALETTE[COLOR_INDEX[g.key] ?? i],
-    points: g.data!.series.map((p) => ({ x: p.relativeWeek, y: p.suppressed ? null : p.paceSecondsPerKm, tip: p.suppressed ? 'oculto' : `${p.paceLabel ?? '—'} · ${nf(p.participants)} participantes · ${nf(p.avgKm, 1)} km/semana` })),
+    points: g.data!.series.map((p) => ({ x: p.weekNumber, y: p.suppressed ? null : p.paceSecondsPerKm, tip: p.suppressed ? 'oculto' : `semana de ${p.week.slice(8, 10)}/${p.week.slice(5, 7)} · ${p.paceLabel ?? '—'} · ${nf(p.participants)} participantes · ${nf(p.avgKm, 1)} km/semana` })),
   }));
   const cohortSuppressedPoints = (r?.pace.cohort.groups ?? []).reduce((s, g) => s + (g.data?.series.filter((p) => p.suppressed).length ?? 0), 0);
 
@@ -348,7 +348,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                 <Seg<Mode> value={applied.mode} label="Tipo de comparação" options={[['cross', 'Comparação entre grupos atuais'], ['cohort', 'Evolução de grupos fixos']]} onChange={(mode) => commit({ ...applied, mode })} />
                 <p className="obsModeText">{applied.mode === 'cross'
                   ? 'Mostra, no mesmo período, como o pace difere entre as faixas de volume semanal de cada semana. É uma comparação entre grupos, não prova que o volume muda o pace: quem corre mais costuma ser mais experiente.'
-                  : `Cada corredora é classificada pelas ${r.pace.cohort.baselineWeeks} primeiras semanas completas e elegíveis e permanece nesse grupo; o gráfico mostra como o pace do grupo evolui depois. Ninguém é reclassificada com resultados futuros. Associação descritiva.`}</p>
+                  : `Cada corredora é classificada pelas ${r.pace.cohort.baselineWeeks} primeiras semanas corridas do período (a partir de 01/08/2026) e permanece nesse grupo; o gráfico mostra o pace do grupo em cada semana do calendário depois disso. Ninguém é reclassificada com resultados futuros. Associação descritiva.`}</p>
               </div>
 
               {applied.mode === 'cross' ? (
@@ -370,7 +370,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                     <LineChart series={cohortSeries} xMax={Math.max(4, ...cohortSeries.flatMap((s) => s.points.filter((p) => p.y != null).map((p) => p.x)))} yFormat={(v) => paceText(v).replace('/km', '')} />
                     <div className="eqLegend">{cohortSeries.map((s) => <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>)}</div>
                     {cohortSuppressedPoints > 0 ? <p className="eqFine">{cohortSuppressedPoints} ponto(s) com menos de {min} participantes ficam ocultos e aparecem como lacuna na linha.</p> : null}
-                    <p className="eqFine">{r.pace.cohort.eligibleParticipants == null ? `Menos de ${min} participantes têm as ${r.pace.cohort.baselineWeeks} semanas de linha de base.` : `${nf(r.pace.cohort.eligibleParticipants)} participantes têm as ${r.pace.cohort.baselineWeeks} semanas completas de linha de base neste recorte.`}</p>
+                    <p className="eqFine">{r.pace.cohort.eligibleParticipants == null ? `Menos de ${min} participantes têm as ${r.pace.cohort.baselineWeeks} semanas de linha de base.` : `${nf(r.pace.cohort.eligibleParticipants)} participantes têm todas as ${r.pace.cohort.baselineWeeks} semanas corridas de linha de base neste recorte.`}</p>
                   </Card>
                   <Table caption="Grupos fixos: linha de base e variação do pace" head={['Grupo fixo (faixa na linha de base)', 'Participantes no grupo', 'Km médio por semana (linha de base)', 'Pace na linha de base', 'Variação mediana do pace (primeiras 8 semanas seguintes)', 'Quartil 25', 'Quartil 75', 'Participantes com as duas medidas']}>
                     {r.pace.cohort.groups.map((row) => (
