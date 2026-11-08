@@ -957,7 +957,60 @@ export default function AdminHome() {
     changeView('students');
   }
 
+  // 08/11/2026 — historico de navegacao do painel: antes trocar de tela nao deixava rastro no navegador, entao o voltar do
+  // navegador saia do painel e nao havia botao Voltar. Cada troca de tela / abertura de aluno agora vira uma entrada do historico.
+  type NavEntry = { view: AdminView; mode: 'list' | 'detail'; studentId?: string };
+  const navDepthRef = useRef(0);
+  function pushNav(entry: NavEntry) {
+    try {
+      window.history.pushState({ pzAdmin: entry }, '');
+      navDepthRef.current += 1;
+    } catch { /* sem historico: so o botao da tela */ }
+  }
+  const popNavRef = useRef<(event: PopStateEvent) => void>(() => undefined);
+  popNavRef.current = (event) => {
+    if (!token) return; // antes do login nao ha o que restaurar
+    const entry: NavEntry = (event.state as { pzAdmin?: NavEntry } | null)?.pzAdmin ?? { view: 'dashboard', mode: 'list' };
+    navDepthRef.current = Math.max(0, navDepthRef.current - 1);
+    setMenuOpen(false);
+    applyView(entry.view);
+    if (entry.mode === 'detail' && entry.studentId) {
+      setStudentViewMode('detail');
+      void loadStudent(entry.studentId);
+    } else if (entry.view === 'students') {
+      setStudentViewMode('list');
+    }
+  };
+  useEffect(() => {
+    const handler = (event: PopStateEvent) => popNavRef.current(event);
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, []);
+  // O menu aberto fecha ao clicar fora dele ou com Esc (antes so fechava escolhendo um item ou voltando ao X).
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if ('key' in event) { if (event.key === 'Escape') setMenuOpen(false); return; }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.compactMenu') || target?.closest('.menuButton')) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [menuOpen]);
+  function goBackAdmin() {
+    if (navDepthRef.current > 0) window.history.back();
+    else if (studentViewMode === 'detail') setStudentViewMode('list');
+    else changeView('dashboard');
+  }
+
   function changeView(view: AdminView) {
+    if (view !== activeView) pushNav({ view, mode: 'list' });
+    applyView(view);
+  }
+
+  function applyView(view: AdminView) {
     // 22/10/2026: a busca por nome so' vale na tela em que foi digitada. Trocar de tela zera a busca; antes ela continuava aplicada em segredo (o campo some no Panorama) e filtrava os totais.
     if (view !== activeView) { setQuery(''); setPage(1); }
     setActiveView(view);
@@ -995,6 +1048,7 @@ export default function AdminHome() {
   }
 
   async function goToStudent(studentId: string) {
+    pushNav({ view: activeView, mode: 'detail', studentId });
     setStudentViewMode('detail');
     scrollToTop();
     await loadStudent(studentId);
@@ -1376,6 +1430,9 @@ export default function AdminHome() {
             <button className="menuButton" type="button" onClick={() => setMenuOpen((current) => !current)} aria-label="Abrir menu">
               {menuOpen ? <X size={22} /> : <Menu size={22} />}
             </button>
+            {activeView !== 'dashboard' || studentViewMode === 'detail' ? (
+              <button className="menuButton" type="button" onClick={goBackAdmin} aria-label="Voltar" title="Voltar"><ChevronLeft size={22} /></button>
+            ) : null}
             <div>
               <p className="eyebrow">Painel do treinador</p>
               <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'testAccounts' ? 'Alunas de teste' : activeView === 'observatory' ? 'Observatório Panzeri Run' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>

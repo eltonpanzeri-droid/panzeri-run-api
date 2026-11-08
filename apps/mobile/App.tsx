@@ -38,6 +38,7 @@ import { EquipmentScreen } from './src/equipment/EquipmentScreen';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
 import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
+import { useTabHistory } from './src/useTabHistory';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -90,6 +91,10 @@ type Screen = 'login' | 'app';
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
 type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery';
+// 08/11/2026: telas em que o voltar do sistema NAO tira a pessoa (etapas obrigatorias do cadastro).
+const LOCKED_BACK_TABS: readonly Tab[] = ['interview', 'quickIntake'];
+// Telas que ja tem o proprio botao Voltar (ou sao o inicio): a barra Voltar global nao aparece nelas.
+const OWN_BACK_TABS: readonly Tab[] = ['home', 'interview', 'quickIntake', 'feelings', 'medals', 'physicalTests', 'routine', 'reassessment'];
 type AuthMode = 'login' | 'register';
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
@@ -1496,7 +1501,15 @@ function AppInner() {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedExerciseResponsibility, setAcceptedExerciseResponsibility] = useState(false);
   const [exerciseResponsibilityRequired, setExerciseResponsibilityRequired] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('home');
+  // 08/11/2026: navegacao com historico (voltar do Android, voltar do navegador/PWA e botao Voltar na tela). Ver src/useTabHistory.ts.
+  const menuOpenRef = useRef(false);
+  const closeMenuRef = useRef<() => void>(() => {});
+  const { tab: activeTab, setTab: setActiveTab, goBack: goBackTab, canGoBack } = useTabHistory<Tab>('home', {
+    root: 'home',
+    locked: LOCKED_BACK_TABS,
+    enabled: screen === 'app',
+    beforeBack: () => { if (menuOpenRef.current) { closeMenuRef.current(); return true; } return false; },
+  });
   // 04/11/2026: quando o relato de dor e' aberto de dentro do feedback do treino, a tela oferece "Voltar ao feedback" e volta sozinha ao enviar.
   const [painReportFromFeedback, setPainReportFromFeedback] = useState(false);
   // Fabricante que o hub de Dispositivos abre de cara (ex.: o convite da Zepp na tela de Treinos); undefined = lista normal.
@@ -1519,6 +1532,8 @@ function AppInner() {
   // Sair da Evolução apaga a área escolhida: voltar pelo menu abre a grade, não a última área.
   useEffect(() => { if (activeTab !== 'progress') setEvolutionArea(undefined); }, [activeTab]);
   const [menuOpen, setMenuOpen] = useState(false);
+  menuOpenRef.current = menuOpen;
+  closeMenuRef.current = () => setMenuOpen(false);
   const [restartInterviewFromStart, setRestartInterviewFromStart] = useState(false);
   // 09/09: modulo selecionado para correcao granular — quando nao-nulo, a aba fixAnswers mostra
   // o GuidedInterview filtrado para esse modulo em vez do menu de modulos.
@@ -1849,6 +1864,12 @@ function AppInner() {
               />
             ) : (
               <>
+            {canGoBack && !OWN_BACK_TABS.includes(activeTab) && !(activeTab === 'painReport' && painReportFromFeedback) && !(activeTab === 'fixAnswers' && fixAnswersModule) && (
+              <Pressable accessibilityRole="button" accessibilityLabel="Voltar" style={styles.globalBackButton} onPress={goBackTab}>
+                <Ionicons name="arrow-back" size={18} color={PRColors.ocean} />
+                <Text style={styles.globalBackButtonText}>Voltar</Text>
+              </Pressable>
+            )}
             {activeTab === 'home' && (
               <HomeScreen
                 accessToken={accessToken}
@@ -14483,6 +14504,20 @@ const styles = StyleSheet.create({
     color: PRColors.mineral,
     fontSize: 16,
     fontWeight: '800',
+  },
+  globalBackButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  globalBackButtonText: {
+    color: PRColors.ocean,
+    fontSize: 15,
+    fontWeight: '700',
   },
   secondaryOutlineButton: {
     minHeight: 54,
