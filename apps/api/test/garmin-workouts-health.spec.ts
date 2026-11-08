@@ -455,3 +455,24 @@ describe('exclusao, IA e catalogo', () => {
     expect(garmin.profile.dataGroups).not.toContain('route');
   });
 });
+
+describe('cartao da Garmin no Panzeri Run (estatico)', () => {
+  const { readFileSync } = require('node:fs') as typeof import('node:fs');
+  const { join } = require('node:path') as typeof import('node:path');
+  const card = readFileSync(join(__dirname, '..', '..', 'mobile', 'src', 'garmin', 'GarminIntegration.tsx'), 'utf8');
+  const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
+  it('sem percurso GPS e sem importacao de historico (o Starter nao traz historico); com todos os grupos de saude', () => {
+    expect(card).not.toMatch(/'route'|history_backfill|Percurso GPS|HISTORY/);
+    for (const id of ["'stress'", "'vo2'", "'body'", "'sleep'", "'daily'", "'hrv'"]) expect(card).toContain(id);
+    expect(card).toContain("'/garmin/connect'");
+    expect(card).toContain('/garmin/workouts/sync');
+  });
+  it('esta ligado nas duas telas (Dispositivos e integracoes, Privacidade e dados)', () => {
+    expect(app).toContain("garmin: () => <GarminIntegration");
+    expect(app).toContain('<GarminIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage"');
+  });
+  it('linguagem do projeto: sem "app" e sem "plano de treino" nos textos', () => {
+    expect(card).not.toMatch(/plano de treino/i);
+    expect(card).not.toMatch(/(?<![A-Za-z-])app da Garmin|aplicativo da Garmin/);
+  });
+});

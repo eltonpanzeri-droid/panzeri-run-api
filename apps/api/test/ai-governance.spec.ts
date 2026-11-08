@@ -49,7 +49,7 @@ afterEach(() => { const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[]; c
 
 describe('trava de envio externo (tripwire)', () => {
   it('a lista de provedores liberados para IA externa so tem Zepp (21/10/2026) e Health Connect (22/10/2026), ambos liberados por Elton — liberar outro e uma decisao revisada, nao um efeito colateral', () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect', 'coros']);
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect', 'coros', 'garmin']); // garmin liberada por Elton em 08/11/2026 (Atlas so' com a autorizacao propria e GARMIN_EXTERNAL_AI_ENABLED)
   });
 });
 

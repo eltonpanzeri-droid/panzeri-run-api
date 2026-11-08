@@ -15,6 +15,7 @@ import { PHYSICAL_TESTS_ENABLED } from './src/physicalTests/config';
 import { IntegrationsHub, IntegrationScreens } from './src/integrations/IntegrationsHub';
 import { ZeppIntegration } from './src/zepp/ZeppIntegration';
 import { CorosIntegration } from './src/coros/CorosIntegration';
+import { GarminIntegration } from './src/garmin/GarminIntegration';
 import { ZeppWatchPrompt } from './src/zepp/ZeppWatchPrompt';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
@@ -9337,6 +9338,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
     // COROS (30/10/2026): conexao pelo COROS MCP, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da Zepp.
     coros: () => <CorosIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
+    // Garmin (08/11/2026): conexao oficial (Garmin Connect Developer Program), autorizacoes separadas (importar, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da COROS; sem GPS.
+    garmin: () => <GarminIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
   };
   return (
     <View style={styles.section}>
@@ -9396,6 +9399,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava, onOpenBilling, onAccount
           <WahooConnect accessToken={accessToken} variant="manage" />
           <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
           <CorosIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
+          <GarminIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage" privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />
         </>
       ))}
 

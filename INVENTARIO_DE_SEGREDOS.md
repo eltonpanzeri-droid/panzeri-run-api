@@ -60,7 +60,7 @@ Cada integração tem: `*_CLIENT_ID` (config), `*_CLIENT_SECRET` (segredo), `*_R
 
 | Integração | Variáveis |
 |---|---|
-| **Garmin** (08/11/2026, lote 1) | `GARMIN_CLIENT_ID`, `GARMIN_CLIENT_SECRET` (segredo), `GARMIN_REDIRECT_URI`, `GARMIN_TOKEN_ENCRYPTION_KEY` (segredo), `GARMIN_WEBHOOK_KEY` (segredo; vai dentro do endereço do aviso de desregistro), `GARMIN_ENABLED_USER_IDS` (ainda **vazia** de propósito) |
+| **Garmin** (08/11/2026) | `GARMIN_CLIENT_ID`, `GARMIN_CLIENT_SECRET` (segredo), `GARMIN_REDIRECT_URI`, `GARMIN_TOKEN_ENCRYPTION_KEY` (segredo), `GARMIN_WEBHOOK_KEY` (segredo; vai dentro do endereço dos avisos de atividade, saúde e desregistro), `GARMIN_ENABLED_USER_IDS` (`*` = todas; fail-closed se vazia), `GARMIN_EXTERNAL_AI_ENABLED` (segunda trava do Atlas), `GARMIN_WORKOUT_PUBLISH_ENABLED` (liga por padrão; `false` desliga o envio de treinos) |
 | **COROS** | `COROS_CLIENT_ID`, `COROS_REDIRECT_URI`, `COROS_TOKEN_ENCRYPTION_KEY`, `COROS_ENABLED_USER_IDS`, `COROS_ISSUER`, `COROS_SYNC_ENABLED`, `COROS_WORKOUT_PUBLISH_ENABLED` |
 | **Zepp/Amazfit** | `ZEPP_CLIENT_ID`, `ZEPP_CLIENT_SECRET`, `ZEPP_REDIRECT_URI`, `ZEPP_TOKEN_ENCRYPTION_KEY`, `ZEPP_WEBHOOK_SECRET`, `ZEPP_ENABLED_USER_IDS`, `ZEPP_BACKFILL_ENABLED`, `ZEPP_WORKOUT_PUBLISH_ENABLED` |
 | **Polar** | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`, `POLAR_REDIRECT_URI`, `POLAR_TOKEN_ENCRYPTION_KEY`, `POLAR_HEALTH_ENABLED`, `POLAR_FALLBACK_INTERVAL_MINUTES`, `POLAR_PROBE_*` |

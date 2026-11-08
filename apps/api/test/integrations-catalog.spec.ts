@@ -51,14 +51,15 @@ describe('catalogo de dispositivos e integracoes', () => {
     expect(entry.summary).toContain('Health Connect');
   });
 
-  it('Garmin: indisponivel, sem capacidades nem conexao (mantido assim por decisao de Elton em 22/10/2026; a COROS passou a ser integrada em 30/10/2026)', () => {
-    const catalog = buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set(['garmin']) });
-    for (const id of ['garmin']) {
-      const entry = byId(catalog, id);
-      expect(entry.availability).toBe('unavailable');
-      expect(entry.connection.state).toBe('not_applicable');
-      expect(entry.capabilities).toEqual({ receiveActivities: false, sendWorkouts: false });
-    }
+  it('Garmin (08/11/2026): integracao oficial; sem as variaveis GARMIN_* fica indisponivel; com elas so aparece para quem foi liberado (GARMIN_ENABLED_USER_IDS; * libera todas)', () => {
+    const garmin = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'garmin');
+    expect(garmin.availability).toBe('unavailable'); // ENV_OK nao tem as variaveis da Garmin
+    const env = new Set(['GARMIN_CLIENT_ID', 'GARMIN_CLIENT_SECRET', 'GARMIN_REDIRECT_URI', 'GARMIN_TOKEN_ENCRYPTION_KEY']);
+    const closed = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set() }), 'garmin');
+    expect(closed.availability).toBe('unavailable'); // configurada, mas aluna nao liberada
+    const open = byId(buildIntegrationsCatalog({ configuredEnv: env, connectedProviderIds: new Set(), allowedProviderIds: new Set(['garmin']) }), 'garmin');
+    expect(open.availability).toBe('available');
+    expect(open.capabilities).toEqual({ receiveActivities: true, sendWorkouts: true });
   });
 
   it('Wahoo em validacao: credenciais configuradas NAO liberam; so quem esta habilitado (ou ja conectado, para poder desconectar) a ve disponivel', () => {
@@ -121,7 +122,7 @@ describe('GET /me/integrations: autenticacao e escopo', () => {
     const config = { get: (key: string) => (key.endsWith('CLIENT_ID') ? 'segredo-nao-pode-sair' : undefined) };
     const service = new IntegrationsService(prisma, config);
     const result = await service.catalog('aluno-A');
-    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }, { provider_userId: { provider: 'polar', userId: 'aluno-A' } }, { provider_userId: { provider: 'wahoo', userId: 'aluno-A' } }, { provider_userId: { provider: 'coros', userId: 'aluno-A' } }]); // + decisoes sobre o Atlas (Polar/Wahoo), so' estado
+    expect(calls.map((call) => call.args.where)).toEqual([{ userId: 'aluno-A' }, { userId: 'aluno-A' }, { userId: 'aluno-A' }, { provider_userId: { provider: 'zepp', userId: 'aluno-A' } }, { provider_userId: { provider: 'polar', userId: 'aluno-A' } }, { provider_userId: { provider: 'wahoo', userId: 'aluno-A' } }, { provider_userId: { provider: 'coros', userId: 'aluno-A' } }, { provider_userId: { provider: 'garmin', userId: 'aluno-A' } }]); // + decisoes sobre o Atlas (Polar/Wahoo), so' estado
     expect(calls[0].args.select).toEqual({ disconnectedAt: true });
     expect(calls[1].args.select).toEqual({ id: true });
     expect(calls[2].args.select).toEqual({ disconnectedAt: true });
