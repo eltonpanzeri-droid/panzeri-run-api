@@ -41,9 +41,7 @@ export const styles = `
 @media(max-width:960px){.video-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.video-grid{grid-template-columns:1fr}}
 
-.hero-proof{display:flex;gap:18px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:16px 20px;margin-top:26px;max-width:480px}
-.hero-proof img{width:140px;border-radius:14px;flex-shrink:0;aspect-ratio:1199/1312;object-fit:cover}
-.hero-proof blockquote{margin:0;font-size:1rem;color:#dbe6ea;font-style:italic;line-height:1.42}
+.hero-proof{display:block;width:min(320px,70vw);aspect-ratio:1199/1312;object-fit:cover;border-radius:22px;margin-top:30px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
 
 .experience-photo-card{position:relative;overflow:hidden;background-size:cover;background-position:center;color:#fff}
 .experience-photo-card:before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(6,23,36,.45),rgba(6,23,36,.3) 35%,rgba(6,23,36,.9))}

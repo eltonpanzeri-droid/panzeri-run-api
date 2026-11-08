@@ -92,10 +92,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
           <span>✓ Evolução possível para você</span>
           <span>✓ Metodologia Elton Panzeri</span>
         </div>
-        <figure class="hero-proof reveal">
-          <img src="/landing2-assets/testemunho-01-mao.jpg" alt="Celular na mão de uma aluna mostrando a conversa de WhatsApp em que ela diz que o teste foi mental e que está conseguindo">
-          <blockquote>"O teste foi pra mim. Mental. Eu consigo e estou conseguindo."</blockquote>
-        </figure>
+        <img class="hero-proof reveal" src="/landing2-assets/testemunho-01-mao.jpg" alt="Celular na mão de uma aluna mostrando a conversa de WhatsApp em que ela diz que o teste foi mental e que está conseguindo">
       </div>
       <div class="hero-visual reveal">
         <div class="photo-frame"><img src="/landing2-assets/hero-elton.jpg" alt="Elton Panzeri correndo uma maratona no Rio de Janeiro"></div>
