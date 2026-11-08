@@ -170,7 +170,7 @@ describe('aviso de desregistro (webhook sem assinatura: chave secreta no enderec
   const KEY32 = 'k'.repeat(40);
   function controller(keyValue: string | undefined, revocation = jest.fn(async (_p: string, id: string) => (id === 'garmin-user-1' ? 'closed' : 'nothing'))) {
     const connections: any = { handleRemoteRevocation: revocation };
-    return { ctrl: new GarminController(connections, configOf({ GARMIN_WEBHOOK_KEY: keyValue })), revocation };
+    return { ctrl: new GarminController(connections, configOf({ GARMIN_WEBHOOK_KEY: keyValue }), {} as any, {} as any), revocation };
   }
   it('sem chave configurada (ou fraca) a rota nao existe', async () => {
     await expect(controller(undefined).ctrl.deregistrations('x', { deregistrations: [] })).rejects.toBeInstanceOf(NotFoundException);

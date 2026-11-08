@@ -5,6 +5,9 @@ import { AuthGuard } from '@nestjs/passport';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
+import { ProviderConsentService } from '../provider-hub/provider-consent.service';
+import { ProviderInboundEventService } from '../provider-hub/provider-inbound-event.service';
+import { parseGarminActivityPush, toActivityDrafts } from './garmin-activity';
 import { GARMIN_PROVIDER_ID } from './garmin.connector';
 
 interface HtmlResponse {
@@ -25,6 +28,8 @@ export class GarminController {
   constructor(
     private readonly connections: ProviderConnectionService,
     private readonly config: ConfigService,
+    private readonly consentService: ProviderConsentService,
+    private readonly events: ProviderInboundEventService,
   ) {}
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -141,6 +146,25 @@ export class GarminController {
       if ((await this.connections.handleRemoteRevocation(GARMIN_PROVIDER_ID, userId)) === 'closed') closed += 1;
     }
     return { ok: true, closed };
+  }
+
+  // Atividades (push de `activities` e `activityDetails`; Activity API 2.1): a Garmin entrega o JSON no proprio POST e exige 200 em ate 30 s ANTES de qualquer processamento. Aqui so' autentica pela chave do
+  // endereco, filtra (sem GPS), grava na fila duravel e responde; quem processa e' a rotina da fila. Aluna sem conexao ativa e' ignorada em silencio (uma chave vazada nao enche a fila). Cadastre o MESMO
+  // endereco para "Activities" e "Activity Details" no portal da Garmin: `.../garmin/webhook/<chave>/activities`.
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
+  @Post(['webhook/:key/activities', 'webhook/:key/activity-details'])
+  @HttpCode(200)
+  async activities(@Param('key') key: string, @Body() body: unknown) {
+    this.assertWebhookKey(key);
+    const { records, ignored } = parseGarminActivityPush(body);
+    let queued = 0;
+    for (const draft of toActivityDrafts(records)) {
+      const userId = draft.externalAccountId ? await this.consentService.resolveActiveUserId(GARMIN_PROVIDER_ID, draft.externalAccountId) : null;
+      if (!userId) continue;
+      const result = await this.events.record(GARMIN_PROVIDER_ID, draft, userId);
+      if (result.created) queued += 1;
+    }
+    return { ok: true, queued, ignored };
   }
 
   private assertWebhookKey(given: string): void {

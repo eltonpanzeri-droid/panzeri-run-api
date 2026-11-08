@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { configureGarminWebhookBodyParser } from './garmin/garmin-webhook-body';
 
 async function bootstrap() {
   // rawBody: true - necessario pra verificar a assinatura Svix do webhook da Resend
@@ -12,6 +13,8 @@ async function bootstrap() {
   // (login 10/min, esqueci a senha 5/min, cadastro 5/min) passa a ser UM balde compartilhado por todos os alunos: o login e o
   // "Esqueci minha senha" falhavam (429) para quem tentasse no minuto em que outros ja tinham usado o limite.
   app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1));
+  // 08/11/2026: avisos de atividade da Garmin passam de 100 KB (limite padrao do JSON); limite maior SO' em /garmin/webhook/.
+  configureGarminWebhookBodyParser(app);
   const config = app.get(ConfigService);
 
   app.enableCors({
