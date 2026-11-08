@@ -17,7 +17,7 @@ export const GARMIN_CONSENT: ConsentCapability = {
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência e elevação) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, passos e atividade do dia).',
+        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência e elevação) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, oxigenação do sangue, respiração, temperatura da pele, pressão arterial, nutrição e hidratação, passos e atividade do dia, inclusive minuto a minuto).',
         'Essas informações serão utilizadas para acompanhar sua evolução e sua recuperação, comparar os treinos planejados com os realizados e personalizar seu treinamento. Seu treinador vê no painel os dados que você autorizou. Elas não substituem avaliação médica.',
       ],
     },
@@ -53,6 +53,12 @@ export const GARMIN_CONSENT: ConsentCapability = {
     { id: 'stress', label: 'Estresse e Body Battery', description: 'Níveis de estresse e de energia (Body Battery) ao longo do dia, quando o seu relógio os medir.', required: false, categories: ['lifestyle_load'] },
     { id: 'vo2', label: 'VO₂ máximo e idade fitness', description: 'Estimativas de VO₂ máximo (corrida e bicicleta) e de idade fitness calculadas pela Garmin, quando o seu relógio as medir.', required: false, categories: ['vo2_max'] },
     { id: 'body', label: 'Peso e composição corporal', description: 'Peso, gordura corporal, massa muscular, água e IMC que você registrou na Garmin ou que uma balança Garmin enviou.', required: false, categories: ['body_composition'] },
+    { id: 'oxygen', label: 'Oxigenação do sangue (SpO₂)', description: 'Medidas de saturação de oxigênio ao longo do dia ou sob demanda, quando o seu relógio as medir.', required: false, categories: ['pulse_ox'] },
+    { id: 'respiration', label: 'Respiração', description: 'Respirações por minuto ao longo do dia e as variações da respiração durante o sono, quando o seu relógio as medir.', required: false, categories: ['respiratory_rate'] },
+    { id: 'skin_temp', label: 'Temperatura da pele', description: 'Desvio da temperatura da pele em relação ao seu padrão, quando o seu relógio o medir.', required: false, categories: ['skin_temperature'] },
+    { id: 'snapshot', label: 'Health Snapshot', description: 'Medição de 2 minutos com frequência cardíaca, variabilidade, oxigênio, respiração e estresse, quando você a fizer no relógio.', required: false, categories: ['heart_rate'] },
+    { id: 'blood_pressure', label: 'Pressão arterial', description: 'Leituras de pressão arterial (sistólica, diastólica e pulso) feitas com um aparelho Garmin ou registradas por você. É um dado de saúde sensível.', required: false, categories: ['clinical_vitals'] },
+    { id: 'nutrition', label: 'Nutrição e hidratação', description: 'Calorias, macronutrientes e alimentos que você registrou na Garmin, e a água que você registrou.', required: false, categories: ['nutrition'] },
   ],
   // Finalidades OBRIGATORIAS descritas no texto da conexao. 'ai_external', 'ai_internal', 'watch_delivery' e qualquer outra NAO estao aqui => nao autorizadas por este consentimento.
   purposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view'],

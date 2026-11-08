@@ -48,6 +48,12 @@ const ITEM_LABEL: Record<string, string> = {
   stress: 'Estresse e Body Battery',
   vo2: 'VO₂ máximo e idade fitness',
   body: 'Peso e composição corporal',
+  oxygen: 'Oxigenação do sangue (SpO₂)',
+  respiration: 'Respiração',
+  skin_temp: 'Temperatura da pele',
+  snapshot: 'Health Snapshot',
+  blood_pressure: 'Pressão arterial',
+  nutrition: 'Nutrição e hidratação',
   [WATCH]: 'Envio de treinos ao relógio',
   [ATLAS]: 'Análise pelo Atlas com a Anthropic',
 };
@@ -60,6 +66,12 @@ const REVOKE_EFFECT: Record<string, string> = {
   hrv: 'Os novos dados de HRV deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   stress: 'Os novos dados de estresse e Body Battery deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   vo2: 'As novas estimativas de VO₂ máximo e de idade fitness deixam de ser guardadas. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  oxygen: 'As novas medidas de oxigenação do sangue deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  respiration: 'Os novos dados de respiração e de variações da respiração deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  skin_temp: 'Os novos dados de temperatura da pele deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  snapshot: 'Os novos Health Snapshots deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  blood_pressure: 'As novas leituras de pressão arterial deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  nutrition: 'Os novos registros de nutrição e hidratação deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   body: 'Os novos dados de peso e composição corporal deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   [WATCH]: 'O Panzeri Run apaga do seu Garmin Connect os treinos que enviou e deixa de enviar e de atualizar treinos. Seus treinos continuam disponíveis no Panzeri Run.',
   [ATLAS]: 'Seus dados Garmin deixam de ser usados pelo Atlas, e os resultados de inteligência artificial já gerados com eles serão invalidados ou atualizados, respeitadas as obrigações legais de conservação. O que já foi enviado à Anthropic não pode ser desfeito junto a ela.',
@@ -444,6 +456,12 @@ export function GarminIntegration({ accessToken, apiUrl, variant = 'screen', pri
           {row('stress', 'group', groupState('stress')?.granted ?? false)}
           {row('vo2', 'group', groupState('vo2')?.granted ?? false)}
           {row('body', 'group', groupState('body')?.granted ?? false)}
+          {row('oxygen', 'group', groupState('oxygen')?.granted ?? false)}
+          {row('respiration', 'group', groupState('respiration')?.granted ?? false)}
+          {row('skin_temp', 'group', groupState('skin_temp')?.granted ?? false)}
+          {row('snapshot', 'group', groupState('snapshot')?.granted ?? false)}
+          {row('blood_pressure', 'group', groupState('blood_pressure')?.granted ?? false)}
+          {row('nutrition', 'group', groupState('nutrition')?.granted ?? false)}
           {row(WATCH, 'purpose', watch?.granted ?? false, { sub: watch?.grantedAt ? `desde ${dateBr(watch.grantedAt)} · versão ${watch.grantedVersion}` : undefined, needsNew: watch?.needsNewAuthorization, available: watch?.available })}
           {row(ATLAS, 'purpose', atlas?.granted ?? false, { sub: atlas?.grantedAt ? `desde ${dateBr(atlas.grantedAt)} · versão ${atlas.grantedVersion}` : undefined, needsNew: atlas?.needsNewAuthorization, available: atlas?.available })}
 
@@ -545,14 +563,14 @@ export function GarminIntegration({ accessToken, apiUrl, variant = 'screen', pri
         {reviewCard}
         <Text style={styles.cardTitle}>Conta Garmin conectada</Text>
         <Text style={styles.body}>
-          {['activity', 'sleep', 'daily', 'hrv', 'stress', 'vo2', 'body'].some((id) => groupState(id)?.granted)
+          {['activity', 'sleep', 'daily', 'hrv', 'stress', 'vo2', 'body', 'oxygen', 'respiration', 'skin_temp', 'snapshot', 'blood_pressure', 'nutrition'].some((id) => groupState(id)?.granted)
             ? 'Os dados do seu Garmin que você autorizou chegam ao Panzeri Run conforme as autorizações abaixo.'
             : 'Sua conta está conectada, mas nenhum grupo de dados está autorizado. Autorize em “Privacidade e permissões” quando quiser.'}
         </Text>
         {messageView}
       </View>
       {!watch?.granted ? purposeCard(WATCH) : <WatchWorkoutsCard accessToken={accessToken} apiUrl={apiUrl} grantedAt={watch.grantedAt} />}
-      {['activity', 'sleep', 'daily', 'hrv', 'stress', 'vo2', 'body'].some((id) => groupState(id)?.granted) ? <ActivitySyncCard /> : null}
+      {['activity', 'sleep', 'daily', 'hrv', 'stress', 'vo2', 'body', 'oxygen', 'respiration', 'skin_temp', 'snapshot', 'blood_pressure', 'nutrition'].some((id) => groupState(id)?.granted) ? <ActivitySyncCard /> : null}
       {!atlas?.granted ? purposeCard(ATLAS) : <View style={styles.card}><Text style={styles.cardTitle}>Atlas</Text><Text style={styles.body}>Análise com o Atlas autorizada desde {dateBr(atlas.grantedAt)}. Você pode retirar em “Privacidade e permissões”.</Text></View>}
       {permissionsSection}
     </View>

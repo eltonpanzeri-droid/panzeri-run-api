@@ -342,10 +342,10 @@ describe('saude da Garmin (leitura do push)', () => {
     expect(records[0].fields.timeOffsetStressLevelValues).toEqual({ '0': 18, '180': -2 });
     expect(records[0].fields.timeOffsetBodyBatteryValues).toEqual({ '0': 55, '180': 56 });
   });
-  it('lixo e tipos nao tratados sao ignorados sem quebrar; epocas/oxigenio/pressao nao viram dado', () => {
+  it('lixo (sem usuario, sem horario) e ignorado sem quebrar, inclusive nos tipos do lote 5', () => {
     const result = parseGarminHealthPush({ dailies: [{ summaryId: 'sem-usuario' }, null], epochs: [{ userId: U }], pulseox: [{ userId: U }], bloodPressures: [{ userId: U }] });
     expect(result.records).toEqual([]);
-    expect(result.ignored).toBe(2);
+    expect(result.ignored).toBe(5);
     expect(parseGarminHealthPush(null).records).toEqual([]);
   });
   it('cada tipo exige a categoria certa e os rascunhos saem com chave idempotente', () => {

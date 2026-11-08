@@ -193,6 +193,27 @@ export class GarminController {
     return { ok: true, queued, ignored };
   }
 
+  // Mudanca de permissoes pelo lado da Garmin (a aluna desligou o compartilhamento de algum tipo na conta Garmin Connect, ex.: ACTIVITY_EXPORT, HEALTH_EXPORT, WORKOUT_IMPORT). O token segue valido, mas a Garmin
+  // deixa de enviar/receber aquele tipo. Aqui so' REGISTRA o evento (auditoria, visivel ao treinador) e nunca altera o que a aluna autorizou no Panzeri Run: a autorizacao dela continua sendo dela.
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
+  @Post('webhook/:key/permissions')
+  @HttpCode(200)
+  async permissionsChange(@Param('key') key: string, @Body() body: { userPermissionsChange?: unknown }) {
+    this.assertWebhookKey(key);
+    const list = Array.isArray(body?.userPermissionsChange) ? body.userPermissionsChange.slice(0, MAX_DEREGISTRATIONS_PER_CALL) : [];
+    let recorded = 0;
+    for (const item of list) {
+      const entry = item as { userId?: unknown; permissions?: unknown } | null;
+      if (typeof entry?.userId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(entry.userId)) continue;
+      const userId = await this.consentService.resolveActiveUserId(GARMIN_PROVIDER_ID, entry.userId);
+      if (!userId) continue;
+      const permissions = Array.isArray(entry.permissions) ? entry.permissions.filter((p): p is string => typeof p === 'string' && /^[A-Z_]{3,40}$/.test(p)).slice(0, 20) : [];
+      await this.connections.recordEvent(GARMIN_PROVIDER_ID, userId, 'garmin_permissions_changed', { permissions });
+      recorded += 1;
+    }
+    return { ok: true, recorded };
+  }
+
   private assertWebhookKey(given: string): void {
     const configured = this.config.get<string>('GARMIN_WEBHOOK_KEY')?.trim();
     // Rota inexistente (404) quando nao configurada ou fraca: nao revela que existe.

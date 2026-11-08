@@ -9,11 +9,13 @@ import { InboundEventDraft } from '../provider-hub/provider-connector';
 //   stressDetails -> metrica `lifestyle_load` (estresse a cada 3 min, Body Battery e eventos que o afetaram)
 //   userMetrics   -> metrica `vo2_max` (VO2 maximo corrida/bike e idade fitness)
 //   bodyComps     -> metrica `body_composition` (peso, gordura, massa muscular, agua, IMC)
-// NAO tratados de proposito: epochs (15 min, volume), pulseox, allDayRespiration, healthSnapshot, bloodPressures, skinTemp, nutrition, hydration, breathingVariations (a Politica 5D nao os lista;
-// cadastrar so' os tipos acima no portal da Garmin). O SpO2 e a respiracao DENTRO do resumo de sono nao sao guardados (so' o que a Politica descreve).
+// Lote 5 (08/11/2026) — TODOS os demais tipos de saude, guardados como a Garmin enviou (metrica generica, valores sanitizados, nada inventado, sem coordenadas), um grupo de autorizacao por tipo:
+//   epochs -> `epoch` (categoria daily_activity) | pulseox -> `pulse_ox` | allDayRespiration -> `respiration` e breathingVariations -> `breathing_variations` (respiratory_rate) | healthSnapshot -> `health_snapshot` (heart_rate)
+//   bloodPressures -> `blood_pressure` (clinical_vitals; sensivel) | skinTemp -> `skin_temperature` | nutrition -> `nutrition` e hydration -> `hydration` (nutrition)
+// Tipos que nao trazem horario (nutricao, hidratacao): a ancora e' o meio-dia UTC do calendarDate. O SpO2 e a respiracao DENTRO do resumo de sono continuam sem ser guardados (so' o que a Politica descreve).
 // Atualizacao: a Garmin reenvia o MESMO resumo com mais dados (sono noturno, dia parcial): a gravacao e' idempotente por (aluna, provedor, dia, inicio) e substitui o anterior.
 export const GARMIN_HEALTH_EVENT_TYPES = ['sleep_summary', 'daily_summary', 'hrv_summary', 'metric_summary'] as const;
-export const GARMIN_METRIC_KINDS = ['lifestyle_load', 'vo2_max', 'body_composition'] as const;
+export const GARMIN_METRIC_KINDS = ['lifestyle_load', 'vo2_max', 'body_composition', 'epoch', 'pulse_ox', 'respiration', 'breathing_variations', 'health_snapshot', 'blood_pressure', 'skin_temperature', 'nutrition', 'hydration'] as const;
 export type GarminMetricKind = (typeof GARMIN_METRIC_KINDS)[number];
 const ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -52,6 +54,31 @@ export interface GarminHealthRecord {
 }
 
 const noonUtc = (calendarDate: string): number => Math.floor(Date.parse(`${calendarDate}T12:00:00Z`) / 1000);
+
+// Copia o JSON da Garmin com limites (profundidade, tamanho) e SEM identificadores, links de download ou coordenadas. Nada e' reescrito nem estimado.
+const DROP_KEYS = /^(userId|callbackURL|token|latitude|longitude|latitudeInDegree|longitudeInDegree)$/i;
+function sanitizeValue(value: unknown, depth = 0): unknown {
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') return value.slice(0, 200);
+  if (depth >= 4) return undefined;
+  if (Array.isArray(value)) return value.slice(0, 500).map((entry) => sanitizeValue(entry, depth + 1)).filter((entry) => entry !== undefined);
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, MAX_MAP_ENTRIES)) {
+      if (DROP_KEYS.test(key)) continue;
+      const clean = sanitizeValue(entry, depth + 1);
+      if (clean !== undefined) out[key.slice(0, 60)] = clean;
+    }
+    return out;
+  }
+  return undefined;
+}
+const DROP_ON_COPY = new Set(['userId', 'summaryId', 'callbackURL']);
+const copyFields = (item: Record<string, unknown>): Record<string, unknown> => {
+  const copy = sanitizeValue(Object.fromEntries(Object.entries(item).filter(([key]) => !DROP_ON_COPY.has(key)))) as Record<string, unknown>;
+  return copy;
+};
 
 export function parseGarminHealthPush(body: unknown): { records: GarminHealthRecord[]; ignored: number } {
   const out: GarminHealthRecord[] = [];
@@ -156,6 +183,32 @@ export function parseGarminHealthPush(body: unknown): { records: GarminHealthRec
       fields: { kind: 'body_composition', weightInGrams: within(num(item.weightInGrams), 10_000, 500_000), bodyFatInPercent: within(num(item.bodyFatInPercent), 0, 100), bodyWaterInPercent: within(num(item.bodyWaterInPercent), 0, 100), muscleMassInGrams: within(num(item.muscleMassInGrams), 0, 200_000), boneMassInGrams: within(num(item.boneMassInGrams), 0, 20_000), bodyMassIndex: within(num(item.bodyMassIndex), 5, 100) },
     });
   }
+  // ---- Lote 5: demais tipos (metrica generica)
+  const generic = (key: string, kind: GarminMetricKind, identity: (item: Record<string, unknown>, c: ReturnType<typeof common>, start: number) => string | null, startOf: (item: Record<string, unknown>, c: ReturnType<typeof common>) => number | null) => {
+    for (const entry of list(root[key])) {
+      const item = obj(entry);
+      const c = item ? common(item) : null;
+      const start = item && c ? startOf(item, c) : null;
+      const identityKey = item && c && start !== null ? identity(item, c, start) : null;
+      if (!item || !c?.userId || start === null || start <= 0 || !identityKey) { ignored += 1; continue; }
+      const offset = within(int(item.startTimeOffsetInSeconds ?? item.measurementTimeOffsetInSeconds ?? item.offsetStartTimeInSeconds ?? item.timeOffsetInSeconds), -14 * 3600, 14 * 3600);
+      out.push({ eventType: 'metric_summary', metricKind: kind, identityKey: identityKey.slice(0, 140), userId: c.userId, summaryId: c.summaryId, calendarDate: c.calendarDate, startTimeSec: start, startOffsetSec: offset, fields: { kind, ...copyFields(item) } });
+    }
+  };
+  const startTime = (item: Record<string, unknown>) => { const s = int(item.startTimeInSeconds); return s !== null && s > 0 ? s : null; };
+  const dayAnchor = (_item: Record<string, unknown>, c: ReturnType<typeof common>) => (c.calendarDate ? noonUtc(c.calendarDate) : null);
+  generic('epochs', 'epoch', (item, _c, start) => `epoch:${start}:${str(item.activityType, 30) ?? 'x'}`, startTime);
+  generic('pulseox', 'pulse_ox', (item, c, start) => `pox:${c.summaryId ?? start}`, startTime);
+  generic('allDayRespiration', 'respiration', (_item, c, start) => `resp:${c.summaryId ?? start}`, startTime);
+  generic('healthSnapshot', 'health_snapshot', (_item, c, start) => `snap:${c.summaryId ?? start}`, startTime);
+  generic('bloodPressures', 'blood_pressure', (_item, c, start) => `bp:${c.summaryId ?? start}`, (item) => { const s = int(item.measurementTimeInSeconds); return s !== null && s > 0 ? s : null; });
+  generic('skinTemp', 'skin_temperature', (_item, c, start) => `skin:${c.summaryId ?? start}`, startTime);
+  generic('nutrition', 'nutrition', (_item, c) => (c.calendarDate ? `nutri:${c.calendarDate}` : null), dayAnchor);
+  generic('hydration', 'hydration', (_item, c) => (c.calendarDate ? `hydra:${c.calendarDate}` : null), dayAnchor);
+  generic('breathingVariations', 'breathing_variations', (_item, c, start) => `breath:${c.summaryId ?? start}`, (item, c) => {
+    const first = int(obj(list(item.readings)[0])?.startTimeInSeconds);
+    return first !== null && first > 0 ? first : c.calendarDate ? noonUtc(c.calendarDate) : null;
+  });
   return { records: out, ignored };
 }
 
@@ -164,7 +217,21 @@ export function requiredCategoryOf(record: Pick<GarminHealthRecord, 'eventType' 
   if (record.eventType === 'sleep_summary') return 'sleep';
   if (record.eventType === 'hrv_summary') return 'hrv';
   if (record.eventType === 'daily_summary') return 'daily_activity';
-  return record.metricKind === 'lifestyle_load' ? 'lifestyle_load' : record.metricKind === 'vo2_max' ? 'vo2_max' : record.metricKind === 'body_composition' ? 'body_composition' : null;
+  switch (record.metricKind) {
+    case 'lifestyle_load': return 'lifestyle_load';
+    case 'vo2_max': return 'vo2_max';
+    case 'body_composition': return 'body_composition';
+    case 'epoch': return 'daily_activity';
+    case 'pulse_ox': return 'pulse_ox';
+    case 'respiration':
+    case 'breathing_variations': return 'respiratory_rate';
+    case 'health_snapshot': return 'heart_rate';
+    case 'blood_pressure': return 'clinical_vitals';
+    case 'skin_temperature': return 'skin_temperature';
+    case 'nutrition':
+    case 'hydration': return 'nutrition';
+    default: return null;
+  }
 }
 
 export function toHealthDrafts(records: GarminHealthRecord[]): InboundEventDraft[] {
