@@ -98,7 +98,7 @@ export class AppController {
     'cards-pertencer.jpg',
     'cards-confiar.jpg',
     'cards-inspirar.jpg',
-    'testemunho-01-reduzido.jpg',
+    'testemunho-01-mao.jpg',
     'testemunho-02-consultoria-humanizada.jpg',
     'testemunho-03-comparacao-apps-1.jpg',
     'testemunho-04-comparacao-apps-2.jpg',

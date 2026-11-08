@@ -42,7 +42,7 @@ export const styles = `
 @media(max-width:620px){.video-grid{grid-template-columns:1fr}}
 
 .hero-proof{display:flex;gap:18px;align-items:center;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.16);border-radius:18px;padding:16px 20px;margin-top:26px;max-width:480px}
-.hero-proof img{width:120px;border-radius:14px;flex-shrink:0;aspect-ratio:9/19.5;object-fit:cover}
+.hero-proof img{width:140px;border-radius:14px;flex-shrink:0;aspect-ratio:1199/1312;object-fit:cover}
 .hero-proof blockquote{margin:0;font-size:1rem;color:#dbe6ea;font-style:italic;line-height:1.42}
 
 .experience-photo-card{position:relative;overflow:hidden;background-size:cover;background-position:center;color:#fff}

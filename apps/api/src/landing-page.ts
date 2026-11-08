@@ -93,7 +93,7 @@ export const LANDING_PAGE_HTML = `<!doctype html>
           <span>✓ Metodologia Elton Panzeri</span>
         </div>
         <figure class="hero-proof reveal">
-          <img src="/landing2-assets/testemunho-01-reduzido.jpg" alt="Print de WhatsApp de uma aluna dizendo que o teste foi mental e que está conseguindo">
+          <img src="/landing2-assets/testemunho-01-mao.jpg" alt="Celular na mão de uma aluna mostrando a conversa de WhatsApp em que ela diz que o teste foi mental e que está conseguindo">
           <blockquote>"O teste foi pra mim. Mental. Eu consigo e estou conseguindo."</blockquote>
         </figure>
       </div>
