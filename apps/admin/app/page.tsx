@@ -9,6 +9,7 @@ import EvolutionHub from './evolution-hub';
 import ZeppTestPanel from './zepp-test-panel';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
+import GarminMeasures from './garmin-measures';
 import StudentTrainingLoad from './student-training-load';
 import AiCostSection from './ai-cost';
 import { EXCLUSION_REASON_LABEL } from './exclusion-reasons';
@@ -4468,7 +4469,7 @@ function StudentPanel({
       ) : null}
 
       {detailTab === 'integracoes' ? (
-        <div className="detailFull"><StudentIntegrations studentId={student.id} accessToken={token} apiUrl={API_URL} /></div>
+        <div className="detailFull"><StudentIntegrations studentId={student.id} accessToken={token} apiUrl={API_URL} /><GarminMeasures studentId={student.id} accessToken={token} apiUrl={API_URL} /></div>
       ) : null}
       {/* 01/11/2026: a antiga aba "Carga (própria)" foi consolidada em Evolução > Explorar > Treinos > "Carga acumulada e semanas" (uma só implementação da métrica). */}
       {detailTab === 'atividadesExternas' ? (

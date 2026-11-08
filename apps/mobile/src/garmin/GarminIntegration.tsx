@@ -163,6 +163,32 @@ function WatchWorkoutsCard({ accessToken, apiUrl, grantedAt }: { accessToken: st
   );
 }
 
+// "O que a Garmin trouxe" (08/11/2026): lista, por tipo, quantas medidas ja' chegaram, a data da ultima e o ultimo valor (GET /garmin/measures). Somente leitura.
+interface MeasureRow { id: string; label: string; count: number; lastAt: string | null; lastCalendarDate: string | null; text: string | null }
+function MeasuresCard({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
+  const [rows, setRows] = useState<MeasureRow[] | null>(null);
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch(`${apiUrl}/garmin/measures`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (response.ok) setRows(((await response.json()) as { measures: MeasureRow[] }).measures);
+    } catch { /* sem o resumo, o cartao some */ }
+  }, [apiUrl, accessToken]);
+  useEffect(() => { void load(); const timer = setInterval(() => void load(), 30000); return () => clearInterval(timer); }, [load]);
+  const received = (rows ?? []).filter((row) => row.count > 0);
+  if (rows === null) return null;
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>O que a Garmin trouxe</Text>
+      {received.length === 0 ? <Text style={styles.body}>Ainda não chegou nenhum dado. Assim que o seu relógio sincronizar com o Garmin Connect, ele aparece aqui.</Text> : received.map((row) => (
+        <View key={row.id} style={styles.permRow}>
+          <Text style={styles.permLabel}>{row.label}</Text>
+          <Text style={styles.hint}>{row.count} medida(s) · última em {dateBr(row.lastCalendarDate ?? row.lastAt)}{row.text ? ` · ${row.text}` : ''}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // Atividades (08/11/2026): a Garmin envia um aviso a cada atividade, logo depois que o relogio sincroniza com o Garmin Connect; nao ha botao de importar nem consulta periodica.
 function ActivitySyncCard() {
   return (
@@ -571,6 +597,7 @@ export function GarminIntegration({ accessToken, apiUrl, variant = 'screen', pri
       </View>
       {!watch?.granted ? purposeCard(WATCH) : <WatchWorkoutsCard accessToken={accessToken} apiUrl={apiUrl} grantedAt={watch.grantedAt} />}
       {['activity', 'sleep', 'daily', 'hrv', 'stress', 'vo2', 'body', 'oxygen', 'respiration', 'skin_temp', 'snapshot', 'blood_pressure', 'nutrition'].some((id) => groupState(id)?.granted) ? <ActivitySyncCard /> : null}
+      <MeasuresCard accessToken={accessToken} apiUrl={apiUrl} />
       {!atlas?.granted ? purposeCard(ATLAS) : <View style={styles.card}><Text style={styles.cardTitle}>Atlas</Text><Text style={styles.body}>Análise com o Atlas autorizada desde {dateBr(atlas.grantedAt)}. Você pode retirar em “Privacidade e permissões”.</Text></View>}
       {permissionsSection}
     </View>
