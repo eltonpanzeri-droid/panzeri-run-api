@@ -15,3 +15,6 @@ coverage/
 secrets/
 tmp/
 *.log
+
+# Documentação da Garmin (08/11/2026): material licenciado do programa de desenvolvedores (PDFs, marca, .DS_Store). Fica só no disco; não versionar.
+Documentação Garmin/
