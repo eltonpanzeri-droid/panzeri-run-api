@@ -120,8 +120,8 @@ describe('desacoplamento — dados ausentes e invalidos', () => {
     expect(computeHrDecoupling(series(() => null, () => 150))).toMatchObject({ eligible: false, exclusionReason: 'sem_amostras_validas' });
   });
 
-  it('amostras invalidas (FC fora de 30–230, velocidade <= 0) sao descartadas e contadas', () => {
-    const r = computeHrDecoupling(series((t) => (t % 100 === 0 ? 0 : 10), (t) => (t % 50 === 0 ? 250 : t % 70 === 0 ? 20 : 150)));
+  it('amostras invalidas (FC fora de 30–230, velocidade negativa) sao descartadas e contadas; velocidade 0 e parada real (evento), nao amostra invalida', () => {
+    const r = computeHrDecoupling(series((t) => (t % 100 === 0 ? -1 : 10), (t) => (t % 50 === 0 ? 250 : t % 70 === 0 ? 20 : 150)));
     expect(r.discardedSpeedSamples).toBeGreaterThan(0);
     expect(r.discardedHrSamples).toBeGreaterThan(0);
     expect(r.validHrSamples + r.discardedHrSamples).toBe(MINUTES * 60 + 1);

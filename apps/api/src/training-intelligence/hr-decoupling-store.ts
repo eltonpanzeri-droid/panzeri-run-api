@@ -14,17 +14,19 @@ export interface HrDecouplingRow extends HrDecouplingResult {
   exclusionReason: HrDecouplingExclusionReason | null;
 }
 
-type StoredRow = Omit<HrDecouplingRow, 'category' | 'exclusionReason'> & { category: string | null; exclusionReason: string | null; pointCount: number };
+type StoredRow = Omit<HrDecouplingRow, 'category' | 'exclusionReason' | 'qualityStatus'> & { category: string | null; exclusionReason: string | null; qualityStatus: string | null; pointCount: number };
 
 function toRow(stored: StoredRow): HrDecouplingRow {
-  return { ...stored, category: stored.category as HrDecouplingCategory | null, exclusionReason: stored.exclusionReason as HrDecouplingExclusionReason | null };
+  return { ...stored, category: stored.category as HrDecouplingCategory | null, exclusionReason: stored.exclusionReason as HrDecouplingExclusionReason | null, qualityStatus: stored.qualityStatus as HrDecouplingRow['qualityStatus'] };
 }
 
 function dataOf(result: HrDecouplingResult) {
   const { eligible, exclusionReason, category, analyzedStartSec, analyzedEndSec, movingSec, meanSpeed1, meanSpeed2, meanHr1, meanHr2, r1, r2, decouplingPct, speedCvPct, halfDiffPct,
-    coverageHr1, coverageHr2, coverageSpeed1, coverageSpeed2, validHrSamples, validSpeedSamples, discardedHrSamples, discardedSpeedSamples, gapCount, pointCount } = result;
+    coverageHr1, coverageHr2, coverageSpeed1, coverageSpeed2, validHrSamples, validSpeedSamples, discardedHrSamples, discardedSpeedSamples, gapCount, pointCount,
+    qualityStatus, transientEventCount, transientEventSec, excludedSec, excludedPct, sustainedEventCount } = result;
   return { eligible, exclusionReason, category, analyzedStartSec, analyzedEndSec, movingSec, meanSpeed1, meanSpeed2, meanHr1, meanHr2, r1, r2, decouplingPct, speedCvPct, halfDiffPct,
-    coverageHr1, coverageHr2, coverageSpeed1, coverageSpeed2, validHrSamples, validSpeedSamples, discardedHrSamples, discardedSpeedSamples, gapCount, pointCount };
+    coverageHr1, coverageHr2, coverageSpeed1, coverageSpeed2, validHrSamples, validSpeedSamples, discardedHrSamples, discardedSpeedSamples, gapCount, pointCount,
+    qualityStatus, transientEventCount, transientEventSec, excludedSec, excludedPct, sustainedEventCount };
 }
 
 export async function ensureHrDecouplings(prisma: PrismaService, activityLogIds: string[]): Promise<Map<string, HrDecouplingRow>> {

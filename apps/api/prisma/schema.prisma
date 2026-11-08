@@ -1839,6 +1839,14 @@ model ActivityHrDecoupling {
   discardedSpeedSamples Int
   gapCount              Int
 
+  // Qualidade e auditoria (algoritmo versao 2, 08/11/2026). Colunas nulas: linhas da versao 1 nao as tem.
+  qualityStatus       String?
+  transientEventCount Int?
+  transientEventSec   Float?
+  excludedSec         Float?
+  excludedPct         Float?
+  sustainedEventCount Int?
+
   computedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

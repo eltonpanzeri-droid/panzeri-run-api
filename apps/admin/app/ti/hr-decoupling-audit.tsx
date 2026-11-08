@@ -12,6 +12,7 @@ interface AuditEntry {
   meanSpeed1: number | null; meanSpeed2: number | null; meanHr1: number | null; meanHr2: number | null; movingSec: number | null;
   coverageHr1: number | null; coverageHr2: number | null; coverageSpeed1: number | null; coverageSpeed2: number | null;
   validHrSamples: number; validSpeedSamples: number; discardedHrSamples: number; discardedSpeedSamples: number; gapCount: number;
+  qualityStatus: string | null; transientEventCount: number | null; transientEventSec: number | null; excludedSec: number | null; excludedPct: number | null; sustainedEventCount: number | null;
 }
 
 const CATEGORY_LABELS: Record<string, string> = { d30: '30 a 60 min', d60: '60 a 90 min', d90: '90 a 120 min', d120: '120 a 150 min', d150: 'mais de 150 min' };
@@ -64,7 +65,7 @@ export default function HrDecouplingAudit({ studentId, token }: { studentId: str
           <td>{row.provider}</td>
           <td>{minutes(row.movingSec ?? row.durationSec)}</td>
           <td>{row.category ? CATEGORY_LABELS[row.category] : '—'}</td>
-          <td>{row.eligible ? 'Elegível' : row.exclusionText ?? 'Não elegível'}</td>
+          <td>{row.eligible ? (row.qualityStatus === 'valid_with_caveats' ? `Válido com ressalvas: ${row.transientEventCount ?? 0} oscilação(ões) transitória(s) de velocidade (${num(row.transientEventSec, 0)} s) e ${num(row.excludedSec, 0)} s (${num(row.excludedPct, 1)}%) excluídos do cálculo` : 'Válido') : row.exclusionText ?? 'Inconclusivo'}</td>
           <td>{num(row.decouplingPct, 2, '%')}</td>
           <td>{num(row.speedCvPct, 1, '%')}</td>
           <td>{num(row.halfDiffPct, 1, '%')}</td>

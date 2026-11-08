@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { HR_DECOUPLING_CATEGORIES as SERVER_CATEGORIES, HR_DECOUPLING_CATEGORY_LABELS, hrDecouplingVariableId as serverVariableId } from '../src/training-intelligence/hr-decoupling';
+import { HR_DECOUPLING_ALGORITHM_VERSION, HR_DECOUPLING_CATEGORIES as SERVER_CATEGORIES, HR_DECOUPLING_CATEGORY_LABELS, hrDecouplingVariableId as serverVariableId } from '../src/training-intelligence/hr-decoupling';
 import { HR_DECOUPLING_BACKFILL_BATCH, HrDecouplingBackfillService } from '../src/training-intelligence/hr-decoupling-backfill.service';
 import { ObservationReaderService } from '../src/training-intelligence/observation-reader.service';
 import { MathLayerService } from '../src/training-intelligence/math-layer.service';
@@ -122,7 +122,7 @@ describe('preenchimento em segundo plano', () => {
     const args = prisma.activityLog.findMany.mock.calls[0][0];
     expect(args.take).toBe(HR_DECOUPLING_BACKFILL_BATCH);
     expect(args.where.timeSeriesPoints).toEqual({ some: {} });
-    expect(args.where.hrDecouplings).toEqual({ none: { algorithmVersion: 1 } });
+    expect(args.where.hrDecouplings).toEqual({ none: { algorithmVersion: HR_DECOUPLING_ALGORITHM_VERSION } });
     expect(args.orderBy).toEqual({ startedAt: 'desc' });
     expect(prisma.activityHrDecoupling.upsert).toHaveBeenCalledTimes(2);
   });

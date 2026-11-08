@@ -41,6 +41,8 @@ export interface HrDecouplingAuditEntry {
   meanSpeed1: number | null; meanSpeed2: number | null; meanHr1: number | null; meanHr2: number | null; movingSec: number | null;
   coverageHr1: number | null; coverageHr2: number | null; coverageSpeed1: number | null; coverageSpeed2: number | null;
   validHrSamples: number; validSpeedSamples: number; discardedHrSamples: number; discardedSpeedSamples: number; gapCount: number;
+  // Algoritmo versao 2: qualidade (valid / valid_with_caveats / inconclusive) e auditoria dos eventos transitorios de velocidade.
+  qualityStatus: string | null; transientEventCount: number | null; transientEventSec: number | null; excludedSec: number | null; excludedPct: number | null; sustainedEventCount: number | null;
 }
 
 export interface Observation {
@@ -629,6 +631,8 @@ export class ObservationReaderService {
         coverageHr1: row?.coverageHr1 ?? null, coverageHr2: row?.coverageHr2 ?? null, coverageSpeed1: row?.coverageSpeed1 ?? null, coverageSpeed2: row?.coverageSpeed2 ?? null,
         validHrSamples: row?.validHrSamples ?? 0, validSpeedSamples: row?.validSpeedSamples ?? 0, discardedHrSamples: row?.discardedHrSamples ?? 0, discardedSpeedSamples: row?.discardedSpeedSamples ?? 0,
         gapCount: row?.gapCount ?? 0,
+        qualityStatus: row?.qualityStatus ?? null, transientEventCount: row?.transientEventCount ?? null, transientEventSec: row?.transientEventSec ?? null,
+        excludedSec: row?.excludedSec ?? null, excludedPct: row?.excludedPct ?? null, sustainedEventCount: row?.sustainedEventCount ?? null,
       };
     }).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
