@@ -8,6 +8,9 @@ import { ProviderConnectionService } from '../provider-hub/provider-connection.s
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { ProviderInboundEventService } from '../provider-hub/provider-inbound-event.service';
 import { parseGarminActivityPush, toActivityDrafts } from './garmin-activity';
+import { parseGarminHealthPush, toHealthDrafts } from './garmin-health';
+import { GarminWorkoutPublisherService } from './garmin-workout-publisher.service';
+import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { GARMIN_PROVIDER_ID } from './garmin.connector';
 
 interface HtmlResponse {
@@ -30,6 +33,7 @@ export class GarminController {
     private readonly config: ConfigService,
     private readonly consentService: ProviderConsentService,
     private readonly events: ProviderInboundEventService,
+    private readonly workouts: GarminWorkoutPublisherService,
   ) {}
 
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
@@ -45,8 +49,12 @@ export class GarminController {
   @UseGuards(AuthGuard('jwt'))
   @Post('purposes')
   @HttpCode(200)
-  purposes(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
-    return this.connections.updatePurposes(GARMIN_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  async purposes(@CurrentUser() user: CurrentUserPayload, @Body() body: { grant?: unknown; revoke?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    const result = await this.connections.updatePurposes(GARMIN_PROVIDER_ID, user.sub, { grant: body?.grant, revoke: body?.revoke, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+    // Retirou o envio de treinos: apaga agora o que a Garmin ja' recebeu (a conta segue conectada, entao ainda ha' token). Autorizou: envia na hora (sem esperar a rotina de 30 minutos).
+    if (Array.isArray(body?.revoke) && body.revoke.includes('watch_delivery')) void this.workouts.reconcile(user.sub).catch(() => undefined);
+    if (Array.isArray(body?.grant) && body.grant.includes('watch_delivery')) requestZeppWorkoutSync(user.sub, 'grant');
+    return result;
   }
 
   // Concede/revoga GRUPOS de dados depois de conectar. Revogar nao exige aceite e vale na hora; conceder exige o aceite sobre o texto vigente.
@@ -96,6 +104,21 @@ export class GarminController {
   @Delete('data')
   deleteData(@CurrentUser() user: CurrentUserPayload) {
     return this.connections.deleteData(GARMIN_PROVIDER_ID, user.sub);
+  }
+
+  // Treinos no relogio — estado e sincronizacao agora. Sempre do proprio usuario logado; o envio so' acontece com a finalidade `watch_delivery` concedida.
+  @UseGuards(AuthGuard('jwt'))
+  @Get('workouts/status')
+  workoutsStatus(@CurrentUser() user: CurrentUserPayload) {
+    return this.workouts.status(user.sub);
+  }
+
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  @UseGuards(AuthGuard('jwt'))
+  @Post('workouts/sync')
+  @HttpCode(200)
+  workoutsSync(@CurrentUser() user: CurrentUserPayload) {
+    return this.workouts.reconcile(user.sub);
   }
 
   // A Garmin redireciona o navegador para esta rota HTTPS publica (redirect cadastrado no portal da Garmin).
@@ -152,13 +175,16 @@ export class GarminController {
   // endereco, filtra (sem GPS), grava na fila duravel e responde; quem processa e' a rotina da fila. Aluna sem conexao ativa e' ignorada em silencio (uma chave vazada nao enche a fila). Cadastre o MESMO
   // endereco para "Activities" e "Activity Details" no portal da Garmin: `.../garmin/webhook/<chave>/activities`.
   @Throttle({ default: { limit: 600, ttl: 60_000 } })
-  @Post(['webhook/:key/activities', 'webhook/:key/activity-details'])
+  // Saude (dailies, sleeps, hrv, stressDetails, userMetrics, bodyComps): o MESMO tratador aceita os dois assuntos; cadastre `.../garmin/webhook/<chave>/health` em cada tipo de saude no portal.
+  @Post(['webhook/:key/activities', 'webhook/:key/activity-details', 'webhook/:key/health'])
   @HttpCode(200)
   async activities(@Param('key') key: string, @Body() body: unknown) {
     this.assertWebhookKey(key);
-    const { records, ignored } = parseGarminActivityPush(body);
+    const activity = parseGarminActivityPush(body);
+    const health = parseGarminHealthPush(body);
+    const ignored = activity.ignored + health.ignored;
     let queued = 0;
-    for (const draft of toActivityDrafts(records)) {
+    for (const draft of [...toActivityDrafts(activity.records), ...toHealthDrafts(health.records)]) {
       const userId = draft.externalAccountId ? await this.consentService.resolveActiveUserId(GARMIN_PROVIDER_ID, draft.externalAccountId) : null;
       if (!userId) continue;
       const result = await this.events.record(GARMIN_PROVIDER_ID, draft, userId);

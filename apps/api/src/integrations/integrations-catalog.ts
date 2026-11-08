@@ -105,11 +105,15 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'garmin',
     name: 'Garmin',
-    summary: 'Integração ainda não disponível.',
-    availability: 'unavailable',
+    // 08/11/2026: integracao oficial (Garmin Connect Developer Program, app aprovado): OAuth2 PKCE, atividades e saude por push, e ENVIO de treinos pela Training API (criar, atualizar e apagar). Sem percurso GPS
+    // e sem dados de saude da mulher (Politica 5D). Em validacao: so' aparece como disponivel com as variaveis GARMIN_* configuradas e a aluna liberada (GARMIN_ENABLED_USER_IDS; "*" libera todas).
+    summary: 'Conecte sua Garmin para acompanhar seus treinos, sua recuperação e seu dia, e, se quiser, receber seus treinos de corrida no relógio. Cada autorização é opcional e separada. Recurso em validação.',
+    availability: 'available',
     platforms: ALL_PLATFORMS,
-    capabilities: { receiveActivities: false, sendWorkouts: false },
-    profile: { dataGroups: [], workoutDelivery: 'not_available', workoutDeliveryNote: 'Integração ainda não disponível.', authorizedBy: 'manufacturer', aiUse: 'with_consent' },
+    capabilities: { receiveActivities: true, sendWorkouts: true },
+    profile: { dataGroups: ['activities', 'performance', 'sleep', 'recovery', 'daily'], workoutDelivery: 'available', workoutDeliveryNote: 'Treinos de corrida são enviados à sua conta Garmin, com autorização própria. O Panzeri Run atualiza os que mudarem e apaga os que saírem do programa; você sincroniza o relógio no Garmin Connect.', authorizedBy: 'both', aiUse: 'with_consent' },
+    requiresEnv: ['GARMIN_CLIENT_ID', 'GARMIN_CLIENT_SECRET', 'GARMIN_REDIRECT_URI', 'GARMIN_TOKEN_ENCRYPTION_KEY'],
+    requiresAllowlist: true,
   },
   {
     id: 'coros',

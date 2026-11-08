@@ -201,7 +201,7 @@ describe('endereco do push de atividades', () => {
   function build() {
     const events: any = { record: jest.fn(async () => ({ created: true, id: 'x' })) };
     const consent: any = { resolveActiveUserId: jest.fn(async (_p: string, id: string) => (id === 'garmin-user-1' ? 'u1' : null)) };
-    const ctrl = new GarminController({} as any, { get: (n: string) => (n === 'GARMIN_WEBHOOK_KEY' ? KEY : undefined) } as any, consent, events);
+    const ctrl = new GarminController({} as any, { get: (n: string) => (n === 'GARMIN_WEBHOOK_KEY' ? KEY : undefined) } as any, consent, events, {} as any);
     return { ctrl, events, consent };
   }
   it('chave errada ou ausente = 404 e nada na fila', async () => {

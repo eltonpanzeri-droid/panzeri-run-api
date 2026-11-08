@@ -6,8 +6,8 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 //  3. ANALISE COM O ATLAS / Anthropic (finalidade `ai_external`, tela propria): opcional. Regra da Garmin (declarada na Politica, secao 5D): dados Garmin e derivados NUNCA treinam, avaliam ou
 //     melhoram modelos de IA; so' resumos, so' com esta autorizacao separada e retiravel.
 // Coerencia com a Politica de Privacidade (5D): NAO ha' grupo de percurso GPS e NAO ha' dados de saude da mulher (ciclo). O Starter nao traz historico: nao existe "importar atividades anteriores".
-// ATENCAO: o texto do envio de treinos foi escrito ANTES de ler a Training API (lote 3) e pode precisar de ajuste (ex.: se a Garmin permite ou nao apagar/atualizar o que foi enviado). Ajustar
-// ANTES de qualquer aluna conectar nao exige nova versao; depois disso, qualquer mudanca muda o hash e EXIGE nova versao.
+// O texto do envio de treinos foi conferido com a Training API V2 (08/11/2026): a Garmin permite criar, atualizar e APAGAR treino e agendamento. Ajustar ANTES de qualquer aluna conectar nao exige nova
+// versao; depois disso, qualquer mudanca muda o hash e EXIGE nova versao.
 export const GARMIN_CONSENT: ConsentCapability = {
   version: '1.0',
   dateLabel: '08/11/2026',
@@ -17,7 +17,7 @@ export const GARMIN_CONSENT: ConsentCapability = {
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência e elevação) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, passos e atividade do dia).',
+        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência e elevação) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, passos e atividade do dia).',
         'Essas informações serão utilizadas para acompanhar sua evolução e sua recuperação, comparar os treinos planejados com os realizados e personalizar seu treinamento. Seu treinador vê no painel os dados que você autorizou. Elas não substituem avaliação médica.',
       ],
     },
@@ -51,6 +51,8 @@ export const GARMIN_CONSENT: ConsentCapability = {
     { id: 'daily', label: 'Saúde diária', description: 'Passos, distância e atividade do dia e frequência cardíaca de repouso, quando o seu relógio os medir.', required: false, categories: ['daily_activity', 'resting_heart_rate'] },
     { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', description: 'HRV, quando o seu relógio a medir.', required: false, categories: ['hrv'] },
     { id: 'stress', label: 'Estresse e Body Battery', description: 'Níveis de estresse e de energia (Body Battery) ao longo do dia, quando o seu relógio os medir.', required: false, categories: ['lifestyle_load'] },
+    { id: 'vo2', label: 'VO₂ máximo e idade fitness', description: 'Estimativas de VO₂ máximo (corrida e bicicleta) e de idade fitness calculadas pela Garmin, quando o seu relógio as medir.', required: false, categories: ['vo2_max'] },
+    { id: 'body', label: 'Peso e composição corporal', description: 'Peso, gordura corporal, massa muscular, água e IMC que você registrou na Garmin ou que uma balança Garmin enviou.', required: false, categories: ['body_composition'] },
   ],
   // Finalidades OBRIGATORIAS descritas no texto da conexao. 'ai_external', 'ai_internal', 'watch_delivery' e qualquer outra NAO estao aqui => nao autorizadas por este consentimento.
   purposes: ['history', 'tracking', 'plan_comparison', 'indicators', 'coach_view'],
@@ -68,7 +70,8 @@ export const GARMIN_CONSENT: ConsentCapability = {
         paragraphs: [
           'O Panzeri Run pode enviar seus treinos de corrida programados para a sua conta Garmin, para você sincronizá-los com o relógio Garmin e acompanhar no relógio as etapas do treino, como corrida, intervalos e recuperação, conforme os recursos do seu modelo.',
           'O que é enviado é a descrição técnica do treino: nome, data, etapas (distância ou tempo) e ritmos-alvo. Não enviamos seu nome, dados de saúde, relatos seus nem comentários do treinador.',
-          'Esta autorização é opcional, separada e não é presumida a partir da conexão com a Garmin. Você pode retirá-la quando quiser, e o Panzeri Run para de enviar.',
+          'Quando seu treinador atualizar uma prescrição, o Panzeri Run atualiza os treinos que já enviou e apaga os que saírem do programa. Se você retirar esta autorização, o Panzeri Run apaga do seu Garmin Connect os treinos que enviou e para de enviar.',
+          'Esta autorização é opcional, separada e não é presumida a partir da conexão com a Garmin.',
         ],
         checkboxText: 'Autorizo o Panzeri Run a enviar meus treinos programados à minha conta Garmin, para sincronização com meu relógio.',
         buttonLabel: 'Autorizar envio de treinos',
