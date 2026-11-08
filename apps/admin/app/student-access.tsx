@@ -28,6 +28,65 @@ const providerName = (id: string) => PROVIDER_LABEL[id] ?? id;
 const dmy = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—');
 const stripAccents = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+type InvitePreview = { toSend: number; alreadySent: number; subject: string; sample: string; notes: string[] };
+
+// Convite para baixar o Panzeri Run nas lojas (08/11/2026): previa -> teste so' para o seu e-mail -> envio real com a contagem confirmada. Cada aluna recebe uma vez.
+function NativeInviteCard({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
+  const [preview, setPreview] = useState<InvitePreview | null>(null);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [showSample, setShowSample] = useState(false);
+  const headers = { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' };
+
+  const loadPreview = useCallback(async () => {
+    setBusy(true);
+    try {
+      const response = await fetch(`${apiUrl}/coach/equipment/native-invite`, { headers });
+      if (!response.ok) throw new Error('Não foi possível carregar a prévia.');
+      setPreview((await response.json()) as InvitePreview);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Sem conexão com a API.'); }
+    setBusy(false);
+  }, [accessToken, apiUrl]);
+  useEffect(() => { void loadPreview(); }, [loadPreview]);
+
+  const sendTest = async () => {
+    setBusy(true); setMessage('');
+    try {
+      const response = await fetch(`${apiUrl}/coach/equipment/native-invite/test`, { method: 'POST', headers });
+      const data = await response.json().catch(() => ({}));
+      setMessage(response.ok ? `Teste enviado para ${data.sentTo}. Confira a caixa de entrada e o spam.` : (data.message ?? 'O teste não saiu.'));
+    } catch { setMessage('Sem conexão com a API.'); }
+    setBusy(false);
+  };
+
+  const sendAll = async () => {
+    if (!preview || preview.toSend === 0) return;
+    if (!window.confirm(`Enviar o convite por e-mail e aviso no sino para ${preview.toSend} alunas? Cada uma recebe uma vez e não dá para desfazer.`)) return;
+    setBusy(true); setMessage('');
+    try {
+      const response = await fetch(`${apiUrl}/coach/equipment/native-invite/send`, { method: 'POST', headers, body: JSON.stringify({ expectedCount: preview.toSend }) });
+      const data = await response.json().catch(() => ({}));
+      setMessage(response.ok ? `Enviado para ${data.sent} alunas.${data.failed?.length ? ` Falharam ${data.failed.length}: ${data.failed.map((f: { name: string | null }) => f.name ?? 'sem nome').join(', ')}.` : ''}` : (data.message ?? 'O envio não foi feito.'));
+    } catch { setMessage('Sem conexão com a API. Atualize a prévia antes de tentar de novo.'); }
+    await loadPreview();
+  };
+
+  return (
+    <div className="eqCard" style={{ marginBottom: 16 }}>
+      <h3>Convite para baixar o Panzeri Run na loja</h3>
+      <p className="eqFine">Envia e-mail e aviso no sino para alunas atuais que parecem usar só o navegador (estimativa). Primeiro mande um teste para o seu e-mail.</p>
+      {preview ? <p><strong>{preview.toSend}</strong> a receber{preview.alreadySent ? ` · ${preview.alreadySent} já receberam` : ''}</p> : <p>Carregando...</p>}
+      <div className="eqChips">
+        <button type="button" className="eqBtn ghost" onClick={() => setShowSample((v) => !v)}>{showSample ? 'Esconder texto' : 'Ver o texto do e-mail'}</button>
+        <button type="button" className="eqBtn ghost" onClick={() => void sendTest()} disabled={busy}>Enviar teste para mim</button>
+        <button type="button" className="eqBtn" onClick={() => void sendAll()} disabled={busy || !preview || preview.toSend === 0}>Enviar para {preview?.toSend ?? 0} alunas</button>
+      </div>
+      {showSample && preview ? <pre style={{ whiteSpace: 'pre-wrap' }}>{preview.subject + '\n\n' + preview.sample}</pre> : null}
+      {message ? <p role="status">{message}</p> : null}
+    </div>
+  );
+}
+
 export default function StudentAccess({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
   const [result, setResult] = useState<Result | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -72,6 +131,7 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
       </header>
 
       {state === 'error' ? <p role="alert">{message}</p> : null}
+      <NativeInviteCard accessToken={accessToken} apiUrl={apiUrl} />
       {result ? (
         <>
           <div className="eqChips" role="group" aria-label="Filtrar por situação da assinatura">

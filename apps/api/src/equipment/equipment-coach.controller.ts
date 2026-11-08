@@ -1,4 +1,6 @@
-import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { CurrentUser, CurrentUserPayload } from '../common/current-user';
+import { NativeInviteService } from './native-invite.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../common/roles.decorator';
 import { RolesGuard } from '../common/roles.guard';
@@ -11,7 +13,7 @@ import { StudentAccessService } from './student-access.service';
 @Roles('coach', 'admin')
 @Controller('coach/equipment')
 export class EquipmentCoachController {
-  constructor(private readonly intelligence: EquipmentIntelligenceService, private readonly registry: DeviceRegistryService, private readonly studentAccessService: StudentAccessService) {}
+  constructor(private readonly intelligence: EquipmentIntelligenceService, private readonly registry: DeviceRegistryService, private readonly studentAccessService: StudentAccessService, private readonly nativeInvite: NativeInviteService) {}
 
   @Get('options')
   options() {
@@ -27,6 +29,22 @@ export class EquipmentCoachController {
   @Get('student-access')
   studentAccess() {
     return this.studentAccessService.run();
+  }
+
+  // Convite para baixar o Panzeri Run nas lojas (08/11/2026): previa, teste so' para quem pede, e envio real com a contagem confirmada.
+  @Get('native-invite')
+  nativeInvitePreview() {
+    return this.nativeInvite.preview();
+  }
+
+  @Post('native-invite/test')
+  nativeInviteTest(@CurrentUser() user: CurrentUserPayload) {
+    return this.nativeInvite.sendTest(user.sub);
+  }
+
+  @Post('native-invite/send')
+  nativeInviteSend(@Body() body: { expectedCount?: number }) {
+    return this.nativeInvite.sendAll(Number(body?.expectedCount));
   }
 
   @Roles('admin')

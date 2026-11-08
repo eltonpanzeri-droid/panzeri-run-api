@@ -7,12 +7,15 @@ import { EquipmentController } from './equipment.controller';
 import { EquipmentCoachController } from './equipment-coach.controller';
 import { EquipmentIntelligenceService } from './equipment-intelligence.service';
 import { StudentAccessService } from './student-access.service';
+import { NativeInviteService } from './native-invite.service';
+import { MessagingModule } from '../messaging/messaging.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 // Equipamentos (23/10/2026): dispositivos do aluno + inteligencia agregada do painel. Os tenis seguem em ShoesModule. StudentIntegrationsService e' sem estado (so' leitura): reutilizado aqui
 // para mostrar o estado de cada plataforma, em vez de criar um segundo levantamento de integracoes.
 @Module({
-  imports: [PrismaModule, DeviceRegistryModule],
+  imports: [PrismaModule, DeviceRegistryModule, MessagingModule, NotificationsModule],
   controllers: [EquipmentController, EquipmentCoachController],
-  providers: [DevicesService, EquipmentIntelligenceService, StudentIntegrationsService, StudentAccessService],
+  providers: [DevicesService, EquipmentIntelligenceService, StudentIntegrationsService, StudentAccessService, NativeInviteService],
 })
 export class EquipmentModule {}

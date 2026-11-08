@@ -39,6 +39,7 @@ import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCa
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
 import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
 import { useTabHistory } from './src/useTabHistory';
+import { NativeInviteCard } from './src/nativeInvite/NativeInviteCard';
 import { BrandMark } from './theme/BrandMark';
 import Svg, { G, Rect, Text as SvgText, Path, Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { PRColors, PRFonts } from './theme/tokens';
@@ -1870,6 +1871,7 @@ function AppInner() {
                 <Text style={styles.globalBackButtonText}>Voltar</Text>
               </Pressable>
             )}
+            {activeTab === 'home' && Platform.OS === 'web' && <NativeInviteCard apiUrl={API_URL} />}
             {activeTab === 'home' && (
               <HomeScreen
                 accessToken={accessToken}
