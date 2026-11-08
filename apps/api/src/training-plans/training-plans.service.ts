@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -196,9 +196,44 @@ function recordedSessionsOf<S extends { scheduledDate: Date; completion: unknown
 const RECORD_RUN_SELECT = { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, satisfaction: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } satisfies Prisma.TrainingSessionSelect;
 const NEAR_RECORD_SELECT = { scheduledDate: true, origin: true, structure: true, completion: { select: { status: true, distanceKm: true, durationMin: true, avgHeartRate: true, maxHeartRate: true, avgPaceSecondsKm: true, details: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } satisfies Prisma.TrainingSessionSelect;
 
+// 08/11/2026 (caso Brenda): uma geracao dura de 30 s a 5 min e a tentativa e' contada ANTES da chamada da IA. Se o servidor reinicia no meio (deploy), a geracao morre sem erro, a tentativa fica gasta e a aluna
+// chega a "tentativas esgotadas" sem ter tido uma tentativa de verdade. Ao subir, o servidor devolve a tentativa de quem estava gerando ha' menos desta janela e nao tem programa novo desde entao.
+export const INTERRUPTED_ATTEMPT_WINDOW_MS = 8 * 60_000;
+
 @Injectable()
-export class TrainingPlansService {
+export class TrainingPlansService implements OnApplicationBootstrap {
   private readonly logger = new Logger(TrainingPlansService.name);
+
+  async onApplicationBootstrap(): Promise<void> {
+    try {
+      const refunded = await this.refundInterruptedGenerationAttempts();
+      if (refunded > 0) this.logger.warn(`Reinicio do servidor interrompeu a geracao de ${refunded} aluna(s): a tentativa foi devolvida.`);
+    } catch (error) {
+      this.logger.warn(`Nao consegui conferir geracoes interrompidas: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Devolve UMA tentativa (e zera o intervalo de espera) de quem comecou a gerar dentro da janela e nao tem programa criado depois do inicio. Idempotente: so' mexe se o contador e a hora ainda forem os lidos.
+  async refundInterruptedGenerationAttempts(now: Date = new Date()): Promise<number> {
+    const since = new Date(now.getTime() - INTERRUPTED_ATTEMPT_WINDOW_MS);
+    const users = await this.prisma.user.findMany({
+      where: { generationAttemptsUsed: { gte: 1 }, lastGenerationAttemptAt: { gte: since } },
+      select: { id: true, generationAttemptsUsed: true, lastGenerationAttemptAt: true },
+    });
+    let refunded = 0;
+    for (const user of users) {
+      const startedAt = user.lastGenerationAttemptAt as Date;
+      const created = await this.prisma.trainingPlan.findFirst({ where: { userId: user.id, createdAt: { gte: startedAt } }, select: { id: true } });
+      if (created) continue; // a geracao terminou
+      const result = await this.prisma.user.updateMany({
+        where: { id: user.id, generationAttemptsUsed: user.generationAttemptsUsed, lastGenerationAttemptAt: startedAt },
+        data: { generationAttemptsUsed: user.generationAttemptsUsed - 1, lastGenerationAttemptAt: null },
+      });
+      refunded += result.count;
+    }
+    return refunded;
+  }
+
   private readonly recentAiFailures = new Map<string, number>();
   private readonly recentPainAlerts = new Map<string, number>();
   // Trava contra disparo duplo do botao "Gerar treino da semana" (toque duplo, ou o app tentando
