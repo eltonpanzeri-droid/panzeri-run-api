@@ -83,10 +83,15 @@ body.modal-open{overflow:hidden}
 
 @media(max-width:620px){
   .context-layout{grid-template-columns:1fr}
-  .context-visual{position:static;flex-direction:row;overflow-x:auto}
-  .context-visual .mockup-shot{width:min(240px,75vw);flex-shrink:0}
+  .context-visual{position:static;flex-direction:row;overflow-x:auto;scroll-snap-type:inline mandatory;scroll-padding-inline:20px}
+  .context-visual .mockup-shot{width:min(300px,82vw);flex-shrink:0;scroll-snap-align:start}
   .flow-visual{flex-direction:column;align-items:center}
-  .connections-visual{overflow-x:auto}
-  .connections-visual .mockup-shot{width:min(220px,70vw);flex-shrink:0}
+  .flow-visual .mockup-shot{width:min(340px,88vw)}
+  .connections-visual{overflow-x:auto;scroll-snap-type:inline mandatory;scroll-padding-inline:20px}
+  .connections-visual .mockup-shot{width:min(290px,80vw);flex-shrink:0;scroll-snap-align:start}
+  .video-strip{scroll-padding-inline:20px}
+  .video-strip .video-card{width:min(260px,72vw)}
+  .video-strip .video-card-large{width:min(320px,86vw)}
+  .testimonial-phones{scroll-padding-inline:20px}
 }
 `;
