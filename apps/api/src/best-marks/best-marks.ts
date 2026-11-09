@@ -212,6 +212,20 @@ function hmsToSeconds(value: unknown): number | null {
   return total > 0 ? total : null;
 }
 
+// Frase curta para o Prontuario (09/11/2026): as 3 maiores distancias que a aluna RELATOU na entrevista, rotuladas como relato sem comprovacao. Vazia quando nada foi informado.
+export function describeSelfReportedRuns(answers: Record<string, unknown>): string {
+  const runs = selfReportedRuns(answers).filter((run) => run.distanceKm !== null);
+  if (runs.length === 0) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const parts = runs.map((run) => {
+    const km = String(run.distanceKm).replace('.', ',');
+    const times = run.timesRun !== null ? `${run.timesRun} ${run.timesRun === 1 ? 'vez' : 'vezes'}` : 'vezes nao informadas';
+    const time = run.timeSeconds !== null ? `, tempo ${Math.floor(run.timeSeconds / 3600)}:${pad(Math.floor((run.timeSeconds % 3600) / 60))}:${pad(run.timeSeconds % 60)}` : '';
+    return `${km} km (${times}${time})`;
+  });
+  return ` Maiores distancias RELATADAS na entrevista (ultimos 6 meses, relato da aluna, sem comprovacao por relogio): ${parts.join('; ')}.`;
+}
+
 export function selfReportedRuns(answers: Record<string, unknown>): SelfReportedRun[] {
   const slots: Array<{ rank: 1 | 2 | 3; distance: string; count: string; time: string | null }> = [
     { rank: 1, distance: 'longest_distance', count: 'longest_distance_recent_count', time: 'longest_distance_recent_time' },

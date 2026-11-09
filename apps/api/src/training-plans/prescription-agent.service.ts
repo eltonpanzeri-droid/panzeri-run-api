@@ -11,7 +11,9 @@ import {
   WeeklyMethodologyDecision,
   computeRunSlots,
   computeStrengthSlots,
+  acceptRaceStrategies,
   raceCoveredWeekdays,
+  racesInWeek,
   requiredStrengthSlots,
   hasSafetyConcern,
   isNovice,
@@ -205,6 +207,9 @@ export const AiWeeklyDecisionSchema = z.object({
   rationale: z.array(z.string()).min(1).max(8),
   // Lote 4 (30/10/2026): proposta OPCIONAL e quase sempre null de ajuste da referencia fisiologica operacional. Sem limites aqui de proposito
   // (um campo secundario nunca pode derrubar a semana inteira, ver os comentarios acima): o servidor valida estrutura e evidencia depois.
+  // Estrategia do dia da prova (09/11/2026): um item por prova alvo da semana (provasAlvoNestaSemana); vazio/ausente sem prova na semana. Sem limites aqui de proposito (texto secundario nunca derruba a semana):
+  // o servidor aceita so' ids conhecidos e trunca depois do parse.
+  provasAlvo: z.array(z.object({ raceId: z.string(), estrategia: z.string() })).nullish(),
   ajusteDeReferenciaFisiologica: z
     .object({
       indicadores: z.array(z.object({ chave: z.string(), novoValor: z.number() })),
@@ -236,6 +241,12 @@ export const ANALYST_DAY_INSTRUCTION =
 // 29/10/2026: prova alvo no calendario e indicadores de saude autorizados. Blocos nomeados (como os demais) para a regressao dos prompts congelados poder remove-los e provar que o resto nao mudou.
 export const RACE_CALENDAR_INSTRUCTION =
   'PROVA ALVO NO CALENDARIO: toda prova de metasDeProva que cai na semana ja ocupa o dia dela no calendario do aluno e SUBSTITUI a corrida desse dia (as outras modalidades do dia continuam). Por isso nao prescreva corrida no dia da prova; prescreva a PREPARACAO (os dias anteriores, a semana de polimento e a semana da prova) e, nas outras modalidades do dia da prova e dos dias proximos, ajuste a carga para ser compativel com a prova sem apaga-las. Monte a estrategia com base no que o aluno JA DEMONSTROU (historico recente, volume e intensidade que tolera, evolucao das prescricoes, disponibilidade, recuperacao/saude autorizadas e limitacoes individuais), nao em capacidade presumida: se a meta de tempo ou a distancia forem incompativeis com esse historico, diga isso no rationale e prepare o aluno para o que e realista, sem fingir que a meta esta ao alcance. Em ultramaratona (objetivo ou prova acima de 42,195 km, incluindo mais de 100 km) priorize construcao gradual de base, tempo em pe e longoes progressivos, back-to-back apenas se o historico sustentar, treino de ritmo sustentavel e de alimentacao/hidratacao, e polimento proporcional a distancia.';
+// 09/11/2026 (caso Brenda): o relato de distancias da entrevista convive com o maior longao REGISTRADO; a IA cita as duas fontes e nunca afirma "ja correu" so' pelo registrado.
+export const SELF_REPORTED_RUNS_INSTRUCTION =
+  'RELATO DE DISTANCIAS NA ENTREVISTA (relatoDeDistanciasNaEntrevista, quando presente): sao as maiores distancias que o PROPRIO aluno disse ter corrido nos seis meses anteriores a entrevista (posicao, distancia, quantas vezes e, na maior, o tempo), SEM comprovacao por relogio. Convive com maiorLongaoJaRegistrado, que so conta treinos concluidos no Panzeri Run: sao fontes DIFERENTES e nenhuma apaga a outra. Quando divergirem, cite as duas ("registrado no Panzeri Run: X km; relatado na entrevista: Y km, sem comprovacao") e nunca escreva "ja correu", "maior longao ja corrido" ou equivalente com base so no registrado quando houver relato maior. O relato tem peso menor que o registrado, mas nunca e ignorado: pese a quantidade de vezes, o tempo informado e a coerencia com os treinos registrados, e diga em rationale como pesou. Isto nao e regra de decisao nem trava: so evita afirmar como fato o que e apenas o registrado.';
+// 09/11/2026 (caso Brenda): o cartao da prova no calendario nao e escrito pela IA; a estrategia do dia da prova vem do campo provasAlvo.
+export const RACE_STRATEGY_INSTRUCTION =
+  'ESTRATEGIA DO DIA DA PROVA (campos provasAlvoNestaSemana e provasAlvo): provasAlvoNestaSemana lista cada prova alvo que cai NESTA semana, com id, nome, data, dia da semana, distancia, tempo-alvo e pace-alvo informados pelo aluno e, quando informados, cidade, UF e horario da largada. O cartao da prova no calendario NAO e escrito por voce (mostra so nome, distancia, tempo-alvo e pace-alvo). Para CADA item de provasAlvoNestaSemana devolva em provasAlvo um objeto { raceId: o id do item, estrategia: texto para o ALUNO ler }. A decisao e sua: ritmo e largada, como pensar a prova, hidratacao e alimentacao, o que fazer se algo sair do previsto, cuidados com dor se houver, calor e horario se informados; pese a distancia da prova contra o que o aluno ja registrou E relatou, o historico e as limitacoes. Texto curto (4 a 7 frases), em portugues, sem tratar o pace-alvo como ordem sua (e a meta do proprio aluno; se voce discorda dela, diga com sensatez), sem inventar fatos sobre o historico e sem o formato "como voce relatou X, fiz Y". Sem prova na semana: provasAlvo vazio.';
 export const HEALTH_INDICATORS_INSTRUCTION =
   'athleteStateContext.indicadoresDeSaudeAutorizados (quando presente) traz, por fonte, os indicadores de saude, recuperacao e comportamento medidos por aparelho que o aluno AUTORIZOU e que existem nos ultimos dias (VO2 max, composicao corporal, SpO2, temperatura, respiracao, FC do dia, mobilidade, habitos, nutricao, entre outros), cada um com unidade e valores originais, quantidade de dias, ultimo valor, media, minimo, maximo e os ultimos valores. Use como CONTEXTO para entender como o aluno chega aos treinos e responde a eles, relacionando com a execucao registrada quando fizer sentido. Regras: nao existe nota de prontidao e voce nao deve cria-la; ausencia de um indicador significa que ele nao existe ou nao foi autorizado, nunca zero; correlacao entre um indicador e um treino nao prova causa, entao nao afirme causalidade sem evidencia suficiente; fontes diferentes nao sao comparaveis entre si, e HRV SDNN (Apple) nao e HRV RMSSD; nunca trate um valor isolado como diagnostico.';
 
@@ -670,6 +681,7 @@ export class PrescriptionAgentService {
         routineMismatch: validated.routineMismatch,
         routineMismatchMissingRunWeekdays: validated.missingRunWeekdays,
         routineMismatchRaceCoveredWeekdays: validated.raceCoveredRunWeekdays,
+        raceStrategies: acceptRaceStrategies(parsed.provasAlvo, racesInWeek(input.targetRaces, input.weekDates).map((race) => race.id)),
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
     } catch (error) {
@@ -978,6 +990,8 @@ export class PrescriptionAgentService {
       ANALYST_EVIDENCE_INSTRUCTION,
       INTEGRATED_SOURCES_INSTRUCTION,
       RACE_CALENDAR_INSTRUCTION,
+      SELF_REPORTED_RUNS_INSTRUCTION,
+      RACE_STRATEGY_INSTRUCTION,
       HEALTH_INDICATORS_INSTRUCTION,
       INTERNAL_LOAD_INSTRUCTION,
       RECENT_TREND_INSTRUCTION,
@@ -1158,6 +1172,13 @@ export class PrescriptionAgentService {
           // capacidade de corrida continua.
           comoFoiFeito: input.longestRunEver.pacingMode,
         } : null,
+        // 09/11/2026: relato da ENTREVISTA (3 maiores distancias nos 6 meses antes), SEM comprovacao; ver SELF_REPORTED_RUNS_INSTRUCTION. Vazio quando a aluna nao informou.
+        relatoDeDistanciasNaEntrevista: (input.selfReportedLongRuns ?? []).map((run) => ({
+          posicao: run.position,
+          distanciaKm: run.distanceKm ?? run.distanceRaw,
+          vezesNosUltimos6Meses: run.timesRun,
+          tempoDaCorrida: run.timeSeconds != null ? `${Math.floor(run.timeSeconds / 3600)}:${String(Math.floor((run.timeSeconds % 3600) / 60)).padStart(2, '0')}:${String(run.timeSeconds % 60).padStart(2, '0')}` : null,
+        })),
         // So vem preenchido quando o recorde acima e >=8km — ver a regra "quente vs frio" no
         // prompt de sistema (buildSystemPromptStable). Cada item e um treino concluido nas
         // ultimas 10 semanas perto do recorde, com seu proprio autorrelato de como foi feito.
@@ -1169,6 +1190,19 @@ export class PrescriptionAgentService {
         // Array (correcao real 16/08 — antes so a prova mais proxima existia aqui; ver
         // TargetRacesService.activeGoals e a regra correspondente no prompt de sistema). Pode vir
         // vazio (sem nenhuma prova marcada) ou com mais de uma prova simultanea.
+        // 09/11/2026: provas alvo que caem NESTA semana, com o id que a IA devolve em provasAlvo (ver RACE_STRATEGY_INSTRUCTION). Vazio sem prova na semana.
+        provasAlvoNestaSemana: racesInWeek(input.targetRaces, input.weekDates).map((race) => ({
+          id: race.id,
+          nome: race.name,
+          data: race.date,
+          diaDaSemana: race.weekday,
+          distanciaKm: race.distanceKm,
+          tempoAlvoSegundos: race.targetSeconds,
+          paceAlvoSegundosPorKm: race.paceSecondsPerKm,
+          cidade: race.city,
+          uf: race.state,
+          horarioDaLargada: race.startTime,
+        })),
         metasDeProva: (input.targetRaces ?? []).map((race) => ({
           nome: race.name,
           data: race.raceDate,

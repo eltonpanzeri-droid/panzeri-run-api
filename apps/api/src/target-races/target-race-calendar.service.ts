@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CalendarRace, CalendarSession, planRaceCalendarChanges } from './target-race-calendar';
+import { CalendarRace, CalendarSession, planRaceCalendarChanges, RACE_SESSION_ORIGIN } from './target-race-calendar';
 
 // Aplica no banco o que target-race-calendar.ts decide (ver la' as regras). Chamado quando uma meta e' criada/editada/excluida e depois de cada geracao de semana. Idempotente: rodar de novo
 // nao muda nada. Nunca chama IA, nunca apaga sessao com execucao, vinculo de atividade ou entrega a relogio. Falha aqui nunca derruba quem chamou.
@@ -40,6 +40,27 @@ export class TargetRaceCalendarService {
       this.logger.warn(`Sincronizacao da prova alvo no calendario falhou para ${userId}: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
     }
     return summary;
+  }
+
+  // Estrategia do dia da prova escrita pela IA na geracao da semana (09/11/2026): vai para o campo de texto (notes) da sessao da prova, que o app mostra no cartao. Idempotente (reescreve o mesmo texto);
+  // so' mexe em sessao de prova do programa ativo com o vinculo exato da meta; nunca cria nem apaga sessao; falha aqui nunca derruba a geracao.
+  async applyRaceStrategies(userId: string, strategies: Array<{ raceId: string; strategy: string }>): Promise<number> {
+    let applied = 0;
+    for (const item of strategies) {
+      try {
+        const rows = await this.prisma.trainingSession.findMany({
+          where: { userId, origin: RACE_SESSION_ORIGIN, plan: { status: 'active' }, structure: { path: ['race', 'targetRaceId'], equals: item.raceId } },
+          select: { id: true },
+        });
+        for (const row of rows) {
+          await this.prisma.trainingSession.update({ where: { id: row.id }, data: { notes: item.strategy } });
+          applied += 1;
+        }
+      } catch (error) {
+        this.logger.warn(`Estrategia da prova nao gravada para ${userId}: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
+      }
+    }
+    return applied;
   }
 
   private columns(data: ReturnType<typeof planRaceCalendarChanges>['create'][number]) {

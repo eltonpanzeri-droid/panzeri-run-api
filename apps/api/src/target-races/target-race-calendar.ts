@@ -28,7 +28,8 @@ export interface RaceSessionData {
   sessionType: string;
   distanceKm: number;
   durationMin: number | null;
-  structure: { type: 'run'; blocks: never[]; race: { targetRaceId: string; name: string; distanceKm: number; targetSeconds: number | null } };
+  // paceRange: pace-alvo da prova (meta informada pela PROPRIA aluna: tempo-alvo / distancia). Nao e prescricao de treino; so' faz o cartao da prova mostrar o ritmo da meta.
+  structure: { type: 'run'; blocks: never[]; paceRange?: string; race: { targetRaceId: string; name: string; distanceKm: number; targetSeconds: number | null } };
   origin: string;
 }
 
@@ -50,6 +51,13 @@ export function raceTargetIdOf(structure: unknown): string | null {
   return typeof id === 'string' ? id : null;
 }
 
+// "6:25/km" a partir do tempo-alvo e da distancia que a aluna informou; null sem tempo-alvo (nada e estimado).
+export function racePaceText(race: { distanceKm: number; targetSeconds: number | null }): string | null {
+  if (!race.targetSeconds || !race.distanceKm || race.distanceKm <= 0) return null;
+  const secondsPerKm = Math.round(race.targetSeconds / race.distanceKm);
+  return `${Math.floor(secondsPerKm / 60)}:${String(secondsPerKm % 60).padStart(2, '0')}/km`;
+}
+
 export function buildRaceSession(race: CalendarRace): RaceSessionData {
   const date = new Date(Date.UTC(race.raceDate.getUTCFullYear(), race.raceDate.getUTCMonth(), race.raceDate.getUTCDate()));
   return {
@@ -62,7 +70,7 @@ export function buildRaceSession(race: CalendarRace): RaceSessionData {
     distanceKm: race.distanceKm,
     // tempo-alvo informado pela aluna vira a duracao prevista; sem meta de tempo, fica em aberto (nada e estimado)
     durationMin: race.targetSeconds ? Math.round(race.targetSeconds / 60) : null,
-    structure: { type: 'run', blocks: [], race: { targetRaceId: race.id, name: race.name, distanceKm: race.distanceKm, targetSeconds: race.targetSeconds } },
+    structure: { type: 'run', blocks: [], ...(racePaceText(race) ? { paceRange: racePaceText(race) as string } : {}), race: { targetRaceId: race.id, name: race.name, distanceKm: race.distanceKm, targetSeconds: race.targetSeconds } },
     origin: RACE_SESSION_ORIGIN,
   };
 }

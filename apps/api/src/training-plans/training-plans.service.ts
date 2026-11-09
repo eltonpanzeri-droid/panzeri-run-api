@@ -27,6 +27,7 @@ import {
 import { PrescriptionAgentService, PaceEvidence, AiFailureInfo } from './prescription-agent.service';
 import { PainReportsService } from '../pain-reports/pain-reports.service';
 import { TargetRacesService } from '../target-races/target-races.service';
+import { selfReportedRuns } from '../best-marks/best-marks';
 import { TargetRaceCalendarService } from '../target-races/target-race-calendar.service';
 import { HealthIndicatorsService } from '../training-intelligence/health-indicators.service';
 import { OperationalReferenceService } from '../physiology/operational-reference.service';
@@ -1212,6 +1213,11 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       // TargetRacesService.activeGoals). Tambem ja vem sem provas vencidas (arquivadas
       // automaticamente ali mesmo).
       targetRaces: targetRaces.map((race) => ({
+        id: race.id,
+        targetSeconds: race.targetSeconds ?? null,
+        city: race.city ?? null,
+        state: race.state ?? null,
+        startTime: race.startTime ?? null,
         name: race.name,
         raceDate: race.raceDate.toISOString(),
         distanceKm: race.distanceKm,
@@ -1228,6 +1234,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         anxietyLevel: race.anxietyLevel,
         isFirstTimeAtDistance: race.isFirstTimeAtDistance,
       })),
+      // 09/11/2026: relato de distancias da entrevista (3 maiores, ultimos 6 meses), SEM comprovacao — convive com longestRunEver (so' treinos registrados).
+      selfReportedLongRuns: selfReportedRuns(answers).map((run) => ({ position: run.rank, distanceKm: run.distanceKm, distanceRaw: run.distanceRaw, timesRun: run.timesRun, timeSeconds: run.timeSeconds })),
       longestRunEver: longestRunSession?.completion?.distanceKm != null ? {
         distanceKm: longestRunSession.completion.distanceKm,
         date: longestRunSession.scheduledDate.toISOString().slice(0, 10),
@@ -1752,6 +1760,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
 
     // Prova alvo da semana: entra no calendario (substitui so' a corrida do dia) e nunca duplica em regeneracoes. Best-effort: falha aqui nao desfaz a semana gerada.
     await this.raceCalendar?.syncUser(userId);
+    // Estrategia do dia da prova escrita pela IA (09/11/2026) vai para o cartao da prova; best-effort, nunca derruba a semana.
+    if ((methodology.raceStrategies ?? []).length > 0) await this.raceCalendar?.applyRaceStrategies(userId, methodology.raceStrategies ?? []);
 
     // Copia em texto da prescricao numerica que acabou de ser decidida — puro codigo, sem custo
     // de IA (a criacao do texto em si nao chama nenhum modelo). Vira insumo pro agente do

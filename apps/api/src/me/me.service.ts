@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { describeSelfReportedRuns } from '../best-marks/best-marks';
 import { isRoutineAnswerKey } from '../training-plans/training-methodology';
 import { readRoutineState } from '../common/routine-state';
 import { UpdateAnamneseDto } from './dto/update-anamnese.dto';
@@ -394,7 +395,7 @@ export class MeService {
     void this.studentProfile.recordEvent(
       userId,
       ProfileEventCode.ONBOARDING_COMPLETED,
-      `Entrevista inicial concluida. Objetivo: ${stringValue(answers.objective)}. Experiencia com corrida: ${stringValue(answers.running_experience)}. Modalidades praticadas: ${preferredModalities.join(', ') || 'nenhuma informada'}.`,
+      `Entrevista inicial concluida. Objetivo: ${stringValue(answers.objective)}. Experiencia com corrida: ${stringValue(answers.running_experience)}. Modalidades praticadas: ${preferredModalities.join(', ') || 'nenhuma informada'}.${describeSelfReportedRuns(answers)}`,
     ).catch((error) => {
       this.logger.warn(`recordEvent(ONBOARDING_COMPLETED) falhou para ${userId} (nao bloqueante): ${(error as Error).message}`);
     });

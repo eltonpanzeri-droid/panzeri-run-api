@@ -169,6 +169,12 @@ export interface MethodologyInput {
   // proxima chegava ate a IA. Ver TargetRacesService.activeGoals — ja vem filtrado (sem provas
   // vencidas havia mais de 2 dias, arquivadas automaticamente ali).
   targetRaces?: Array<{
+    // id, tempo-alvo e local/horario da prova (09/11/2026): a IA escreve a estrategia do dia da prova para cada prova da semana e devolve o id.
+    id?: string;
+    targetSeconds?: number | null;
+    city?: string | null;
+    state?: string | null;
+    startTime?: string | null;
     name: string;
     raceDate: string;
     distanceKm: number;
@@ -193,6 +199,8 @@ export interface MethodologyInput {
   // a historia do aluno — nao um resumo escrito por outro agente, e sim calculado direto do banco.
   // Existe para progressoes de longo prazo (ex: diretriz de maratona com escada de distancias ao
   // longo de meses) nao dependerem so da memoria/resumo do prontuario para saber o estado atual.
+  // Relato de distancias da ENTREVISTA (09/11/2026): 3 maiores, ultimos 6 meses, SEM comprovacao. Diferente de longestRunEver (so' treinos concluidos).
+  selfReportedLongRuns?: Array<{ position: number; distanceKm: number | null; distanceRaw: string | null; timesRun: number | null; timeSeconds: number | null }>;
   longestRunEver?: {
     distanceKm: number;
     date: string;
@@ -375,6 +383,8 @@ export interface WeeklyMethodologyDecision {
   routineMismatchMissingRunWeekdays?: number[];
   // Dias da rotina sem corrida da IA que estao cobertos pela prescricao de prova alvo (nao sao falta).
   routineMismatchRaceCoveredWeekdays?: number[];
+  // Estrategia do dia da prova escrita pela IA (09/11/2026): so' ids de provas desta semana, textos nao vazios e truncados; gravada em notes da sessao da prova.
+  raceStrategies?: Array<{ raceId: string; strategy: string }>;
   // Mesma informacao, quebrada por sessao (chave "weekday:modality", modality="corrida" pra
   // qualquer sessao de corrida) — generateWeek() usa isso pra marcar SO a sessao especifica que
   // saiu do combinado (TrainingSession.routineMismatchNote), em vez de tratar a semana inteira
@@ -407,6 +417,32 @@ export function raceCoveredWeekdays(targetRaces: Array<{ raceDate: string }> | n
     if (weekday !== undefined) out.add(weekday);
   }
   return [...out].sort((a, b) => a - b);
+}
+
+// Provas alvo ativas cuja data cai nesta semana (09/11/2026), com o que a IA precisa para escrever a estrategia do dia da prova. Puro: so' compara datas.
+export function racesInWeek(targetRaces: NonNullable<MethodologyInput['targetRaces']> | null | undefined, weekDates: Array<{ weekday: number; date: string }> | null | undefined) {
+  const dateToWeekday = new Map((weekDates ?? []).map((item) => [item.date, item.weekday]));
+  const out: Array<{ id: string; name: string; date: string; weekday: number; distanceKm: number; targetSeconds: number | null; paceSecondsPerKm: number | null; city: string | null; state: string | null; startTime: string | null }> = [];
+  for (const race of targetRaces ?? []) {
+    const date = String(race.raceDate).slice(0, 10);
+    const weekday = dateToWeekday.get(date);
+    if (weekday === undefined || !race.id) continue;
+    out.push({ id: race.id, name: race.name, date, weekday, distanceKm: race.distanceKm, targetSeconds: race.targetSeconds ?? null, paceSecondsPerKm: race.paceSecondsPerKm, city: race.city ?? null, state: race.state ?? null, startTime: race.startTime ?? null });
+  }
+  return out;
+}
+
+// So' estrategias de provas desta semana (ids conhecidos), sem repetir id, sem texto vazio, truncadas. A IA decide o texto; o codigo so' valida estrutura.
+export function acceptRaceStrategies(raw: Array<{ raceId: string; estrategia: string }> | null | undefined, validRaceIds: string[], maxChars = 1170): Array<{ raceId: string; strategy: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ raceId: string; strategy: string }> = [];
+  for (const item of raw ?? []) {
+    const text = (item.estrategia ?? '').replace(/\s+/g, ' ').trim();
+    if (!text || !validRaceIds.includes(item.raceId) || seen.has(item.raceId)) continue;
+    seen.add(item.raceId);
+    out.push({ raceId: item.raceId, strategy: text.length > maxChars ? `${text.slice(0, maxChars - 1).trimEnd()}…` : text });
+  }
+  return out;
 }
 
 export function requiredStrengthSlots<T extends { weekday: number }>(slots: T[], weekDates: Array<{ weekday: number; date: string }> | null | undefined, generateFrom: string | null | undefined): T[] {

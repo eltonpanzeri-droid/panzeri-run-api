@@ -7905,6 +7905,9 @@ function AdminPrescription({ structure, notes }: { structure?: Record<string, un
             </div>
           );
         })}
+        {structure.race && structure.paceRange ? (
+          <div className="adminBlock"><strong>Prova</strong><span>Pace alvo da prova: {String(structure.paceRange)} (meta informada pela aluna)</span></div>
+        ) : null}
         {notes ? <p className="coachNotes">{notes}</p> : null}
       </div>
     );
