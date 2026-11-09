@@ -18,6 +18,7 @@ import { ProviderHubModule } from './provider-hub/provider-hub.module';
 import { ZeppModule } from './zepp/zepp.module';
 import { CorosModule } from './coros/coros.module';
 import { GarminModule } from './garmin/garmin.module';
+import { BestMarksModule } from './best-marks/best-marks.module';
 import { AppleHealthModule } from './apple-health/apple-health.module';
 import { HealthConnectModule } from './health-connect/health-connect.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
@@ -71,6 +72,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     ZeppModule,
     CorosModule,
     GarminModule,
+    BestMarksModule,
     AppleHealthModule,
     HealthConnectModule,
     ActivityExecutionModule,
