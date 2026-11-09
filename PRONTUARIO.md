@@ -4049,3 +4049,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ### 09/11/2026 (noite) — Renatha Miranda "sumiu" do painel após Elton remover a assinatura no Asaas — CORRIGIDO local (vale no Deploy da API)
 - **Causa (lida no código, NÃO vista em produção):** remover a assinatura no Asaas faz o sistema marcar `subscriptionStatus='canceled'`. A lista principal exclui `canceled`/`pending`; Prospectos mostrava só `pending`; Ex-alunos exige `studentCode`. Quem nunca foi aluna (sem código) e fica `canceled` não aparecia em NENHUMA lista (viola a regra "nada oculto").
 - **Correção:** `CoachService.prospects()` também inclui `canceled` com `studentCode: null` (continua prospecto). Teste `prospect-never-hidden.spec.ts`. LIMITES: contadores do resumo e série de prospectos (`PENDING_STATUS`) não incluem esses casos; Ex-alunos segue exigindo `studentCode` de propósito (cadastro fantasma).
+
+### 09/11/2026 (noite) — Relatório do Astra: varredura das integrações RECEBIDO (nada implementado)
+- Resumo guardado em `ELTON2/RELATORIO_VARREDURA_INTEGRACOES_20261109.md` (lacunas por integração, bloqueios, riscos de contrato, lotes sugeridos 1 a 8, perguntas abertas). O Claude Code NÃO conferiu as afirmações no código; cada lote exige conferência antes e ordem de Elton. Ponto de atenção: contrato Garmin Rev H × uso do Atlas (pergunta ao advogado).
