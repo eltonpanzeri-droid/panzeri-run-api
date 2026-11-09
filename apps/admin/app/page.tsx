@@ -1563,6 +1563,7 @@ export default function AdminHome() {
             evolution={monthlyEvolution}
             onOpenGroup={goToStudentsFilteredByPayment}
             onOpenFinance={() => changeView('finance')}
+            onOpenExStudents={() => changeView('exStudents')}
           />
         ) : null}
 
@@ -1578,7 +1579,7 @@ export default function AdminHome() {
           <Stat label="Aderencia media" value={`${dashboard?.totals.adherencePercent ?? 0}%`} detail="treinos propostos, mesma semana" />
           <Stat label="Pagamento em dia" value={String(dashboard?.totals.paymentConfirmed ?? 0)} detail="pagantes reais" onClick={() => goToStudentsFilteredByPayment('confirmed')} />
           <Stat label="Cortesia / liberacao manual" value={String(dashboard?.totals.courtesyAccess ?? 0)} detail="nao e pagamento" onClick={() => goToStudentsFilteredByPayment('courtesy')} />
-          <Stat label="Pagamento atrasado" value={String(dashboard?.totals.paymentOverdue ?? 0)} detail="alunos" onClick={() => goToStudentsFilteredByPayment('overdue')} />
+          {/* 09/11/2026: o cartao "Pagamento atrasado" ja existe no Panorama do negocio (com a comparacao do mes anterior); este era repetido e foi removido. */}
           {/* 24/09: renomeado de "Pagamento pendente" pra "Prospectos" — pedido explicito do Elton.
               Quem esta' pending nunca teve compromisso de pagamento (nao e' aluno ainda), entao nao
               faz sentido misturar com atrasado/confirmado como se fosse um problema de cobranca. */}
@@ -2122,7 +2123,7 @@ export default function AdminHome() {
 
         {activeView === 'ai' ? <AiOverviewView accessToken={token} /> : null}
 
-        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} /> : null}
+        {activeView === 'finance' ? <FinanceView finance={finance} evolution={monthlyEvolution} onRefresh={() => loadFinance()} accessToken={token} onOpenGroup={goToStudentsFilteredByPayment} onOpenProspects={() => changeView('prospects')} onOpenExStudents={() => changeView('exStudents')} /> : null}
 
         {activeView === 'funnel' ? <FunnelView report={funnelReport} loading={loadingFunnel} onRefresh={() => loadFunnel()} accessToken={token} /> : null}
 
@@ -2451,11 +2452,12 @@ function ProspectsCharts({ accessToken }: { accessToken: string }) {
 }
 /** 15/10/2026 (Fase 7): panorama do negocio no topo da Visao geral. Usa so o que a tela ja carrega (totais e evolucao mensal);
  *  a variacao e' a diferenca contra o fim do mes anterior, dita como tal (o mes atual esta em andamento). Nenhum limite nem alerta. */
-function PanoramaSection({ totals, evolution, onOpenGroup, onOpenFinance }: {
+function PanoramaSection({ totals, evolution, onOpenGroup, onOpenFinance, onOpenExStudents }: {
   totals: { paymentConfirmed: number; paymentOverdue: number; paymentPending: number; courtesyAccess: number } | null;
   evolution: MonthlyEvolutionPoint[] | null;
   onOpenGroup: (group: 'confirmed' | 'courtesy' | 'overdue') => void;
   onOpenFinance: () => void;
+  onOpenExStudents: () => void;
 }) {
   if (!totals) return null;
   const last = evolution && evolution.length >= 2 ? evolution[evolution.length - 1] : null;
@@ -2487,7 +2489,7 @@ function PanoramaSection({ totals, evolution, onOpenGroup, onOpenFinance }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {tile('Pagantes', String(totals.paymentConfirmed), previous ? 'vs fim do mês anterior · clique para ver quem' : 'clique para ver quem', () => onOpenGroup('confirmed'), payingDelta)}
         {tile('Pagamento atrasado', String(totals.paymentOverdue), previous ? 'vs fim do mês anterior · clique para ver quem' : 'clique para ver quem', () => onOpenGroup('overdue'), overdueDelta, totals.paymentOverdue > 0 ? '#b45309' : undefined)}
-        {tile('Cancelamentos', canceledNow != null ? String(canceledNow) : '—', 'cancelados acumulados, vs fim do mês anterior · clique para o Financeiro', onOpenFinance, canceledDelta)}
+        {tile('Cancelamentos', canceledNow != null ? String(canceledNow) : '—', 'cancelados acumulados, vs fim do mês anterior · clique para ver quem', onOpenExStudents, canceledDelta)}
         {tile('Receita recebida este mês', receivedCents != null ? formatMoney(receivedCents) : '—', `projetado pelos pagantes: ${formatMoney(projectedCents)} · clique para o Financeiro`, onOpenFinance, null)}
       </div>
     </section>
@@ -3030,7 +3032,7 @@ function DueDatesSection({ accessToken }: { accessToken: string }) {
   );
 }
 
-function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, onOpenProspects }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void; accessToken: string; onOpenGroup: (group: 'confirmed' | 'courtesy' | 'overdue') => void; onOpenProspects: () => void }) {
+function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, onOpenProspects, onOpenExStudents }: { finance: FinanceResponse | null; evolution: MonthlyEvolutionPoint[] | null; onRefresh: () => void; accessToken: string; onOpenGroup: (group: 'confirmed' | 'courtesy' | 'overdue') => void; onOpenProspects: () => void; onOpenExStudents: () => void }) {
   const currentMonthRevenueCents = evolution && evolution.length ? evolution[evolution.length - 1].revenueReceivedCents : null;
   return (
     <section className="panel fullPanel">
@@ -3056,7 +3058,7 @@ function FinanceView({ finance, evolution, onRefresh, accessToken, onOpenGroup, 
             GLOSSARIO_METRICAS.md), nao um problema de cobranca como Atrasado/Cancelado ao lado. */}
         <Detail icon={<Flame size={18} />} label="Prospectos" value={String(finance?.pendingPlans ?? 0)} onClick={onOpenProspects} />
         <Detail icon={<AlertTriangle size={18} />} label="Atrasados" value={String(finance?.overduePlans ?? 0)} onClick={() => onOpenGroup('overdue')} />
-        <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} />
+        <Detail icon={<X size={18} />} label="Cancelados" value={String(finance?.canceledPlans ?? 0)} onClick={onOpenExStudents} />
         <Detail icon={<Ticket size={18} />} label="Cupons criados" value={String(finance?.coupons.length ?? 0)} />
       </div>
       <DueDatesSection accessToken={accessToken} />

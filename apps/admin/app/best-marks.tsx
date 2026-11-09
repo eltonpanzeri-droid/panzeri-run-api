@@ -134,6 +134,24 @@ export default function BestMarks({ studentId, accessToken, apiUrl }: { studentI
         </>
       )}
 
+      <div className="bm-card">
+        <h4>Registros manuais de corrida <small>(com a decisão e o motivo de cada um)</small></h4>
+        {(data.manualReview ?? []).length === 0 ? <p className="bm-muted">Nenhum registro manual de corrida.</p> : (
+          <table className="bm-table bm-static">
+            <thead><tr><th>Data</th><th>Distância</th><th>Tempo</th><th>Nas marcas?</th><th>Motivo</th></tr></thead>
+            <tbody>{(data.manualReview ?? []).map((row, index) => (
+              <tr key={`${row.localDate}-${index}`}>
+                <td>{fmtDate(row.localDate)}</td>
+                <td>{row.distanceKm !== null ? `${String(row.distanceKm).replace('.', ',')} km` : '—'}</td>
+                <td>{row.durationMin !== null ? `${Math.round(row.durationMin)} min` : '—'}</td>
+                <td><strong style={{ color: row.included ? '#15803d' : '#8b96a5' }}>{row.included ? 'Entra' : 'Não entra'}</strong></td>
+                <td>{row.reason}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+      </div>
+
       <div className="bm-card bm-self">
         <h4>Relato da entrevista <small>(não comprovado, fora das marcas registradas)</small></h4>
         {data.selfReported.length === 0 ? <p className="bm-muted">Sem distâncias informadas na entrevista.</p> : (

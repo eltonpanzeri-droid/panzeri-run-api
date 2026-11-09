@@ -19,7 +19,8 @@ export interface BestMark {
 }
 export interface DistanceMarks { distanceId: string; label: string; meters: number; best: BestMark | null; ranking: BestMark[] }
 export interface SelfReportedRun { rank: 1 | 2 | 3; distanceKm: number | null; distanceRaw: string | null; timesRun: number | null; timeSeconds: number | null }
-export interface BestMarksResponse { marks: DistanceMarks[]; selfReported: SelfReportedRun[]; notes: string[] }
+export interface ManualReviewRow { localDate: string; distanceKm: number | null; durationMin: number | null; included: boolean; reason: string }
+export interface BestMarksResponse { marks: DistanceMarks[]; selfReported: SelfReportedRun[]; manualReview?: ManualReviewRow[]; notes: string[] }
 
 export const TOP_LIMIT = 10;
 
@@ -140,3 +141,24 @@ export const HOW_COLLECTED_STEPS: string[] = [
   'Sem a série de dados (ou em registro manual), vale o tempo da atividade toda, que é sempre um tempo igual ou mais lento que o real.',
   'O tempo é sempre de relógio corrido, incluindo paradas. Andar conta como tempo.',
 ];
+
+// Selo "novo": a melhor marca da distancia aconteceu nos ultimos 30 dias (dia local, comparado com o dia local de hoje em Sao Paulo).
+export const RECENT_MARK_DAYS = 30;
+export function isRecentMark(localDate: string, now: Date = new Date()): boolean {
+  const today = new Date(now.getTime() - 3 * 3600_000).toISOString().slice(0, 10);
+  const diff = Math.floor((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${localDate.slice(0, 10)}T12:00:00Z`)) / 86_400_000);
+  return diff >= 0 && diff <= RECENT_MARK_DAYS;
+}
+
+// Mini grafico do cartao: so' as marcas BATIDAS (a escada da evolucao), em coordenadas 0-1 (x = tempo, y = 0 mais rapido/em cima).
+export function sparklinePoints(ranking: BestMark[]): Array<{ x: number; y: number }> {
+  const records = markChartPoints(ranking).filter((point) => point.isRecord);
+  if (records.length === 0) return [];
+  const xMin = records[0].day;
+  const xMax = records[records.length - 1].day;
+  const yMin = Math.min(...records.map((point) => point.seconds));
+  const yMax = Math.max(...records.map((point) => point.seconds));
+  return records.map((point) => ({ x: xMax === xMin ? 0.5 : (point.day - xMin) / (xMax - xMin), y: yMax === yMin ? 0.5 : (point.seconds - yMin) / (yMax - yMin) }));
+}
+
+export const MANUAL_REVIEW_INTRO = 'Estes são os treinos de corrida que você registrou. Cada um mostra se entrou nas melhores marcas e, se não entrou, o motivo.';

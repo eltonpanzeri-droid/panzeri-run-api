@@ -3352,3 +3352,5 @@ h3 {
 .mr-msg { margin: 0; font-size: 13px; color: #15803d; }
 .mr-facts { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: 12px; color: #5f6b7a; line-height: 1.45; }
 @media (max-width: 900px) { .bm-split, .mr-split { grid-template-columns: 1fr; } .mr-side { position: static; } .bm-big .bm-time { font-size: 36px; } }
+.bm-table.bm-static tbody tr { cursor: default; }
+.bm-table.bm-static tbody tr:hover { background: transparent; }

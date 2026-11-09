@@ -9,7 +9,8 @@ export interface Mark {
 }
 export interface DistanceMarks { distanceId: string; label: string; meters: number; best: Mark | null; ranking: Mark[] }
 export interface SelfReported { rank: 1 | 2 | 3; distanceKm: number | null; distanceRaw: string | null; timesRun: number | null; timeSeconds: number | null }
-export interface BestMarksResult { marks: DistanceMarks[]; selfReported: SelfReported[]; notes: string[] }
+export interface ManualReviewRow { localDate: string; distanceKm: number | null; durationMin: number | null; included: boolean; reason: string }
+export interface BestMarksResult { marks: DistanceMarks[]; selfReported: SelfReported[]; manualReview?: ManualReviewRow[]; notes: string[] }
 
 const two = (n: number) => String(n).padStart(2, '0');
 export function fmtTime(total: number): string {

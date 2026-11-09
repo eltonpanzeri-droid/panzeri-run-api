@@ -11,10 +11,25 @@ import { computeBestMarks, DistanceMarks, MarkActivity, selfReportedRuns, SelfRe
 
 // Melhores marcas (09/11/2026): leitura somente-leitura. Fonte: atividades do relogio (ActivityLog, ja' sem excluidas/ignoradas pelo filtro central do Prisma), registros manuais e teste de 3 km.
 // Nada e' guardado: a marca e' recalculada a cada leitura (excluir/ignorar uma atividade corrige a marca sozinho). Lote 1 = API; telas e bloco do prontuario vem nos proximos lotes.
+// Transparencia (09/11/2026): TODO registro manual de corrida da aluna, com a decisao e o motivo — para a aluna/treinador verem por que um registro entrou ou ficou de fora das marcas.
+export interface ManualReviewRow { localDate: string; distanceKm: number | null; durationMin: number | null; included: boolean; reason: string }
+
 export interface BestMarksResult {
   marks: DistanceMarks[];
   selfReported: SelfReportedRun[];
+  manualReview: ManualReviewRow[];
   notes: string[];
+}
+
+// Decisao pura de um registro manual de corrida (testavel). 'included' = entra no calculo; o motivo e' sempre dito.
+export function reviewManualCompletion(input: { status: string | null; distanceKm: number | null; durationMin: number | null; sessionOrigin: string | null; activeLinks: number }): { included: boolean; reason: string } {
+  if (input.status === 'missed') return { included: false, reason: 'marcado como treino não feito' };
+  if (input.sessionOrigin === 'device_extra') return { included: false, reason: 'é a cópia de uma atividade do relógio (vale a atividade do relógio)' };
+  if (input.activeLinks > 0) return { included: false, reason: 'o treino está ligado a uma atividade do relógio (vale a atividade do relógio, para não contar duas vezes)' };
+  if (input.distanceKm == null || input.distanceKm <= 0) return { included: false, reason: 'sem distância informada' };
+  if (input.durationMin == null || input.durationMin <= 0) return { included: false, reason: 'sem tempo informado' };
+  if (input.distanceKm < 1) return { included: false, reason: 'menos de 1 km (a menor marca é 1 km)' };
+  return { included: true, reason: 'entra nas marcas como registro manual' };
 }
 
 @Injectable()
@@ -35,10 +50,14 @@ export class BestMarksService {
 
     // 2) Registro manual: conclusao de sessao de corrida SEM atividade do relogio vinculada nem copia do aparelho.
     const completions = await this.prisma.workoutCompletion.findMany({
-      where: { userId, status: { not: 'missed' }, distanceKm: { gte: 1 }, durationMin: { gt: 0 }, session: { modality: { in: ['corrida', 'esteira'] }, origin: { not: 'device_extra' }, executionLinks: { none: { status: 'active' } } } },
-      select: { id: true, completedAt: true, distanceKm: true, durationMin: true, session: { select: { scheduledDate: true } } },
+      where: { userId, session: { modality: { in: ['corrida', 'esteira'] } } },
+      select: { id: true, status: true, completedAt: true, distanceKm: true, durationMin: true, session: { select: { scheduledDate: true, origin: true, executionLinks: { where: { status: 'active' }, select: { id: true } } } } },
     });
+    const manualReview: ManualReviewRow[] = [];
     for (const completion of completions) {
+      const decision = reviewManualCompletion({ status: completion.status, distanceKm: completion.distanceKm, durationMin: completion.durationMin, sessionOrigin: completion.session?.origin ?? null, activeLinks: completion.session?.executionLinks?.length ?? 0 });
+      manualReview.push({ localDate: completion.session?.scheduledDate ? completion.session.scheduledDate.toISOString().slice(0, 10) : activityLocalDate(completion.completedAt), distanceKm: completion.distanceKm, durationMin: completion.durationMin, included: decision.included, reason: decision.reason });
+      if (!decision.included) continue;
       activities.push({ id: `manual:${completion.id}`, source: 'manual', provider: null, startedAt: completion.session?.scheduledDate ?? completion.completedAt, localDate: completion.session?.scheduledDate ? completion.session.scheduledDate.toISOString().slice(0, 10) : activityLocalDate(completion.completedAt), distanceMeters: (completion.distanceKm as number) * 1000, durationSec: Math.round((completion.durationMin as number) * 60), series: [] });
     }
 
@@ -54,6 +73,7 @@ export class BestMarksService {
     return {
       marks: computeBestMarks(activities),
       selfReported: selfReportedRuns(answers),
+      manualReview: manualReview.sort((a, b) => b.localDate.localeCompare(a.localDate)).slice(0, 60),
       notes: [
         'As marcas usam o tempo total da atividade, incluindo paradas.',
         'Dentro de uma corrida mais longa, um trecho so conta se o relogio nao foi pausado nele; andar durante o trecho conta como tempo.',

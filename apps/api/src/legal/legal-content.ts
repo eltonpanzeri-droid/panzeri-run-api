@@ -13,8 +13,9 @@
 // 01/11/2026: saude da Polar (sono, HRV, atividade diaria) passa a poder alimentar o Atlas SE a aluna autorizar o Atlas no cartao da Polar (frase da secao de dispositivos).
 // 01/11/2026 (2a): preco unico de R$19,90/mes em todos os canais (Asaas e Google Play; o Play foi de R$24,90 para R$19,90 por Elton). A versao muda porque o texto mudou.
 // 06/11/2026: secao da Garmin (5D) e declaracao de IA da Garmin; secao 4 (Apple Watch) descreve o cartao com autorizacao e o envio ao abrir o aplicativo. A versao muda porque o texto mudou.
-export const LEGAL_VERSION = '2026-11-08.1';
-export const LEGAL_UPDATED_LABEL = '8 de novembro de 2026';
+// 09/11/2026 (ordem do Elton): secao 5 dos Termos passa a dizer que o aluno atesta a veracidade de tudo o que informa (cadastro, entrevista, registros manuais, feedbacks e marcas). A versao muda porque o texto mudou.
+export const LEGAL_VERSION = '2026-11-09.1';
+export const LEGAL_UPDATED_LABEL = '9 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
 export const LEGAL_PATHS = { terms: '/termos-de-uso', privacy: '/politica-privacidade' } as const;
@@ -322,7 +323,10 @@ export const TERMS_SECTIONS: LegalSection[] = [
   {
     id: 'informacoes',
     heading: '5. Responsabilidade sobre informações',
-    paragraphs: ['O programa de treinos é construído com base nas informações fornecidas pelo aluno. Informações incompletas, desatualizadas ou incorretas podem comprometer a adequação e a segurança do treino prescrito.'],
+    paragraphs: [
+      'O programa de treinos é construído com base nas informações fornecidas pelo aluno. Informações incompletas, desatualizadas ou incorretas podem comprometer a adequação e a segurança do treino prescrito.',
+      'O aluno atesta a veracidade de todas as informações que fornece ao Panzeri Run, incluindo o cadastro, as respostas da entrevista e das reavaliações, os registros manuais de treinos (distâncias, tempos e demais dados), os feedbacks e quaisquer marcas ou resultados informados, e é o único responsável por elas. O Panzeri Run usa essas informações como foram fornecidas e não as confere com outras fontes, a menos que isso seja dito expressamente.',
+    ],
   },
   {
     id: 'integracoes',
