@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { BillingModule } from '../billing/billing.module';
+import { BackupReviewService } from './backup-review.service';
 import { BackupService } from './backup.service';
 
 @Module({
@@ -8,7 +9,7 @@ import { BackupService } from './backup.service';
   // BillingModule, caso surja um ciclo no futuro.
   // 05/10/2026: MessagingModule (Resend) saiu — o backup nao e mais enviado por e-mail.
   imports: [forwardRef(() => BillingModule)],
-  providers: [BackupService],
+  providers: [BackupService, BackupReviewService],
   exports: [BackupService],
 })
 export class BackupModule {}

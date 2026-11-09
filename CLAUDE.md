@@ -225,6 +225,10 @@ Como aplicar:
 - **Agrupar** ajustes pequenos relacionados em uma mudança só antes de commitar/revisar, em vez de repetir o ciclo completo para cada detalhe.
 - Decidir mais rápido em coisa de baixo risco; não re-verificar tudo por precaução quando a evidência já é suficiente.
 
+## Rotinas periódicas (ordem de Elton, 09/11/2026)
+
+- **Revisão mensal do backup:** o servidor manda no Telegram, no dia 2 de cada mês às 9h, os números reais das cópias e a lista do que conferir (`BackupReviewService`). Na primeira conversa de cada mês, a partir do dia 2, se o PRONTUARIO não tiver "Revisão do backup AAAA-MM", **lembrar o Elton e conduzir a revisão**: (1) a mensagem do Telegram (cópias, idade da última, dias sem cópia); (2) custo na Cloudflare (Cobrança > Faturas, deve ser US$ 0,00); (3) "está pegando tudo?": comparar as tabelas/modelos novos desde o mês anterior com `BACKUP_EXCLUDED_TABLE_DATA` e com a classificação de `account-deletion`; (4) teste de restauração em janeiro, abril, julho e outubro (`RUNBOOKS/2026-10-05-BACKUP-RESTORE.md`); (5) notebook: Push feito, chaves no gerenciador de senhas, `copiar-memoria-claude-para-onedrive.bat` rodado (`RUNBOOKS/2026-11-09-BACKUP-DO-NOTEBOOK.md`). Quando Elton disser "revisão do backup feita", registrar no PRONTUARIO.
+
 ## Fluxo do repositório
 
 - **Todo arquivo criado em qualquer sessão (código, planilha, relatório, documento) é salvo na pasta GitHub `panzeri-run-api` — nunca em `Aplicativo Panzeri Run`, mesmo que o diretório de trabalho da sessão seja ele. Confirmar o caminho de destino ANTES de gravar.**
