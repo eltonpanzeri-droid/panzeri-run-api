@@ -32,7 +32,33 @@ export const BACKUP_RETENTION_DAYS = 14;
 // ProviderInboundEvent (19/10/2026): fila transitoria de eventos de provedores novos; restaurar eventos antigos reprocessaria dado possivelmente ja' excluido.
 // ProviderConnection/ProviderOAuthAttempt (19/10/2026): tokens cifrados e states da Central Universal; apos restauracao o aluno reconecta (mesma regra da Wahoo).
 export const BACKUP_EXCLUDED_TABLE_DATA = ['StravaActivity', 'StravaConnection', 'StravaAnalysisCache', 'TrainingExecutionInsight', 'StravaOAuthAttempt', 'StravaWebhookEvent', 'WahooConnection', 'WahooOAuthAttempt', 'ProviderInboundEvent', 'ProviderConnection', 'ProviderOAuthAttempt'];
-const BACKUP_SIZE_WARNING_BYTES = 20 * 1024 * 1024;
+// 09/11/2026 (ordem do Elton: "aumentar o tamanho do backup, sem comprometer financeiramente e sem risco de perder dados"): o backup NAO tem limite de tamanho no codigo — o unico limite era o AVISO de 20 MB, que ja'
+// disparava todo dia. Agora o aviso so' sobe por degraus (100, 250, 500, 1000, 2000 MB) e avisa UMA vez ao cruzar cada degrau, dizendo o custo estimado. Nada disso altera o que e' copiado, o formato, a
+// criptografia nem a retencao de 14 dias.
+export const BACKUP_SIZE_TIERS_MB = [100, 250, 500, 1000, 2000];
+// Preco de tabela do Cloudflare R2 (armazenamento Standard) em US$ por GB-mes: valor de referencia para a estimativa do aviso; conferir no painel da Cloudflare (a Cloudflare costuma ter faixa gratuita).
+export const R2_STORAGE_USD_PER_GB_MONTH = 0.015;
+
+export function backupSizeAlert(sizeBytes: number, previousSizeBytes: number | null): { shouldAlert: boolean; tierMb: number | null; message: string } {
+  const sizeMb = sizeBytes / 1024 / 1024;
+  const tierMb = [...BACKUP_SIZE_TIERS_MB].reverse().find((tier) => sizeMb >= tier) ?? null;
+  if (tierMb === null) return { shouldAlert: false, tierMb: null, message: '' };
+  const previousMb = previousSizeBytes === null ? 0 : previousSizeBytes / 1024 / 1024;
+  if (previousMb >= tierMb) return { shouldAlert: false, tierMb, message: '' };
+  const totalGb = (sizeBytes * (BACKUP_RETENTION_DAYS + 1)) / 1024 ** 3;
+  const usd = totalGb * R2_STORAGE_USD_PER_GB_MONTH;
+  const nextTier = BACKUP_SIZE_TIERS_MB.find((tier) => tier > tierMb);
+  return {
+    shouldAlert: true,
+    tierMb,
+    message: [
+      `Aviso de acompanhamento: o backup diario passou de ${tierMb} MB (hoje: ${sizeMb.toFixed(1)} MB).`,
+      `O armazenamento guarda ${BACKUP_RETENTION_DAYS} dias de copias: cerca de ${totalGb.toFixed(2)} GB no total, estimado em US$ ${usd.toFixed(2)} por mes pelo preco de tabela do R2 (a Cloudflare costuma dar uma faixa gratuita; confira no painel dela).`,
+      'Nenhum dado esta em risco: o backup nao tem limite de tamanho, isto e so um acompanhamento do crescimento do banco.',
+      nextTier ? `Novo aviso so quando passar de ${nextTier} MB.` : 'Este e o ultimo degrau de aviso configurado.',
+    ].join('\n'),
+  };
+}
 
 export interface BackupResult {
   ok: boolean;
@@ -40,6 +66,8 @@ export interface BackupResult {
   sizeBytes?: number;
   objectKey?: string;
   prunedObjects?: number;
+  // Tamanho do backup anterior (o mais recente antes deste); null se nao havia. Usado so' pelo aviso de crescimento.
+  previousSizeBytes?: number | null;
 }
 
 export function backupObjectKey(now: Date = new Date(), suffix: string = randomBytes(4).toString('hex')): string {
@@ -63,8 +91,9 @@ export class BackupService {
     if (!result.ok) {
       this.logger.error(`Backup diario falhou: ${result.error}`);
       await this.telegram.notifyCoach(`Falha no backup diario do banco de dados!\n\nMotivo: ${result.error}\n\nIsso precisa de atencao — sem backup de hoje, um problema no banco perderia dados mais recentes.`).catch(() => undefined);
-    } else if (result.sizeBytes && result.sizeBytes > BACKUP_SIZE_WARNING_BYTES) {
-      await this.telegram.notifyCoach(`Aviso: o backup diario de hoje ficou grande (${(result.sizeBytes / 1024 / 1024).toFixed(1)}MB). Acompanhe o crescimento do banco e o custo do armazenamento.`).catch(() => undefined);
+    } else if (result.sizeBytes) {
+      const alert = backupSizeAlert(result.sizeBytes, result.previousSizeBytes ?? null);
+      if (alert.shouldAlert) await this.telegram.notifyCoach(alert.message).catch(() => undefined);
     }
   }
 
@@ -123,9 +152,9 @@ export class BackupService {
         return { ok: false, error: 'Falha ao confirmar o upload do backup no armazenamento (tamanho/ETag divergentes).' };
       }
 
-      const prunedObjects = await this.pruneOldBackups(client, objectKey, secrets);
-      this.logger.log(`Backup criptografado enviado ao R2 (${info.size} bytes; ${prunedObjects} antigo(s) removido(s) pela retencao de ${BACKUP_RETENTION_DAYS} dias).`);
-      return { ok: true, sizeBytes: info.size, objectKey, prunedObjects };
+      const pruned = await this.pruneOldBackups(client, objectKey, secrets);
+      this.logger.log(`Backup criptografado enviado ao R2 (${info.size} bytes; ${pruned.removed} antigo(s) removido(s) pela retencao de ${BACKUP_RETENTION_DAYS} dias).`);
+      return { ok: true, sizeBytes: info.size, objectKey, prunedObjects: pruned.removed, previousSizeBytes: pruned.previousSizeBytes };
     } catch (error) {
       const message = redactSecrets(error, secrets);
       this.logger.error(`Falha ao gerar backup do banco: ${message}`);
@@ -137,20 +166,22 @@ export class BackupService {
 
   // Retencao de 14 dias: so' objetos com o nosso prefixo; nunca o objeto recem-enviado; falha aqui nao
   // invalida o backup (so' avisa no log, ja sanitizado).
-  private async pruneOldBackups(client: R2Client, justUploaded: string, secrets: Array<string | undefined>): Promise<number> {
+  private async pruneOldBackups(client: R2Client, justUploaded: string, secrets: Array<string | undefined>): Promise<{ removed: number; previousSizeBytes: number | null }> {
     try {
       const cutoff = Date.now() - BACKUP_RETENTION_DAYS * 24 * 60 * 60 * 1000;
       const objects = await client.listObjects(BACKUP_PREFIX);
+      // Backup anterior = o mais recente entre os que nao sao o recem-enviado (so' para o aviso de crescimento; nunca decide exclusao).
+      const previous = objects.filter((object) => object.key !== justUploaded && object.key.startsWith(BACKUP_PREFIX)).sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime())[0];
       let removed = 0;
       for (const object of objects) {
         if (object.key === justUploaded || !object.key.startsWith(BACKUP_PREFIX) || object.lastModified.getTime() >= cutoff) continue;
         await client.deleteObject(object.key);
         removed++;
       }
-      return removed;
+      return { removed, previousSizeBytes: previous ? previous.size : null };
     } catch (error) {
       this.logger.warn(`Retencao de backups nao concluida: ${redactSecrets(error, secrets)}`);
-      return 0;
+      return { removed: 0, previousSizeBytes: null };
     }
   }
 }
