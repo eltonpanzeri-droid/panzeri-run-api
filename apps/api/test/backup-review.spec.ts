@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildBackupReviewMessage, EXPECTED_BACKUP_COPIES, missingBackupDays, ReviewObject } from '../src/backup/backup-review';
+import { buildBackupReviewMessage, buildWeeklyLocalBackupReminder, EXPECTED_BACKUP_COPIES, missingBackupDays, ReviewObject } from '../src/backup/backup-review';
 import { BackupReviewService } from '../src/backup/backup-review.service';
 
 // 09/11/2026 (Elton): revisao mensal do backup por Telegram, com os numeros reais das copias e a lista do que conferir.
@@ -87,5 +87,26 @@ describe('BackupReviewService', () => {
     const source = readFileSync(join(__dirname, '..', 'src', 'backup', 'backup-review.service.ts'), 'utf8');
     expect(source).toContain("@Cron('0 12 2 * *')");
     expect(source).not.toMatch(/deleteObject|putObject/);
+  });
+});
+
+describe('lembrete semanal do que esta no computador', () => {
+  it('lembra do Push, do .bat de copia e das chaves, e diz como registrar', () => {
+    const text = buildWeeklyLocalBackupReminder();
+    expect(text).toContain('Push');
+    expect(text).toContain('copiar-memoria-claude-para-onedrive.bat');
+    expect(text).toContain('Backup-Panzeri-Run');
+    expect(text).toContain('BACKUP_ENCRYPTION_KEY');
+    expect(text).toContain('revisão semanal feita');
+    expect(text).not.toMatch(/motor|plano de treino/i);
+  });
+  it('o servico manda o lembrete pelo Telegram; agendado para sexta as 17:00 de Sao Paulo (20:00 UTC) (estatico)', async () => {
+    const telegram = { notifyCoach: jest.fn().mockResolvedValue(undefined) };
+    const instance = new BackupReviewService({ get: jest.fn() } as never, telegram as never);
+    await instance.sendWeeklyLocalReminder();
+    expect(telegram.notifyCoach).toHaveBeenCalledTimes(1);
+    expect(telegram.notifyCoach.mock.calls[0][0]).toContain('Lembrete semanal');
+    const source = readFileSync(join(__dirname, '..', 'src', 'backup', 'backup-review.service.ts'), 'utf8');
+    expect(source).toContain("@Cron('0 20 * * 5')");
   });
 });

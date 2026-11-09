@@ -4,7 +4,7 @@ import { Cron } from '@nestjs/schedule';
 import { TelegramService } from '../billing/telegram.service';
 import { BACKUP_PREFIX } from './backup.service';
 import { redactSecrets } from './backup-sanitize';
-import { buildBackupReviewMessage } from './backup-review';
+import { buildBackupReviewMessage, buildWeeklyLocalBackupReminder } from './backup-review';
 import { R2Client, R2Config } from './r2-client';
 
 // Revisao mensal do backup (09/11/2026): dia 2 de cada mes, 09:00 em Sao Paulo (12:00 UTC), manda no Telegram os numeros reais das copias e o que conferir. So' le e avisa; nunca altera copias.
@@ -39,5 +39,11 @@ export class BackupReviewService {
       }
     }
     await this.telegram.notifyCoach(message).catch((error) => this.logger.warn(`Revisao mensal do backup: Telegram indisponivel: ${(error as Error).message}`));
+  }
+
+  // Lembrete semanal (09/11/2026): sexta-feira as 17:00 em Sao Paulo (20:00 UTC). Nao le nada: so' lembra do Push, do .bat de copia e das chaves.
+  @Cron('0 20 * * 5')
+  async sendWeeklyLocalReminder() {
+    await this.telegram.notifyCoach(buildWeeklyLocalBackupReminder()).catch((error) => this.logger.warn(`Lembrete semanal de backup: Telegram indisponivel: ${(error as Error).message}`));
   }
 }
