@@ -392,6 +392,18 @@ export function computeRunSlots(availability: MethodologyAvailability[]) {
     .sort((left, right) => left.weekday - right.weekday);
 }
 
+// 09/11/2026 (caso Andreia): quando a aluna escolhe "Nao, a partir de amanha" (generateFrom), o prompt manda a IA PULAR os dias anteriores a essa data — entao a conferencia nao pode EXIGIR a
+// forca desses dias. Devolve so' os dias de forca cuja data e' >= generateFrom. Sem generateFrom: todos (comportamento de sempre). Dia sem data conhecida: continua exigido (conservador).
+// Estrutural: nao escolhe treino nenhum; so' diz quais dias da rotina ainda cabem na geracao.
+export function requiredStrengthSlots<T extends { weekday: number }>(slots: T[], weekDates: Array<{ weekday: number; date: string }> | null | undefined, generateFrom: string | null | undefined): T[] {
+  if (!generateFrom) return slots;
+  const dateOf = new Map((weekDates ?? []).map((item) => [item.weekday, item.date]));
+  return slots.filter((slot) => {
+    const date = dateOf.get(slot.weekday);
+    return date === undefined || date >= generateFrom;
+  });
+}
+
 export function computeStrengthSlots(availability: MethodologyAvailability[]): StrengthSlot[] {
   return availability
     .flatMap((day) => day.modalities.filter(isStrengthModality).map((modality) => ({

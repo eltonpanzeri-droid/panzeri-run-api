@@ -11,6 +11,7 @@ import {
   WeeklyMethodologyDecision,
   computeRunSlots,
   computeStrengthSlots,
+  requiredStrengthSlots,
   hasSafetyConcern,
   isNovice,
 } from './training-methodology';
@@ -628,7 +629,10 @@ export class PrescriptionAgentService {
       const validated = this.validateSessions(parsed.sessions, runSlots);
       const sessions = validated.sessions;
 
-      const strengthValidation = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots);
+      // Dias de forca anteriores a "gerar a partir de" (aluna escolheu "Nao, a partir de amanha") foram PULADOS por instrucao: nao sao exigidos nem reparados (caso Andreia, 09/11/2026).
+      const requiredSlots = requiredStrengthSlots(strengthSlots, input.weekDates, input.generateFrom);
+      if (requiredSlots.length < strengthSlots.length) this.logger.log(`Dia(s) de forca anteriores a ${input.generateFrom} nao sao exigidos nesta geracao: [${strengthSlots.filter((slot) => !requiredSlots.includes(slot)).map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
+      const strengthValidation = this.validateStrengthSessions(parsed.strengthSessions, strengthSlots, requiredSlots);
       let strengthSessions = strengthValidation.sessions;
       if (strengthValidation.missingSlots.length) {
         // Mesma filosofia do reparo por dia isolado de corrida acima: a IA as vezes devolve os
@@ -807,6 +811,8 @@ export class PrescriptionAgentService {
   private validateStrengthSessions(
     sessions: z.infer<typeof AiStrengthSessionSchema>[],
     strengthSlots: StrengthSlot[],
+    // Dias que a resposta PRECISA trazer (padrao: todos da rotina). So' muda o que conta como "faltou"; a classificacao de dia fora da rotina continua usando strengthSlots.
+    requiredSlots: StrengthSlot[] = strengthSlots,
   ): { sessions: StrengthSessionDecision[]; missingSlots: StrengthSlot[]; sessionMismatches: Record<string, string> } {
     const slotByKey = new Map(strengthSlots.map((slot) => [`${slot.weekday}:${slot.modality}`, slot]));
     const usedKeys = new Set<string>();
@@ -845,7 +851,7 @@ export class PrescriptionAgentService {
       });
     }
 
-    const missingSlots = strengthSlots.filter((slot) => !usedKeys.has(`${slot.weekday}:${slot.modality}`));
+    const missingSlots = requiredSlots.filter((slot) => !usedKeys.has(`${slot.weekday}:${slot.modality}`));
     return { sessions: result, missingSlots, sessionMismatches };
   }
 
