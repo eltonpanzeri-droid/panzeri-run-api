@@ -103,6 +103,8 @@ describe('ligacao das telas', () => {
     expect(app).toContain('computeWeekOffsetMobile(mondayOf(localDate))');
     expect(app).toContain('<ActivityDetailModal activityLogId={marksActivityId}');
     expect(screen).toContain('/me/best-marks');
-    expect(admin).toContain('<BestMarks studentId={student.id} accessToken={token} apiUrl={API_URL} />');
+    expect(admin).toContain('marcas: <BestMarks studentId={student.id} accessToken={token} apiUrl={API_URL} />');
+    const adminHub = readFileSync(join(__dirname, '..', '..', 'admin', 'app', 'evolution-hub.tsx'), 'utf8');
+    expect(adminHub).toContain("{ id: 'marcas', label: 'Melhores marcas' }, { id: 'relatorio', label: 'Relatório mensal' }");
   });
 });

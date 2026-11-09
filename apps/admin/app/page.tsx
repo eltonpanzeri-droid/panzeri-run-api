@@ -4240,10 +4240,10 @@ function StudentPanel({
                   </EvoSection>
                 </>
               ),
+              marcas: <BestMarks studentId={student.id} accessToken={token} apiUrl={API_URL} />,
+              relatorio: <MonthlyReport studentId={student.id} accessToken={token} apiUrl={API_URL} />,
             }}
           />
-          <BestMarks studentId={student.id} accessToken={token} apiUrl={API_URL} />
-          <MonthlyReport studentId={student.id} accessToken={token} apiUrl={API_URL} />
         </div>
         );
       })() : null}

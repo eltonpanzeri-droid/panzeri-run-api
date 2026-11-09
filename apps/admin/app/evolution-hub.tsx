@@ -8,10 +8,12 @@ import './ti/explorer.css';
 
 // Aba Evolucao do aluno (27/10/2026): uma central com um unico cabecalho de periodo e abas internas. A exploracao de indicadores e a comparacao usam a infraestrutura do
 // Training Intelligence (catalogo, matematica longitudinal e grafico); as demais analises existentes entram como paineis (slots) vindos da pagina do aluno.
-export type HubTab = 'geral' | 'explorar' | 'comparar' | 'saude' | 'linha' | 'registros';
+// 09/11/2026: 'marcas' (Melhores marcas) e 'relatorio' (Relatorio mensal por e-mail) viraram botoes do menu da Evolucao, ao lado de Registros.
+export type HubTab = 'geral' | 'explorar' | 'comparar' | 'saude' | 'linha' | 'registros' | 'marcas' | 'relatorio';
 export const HUB_TABS: Array<{ id: HubTab; label: string }> = [
   { id: 'geral', label: 'Visão geral' }, { id: 'explorar', label: 'Explorar' }, { id: 'comparar', label: 'Comparar' },
   { id: 'saude', label: 'Saúde' }, { id: 'linha', label: 'Linha do tempo' }, { id: 'registros', label: 'Registros' },
+  { id: 'marcas', label: 'Melhores marcas' }, { id: 'relatorio', label: 'Relatório mensal' },
 ];
 export const HUB_PERIODS = PERIODS;
 export type { PeriodSelection };
@@ -19,7 +21,7 @@ export type { PeriodSelection };
 export default function EvolutionHub({ studentId, token, studentIsFemale, exportProfile, period, onPeriodChange, onOpenOriginal, onOpenIntegrations, slots, initialTab = 'geral' }: {
   studentId: string; token: string; studentIsFemale: boolean | null; exportProfile?: ExportProfile;
   period: PeriodSelection; onPeriodChange: (next: PeriodSelection) => void; onOpenOriginal: (target: { date: string; sessionId?: string }) => void; onOpenIntegrations?: () => void;
-  slots: Record<'geral' | 'volume' | 'carga' | 'saude' | 'linha' | 'registros', React.ReactNode>; initialTab?: HubTab;
+  slots: Record<'geral' | 'volume' | 'carga' | 'saude' | 'linha' | 'registros' | 'marcas' | 'relatorio', React.ReactNode>; initialTab?: HubTab;
 }) {
   const [tab, setTab] = React.useState<HubTab>(initialTab);
   const [visited, setVisited] = React.useState<Set<HubTab>>(new Set([initialTab]));
@@ -55,6 +57,8 @@ export default function EvolutionHub({ studentId, token, studentIsFemale, export
     {panel('saude', slots.saude)}
     {panel('linha', slots.linha)}
     {panel('registros', slots.registros)}
+    {panel('marcas', slots.marcas)}
+    {panel('relatorio', slots.relatorio)}
     {picking && <div className="ti-app ti-app-embedded" data-theme="light" style={{ border: 'none', background: 'transparent', height: 0, overflow: 'visible' }}>
       <Modal title="Período personalizado" onClose={() => setPicking(false)}>
         <CustomPeriodForm onApply={(range) => { onPeriodChange({ id: 'custom', custom: range }); setPicking(false); }} />
