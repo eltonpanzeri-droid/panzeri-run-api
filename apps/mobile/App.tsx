@@ -5161,6 +5161,11 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
       setIsCheckingOut(false);
       return;
     }
+    // 09/11/2026 (ordem de Elton): app NATIVO (Google Play / App Store) NUNCA usa o Asaas — sem a loja disponivel, nao cai no checkout do Asaas.
+    if (Platform.OS !== 'web') {
+      setBillingMessage('A compra pela loja nao esta disponivel nesta versao do Panzeri Run. Atualize o aplicativo pela loja e tente de novo.');
+      return;
+    }
     if (cpf.replace(/\D/g, '').length !== 11) {
       setBillingMessage('Informe um CPF válido (11 números) para continuar.');
       return;
@@ -9924,6 +9929,11 @@ function Billing({ accessToken }: { accessToken: string }) {
       setIsCheckingOut(false);
       return;
     }
+    // 09/11/2026 (ordem de Elton): app NATIVO nunca cai no Asaas.
+    if (Platform.OS !== 'web') {
+      setMessage('A compra pela loja nao esta disponivel nesta versao do Panzeri Run. Atualize o aplicativo pela loja e tente de novo.');
+      return;
+    }
     if (!details?.hasCpf && cpf.replace(/\D/g, '').length !== 11) {
       setMessage('Informe um CPF válido (11 números) para continuar.');
       return;
@@ -10030,9 +10040,9 @@ function Billing({ accessToken }: { accessToken: string }) {
       return;
     }
     if (ctx.ctaAction === 'pay_overdue') {
-      if (iosStoreBuild()) {
-        // Quem assinou pelo site continua acessando; mas o app do iPhone nao leva a pagamento fora da App Store.
-        setMessage('Seu pagamento feito pelo site esta pendente. Para continuar no iPhone, fale com o treinador ou assine pela App Store.');
+      // 09/11/2026 (ordem de Elton): no app nativo quem paga e' a loja (Google Play / App Store); nada de fatura do Asaas.
+      if (Platform.OS !== 'web') {
+        await subscribe();
         return;
       }
       if (!ctx.actionUrl) {
@@ -10103,7 +10113,7 @@ function Billing({ accessToken }: { accessToken: string }) {
       {/* 05/09: aviso contextual quando o estado da assinatura exige ação imediata (ex: overdue). */}
       {details?.subscriptionContext?.detailMessage ? (
         <View style={styles.formSection}>
-          <Text style={styles.formHint}>{details.subscriptionContext.detailMessage}</Text>
+          <Text style={styles.formHint}>{Platform.OS !== 'web' && details.subscriptionContext.ctaAction === 'pay_overdue' ? 'Seu ultimo pagamento nao foi confirmado. Toque no botao abaixo para regularizar pela loja.' : details.subscriptionContext.detailMessage}</Text>
         </View>
       ) : null}
 

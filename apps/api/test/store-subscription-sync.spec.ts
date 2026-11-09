@@ -96,7 +96,7 @@ describe('app: iOS usa a loja; Android e web inalterados', () => {
     expect(app).toContain('pickStorePackage(offerings as never)');
     expect(app).not.toContain('offerings.current?.availablePackages?.[0]');
     expect(app.match(/!iosStoreBuild\(\)/g)?.length).toBeGreaterThanOrEqual(3); // cupom (3 telas)
-    expect(app).toMatch(/pay_overdue'\) \{\s+if \(iosStoreBuild\(\)\)/);
+    expect(app).toMatch(/pay_overdue'\) \{[^}]*Platform\.OS !== 'web'\) \{\s+await subscribe\(\);/); // 09/11/2026: nativo regulariza pela loja, nunca pelo Asaas
     expect(app).toContain('renovação automática'); // Apple 3.1.2
     expect(app).toContain('onPress={() => Linking.openURL(LEGAL_TERMS_URL)}');
     expect(app.match(/!isNativeStorePurchaseAvailable\(\) \? \(/g)?.length).toBeGreaterThanOrEqual(2);

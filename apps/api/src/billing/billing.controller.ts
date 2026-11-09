@@ -1,4 +1,5 @@
-﻿import { Body, Controller, Get, Headers, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
+﻿import { Body, Controller, ForbiddenException, Get, Headers, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
+import { isNativeStoreClient } from './native-store-client';
 import { AuthGuard } from '@nestjs/passport';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
@@ -23,7 +24,11 @@ export class BillingController {
 
   @UseGuards(AuthGuard('jwt'))
   @Post('checkout')
-  createCheckout(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateCheckoutDto) {
+  createCheckout(@CurrentUser() user: CurrentUserPayload, @Body() dto: CreateCheckoutDto, @Headers('user-agent') userAgent?: string) {
+    // 09/11/2026 (ordem de Elton): quem usa o app da Google Play / App Store paga SO' pela loja — o Asaas nunca e' criado a partir do app nativo (vale tambem para versoes antigas do app).
+    if (isNativeStoreClient(userAgent)) {
+      throw new ForbiddenException({ code: 'store_purchase_required', message: 'No aplicativo da loja a assinatura e feita pela Google Play ou pela App Store.' });
+    }
     return this.billingService.createCheckout(user.sub, dto.cpf);
   }
 
