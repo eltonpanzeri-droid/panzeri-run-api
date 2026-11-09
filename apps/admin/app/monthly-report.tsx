@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-// Aluno > Evolução > "Relatório mensal por e-mail" (09/11/2026). O envio automático (dia 1, 9h) só liga com MONTHLY_REPORT_ENABLED=true. Aqui o treinador vê a PRÉVIA do e-mail de uma aluna e manda
-// um TESTE para o PRÓPRIO e-mail dele (nunca para a aluna). Nada aqui envia para a aluna.
+// Aluno > Evolução > "Relatório mensal" (09/11/2026). O envio automático (dia 1, 9h) só liga com MONTHLY_REPORT_ENABLED=true. Aqui o treinador vê a PRÉVIA do e-mail de uma aluna e manda um TESTE
+// para o PRÓPRIO e-mail dele (nunca para a aluna). Nada aqui envia para a aluna.
 const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 function lastMonths(count: number): Array<{ key: string; label: string }> {
@@ -58,17 +58,37 @@ export default function MonthlyReport({ studentId, accessToken, apiUrl }: { stud
   }
 
   return (
-    <section className="integrationsWrap" aria-label="Relatório mensal por e-mail">
-      <header className="integrationsHeader"><div><h3>Relatório mensal por e-mail</h3><p>Prévia do e-mail que a aluna recebe no dia 1, às 9h (se treinou no mês). O envio automático só liga com a variável MONTHLY_REPORT_ENABLED=true.</p></div></header>
-      <p>
-        <label>Mês: <select value={month} onChange={(event) => setMonth(event.target.value)}>{months.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select></label>{' '}
-        <button type="button" onClick={() => void sendTest()} disabled={sending || !preview?.hasActivity}>{sending ? 'Enviando...' : 'Enviar teste para o meu e-mail'}</button>
-      </p>
-      {message ? <p role="status">{message}</p> : null}
-      {state === 'loading' ? <p>Carregando a prévia...</p> : null}
-      {state === 'error' ? <p role="alert">Não foi possível montar a prévia agora.</p> : null}
-      {preview && !preview.hasActivity ? <p className="eqFine">Esta aluna não treinou nesse mês: o e-mail real não seria enviado a ela. A prévia abaixo é só para ver o modelo.</p> : null}
-      {preview ? <iframe title="Prévia do relatório mensal" srcDoc={preview.html} style={{ width: '100%', maxWidth: 640, height: 720, border: '1px solid #E5EAF0', borderRadius: 12, background: '#fff' }} /> : null}
+    <section className="bm" aria-label="Relatório mensal por e-mail">
+      <header className="bm-hero">
+        <div>
+          <span className="bm-kicker">RELATÓRIO MENSAL</span>
+          <h3>E-mail mensal da aluna</h3>
+          <p>Prévia do e-mail que ela recebe no dia 1, às 9h, quando treinou no mês anterior.</p>
+        </div>
+      </header>
+      <div className="mr-split">
+        <div className="bm-card mr-preview">
+          {state === 'loading' ? <p className="bm-muted">Carregando a prévia...</p> : null}
+          {state === 'error' ? <p role="alert">Não foi possível montar a prévia agora.</p> : null}
+          {preview && !preview.hasActivity ? <p className="bm-muted">Esta aluna não treinou nesse mês: o e-mail real não seria enviado a ela. A prévia abaixo é só para ver o modelo.</p> : null}
+          {preview ? <iframe title="Prévia do relatório mensal" srcDoc={preview.html} className="mr-frame" onLoad={(event) => { const doc = event.currentTarget.contentDocument; if (doc) event.currentTarget.style.height = `${doc.documentElement.scrollHeight + 8}px`; }} /> : null}
+        </div>
+        <aside className="bm-card mr-side">
+          <h4>Teste e envio</h4>
+          <label className="mr-field">Mês do relatório
+            <select value={month} onChange={(event) => setMonth(event.target.value)}>{months.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>
+          </label>
+          <button type="button" className="mr-send" onClick={() => void sendTest()} disabled={sending || !preview?.hasActivity}>{sending ? 'Enviando...' : 'Enviar teste para o meu e-mail'}</button>
+          {message ? <p role="status" className="mr-msg">{message}</p> : null}
+          <ul className="mr-facts">
+            <li><strong>Quando:</strong> todo dia 1, às 9h (Brasília).</li>
+            <li><strong>Quem recebe:</strong> alunas ativas, pagantes e cortesia, que treinaram no mês. Quem não treinou não recebe nada.</li>
+            <li><strong>Teste:</strong> vai só para o seu e-mail, nunca para a aluna.</li>
+            <li><strong>Envio automático:</strong> só liga com a variável MONTHLY_REPORT_ENABLED=true.</li>
+            <li><strong>Descadastro:</strong> link no rodapé do e-mail; a aluna desliga com um clique.</li>
+          </ul>
+        </aside>
+      </div>
     </section>
   );
 }
