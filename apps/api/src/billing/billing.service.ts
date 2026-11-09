@@ -38,6 +38,8 @@ type RevenueCatEvent = {
   transaction_id?: string;
   original_transaction_id?: string;
   purchased_at_ms?: number;
+  // 09/11/2026 (caso Tiago): ambiente da compra no RevenueCat — 'SANDBOX' (teste: licenca de teste do Google, sandbox da Apple) ou 'PRODUCTION'. Ausente = desconhecido (comportamento antigo).
+  environment?: string;
   // Interno (nunca vem do RevenueCat): evento sintetico de RECUPERACAO por reconciliacao automatica — restaura o acesso sem anunciar nova transacao financeira.
   reconciliation_recovery?: boolean;
   // TRANSFER (compra restaurada em OUTRA conta): ids de origem e destino.
@@ -245,6 +247,18 @@ function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canc
 // Reativacao (cancelado/atrasado/pendente COM studentCode) NAO e' primeira compra, e uma renovacao
 // (status ja 'active', sem transicao) tambem nao. Isso impede que assinantes antigos (anteriores a
 // instrumentacao, firstPaidAt null) ganhem uma "primeira compra" falsa na 1a renovacao pos-deploy.
+// 09/11/2026 (caso Tiago): compra de TESTE nao e' compra real. O ambiente vem do RevenueCat; qualquer outro valor (ou ausencia) e' tratado como desconhecido e mantem o comportamento antigo.
+export function storeEnvironmentOf(event: { environment?: unknown } | undefined): 'SANDBOX' | 'PRODUCTION' | null {
+  const value = typeof event?.environment === 'string' ? event.environment.trim().toUpperCase() : '';
+  return value === 'SANDBOX' || value === 'PRODUCTION' ? value : null;
+}
+
+// Contas de revisao da Apple/Google ficam SEMPRE marcadas como teste, mesmo depois de uma compra de producao.
+export function isStoreReviewAccountEmail(email: string | null | undefined): boolean {
+  const value = (email ?? '').toLowerCase();
+  return value.startsWith('revisao-apple-') || value.startsWith('revisao-google-');
+}
+
 function isFirstPurchaseTransition(prevStatus: string | null | undefined, studentCode: number | null | undefined): boolean {
   return studentCode == null || prevStatus === 'manual_active';
 }
@@ -983,6 +997,7 @@ export class BillingService {
         }
         await this.handleRevenueCatEvent({
           type: recoverable ? 'RENEWAL' : 'INITIAL_PURCHASE', app_user_id: userId, product_id: chosen.product_identifier,
+          ...(typeof chosen.is_sandbox === 'boolean' ? { environment: chosen.is_sandbox ? 'SANDBOX' : 'PRODUCTION' } : {}),
           ...(recoverable && options.automatic ? { reconciliation_recovery: true } : {}),
           purchased_at_ms: chosen.original_purchase_date && !Number.isNaN(new Date(chosen.original_purchase_date).getTime()) ? new Date(chosen.original_purchase_date).getTime() : undefined,
         });
@@ -1410,10 +1425,25 @@ export class BillingService {
     if (!userId) return { received: true };
 
     // Conta excluida: assinatura de loja e' gerida pelo proprio usuario na loja; aqui nada e' alterado nem notificado.
-    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true } });
+    const owner = await this.prisma.user.findUnique({ where: { id: userId }, select: { accountStatus: true, isTestAccount: true, email: true } });
     if (owner?.accountStatus === 'deleted') {
       this.logger.warn('Evento RevenueCat recebido para conta excluida: ignorado (sem alteracao).');
       return { received: true };
+    }
+
+    // 09/11/2026 (caso Tiago): compra de TESTE (SANDBOX) libera o acesso — revisores da Apple/Google e testadores precisam disso — mas a conta passa a ser marcada como teste
+    // automaticamente (fora das contagens, de Ex-alunos e de cancelamentos), sem "primeira compra paga" e sem aviso/e-mail de pagamento real. A primeira compra de PRODUCAO de uma
+    // conta marcada assim desmarca (exceto contas de revisao das lojas) e passa a valer como compra real.
+    const storeEnvironment = storeEnvironmentOf(event);
+    let clearedTestFlag = false;
+    if (storeEnvironment === 'SANDBOX' && owner && !owner.isTestAccount) {
+      await this.prisma.user.update({ where: { id: userId }, data: { isTestAccount: true } }).catch((error) => this.logger.warn(`Nao consegui marcar a conta como teste (compra de teste): ${(error as Error).message}`));
+      this.logger.log(`Compra de TESTE na loja (SANDBOX): conta marcada como teste automaticamente. userId=${userId}`);
+    }
+    if (storeEnvironment === 'PRODUCTION' && owner?.isTestAccount && REVENUECAT_ACTIVE_EVENTS.has(event?.type ?? '') && !isStoreReviewAccountEmail(owner.email)) {
+      await this.prisma.user.update({ where: { id: userId }, data: { isTestAccount: false } }).catch((error) => this.logger.warn(`Nao consegui desmarcar a conta de teste (compra real): ${(error as Error).message}`));
+      clearedTestFlag = true;
+      this.logger.log(`Primeira compra de PRODUCAO de uma conta marcada como teste: marca removida, passa a valer como aluna real. userId=${userId}`);
     }
 
     // 27/08: CANCELLATION = a aluna desligou o auto-renew na loja (Apple/Google), mas continua
@@ -1424,6 +1454,8 @@ export class BillingService {
     // 05/09: notificacao de cancelamento agendado adicionada — aluna sabe que cancelou e ate quando
     // ainda tem acesso. externalRef usa tipo+produto pois o RevenueCat nao tem payment.id aqui.
     if (event?.type === 'CANCELLATION') {
+      // Fim/cancelamento de uma assinatura de TESTE nao e' pedido real da aluna (caso Tiago): nada e' gravado nem avisado.
+      if (storeEnvironment === 'SANDBOX') return { received: true };
       await this.prisma.user.update({ where: { id: userId }, data: { subscriptionCancelRequestedAt: new Date() } }).catch(() => {});
       await this.notifications.notifyUserIfNotRecent(
         userId,
@@ -1499,6 +1531,11 @@ export class BillingService {
         await this.assignStudentCodeIfNeeded(userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);
+        // 09/11/2026: compra de TESTE — avisa o treinador como teste e para aqui (sem 'Pagamento recebido', sem e-mail de pagamento e sem 'primeira compra paga').
+        if (storeEnvironment === 'SANDBOX') {
+          await this.telegram.notifyCoach(`Compra de TESTE na loja (nao e pagamento real). Conta marcada como teste automaticamente.\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}`);
+          return { received: true };
+        }
         // 18/10/2026: recuperacao de acesso por reconciliacao NAO e' uma nova transacao financeira — sem 'Pagamento recebido' nem e-mail de confirmacao.
         // Compras e renovacoes confirmadas (webhook e compra explicita pelo app) continuam notificando normalmente.
         if (event?.reconciliation_recovery) {
@@ -1525,7 +1562,7 @@ export class BillingService {
     // financeiro confiavel equivalente ao do Asaas (proibido inventar). purchases (contagem) pode
     // refletir RevenueCat; revenue (R$) continua so' Asaas. A TRANSICAO de status (status_changed) e'
     // registrada normalmente acima — e' fato de estado, nao de receita.
-    if (event?.type === 'INITIAL_PURCHASE' && statusActuallyChanged && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode)) {
+    if (event?.type === 'INITIAL_PURCHASE' && storeEnvironment !== 'SANDBOX' && statusActuallyChanged && (isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode) || clearedTestFlag)) {
       const purchasedAt = event.purchased_at_ms ? new Date(event.purchased_at_ms) : new Date();
       // Identificador real de transacao da loja, nunca o userId (nao e' um pagamento). Se o
       // RevenueCat nao mandar nenhum dos dois campos (nao deveria acontecer na pratica), fica null
@@ -1562,6 +1599,10 @@ export class BillingService {
           where: { id: existingBilling.id, firstPaidAt: null },
           data: { provider: 'revenuecat', firstPaidAt: purchasedAt, firstPaidPaymentId: paymentId },
         });
+      }
+      else if (clearedTestFlag) {
+        // Conta que era de teste e fez a primeira compra REAL: a data anterior (se houver) veio de compra de teste; vale a data real.
+        await this.prisma.billingSubscription.updateMany({ where: { id: existingBilling.id }, data: { provider: 'revenuecat', firstPaidAt: purchasedAt, firstPaidPaymentId: paymentId } });
       }
       // Se existingBilling.firstPaidAt ja estava preenchido, nao mexe em nada — idempotente.
     }
