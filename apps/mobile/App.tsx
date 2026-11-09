@@ -50,6 +50,10 @@ import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
 import { mondayOf } from './home/bestMarks';
+import { registerAppScroll, reportAppScrollOffset, scrollAppToWindowY } from './src/appScroll';
+import { FEEDBACK_BADGE_TEXT, feedbackBadge, type FeedbackBadgeState } from './src/feedbackStatus';
+import { availableSheetHeight } from './src/keyboardLayout';
+import { useKeyboardHeight } from './src/useKeyboardHeight';
 import { EvolutionAreaId } from './home/EvolutionAreaGrid';
 import { IndicatorMeaning } from './home/IndicatorMeaning';
 import type { FeelingDomain, SnapshotLite } from './home/insights';
@@ -61,7 +65,7 @@ import { useFonts, BigShouldersDisplay_800ExtraBold } from '@expo-google-fonts/b
 // Public Sans e JetBrains Mono (identidade-visual-panzeri-run) entram aqui quando alguma tela
 // realmente passar a usar PRFonts.bodyRegular/bodyMedium/bodyBold/bodyExtraBold/data — ver
 // comentario no useFonts() mais abaixo.
-import { ActivityIndicator, Alert, Animated, Image, Modal, PanResponder, Platform, AppState, Pressable, Linking, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Image, Modal, PanResponder, Platform, AppState, Pressable, Linking, ScrollView, StyleSheet, Switch, TextInput, View, useWindowDimensions } from 'react-native';
 import { Text } from './src/PtText';
 // 03/09: `SafeAreaView` do pacote `react-native` puro NUNCA aplicou de verdade a area segura no
 // Android (so' funciona no iOS) — antes disso nao importava, porque o Android reservava sozinho o
@@ -1861,7 +1865,7 @@ function AppInner() {
               setMenuOpen(false);
             }}
           />
-          <ScrollView contentContainerStyle={[styles.appContent, { paddingBottom: 96 + safeAreaInsets.bottom }]}>
+          <ScrollView ref={registerAppScroll} onScroll={(event) => reportAppScrollOffset(event.nativeEvent.contentOffset.y)} scrollEventThrottle={32} contentContainerStyle={[styles.appContent, { paddingBottom: 96 + safeAreaInsets.bottom }]}>
             {exerciseResponsibilityRequired ? (
               <ExerciseResponsibility
                 accessToken={accessToken}
@@ -4044,11 +4048,16 @@ function WeeklyCheckInModal({
     });
   }
 
+  // 09/11/2026 (Elton): com o teclado aberto a folha encolhe para caber ACIMA dele e rola ate' o campo, que antes ficava escondido atras do teclado.
+  const keyboardHeight = useKeyboardHeight();
+  const { height: windowHeight } = useWindowDimensions();
+  const checkInScrollRef = useRef<ScrollView>(null);
+
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.appMenuOverlay}>
-        <View style={styles.appMenuSheet}>
-          <ScrollView contentContainerStyle={styles.appMenuContent}>
+        <View style={[styles.appMenuSheet, keyboardHeight > 0 && { maxHeight: availableSheetHeight(windowHeight, keyboardHeight, Platform.OS === 'ios' ? 100 : 76) }]}>
+          <ScrollView ref={checkInScrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.appMenuContent}>
             {step === 'confirm' && summary ? (
               <>
                 <Text style={styles.formSectionTitle}>Antes de gerar sua nova semana</Text>
@@ -4187,6 +4196,7 @@ function WeeklyCheckInModal({
                       style={[styles.compactInput, styles.multilineInput]}
                       value={freeTextObservation}
                       onChangeText={setFreeTextObservation}
+                      onFocus={() => { setTimeout(() => checkInScrollRef.current?.scrollToEnd({ animated: true }), 300); }}
                       multiline
                       placeholder="Conte com suas palavras, se quiser (opcional)"
                     />
@@ -4211,6 +4221,17 @@ function WeeklyCheckInModal({
         </View>
       </View>
     </Modal>
+  );
+}
+
+// Aviso de feedback no cartao do treino (09/11/2026): pendente chama a atencao; enviado confirma.
+function FeedbackBadgeView({ state }: { state: FeedbackBadgeState }) {
+  if (!state) return null;
+  if (state === 'done') return <Text style={{ fontSize: 12, color: '#15803d', fontWeight: '600', marginTop: 2 }}>{FEEDBACK_BADGE_TEXT.done}</Text>;
+  return (
+    <View style={{ alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+      <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '700' }}>{FEEDBACK_BADGE_TEXT.pending}</Text>
+    </View>
   );
 }
 
@@ -4267,6 +4288,9 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
   // 06/11/2026: envio automatico dos treinos da semana ao Apple Watch ao abrir o Panzeri Run (so' iPhone nativo, so' depois do primeiro envio manual).
   useAppleWatchAutoSend(plan?.sessions, accessToken, API_URL);
   const [completionMessages, setCompletionMessages] = useState<Record<string, string>>({});
+  // Feedbacks pendentes devolvidos pelo servidor na ultima consulta do check-in (mais antigo primeiro) e os cartoes de treino, para o "Completar antes" levar a aluna ate' um deles (09/11/2026).
+  const pendingFeedbackItemsRef = useRef<Array<{ sessionId: string | null; activityLogId?: string }>>([]);
+  const sessionCardRefs = useRef<Record<string, View | null>>({});
   const [status, setStatus] = useState('');
   // Bug real corrigido 12/09 (Juliana, Lucelane): isLoading começa true para que a primeira
   // renderização não caia no bloco de pagamento (plan=null, notGeneratedRange=null, isLoading=false
@@ -4685,13 +4709,14 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (response.ok) {
-        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean; pendingFeedbacks?: Array<{ sessionId: string | null }> };
+        const data = (await response.json()) as { needsCheckIn: boolean; summary: WeeklyCheckInSummary; showExplanation: boolean; todayHasRoutine: boolean; pendingFeedbacks?: Array<{ sessionId: string | null; activityLogId?: string }> };
         // Guarda agora: se o aluno precisar do check-in e so' voltar aqui depois de concluir, o
         // estado ja esta pronto — skipCheckInAndGenerate/submitCheckInAndGenerate consultam esse flag.
         setGenerationTodayHasRoutine(data.todayHasRoutine ?? false);
         // 03/10/2026 — cobranca de feedbacks das atividades realizadas da semana antes de gerar a
         // proxima. Nunca impossibilita: "Gerar mesmo assim" segue o fluxo normal.
         const pendingCount = data.pendingFeedbacks?.length ?? 0;
+        pendingFeedbackItemsRef.current = data.pendingFeedbacks ?? [];
         if (!skipFeedbackReminder && pendingCount > 0) {
           setIsLoading(false);
           askCompletePendingFeedbacks(pendingCount);
@@ -4718,18 +4743,38 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     await runGenerateCurrentWeek();
   }
 
-  // 03/10/2026 — lembrete de feedbacks pendentes antes da geracao. "Completar antes" so' fecha o
-  // dialogo (o aluno segue na aba Treinos, onde os cards pendentes estao); "Gerar mesmo assim" segue.
+  // 09/11/2026 (Elton): "Completar antes" LEVA a aluna a um dos treinos sem feedback: abre o cartao do mais antigo e rola ate' ele. Atividade do relogio ainda sem treino criado fica destacada.
+  function goToPendingFeedback() {
+    const item = pendingFeedbackItemsRef.current[0];
+    if (!item) return;
+    if (item.sessionId) {
+      const sessionId = item.sessionId;
+      setExpandedDays((current) => ({ ...current, [sessionId]: true }));
+      setTimeout(() => {
+        const node = sessionCardRefs.current[sessionId] as unknown as { measureInWindow?: (cb: (x: number, y: number) => void) => void } | null | undefined;
+        node?.measureInWindow?.((_x, y) => { scrollAppToWindowY(y); });
+      }, 450);
+      return;
+    }
+    if (item.activityLogId) {
+      const materialized = plan?.sessions.find((s) => (s.structure as { activityLogId?: string } | null)?.activityLogId === item.activityLogId);
+      if (materialized) setExpandedDays((current) => ({ ...current, [materialized.id]: true }));
+      else setHighlightActivityId(item.activityLogId);
+    }
+  }
+
+  // 03/10/2026 — lembrete de feedbacks pendentes antes da geracao. "Gerar mesmo assim" segue o fluxo normal; "Completar antes" (09/11/2026) leva ao treino pendente.
   function askCompletePendingFeedbacks(count: number) {
     const title = 'Feedbacks pendentes';
     const message = `Você tem ${count} treino(s) realizado(s) nesta semana sem feedback. Quer completar antes de gerar a próxima semana?`;
     if (Platform.OS === 'web') {
       const generateAnyway = window.confirm(`${title}\n\n${message}\n\nOK → Gerar mesmo assim\nCancelar → Completar antes`);
       if (generateAnyway) void runGenerateCurrentWeekFlow(true);
+      else goToPendingFeedback();
       return;
     }
     Alert.alert(title, message, [
-      { text: 'Completar antes', style: 'cancel' },
+      { text: 'Completar antes', style: 'cancel', onPress: () => goToPendingFeedback() },
       { text: 'Gerar mesmo assim', onPress: () => { void runGenerateCurrentWeekFlow(true); } },
     ]);
   }
@@ -5687,7 +5732,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                   ? { backgroundColor: '#fefce8', borderColor: '#fde047' }
                   : {};
                 return (
-                  <View style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
+                  <View ref={(node) => { sessionCardRefs.current[session.id] = node; }} style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
                     <Pressable
                       style={styles.collapseHeader}
                       onPress={() => {
@@ -5738,6 +5783,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                         ) : isPastUnregistered ? (
                           <Text style={{ fontSize: 12, color: '#92400e', fontWeight: '600' }}>⚠ Sem registro</Text>
                         ) : null}
+                        <FeedbackBadgeView state={feedbackBadge({ hasRealized, isAlternative: Boolean(session.isAlternative), completion: session.completion })} />
                       </View>
                       <Ionicons name={sessionExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
                     </Pressable>
