@@ -4,7 +4,8 @@ import { InboundEventDraft } from '../provider-hub/provider-connector';
 // Atividades da Garmin por PUSH (Activity API 2.1, Starter: so' push; "Activity_API 2.1.pdf" na pasta "Documentação Garmin"), 08/11/2026. Parte PURA (sem banco, sem rede):
 //  - o push de `activities` traz o resumo; o de `activityDetails` traz o resumo + amostras (ate 1 Hz) + voltas; os dois chegam com o `userId` Garmin em cada item;
 //  - `activityFiles` (FIT) NAO e' usado: o link de download vale uma vez, 24 h, e o JSON ja' traz FC, velocidade, cadencia, potencia e elevacao por amostra (dinamica de corrida so' existe no FIT: futuro);
-//  - REGRA DA POLITICA (5D): coordenadas GPS NUNCA sao guardadas. O filtro roda AQUI, antes de o evento entrar na fila: latitude/longitude, temperatura e voltas nao passam;
+//  - REGRA DA POLITICA (5D): coordenadas GPS NUNCA sao guardadas (decisao nossa, nao exigencia do contrato da Garmin). O filtro roda AQUI, antes de o evento entrar na fila: latitude/longitude e temperatura ainda nao passam
+//    (ficam para quando o texto de autorizacao for atualizado). 09/11/2026: PASSAM as voltas (a Garmin manda so' o horario de inicio de cada uma, sem coordenadas) e os tres tempos por amostra (relogio, cronometro, em movimento);
 //  - atividade manual (`manual: true`) nao e' execucao medida: descartada (mesma regra da Zepp); atividade-mae de multiesporte (`isParent`) e' ignorada para nao contar duas vezes;
 //  - `manuallyUpdatedActivities` e `moveIQActivities` nao sao tratados (nao sao atividades iniciadas e medidas pelo relogio).
 export const GARMIN_WEBHOOK_MAX_BYTES = 10 * 1024 * 1024;
@@ -19,6 +20,10 @@ export interface GarminSample {
   cadenceSpm: number | null;
   powerWatts: number | null;
   elevationMeters: number | null;
+  // Tempos acumulados (segundos): relogio (clock), cronometro (timer, sem pausas) e em movimento (moving). Garmin: moving <= timer <= clock.
+  clockDurationSec: number | null;
+  timerDurationSec: number | null;
+  movingDurationSec: number | null;
 }
 
 export interface GarminActivityRecord {
@@ -40,6 +45,8 @@ export interface GarminActivityRecord {
   deviceName: string | null;
   // Null no resumo (sem amostras). Sem NENHUMA coordenada.
   samples: GarminSample[] | null;
+  // Segundos desde o inicio em que cada volta comecou (so' nos detalhes; null no resumo ou sem voltas). A Garmin nao manda mais nada por volta.
+  lapStartOffsetsSec: number[] | null;
 }
 
 const num = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -90,6 +97,7 @@ function readSummary(item: Record<string, unknown>, summary: Record<string, unkn
     caloriesKcal: within(num(summary.activeKilocalories), 0, 50_000),
     deviceName: str(summary.deviceName ?? item.deviceName, 80),
     samples: null,
+    lapStartOffsetsSec: null,
   };
 }
 
@@ -113,9 +121,27 @@ function readSamples(raw: unknown, startedAtSec: number): GarminSample[] | null 
       cadenceSpm: within(num(s.stepsPerMinute), 0, 400),
       powerWatts: within(num(s.powerInWatts), 0, 3000),
       elevationMeters: within(num(s.elevationInMeters), -500, 9000),
+      clockDurationSec: within(num(s.clockDurationInSeconds), 0, MAX_DURATION_SEC),
+      timerDurationSec: within(num(s.timerDurationInSeconds), 0, MAX_DURATION_SEC),
+      movingDurationSec: within(num(s.movingDurationInSeconds), 0, MAX_DURATION_SEC),
     });
   }
   return [...byOffset.values()].sort((a, b) => a.offsetSec - b.offsetSec);
+}
+
+// Horario de inicio de cada volta como deslocamento em segundos desde o inicio da atividade. Ignora volta sem horario ou fora da atividade; remove repetidas; limite de 2000.
+function readLapStarts(raw: unknown, startedAtSec: number): number[] | null {
+  if (!Array.isArray(raw)) return null;
+  const offsets = new Set<number>();
+  for (const entry of raw.slice(0, 2000)) {
+    if (!entry || typeof entry !== 'object') continue;
+    const t = num((entry as Record<string, unknown>).startTimeInSeconds);
+    if (t === null) continue;
+    const offsetSec = Math.round(t - startedAtSec);
+    if (offsetSec < 0 || offsetSec > MAX_DURATION_SEC) continue;
+    offsets.add(offsetSec);
+  }
+  return offsets.size > 0 ? [...offsets].sort((a, b) => a - b) : null;
 }
 
 export interface GarminActivityParse { records: GarminActivityRecord[]; ignored: number }
@@ -142,6 +168,7 @@ export function parseGarminActivityPush(body: unknown): GarminActivityParse {
     const record = readSummary(item, summary, userId, 'details');
     if (!record) { ignored += 1; continue; }
     record.samples = readSamples(item.samples, record.startedAtSec);
+    record.lapStartOffsetsSec = readLapStarts(item.laps, record.startedAtSec);
     // Potencia media: media simples das amostras com potencia (o resumo do Garmin nao traz potencia media na corrida).
     const watts = (record.samples ?? []).map((sample) => sample.powerWatts).filter((value): value is number => value !== null);
     record.powerAvgWatts = watts.length > 0 ? watts.reduce((a, b) => a + b, 0) / watts.length : null;

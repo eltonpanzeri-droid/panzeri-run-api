@@ -1799,6 +1799,11 @@ model ActivityTimeSeriesPoint {
   longitude       Float?
   elevationMeters Float?
   powerWatts      Int?
+  // Garmin (09/11/2026): os tres tempos acumulados que a Garmin manda em cada amostra — relogio (inicio ate agora), cronometro (sem pausas) e em movimento (acima de uma velocidade minima).
+  // Sempre moving <= timer <= clock. Nulos nos demais provedores. Rollback: ALTER TABLE ... DROP COLUMN.
+  timerDurationSec  Int?
+  movingDurationSec Int?
+  clockDurationSec  Int?
 
   normalizationVersion Int
 

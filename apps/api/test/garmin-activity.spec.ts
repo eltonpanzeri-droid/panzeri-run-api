@@ -20,8 +20,8 @@ const detailsItem = (extra: Record<string, unknown> = {}) => ({
   userId: 'garmin-user-1', summaryId: '5001968355-detail', activityId: 5001968355,
   summary: { ...summaryItem(), summaryId: undefined, userId: undefined },
   samples: [
-    { startTimeInSeconds: START, latitudeInDegree: -19.9, longitudeInDegree: -43.9, elevationInMeters: 800, airTemperatureCelcius: 24, heartRate: 120, speedMetersPerSecond: 2.5, stepsPerMinute: 160, powerInWatts: 200, totalDistanceInMeters: 0 },
-    { startTimeInSeconds: START + 1, latitudeInDegree: -19.9001, longitudeInDegree: -43.9001, elevationInMeters: 801, heartRate: 122, speedMetersPerSecond: 2.6, stepsPerMinute: 162, powerInWatts: 210, totalDistanceInMeters: 2.6 },
+    { startTimeInSeconds: START, latitudeInDegree: -19.9, longitudeInDegree: -43.9, elevationInMeters: 800, airTemperatureCelcius: 24, heartRate: 120, speedMetersPerSecond: 2.5, stepsPerMinute: 160, powerInWatts: 200, totalDistanceInMeters: 0, clockDurationInSeconds: 0, timerDurationInSeconds: 0, movingDurationInSeconds: 0 },
+    { startTimeInSeconds: START + 1, latitudeInDegree: -19.9001, longitudeInDegree: -43.9001, elevationInMeters: 801, heartRate: 122, speedMetersPerSecond: 2.6, stepsPerMinute: 162, powerInWatts: 210, totalDistanceInMeters: 2.6, clockDurationInSeconds: 1, timerDurationInSeconds: 1, movingDurationInSeconds: 1 },
   ],
   laps: [{ startTimeInSeconds: START }],
   ...extra,
@@ -38,13 +38,14 @@ describe('leitura do push de atividades', () => {
     expect(records).toHaveLength(1);
     expect(records[0].kind).toBe('details');
     expect(records[0].samples).toEqual([
-      { offsetSec: 0, heartRateBpm: 120, speedKmh: 9, distanceMeters: 0, cadenceSpm: 160, powerWatts: 200, elevationMeters: 800 },
-      { offsetSec: 1, heartRateBpm: 122, speedKmh: 2.6 * 3.6, distanceMeters: 2.6, cadenceSpm: 162, powerWatts: 210, elevationMeters: 801 },
+      { offsetSec: 0, heartRateBpm: 120, speedKmh: 9, distanceMeters: 0, cadenceSpm: 160, powerWatts: 200, elevationMeters: 800, clockDurationSec: 0, timerDurationSec: 0, movingDurationSec: 0 },
+      { offsetSec: 1, heartRateBpm: 122, speedKmh: 2.6 * 3.6, distanceMeters: 2.6, cadenceSpm: 162, powerWatts: 210, elevationMeters: 801, clockDurationSec: 1, timerDurationSec: 1, movingDurationSec: 1 },
     ]);
     expect(records[0].powerAvgWatts).toBe(205);
-    // Regra da Politica 5D: GPS nunca e' guardado. Nada que lembre coordenada, temperatura ou volta sobrevive ao filtro.
+    // Regra da Politica 5D: GPS nunca e' guardado. Nada que lembre coordenada ou temperatura sobrevive ao filtro (voltas passam, so' como horario de inicio).
     const everything = JSON.stringify(records) + JSON.stringify(toActivityDrafts(records));
-    expect(everything).not.toMatch(/latitude|longitude|lat"|lon"|-19\.9|-43\.9|airTemperature|laps/i);
+    expect(everything).not.toMatch(/latitude|longitude|lat"|lon"|-19\.9|-43\.9|airTemperature/i);
+    expect(records[0].lapStartOffsetsSec).toEqual([0]);
   });
   it('atividade manual e atividade-mae (multiesporte) sao ignoradas', () => {
     const result = parseGarminActivityPush({ activities: [summaryItem({ manual: true }), summaryItem({ summaryId: 'p', isParent: true }), summaryItem({ summaryId: 'ok2', activityId: 9 })], activityDetails: [detailsItem({ manual: true })] });
@@ -60,7 +61,7 @@ describe('leitura do push de atividades', () => {
   });
   it('valores absurdos viram nulos (FC fora de 30–250, velocidade negativa)', () => {
     const { records } = parseGarminActivityPush({ activityDetails: [detailsItem({ samples: [{ startTimeInSeconds: START, heartRate: 400, speedMetersPerSecond: -3 }, { startTimeInSeconds: START - 100, heartRate: 150 }] })] });
-    expect(records[0].samples).toEqual([{ offsetSec: 0, heartRateBpm: null, speedKmh: null, distanceMeters: null, cadenceSpm: null, powerWatts: null, elevationMeters: null }]);
+    expect(records[0].samples).toEqual([{ offsetSec: 0, heartRateBpm: null, speedKmh: null, distanceMeters: null, cadenceSpm: null, powerWatts: null, elevationMeters: null, clockDurationSec: null, timerDurationSec: null, movingDurationSec: null }]);
   });
   it('a chave da atividade e o activityId (igual no resumo e nos detalhes)', () => {
     const s = parseGarminActivityPush({ activities: [summaryItem()] }).records[0];
@@ -104,11 +105,11 @@ describe('rascunhos para a fila', () => {
 });
 
 describe('gravacao no pipeline (GarminActivityIngestionService)', () => {
-  function build(categories: string[], opts: { excluded?: boolean; authorized?: boolean } = {}) {
+  function build(categories: string[], opts: { excluded?: boolean; authorized?: boolean; existingMetrics?: unknown } = {}) {
     const captured: { points?: any[]; log?: any; raw?: any; deletedSeries?: number } = {};
     const tx: any = {
       rawExternalActivity: { upsert: jest.fn(async (args: any) => { captured.raw = args.create; return { id: 'raw1' }; }) },
-      activityLog: { upsert: jest.fn(async (args: any) => { captured.log = args.create; return { id: 'log1' }; }) },
+      activityLog: { upsert: jest.fn(async (args: any) => { captured.log = args.create; return { id: 'log1' }; }), findUnique: jest.fn(async () => (opts.existingMetrics ? { providerMetrics: opts.existingMetrics } : null)) },
       activityTimeSeriesPoint: { deleteMany: jest.fn(async () => { captured.deletedSeries = (captured.deletedSeries ?? 0) + 1; }), createMany: jest.fn(async (args: any) => { captured.points = args.data; }) },
     };
     const consent: any = { writeWhileAuthorized: jest.fn(async (_p: string, _u: string, fn: any) => (opts.authorized === false ? null : fn(tx, { categories }))) };
@@ -150,6 +151,16 @@ describe('gravacao no pipeline (GarminActivityIngestionService)', () => {
     expect(captured.deletedSeries).toBeUndefined();
     expect(captured.points).toBeUndefined();
     expect(captured.log).toMatchObject({ externalId: '5001968355' });
+  });
+  it('os detalhes gravam as voltas (so o horario de inicio) e os tres tempos; o resumo seguinte NAO apaga as voltas', async () => {
+    const first = build(['activity', 'activity_sensors']);
+    await first.service.ingest('u1', details());
+    expect(first.captured.log.providerMetrics).toEqual({ garmin: { activityType: 'RUNNING', deviceName: 'Forerunner 265', lapStartOffsetsSec: [0] } });
+    expect(first.captured.points![1]).toMatchObject({ clockDurationSec: 1, timerDurationSec: 1, movingDurationSec: 1 });
+    const second = build(['activity', 'activity_sensors'], { existingMetrics: first.captured.log.providerMetrics });
+    await second.service.ingest('u1', summary());
+    expect(second.captured.log.providerMetrics.garmin.lapStartOffsetsSec).toEqual([0]);
+    expect(JSON.stringify(first.captured.log.providerMetrics)).not.toMatch(/latitude|longitude|airTemperature/i);
   });
   it('os detalhes refazem a serie (idempotente)', async () => {
     const { service, captured } = build(['activity', 'activity_sensors']);

@@ -35,6 +35,15 @@ export class GarminActivityIngestionService {
     @Optional() private readonly deviceRegistry?: DeviceRegistryService,
   ) {}
 
+  // providerMetrics.garmin: o RESUMO nunca apaga o que os DETALHES gravaram (voltas). So' os detalhes escrevem `lapStartOffsetsSec`.
+  private async mergedProviderMetrics(tx: Prisma.TransactionClient, userId: string, externalId: string, record: GarminActivityRecord): Promise<Prisma.InputJsonValue> {
+    const existing = await tx.activityLog.findUnique({ where: { provider_userId_externalId: { provider: GARMIN_PROVIDER_ID, userId, externalId } }, select: { providerMetrics: true } });
+    const previous = (existing?.providerMetrics && typeof existing.providerMetrics === 'object' && !Array.isArray(existing.providerMetrics) ? (existing.providerMetrics as Record<string, unknown>).garmin : null) as Record<string, unknown> | null;
+    const garmin: Record<string, unknown> = { ...(previous && typeof previous === 'object' ? previous : {}), activityType: record.activityType, deviceName: record.deviceName };
+    if (record.kind === 'details') garmin.lapStartOffsetsSec = record.lapStartOffsetsSec;
+    return { garmin } as Prisma.InputJsonValue;
+  }
+
   async ingest(userId: string, record: GarminActivityRecord): Promise<GarminIngestResult> {
     const externalId = activityKeyOf(record);
     // Atividade ja' excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada.
@@ -53,7 +62,11 @@ export class GarminActivityIngestionService {
         cadenceSpm: sensors ? sample.cadenceSpm : null,
         powerWatts: sensors ? sample.powerWatts : null,
         elevationMeters: sensors ? sample.elevationMeters : null,
-      })).filter((point) => point.distanceMeters !== null || point.speedKmh !== null || point.heartRateBpm !== null || point.cadenceSpm !== null || point.powerWatts !== null || point.elevationMeters !== null);
+        // Tempos acumulados: dados da propria atividade (autorizacao 'activity').
+        clockDurationSec: sample.clockDurationSec,
+        timerDurationSec: sample.timerDurationSec,
+        movingDurationSec: sample.movingDurationSec,
+      })).filter((point) => point.distanceMeters !== null || point.speedKmh !== null || point.heartRateBpm !== null || point.cadenceSpm !== null || point.powerWatts !== null || point.elevationMeters !== null || point.movingDurationSec !== null || point.timerDurationSec !== null || point.clockDurationSec !== null);
 
       const payload = {
         summaryId: record.summaryId,
@@ -88,7 +101,7 @@ export class GarminActivityIngestionService {
         elevationGainMeters: sensors ? record.elevationGainMeters : null,
         hasRoute: false,
         detailFetchedAt: new Date(),
-        providerMetrics: { garmin: { activityType: record.activityType, deviceName: record.deviceName } } as Prisma.InputJsonValue,
+        providerMetrics: await this.mergedProviderMetrics(tx, userId, externalId, record),
       };
       const log = await tx.activityLog.upsert({
         where: { provider_userId_externalId: { provider: GARMIN_PROVIDER_ID, userId, externalId } },
@@ -111,6 +124,9 @@ export class GarminActivityIngestionService {
               cadenceSpm: point.cadenceSpm,
               powerWatts: point.powerWatts,
               elevationMeters: point.elevationMeters,
+              clockDurationSec: point.clockDurationSec,
+              timerDurationSec: point.timerDurationSec,
+              movingDurationSec: point.movingDurationSec,
               latitude: null,
               longitude: null,
             })),
