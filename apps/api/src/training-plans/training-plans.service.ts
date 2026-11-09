@@ -810,17 +810,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       throw new BadRequestException('Este aluno nao tem acesso pago ativo no momento — nao e possivel gerar treino.');
     }
 
-    // Passo 3 (25/09/2026, secao 5): ciclo de 15 semanas completo -> reavaliacao passa a ser
-    // necessaria antes da CONTINUIDADE da geracao. Isso nunca apaga, bloqueia visualizacao ou
-    // altera sessoes ja existentes (o aluno continua vendo o plano/semana atual normalmente) — so
-    // impede que uma PROXIMA semana seja gerada antes da reavaliacao ser concluida. Nunca dispara
-    // na primeira geracao (referenceDate da ancora e' onboarding.completedAt, recem-setado).
-    if (await this.reassessmentService.isReassessmentDue(userId)) {
-      throw new BadRequestException({
-        message: 'Este aluno completou o ciclo de 15 semanas desde a ultima avaliacao valida. E necessario concluir uma nova reavaliacao antes de gerar o proximo treino. Os treinos ja existentes continuam disponiveis normalmente.',
-        code: 'reassessment_required',
-      });
-    }
+    // 08/11/2026 (caso Duane): a reavaliacao vencida (ciclo de 15 semanas) NAO bloqueia mais a geracao — so' avisa a aluna (ReassessmentService + notificacao da semana 14). Decisao do Elton.
 
     // Disjuntor: current() (chamado so por ABRIR a pagina do aluno, painel ou app) cai aqui
     // sempre que o plano nao bate com a disponibilidade/teste atual — se a ultima tentativa
@@ -1974,13 +1964,6 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       const alignment = await this.routineAlignment(userId);
       if (!alignment.canRegenerate) return { generated: false, reason: alignment.stale ? 'nao_pode_refazer' : 'ja_gerado' };
       regenerating = true; // generateWeek() arquiva o programa anterior; nada foi executado nele (conferido acima)
-    }
-
-    // Passo 3 (25/09/2026): mesmo gate de generateWeek(), verificado aqui tambem pra devolver a
-    // resposta no mesmo formato {generated,reason} que o app ja trata (em vez de bolha de excecao),
-    // consistente com "checkin_pendente"/"tentativas_esgotadas" logo abaixo.
-    if (await this.reassessmentService.isReassessmentDue(userId)) {
-      return { generated: false, reason: 'reavaliacao_necessaria' };
     }
 
     // 31/08: check-in obrigatorio antes de gerar (pedido explicito do treinador) — confirmacao de

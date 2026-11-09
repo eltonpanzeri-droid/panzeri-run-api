@@ -166,28 +166,10 @@ describe('ReassessmentService — ciclo de 105 dias e ancora (secoes 3, 4)', () 
   });
 });
 
-describe('TrainingPlansService.generateWeek — gate de reavaliacao necessaria (secao 5)', () => {
-  it('I/J. reavaliacao due bloqueia geracao da proxima semana, sem tocar nenhuma sessao existente', async () => {
-    // Auditoria Astra (29/09/2026), itens 01+02: generateWeek() publico agora sempre passa pelo
-    // gate de assinatura (item 01) e pela trava de concorrencia no banco (item 02) ANTES de chegar
-    // no corpo real (generateWeekLocked, onde o gate de reavaliacao deste teste vive) — precisa
-    // desses 2 mocks minimos pra nao quebrar por um TypeError diferente do que este teste verifica.
-    const prisma = {
-      trainingSession: {},
-      trainingPlan: {},
-      user: { findUnique: jest.fn().mockResolvedValue({ subscriptionStatus: 'active' }) },
-      trainingPlanGenerationLock: {
-        create: jest.fn().mockResolvedValue({}),
-        delete: jest.fn().mockResolvedValue({}),
-      },
-    };
-    const reassessmentService = { isReassessmentDue: jest.fn().mockResolvedValue(true) };
-    const service = new TrainingPlansService(
-      prisma as never, noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(), noop(),
-    reassessmentService as never, noop(), noop(), noop(), traceStub());
-    await expect(service.generateWeek('u1')).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'reassessment_required' }),
-    });
-    expect(prisma.trainingPlan).not.toHaveProperty('create');
+describe('TrainingPlansService.generateWeek — reavaliacao vencida NAO bloqueia (08/11/2026, caso Duane)', () => {
+  it('o codigo nao tem mais o gate reassessment_required nem reavaliacao_necessaria', () => {
+    const source = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'src', 'training-plans', 'training-plans.service.ts'), 'utf8');
+    expect(source).not.toContain('reassessment_required');
+    expect(source).not.toContain('reavaliacao_necessaria');
   });
 });
