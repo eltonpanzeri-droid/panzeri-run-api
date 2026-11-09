@@ -163,12 +163,12 @@ describe('leitor FIT (arquivos sinteticos)', () => {
   });
 
   it('modalidade canonica: esteira, caminhada, bike; desconhecido vira "outra" (nunca corrida por palpite)', async () => {
-    expect(modalityFromFit('running', 'treadmill')).toBe('esteira');
+    expect(modalityFromFit('running', 'treadmill')).toBe('corrida');
     expect(modalityFromFit('walking', null)).toBe('caminhada');
     expect(modalityFromFit('cycling', 'road')).toBe('bike');
     expect(modalityFromFit('rowing', null)).toBe('outra');
     expect(modalityFromFit(null, null)).toBe('outra');
-    expect((await readZeppFit(buildSyntheticFit({ seconds: 10, sport: 1, subSport: 1 }))).modality).toBe('esteira');
+    expect((await readZeppFit(buildSyntheticFit({ seconds: 10, sport: 1, subSport: 1 }))).modality).toBe('corrida');
   });
 });
 

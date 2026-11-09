@@ -397,10 +397,11 @@ export interface WeeklyMethodologyDecision {
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {
   return availability
-    .flatMap((day) => day.modalities.filter(isRunModality).map((modality) => ({
+    .flatMap((day) => (day.modalities.some(isRunModality) ? [{
       weekday: day.weekday,
-      durationMin: day.modalityDurations?.[modality] ?? day.availableMin ?? 45,
-    })))
+      // Um dia de corrida e' UM dia (so' existe corrida). Linhas antigas com corrida+esteira no mesmo dia sao lidas como uma so' ate a migracao dos dados.
+      durationMin: day.modalityDurations?.corrida ?? Object.entries(day.modalityDurations ?? {}).find(([modality]) => isRunModality(modality))?.[1] ?? day.availableMin ?? 45,
+    }] : []))
     .sort((left, right) => left.weekday - right.weekday);
 }
 

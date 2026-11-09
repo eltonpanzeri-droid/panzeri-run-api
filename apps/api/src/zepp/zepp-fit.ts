@@ -67,7 +67,7 @@ const within = (value: number | null, min: number, max: number): number | null =
 export function modalityFromFit(sport: string | null, subSport: string | null): string {
   const s = (sport ?? '').toLowerCase();
   const sub = (subSport ?? '').toLowerCase();
-  if (s === 'running') return sub === 'treadmill' || sub === 'virtual_activity' ? 'esteira' : 'corrida';
+  if (s === 'running') return 'corrida'; // so' existe corrida: esteira/virtual entram como corrida (ordem de Elton, 09/11/2026)
   if (s === 'walking' || s === 'hiking') return 'caminhada';
   if (s === 'cycling' || s === 'e_biking') return 'bike';
   if (s === 'swimming') return 'natacao';
@@ -107,7 +107,7 @@ export async function readZeppFit(buffer: Buffer, profile: ZeppFitProfile = ZEPP
   const sport = typeof session.sport === 'string' ? session.sport : null;
   const subSport = typeof session.sub_sport === 'string' ? session.sub_sport : null;
   const modality = modalityFromFit(sport, subSport);
-  const isRunning = modality === 'corrida' || modality === 'esteira';
+  const isRunning = modality === 'corrida';
   let cadenceDropped = false;
   let outOfRange = 0;
 

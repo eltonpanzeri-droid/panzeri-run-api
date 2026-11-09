@@ -73,7 +73,7 @@ function network(opts: { pages?: Row[][]; summaries?: Record<string, () => unkno
 describe('normalizador Wahoo', () => {
   it('modalidade: so corrida e esteira inequivocas; resto e outra (nunca inventa)', () => {
     for (const id of [1, 3, 4, 67]) expect(normalizeWahooModality(id)).toBe('corrida');
-    for (const id of [5, 71]) expect(normalizeWahooModality(id)).toBe('esteira');
+    for (const id of [5, 71]) expect(normalizeWahooModality(id)).toBe('corrida'); // esteira entra como corrida
     // (10/2026) tabela oficial ampliada (activity-modality-map.ts): bike, caminhada, natacao e treino generico (funcional) sao reconhecidos.
     for (const id of [0, 12, 61]) expect(normalizeWahooModality(id)).toBe('bike');
     for (const id of [6, 9, 56]) expect(normalizeWahooModality(id)).toBe('caminhada');

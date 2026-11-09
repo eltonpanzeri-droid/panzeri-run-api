@@ -144,8 +144,8 @@ describe('totais realizados da semana — dominio', () => {
     });
     expect(totals.total.byModality.forca).toEqual({ events: 1, minutes: 50, km: null });
     expect(totals.total.byModality.natacao).toEqual({ events: 1, minutes: 40, km: null });
-    expect(totals.total.byModality.esteira).toMatchObject({ events: 1, km: 6 });
-    expect(totals.total.byModality.corrida).toMatchObject({ events: 1, km: 8 });
+    expect(totals.total.byModality.esteira).toBeUndefined(); // so' existe corrida (09/11/2026)
+    expect(totals.total.byModality.corrida).toMatchObject({ events: 2, km: 14 });
     expect(totals.total.run).toEqual({ events: 2, km: 14, minutes: 86 });
     expect(totals.total.events).toBe(4);
     expect(totalsInvariantViolations(totals)).toEqual([]);

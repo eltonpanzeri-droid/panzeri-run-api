@@ -12,7 +12,7 @@
 
 // Vocabulario canonico de atividades observadas. As quatro primeiras sao as modalidades PRESCRITAS (mais 'fortalecimento_corredores', que so'
 // existe como prescricao); as demais so' registram o que aconteceu (atividade extra no historico).
-export type ObservedModality = 'corrida' | 'esteira' | 'forca' | 'funcional' | 'bike' | 'natacao' | 'caminhada' | 'outra';
+export type ObservedModality = 'corrida' | 'forca' | 'funcional' | 'bike' | 'natacao' | 'caminhada' | 'outra';
 
 // ── Apple HealthKit ───────────────────────────────────────────────────────────────────────────────────────────────────
 const APPLE_BY_RAW: Record<number, ObservedModality> = {
@@ -34,8 +34,9 @@ const APPLE_BY_RAW: Record<number, ObservedModality> = {
 export function appleHealthModality(activityTypeRaw: unknown, activityType: unknown, isIndoor: unknown): ObservedModality {
   const byRaw = typeof activityTypeRaw === 'number' && Number.isInteger(activityTypeRaw) ? APPLE_BY_RAW[activityTypeRaw] : undefined;
   const modality: ObservedModality = byRaw ?? (activityTypeRaw == null && activityType === 'running' ? 'corrida' : 'outra');
-  // HKMetadataKeyIndoorWorkout: corrida em ambiente fechado = esteira (mesmo grupo de compatibilidade da corrida).
-  return modality === 'corrida' && isIndoor === true ? 'esteira' : modality;
+  // Corrida em ambiente fechado (HKMetadataKeyIndoorWorkout) tambem e' corrida: so' existe CORRIDA (ordem de Elton, 09/11/2026). isIndoor nao muda a modalidade.
+  void isIndoor;
+  return modality;
 }
 
 // ── Health Connect (Android): ExerciseSessionRecord.exerciseType ───────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ export function appleHealthModality(activityTypeRaw: unknown, activityType: unkn
 // react-native-health-connect como ExerciseType). So' codigos da tabela; codigo desconhecido => 'outra' (registrada, nunca descartada).
 const HEALTH_CONNECT_BY_TYPE: Record<number, ObservedModality> = {
   56: 'corrida',      // RUNNING
-  57: 'esteira',      // RUNNING_TREADMILL
+  57: 'corrida',      // RUNNING_TREADMILL (esteira entra como corrida)
   79: 'caminhada',    // WALKING
   37: 'caminhada',    // HIKING
   8: 'bike',          // BIKING
@@ -64,7 +65,7 @@ export function healthConnectModality(exerciseType: unknown): ObservedModality {
 // ── Wahoo Cloud API (workout_type_id) ─────────────────────────────────────────────────────────────────────────────────
 const WAHOO_BY_ID: Record<number, ObservedModality> = {
   1: 'corrida', 3: 'corrida', 4: 'corrida', 67: 'corrida',        // RUNNING, RUNNING_TRACK, RUNNING_TRAIL, RUNNING_RACE
-  5: 'esteira', 71: 'esteira',                                    // RUNNING_TREADMILL, RUNNING_INDOOR_VIRTUAL
+  5: 'corrida', 71: 'corrida',                                    // RUNNING_TREADMILL, RUNNING_INDOOR_VIRTUAL (entram como corrida)
   42: 'funcional',                                                // WORKOUT (treino generico de academia)
   0: 'bike', 11: 'bike', 12: 'bike', 13: 'bike', 14: 'bike', 15: 'bike', 16: 'bike', 21: 'bike', 49: 'bike', 61: 'bike', 64: 'bike', 68: 'bike', 70: 'bike',
   25: 'natacao', 26: 'natacao',                                   // SWIMMING_LAP, SWIMMING_OPEN_WATER

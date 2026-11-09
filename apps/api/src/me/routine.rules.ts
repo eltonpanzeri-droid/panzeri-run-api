@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { validateAvailability } from './availability.rules';
 import type { AvailabilityDayDto } from './dto/update-availability.dto';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 
 // Regras de gravacao da ROTINA (26/10/2026) — as MESMAS para o aluno e para o treinador. Cobre o que o validador antigo deixava passar (minutos negativos, modalidade fora
 // de padrao, dia com treino sem modalidade, duracao de modalidade que nao esta no dia) e separa substituicao integral da semana de alteracao parcial de dias.
@@ -29,9 +30,16 @@ export function normalizeRoutineDay(day: AvailabilityDayDto): NormalizedRoutineD
     }
     return { weekday: day.weekday, noTraining: true, modalities: [], availableMin: 0, modalityDurations: {} };
   }
-  const modalities = [...new Set(day.modalities.map((item) => (typeof item === 'string' ? item.trim() : '')))];
+  // 09/11/2026: so' existe CORRIDA — esteira (e sinonimos) vira corrida ANTES de juntar repetidos, para nunca guardar corrida+esteira no mesmo dia.
+  const asRun = (item: string) => (canonicalModality(item) === 'corrida' ? 'corrida' : item);
+  const modalities = [...new Set(day.modalities.map((item) => (typeof item === 'string' ? asRun(item.trim()) : '')))];
   if (modalities.length === 0 || modalities.some((item) => !MODALITY_PATTERN.test(item))) bad('Dia com treino precisa de ao menos uma modalidade valida.');
-  const durations = day.modalityDurations ?? {};
+  const durations: Record<string, number> = {};
+  for (const [rawModality, minutes] of Object.entries(day.modalityDurations ?? {})) {
+    const key = asRun(rawModality.trim());
+    if (key !== rawModality.trim() && durations[key] !== undefined) continue; // corrida informada explicitamente ganha da duracao antiga de esteira
+    durations[key] = minutes;
+  }
   for (const [modality, minutes] of Object.entries(durations)) {
     if (!modalities.includes(modality)) bad(`Duracao informada para a modalidade "${modality}", que nao esta neste dia.`);
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > MAX_ROUTINE_MINUTES) bad(`Duracao invalida para "${modality}": use minutos inteiros entre 1 e ${MAX_ROUTINE_MINUTES}.`);

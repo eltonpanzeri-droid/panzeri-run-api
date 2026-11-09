@@ -459,6 +459,7 @@ export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
   autoavaliacaoDaSemanaPeloAluno: 'independent', hoje: 'independent', gerarAPartirDe: 'independent', dataDeCadaDiaDaSemanaSendoGerada: 'independent',
   diasDisponiveisParaCorrida: 'independent', diasDisponiveisParaForca: 'independent', catalogoExerciciosMusculacao: 'independent',
   catalogoExerciciosFortalecimentoCorredores: 'independent', sinalDeSeguranca: 'independent', motivoDoSinalDeSeguranca: 'independent', metasDeProva: 'independent',
+  relatoDeDistanciasNaEntrevista: 'independent', provasAlvoNestaSemana: 'independent',
   durationMinDisponivel: 'independent', diaDeForcaParaRegenerar: 'independent',
   athleteStateContext: 'device_aggregate',
   historicoSemanal: 'device_execution', maiorLongaoJaRegistrado: 'device_execution', sessoesRecentesPertoDoRecorde: 'device_execution',

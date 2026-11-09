@@ -83,7 +83,7 @@ describe('normalizador Health Connect', () => {
 
   it('modalidade: forca/outra/desconhecida registradas, nunca descartadas', () => {
     expect(ok({ ...base, exerciseType: 70 }).activity.sport).toBe('forca');
-    expect(ok({ ...base, exerciseType: 57 }).activity.sport).toBe('esteira');
+    expect(ok({ ...base, exerciseType: 57 }).activity.sport).toBe('corrida');
     expect(ok({ ...base, exerciseType: 9999 }).activity.sport).toBe('outra');
     expect(healthConnectModality('x')).toBe('outra');
   });

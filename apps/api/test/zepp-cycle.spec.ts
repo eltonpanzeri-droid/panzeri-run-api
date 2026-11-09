@@ -306,9 +306,9 @@ describe('caminho ate o Atlas com dados sinteticos (elegibilidade e procedencia 
     reader.prisma = prisma;
     const read = (id: string) => reader.readActivityObjectiveVariable('u1', VARIABLE_REGISTRY[id]);
     const power = await read('activity.powerAvgWatts');
-    expect(power.map((o: any) => [o.context.activityLogId, o.value, o.context.provider])).toEqual([['a', 210, 'zepp']]);
+    expect(power.map((o: any) => [o.context.activityLogId, o.value, o.context.provider])).toEqual([['a', 210, 'zepp'], ['c', 300, 'zepp']]); // registro antigo 'esteira' le como corrida (09/11/2026)
     const elevation = await read('activity.elevationGainMeters');
-    expect(elevation.map((o: any) => [o.context.activityLogId, o.value])).toEqual([['a', 25], ['b', 0]]); // 0 e valor valido; esteira nao e' corrida de rua
+    expect(elevation.map((o: any) => [o.context.activityLogId, o.value])).toEqual([['a', 25], ['b', 0], ['c', 5]]); // 0 e valor valido; esteira e' corrida (so' existe corrida)
   });
 });
 

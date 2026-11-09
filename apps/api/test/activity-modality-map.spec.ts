@@ -9,7 +9,7 @@ import { normalizePolarModality } from '../src/polar/polar-activity-normalizer';
 describe('Apple HealthKit (HKWorkoutActivityType, valores numericos oficiais)', () => {
   it('corrida (37), esteira (running em ambiente fechado), forca (50) e funcional (20/11/63/73/59)', () => {
     expect(appleHealthModality(37, 'running', false)).toBe('corrida');
-    expect(appleHealthModality(37, 'running', true)).toBe('esteira');
+    expect(appleHealthModality(37, 'running', true)).toBe('corrida'); // so' existe corrida (09/11/2026)
     expect(appleHealthModality(50, 'other', null)).toBe('forca');
     for (const raw of [20, 11, 63, 73, 59]) expect(appleHealthModality(raw, 'other', null)).toBe('funcional');
   });
@@ -61,7 +61,7 @@ describe('deduplicacao entre provedores com o vocabulario ampliado', () => {
 
 describe('Wahoo (workout_type_id) e Polar', () => {
   it('Wahoo: corrida, esteira, bike, natacao, caminhada, funcional (WORKOUT generico); motociclismo e ioga nao viram bike/forca', () => {
-    expect(wahooModality(5)).toBe('esteira');
+    expect(wahooModality(5)).toBe('corrida'); // esteira entra como corrida
     expect(wahooModality(67)).toBe('corrida');
     expect(wahooModality(15)).toBe('bike');
     expect(wahooModality(26)).toBe('natacao');
@@ -77,7 +77,9 @@ describe('Wahoo (workout_type_id) e Polar', () => {
   });
 
   it('o vocabulario canonico aceita as modalidades novas e continua idempotente', () => {
-    for (const m of ['corrida', 'esteira', 'forca', 'funcional', 'bike', 'natacao', 'caminhada', 'outra']) expect(canonicalModality(m)).toBe(m);
+    expect(canonicalModality('esteira')).toBe('corrida');
+    expect(canonicalModality('treadmill')).toBe('corrida');
+    for (const m of ['corrida', 'forca', 'funcional', 'bike', 'natacao', 'caminhada', 'outra']) expect(canonicalModality(m)).toBe(m);
     expect(canonicalModality('RUNNING')).toBe('corrida');
     expect(canonicalModality('OTHER')).toBe('outra');
   });

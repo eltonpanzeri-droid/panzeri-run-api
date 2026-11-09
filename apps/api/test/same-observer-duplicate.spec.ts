@@ -56,7 +56,7 @@ describe('mesmo app regravando o mesmo treino — comparacao pura', () => {
   it('outro atleta nunca; simetrico (A,B) = (B,A); corrida x esteira do mesmo app NAO conta como mesma modalidade exata', () => {
     expect(compareObservations(obs({ id: 'a' }), obs({ id: 'b', userId: 'v' })).verdict).toBe('distinct');
     expect(compareObservations(obs({ id: 'a' }), obs({ id: 'b', distanceMeters: null })).verdict).toBe(compareObservations(obs({ id: 'b', distanceMeters: null }), obs({ id: 'a' })).verdict);
-    expect(compareObservations(obs({ id: 'a' }), obs({ id: 'b', sport: 'esteira' })).verdict).toBe('distinct');
+    expect(compareObservations(obs({ id: 'a' }), obs({ id: 'b', sport: 'forca' })).verdict).toBe('distinct'); // esteira nao existe mais: e' corrida
   });
 });
 
