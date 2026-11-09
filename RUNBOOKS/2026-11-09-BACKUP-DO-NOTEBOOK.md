@@ -7,8 +7,8 @@ O backup automático do Panzeri Run protege **o banco de dados** (cópias diári
 | O que | Onde fica | Quem protege | Risco se o notebook estragar |
 |---|---|---|---|
 | Código e documentos do projeto (`apps/`, PRONTUARIO, FILA, RUNBOOKS...) | `...\OneDrive\Documentos\GitHub\panzeri-run-api` | **GitHub** (depois do Push) e **OneDrive** (a pasta está dentro do OneDrive) | **Só o que ainda não recebeu Push** existe apenas no notebook e no OneDrive |
-| Arquivos que o Git não envia de propósito (`Documentação Garmin/`, `.env`, `secrets/`) | Mesma pasta, marcados como "ignorados" | Só o **OneDrive** | Se o OneDrive falhar e o notebook estragar, perdem-se |
-| Memória do Claude (decisões e lições) | `C:\Users\elton\.claude\projects\...\memory` (**fora** do OneDrive e do GitHub) | **Ninguém**, até rodar `copiar-memoria-claude-para-onedrive.bat` | Perde-se a memória (o PRONTUARIO e o CLAUDE.md, que estão no GitHub, continuam) |
+| Arquivos que o Git não envia de propósito (`Documentação Garmin/`, `.env`, `secrets/`) | Mesma pasta, marcados como "ignorados" | **OneDrive** + cópia em `OneDrive\Documentos\Backup-Panzeri-Run\Documentacao-Garmin` (feita pelo `.bat`) | Se o OneDrive falhar e o notebook estragar, perdem-se |
+| Memória do Claude (decisões e lições) | `C:\Users\elton\.claude\projects\...\memory` (**fora** do OneDrive e do GitHub) | `copiar-memoria-claude-para-onedrive.bat` copia para `OneDrive\Documentos\Backup-Panzeri-Run\Memoria-Claude` | Perde-se a memória (o PRONTUARIO e o CLAUDE.md, que estão no GitHub, continuam) |
 | Histórico das conversas com o Claude | `C:\Users\elton\.claude\projects\...\*.jsonl` (cerca de 1,4 GB) | **Ninguém** | Perde-se o histórico detalhado; as decisões importantes estão no PRONTUARIO |
 | Senhas e chaves (`BACKUP_ENCRYPTION_KEY`, banco, Resend, Anthropic, Asaas, RevenueCat, R2...) | **EasyPanel** (variáveis) | Você: **gerenciador de senhas** | Sem a `BACKUP_ENCRYPTION_KEY`, **nenhuma cópia do banco pode ser aberta** |
 | Banco de dados | Servidor (EasyPanel) | Backup diário no R2 (14 dias) | Coberto; teste de restauração a cada 3 meses |
@@ -16,11 +16,11 @@ O backup automático do Panzeri Run protege **o banco de dados** (cópias diári
 ## O que fazer (hábitos)
 
 1. **Ao final de cada sessão de trabalho:** dar o **Push** no GitHub Desktop. Antes disso o trabalho só existe no notebook.
-2. **Uma vez por semana:** dar dois cliques em `copiar-memoria-claude-para-onedrive.bat` (só copia, nunca apaga). Isso leva a memória do Claude para `OneDrive\Documentos\Backup-Memoria-Claude`.
+2. **Uma vez por semana:** dar dois cliques em `copiar-memoria-claude-para-onedrive.bat` (só copia, nunca apaga). Isso leva a **memória do Claude** e a **pasta Documentação Garmin** para `OneDrive\Documentos\Backup-Panzeri-Run`, tudo junto numa pasta só.
 3. **Uma vez (e sempre que uma chave mudar):** guardar as chaves do `INVENTARIO_DE_SEGREDOS.md` num gerenciador de senhas (Bitwarden, 1Password ou similar), principalmente a `BACKUP_ENCRYPTION_KEY`. O Claude nunca vê nem guarda os valores.
 4. **Conta do GitHub:** ligar a verificação em duas etapas, se ainda não estiver ligada.
 5. **Uma vez por ano (ou a cada troca de notebook):** ensaio de recuperação: baixar o projeto do GitHub numa pasta nova e conferir que abre e compila.
-6. **Opcional:** uma cópia do mês numa unidade externa ou em outra nuvem, com a pasta do projeto e a pasta `Backup-Memoria-Claude`.
+6. **Opcional:** uma cópia do mês numa unidade externa ou em outra nuvem, com a pasta do projeto e a pasta `Backup-Panzeri-Run`.
 
 ## Cuidados
 
