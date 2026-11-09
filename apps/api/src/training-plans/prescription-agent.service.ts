@@ -209,7 +209,7 @@ export const AiWeeklyDecisionSchema = z.object({
   // (um campo secundario nunca pode derrubar a semana inteira, ver os comentarios acima): o servidor valida estrutura e evidencia depois.
   // Estrategia do dia da prova (09/11/2026): um item por prova alvo da semana (provasAlvoNestaSemana); vazio/ausente sem prova na semana. Sem limites aqui de proposito (texto secundario nunca derruba a semana):
   // o servidor aceita so' ids conhecidos e trunca depois do parse.
-  provasAlvo: z.array(z.object({ raceId: z.string(), estrategia: z.string() })).nullish(),
+  // 09/11/2026 (noite): o campo provasAlvo FOI RETIRADO do schema — a Anthropic recusou o schema com 400 "compiled grammar is too large" (varias alunas sem programa). Nao reacrescentar campo opcional aqui sem medir a gramatica.
   ajusteDeReferenciaFisiologica: z
     .object({
       indicadores: z.array(z.object({ chave: z.string(), novoValor: z.number() })),
@@ -681,7 +681,7 @@ export class PrescriptionAgentService {
         routineMismatch: validated.routineMismatch,
         routineMismatchMissingRunWeekdays: validated.missingRunWeekdays,
         routineMismatchRaceCoveredWeekdays: validated.raceCoveredRunWeekdays,
-        raceStrategies: acceptRaceStrategies(parsed.provasAlvo, racesInWeek(input.targetRaces, input.weekDates).map((race) => race.id)),
+        raceStrategies: acceptRaceStrategies(undefined, racesInWeek(input.targetRaces, input.weekDates).map((race) => race.id)),
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
     } catch (error) {
@@ -991,7 +991,6 @@ export class PrescriptionAgentService {
       INTEGRATED_SOURCES_INSTRUCTION,
       RACE_CALENDAR_INSTRUCTION,
       SELF_REPORTED_RUNS_INSTRUCTION,
-      RACE_STRATEGY_INSTRUCTION,
       HEALTH_INDICATORS_INSTRUCTION,
       INTERNAL_LOAD_INSTRUCTION,
       RECENT_TREND_INSTRUCTION,

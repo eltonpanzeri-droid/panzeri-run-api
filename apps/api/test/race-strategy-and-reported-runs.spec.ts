@@ -48,16 +48,10 @@ describe('(c) estrategia do dia da prova escrita pela IA', () => {
     expect(acceptRaceStrategies([{ raceId: 'race-1', estrategia: 'x'.repeat(2000) }], ['race-1'], 100)[0].strategy).toHaveLength(100);
     expect(acceptRaceStrategies(null, ['race-1'])).toEqual([]);
   });
-  it('o schema aceita provasAlvo ausente, nula ou preenchida e continua valido para a saida estruturada', () => {
-    const base = { sessions: [], strengthSessions: [], recommendation: '', rationale: [''] };
-    const shape = AiWeeklyDecisionSchema.shape.provasAlvo;
-    expect(shape.safeParse(undefined).success).toBe(true);
-    expect(shape.safeParse(null).success).toBe(true);
-    expect(shape.safeParse([{ raceId: 'race-1', estrategia: 'texto' }]).success).toBe(true);
-    expect(shape.safeParse([{ raceId: 'race-1' }]).success).toBe(false);
-    expect(Object.keys(base)).toBeDefined();
+  it('o schema da resposta NAO tem provasAlvo (a Anthropic recusou por gramatica grande, 09/11) e a saida estruturada continua valida', () => {
+    expect(Object.keys(AiWeeklyDecisionSchema.shape)).not.toContain('provasAlvo');
     expect(() => zodOutputFormat(AiWeeklyDecisionSchema)).not.toThrow();
-    expect(JSON.stringify(zodOutputFormat(AiWeeklyDecisionSchema).schema)).toContain('provasAlvo');
+    expect(JSON.stringify(zodOutputFormat(AiWeeklyDecisionSchema).schema)).not.toContain('provasAlvo');
   });
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as { buildUserPrompt: (...a: unknown[]) => string; buildSystemPromptStable: () => string };
   const build = (extra: Partial<MethodologyInput>) => {
@@ -73,14 +67,14 @@ describe('(c) estrategia do dia da prova escrita pela IA', () => {
   });
   it('o prompt de sistema tem as duas instrucoes novas e nenhuma diz "motor" nem "plano de treino"', () => {
     const system = service.buildSystemPromptStable();
-    expect(system).toContain(RACE_STRATEGY_INSTRUCTION);
+    expect(system).not.toContain(RACE_STRATEGY_INSTRUCTION);
     expect(system).toContain(SELF_REPORTED_RUNS_INSTRUCTION);
     expect(RACE_STRATEGY_INSTRUCTION).toContain('provasAlvo');
     expect(RACE_STRATEGY_INSTRUCTION).toContain('NAO e escrito por voce');
     expect(`${RACE_STRATEGY_INSTRUCTION} ${SELF_REPORTED_RUNS_INSTRUCTION}`).not.toMatch(/motor|plano de treino/i);
   });
   it('a estrategia aceita sai da decisao e e gravada no cartao da prova depois da sincronizacao (estatico)', () => {
-    expect(read('src', 'training-plans', 'prescription-agent.service.ts')).toContain('raceStrategies: acceptRaceStrategies(parsed.provasAlvo, racesInWeek(input.targetRaces, input.weekDates).map((race) => race.id)),');
+    expect(read('src', 'training-plans', 'prescription-agent.service.ts')).toContain('raceStrategies: acceptRaceStrategies(undefined, racesInWeek(input.targetRaces, input.weekDates).map((race) => race.id)),');
     const plans = read('src', 'training-plans', 'training-plans.service.ts');
     expect(plans.indexOf('await this.raceCalendar?.syncUser(userId);')).toBeLessThan(plans.indexOf('applyRaceStrategies(userId, methodology.raceStrategies'));
   });
