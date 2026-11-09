@@ -10,13 +10,14 @@ import { LoadSection } from './LoadSection';
 import { WearableSleepSection } from './WearableSleepSection';
 import { AdherenceWeekly } from './AdherenceSection';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
+import { BestMarksScreen } from './BestMarksScreen';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
 // que já existe (mesma leitura do servidor e mesmos textos). Indicadores novos entram nas áreas nos próximos lotes. Sem diagnóstico: o aviso do topo diz isso.
 
 export type ProgressFocus = 'training' | 'adherence';
 
-type View_ = 'hub' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'weekly' | 'pain' | 'adherence';
+type View_ = 'hub' | 'marks' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'weekly' | 'pain' | 'adherence';
 
 // Texto do topo: melhorado a partir da proposta de Elton. Passa pela revisão do advogado junto com os demais textos de saúde.
 const TOP_NOTICE = 'Os indicadores desta área descrevem padrões e mudanças nos seus próprios registros. Eles não são diagnóstico médico. O Panzeri Run analisa vários indicadores em conjunto para individualizar seus treinos e orientar sua evolução.';
@@ -71,6 +72,15 @@ export function EvolutionHub({
           <Text style={styles.noticeText}>{TOP_NOTICE}</Text>
         </View>
         <EvolutionAreaGrid onOpenArea={setView} />
+        <AreaCard title="Melhores marcas" subtitle="Seus melhores tempos por distância, de 1 km à ultra" icon="trophy-outline" onPress={() => setView('marks')} />
+      </View>
+    );
+  }
+
+  if (view === 'marks') {
+    return (
+      <View style={styles.container}>
+        <BestMarksScreen accessToken={accessToken} onBack={() => setView('hub')} />
       </View>
     );
   }
