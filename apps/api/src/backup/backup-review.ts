@@ -76,7 +76,7 @@ export function buildWeeklyLocalBackupReminder(): string {
     '',
     '1. Push: abra o GitHub Desktop e dê o Push. Até isso, o trabalho da semana só existe no notebook.',
     '2. Dois cliques em copiar-memoria-claude-para-onedrive.bat (na pasta do projeto). Ele copia a memória do Claude e a pasta da Garmin para OneDrive > Documentos > Backup-Panzeri-Run. Só copia, nunca apaga.',
-    '3. Chaves: a BACKUP_ENCRYPTION_KEY e as demais chaves do Panzeri Run existem só no EasyPanel. Sem a BACKUP_ENCRYPTION_KEY, nenhuma cópia do banco pode ser aberta. Se ainda não guardou as chaves fora do EasyPanel (gerenciador de senhas, ou ao menos a BACKUP_ENCRYPTION_KEY anotada em lugar físico seguro), esta é a pendência mais importante.',
+    '3. Chaves: elas estão no EasyPanel e também no seu e-mail "dados easypanel" (Gmail). Conferiu se alguma chave mudou desde o último envio? Se mudou, mande o e-mail de novo ou atualize. Sem a BACKUP_ENCRYPTION_KEY, nenhuma cópia do banco pode ser aberta. Lembre: quem entra no seu Gmail entra no sistema; mantenha a verificação em duas etapas da conta Google ligada e não apague esse e-mail.',
     '4. Quando terminar, diga ao Claude: "revisão semanal feita". Ele registra a data no PRONTUARIO.',
     '',
     'Guia completo: RUNBOOKS/2026-11-09-BACKUP-DO-NOTEBOOK.md',

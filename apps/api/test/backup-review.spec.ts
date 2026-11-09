@@ -97,6 +97,8 @@ describe('lembrete semanal do que esta no computador', () => {
     expect(text).toContain('copiar-memoria-claude-para-onedrive.bat');
     expect(text).toContain('Backup-Panzeri-Run');
     expect(text).toContain('BACKUP_ENCRYPTION_KEY');
+    expect(text).toContain('dados easypanel');
+    expect(text).toContain('verificação em duas etapas');
     expect(text).toContain('revisão semanal feita');
     expect(text).not.toMatch(/motor|plano de treino/i);
   });
