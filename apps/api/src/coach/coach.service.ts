@@ -1333,7 +1333,9 @@ export class CoachService {
 
   async prospects() {
     const rows = await this.prisma.user.findMany({
-      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, subscriptionStatus: 'pending' },
+      // 09/11/2026 (caso Renatha, regra de Elton "nada oculto"): quem NUNCA foi aluna (sem studentCode) e teve a assinatura removida/cancelada ('canceled') some das tres listas (principal exclui canceled,
+      // Ex-alunos exige studentCode). Ela continua prospecto: entra aqui em vez de desaparecer.
+      where: { role: 'student', isTestAccount: false, accountStatus: { not: 'archived' }, OR: [{ subscriptionStatus: 'pending' }, { subscriptionStatus: 'canceled', studentCode: null }] },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
