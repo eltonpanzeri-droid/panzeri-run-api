@@ -17,7 +17,7 @@ function series(totalMeters: number, speedMps: number, opts: { pauseAtMeters?: n
   }
   return points;
 }
-const act = (over: Partial<MarkActivity>): MarkActivity => ({ id: 'a', source: 'device', provider: 'zepp', startedAt: new Date('2026-10-01T10:00:00Z'), distanceMeters: null, durationSec: null, series: [], ...over });
+const act = (over: Partial<MarkActivity>): MarkActivity => ({ id: 'a', source: 'device', provider: 'zepp', startedAt: new Date('2026-10-01T10:00:00Z'), localDate: '2026-10-01', distanceMeters: null, durationSec: null, series: [], ...over });
 const dist = (id: string) => MARK_DISTANCES.find((d) => d.id === id)!;
 
 describe('lista de distancias', () => {
@@ -42,10 +42,34 @@ describe('corrida inteira: tempo TOTAL, sem tolerancia', () => {
     const mark = candidateFor(act({ distanceMeters: 10000, durationSec: 3900 }), dist('10km'))!;
     expect(mark).toMatchObject({ seconds: 3900, method: 'whole', timeBasis: 'duration' });
   });
-  it('sem tolerancia: 4,95 km NAO e marca de 5 km; 5,01 km sem serie tambem nao', () => {
+  it('menor que a distancia NAO conta; igual ou maior conta (qualquer fonte)', () => {
     expect(candidateFor(act({ distanceMeters: 4950, durationSec: 1500 }), dist('5km'))).toBeNull();
-    expect(candidateFor(act({ distanceMeters: 5010, durationSec: 1500 }), dist('5km'))).toBeNull();
-    expect(candidateFor(act({ distanceMeters: 5000, durationSec: 1500 }), dist('5km'))).not.toBeNull();
+    expect(candidateFor(act({ distanceMeters: 5000, durationSec: 1500 }), dist('5km'))).toMatchObject({ seconds: 1500, extraMeters: 0 });
+    for (const source of ['device', 'manual', 'test'] as const) {
+      expect(candidateFor(act({ source, distanceMeters: 4999, durationSec: 1500 }), dist('5km'))).toBeNull();
+      expect(candidateFor(act({ source, distanceMeters: 5010, durationSec: 1500 }), dist('5km'))).toMatchObject({ seconds: 1500, extraMeters: 10 });
+    }
+  });
+  it('corrida maior sem serie: vale o tempo da corrida TODA (limite superior), com o excesso registrado e o pace da corrida', () => {
+    const mark = candidateFor(act({ source: 'manual', provider: null, distanceMeters: 12000, durationSec: 3600 }), dist('10km'))!;
+    expect(mark).toMatchObject({ method: 'whole', seconds: 3600, extraMeters: 2000, paceSecondsKm: 300 });
+  });
+  it('meia maratona digitada a mao: 21,1 km conta; 21,097 km (ao metro) conta; 21,09 km nao', () => {
+    const half = dist('half');
+    expect(candidateFor(act({ source: 'manual', provider: null, distanceMeters: 21100, durationSec: 5854 }), half)).toMatchObject({ seconds: 5854 });
+    expect(candidateFor(act({ source: 'manual', provider: null, distanceMeters: 21097, durationSec: 5854 }), half)).not.toBeNull();
+    expect(candidateFor(act({ source: 'manual', provider: null, distanceMeters: 21090, durationSec: 5854 }), half)).toBeNull();
+  });
+  it('corrida maior com serie usa o trecho exato quando ele e menor que a corrida toda', () => {
+    const pts = series(12000, 3, { step: 5 });
+    const mark = candidateFor(act({ distanceMeters: 12000, durationSec: 4000, series: pts }), dist('5km'))!;
+    expect(mark.method).toBe('segment');
+    expect(mark.seconds).toBeLessThan(1675);
+    expect(mark.extraMeters).toBe(0);
+    expect(mark.runMeters).toBe(12000);
+    expect(mark.windowStartMeters).not.toBeNull();
+    expect((mark.windowEndMeters as number) - (mark.windowStartMeters as number)).toBe(5000);
+    expect(mark.localDate).toBe('2026-10-01');
   });
 });
 
@@ -72,7 +96,7 @@ describe('trecho dentro de uma corrida maior (serie do relogio)', () => {
   });
   it('trecho so vale para atividade do relogio; manual e teste nao geram trecho', () => {
     const pts = series(12000, 3, { step: 5 });
-    expect(candidateFor(act({ source: 'manual', distanceMeters: 12000, durationSec: 4000, series: pts }), dist('5km'))).toBeNull();
+    expect(candidateFor(act({ source: 'manual', distanceMeters: 12000, durationSec: 4000, series: pts }), dist('5km'))).toMatchObject({ method: 'whole', source: 'manual', extraMeters: 7000 }); // manual nunca gera trecho: so' o tempo da corrida toda
   });
 });
 

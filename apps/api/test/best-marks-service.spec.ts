@@ -23,7 +23,8 @@ describe('BestMarksService', () => {
     const result = await service.forUser('u1');
     const by = Object.fromEntries(result.marks.map((m) => [m.distanceId, m]));
     expect(by['10km'].best).toMatchObject({ activityId: 'l1', seconds: 3900, source: 'device' });
-    expect(by['5km'].ranking.map((r) => [r.activityId, r.source])).toEqual([['manual:c1', 'manual'], ['l2', 'device']]); // 24 min manual < 25 min esteira; bike (l3) fora
+    expect(by['5km'].ranking.map((r) => [r.activityId, r.source])).toEqual([['manual:c1', 'manual'], ['l2', 'device'], ['l1', 'device']]); // 24 min manual < 25 min esteira < 10 km em 65 min (corrida maior conta pelo tempo todo); bike (l3) fora
+    expect(by['5km'].ranking[2]).toMatchObject({ extraMeters: 5000 });
     expect(by['3km'].best).toMatchObject({ source: 'test', seconds: 780 });
     expect(result.selfReported).toEqual([{ rank: 1, distanceKm: 12, distanceRaw: null, timesRun: 4, timeSeconds: 4200 }]);
     expect(JSON.stringify(result.marks)).not.toContain('selfReported');

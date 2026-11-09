@@ -2,9 +2,10 @@
 // Nao interpreta, nao classifica e nao diz se a marca e' boa ou ruim; e' dado derivado, recalculado a cada leitura (nada e' guardado como texto).
 //
 // REGRAS (decididas por Elton em 09/11/2026):
-//  - SEM tolerancia de distancia: 4,95 km NAO vale como 5 km.
-//  - Corrida INTEIRA: vale o tempo TOTAL da atividade (10 km em 65 min = 6:30/km, nunca 6:00), mesmo com o relogio pausado. So' conta como marca de D quando a distancia da atividade
-//    e' exatamente D (arredondada ao metro).
+//  - Qualquer fonte (relogio, manual, teste): corrida MENOR que a distancia NAO conta (4,95 km nao vale como 5 km); IGUAL OU MAIOR conta (ordem de Elton, 09/11/2026). "Igual" = arredondado ao
+//    metro (21.097 m e 21.098 m contam como meia, de 21.097,5 m).
+//  - Corrida INTEIRA: vale o tempo TOTAL da atividade (10 km em 65 min = 6:30/km, nunca 6:00), mesmo com o relogio pausado. Se a corrida e' MAIOR que D e nao ha serie, o tempo e' o da corrida
+//    toda (um limite superior: percorrer D levou no maximo isso) e a marca carrega `extraMeters` para a tela avisar "tempo da corrida inteira de X km".
 //  - TRECHO dentro de uma corrida maior (so' com a serie do relogio): vale o tempo corrido de relogio do trecho, e o relogio NAO pode ter sido pausado dentro dele. Andar conta como tempo.
 //  - Registro manual conta, sempre etiquetado como manual. O teste de 3 km conta (origem "teste").
 
@@ -47,6 +48,8 @@ export interface MarkActivity {
   source: MarkSource;
   provider: string | null;
   startedAt: Date;
+  // Dia local da atividade (YYYY-MM-DD): a tela abre o treino/semana por ele.
+  localDate: string;
   distanceMeters: number | null;
   durationSec: number | null;
   series: SeriesPoint[];
@@ -56,8 +59,15 @@ export interface BestMark {
   distanceId: string;
   seconds: number;
   paceSecondsKm: number;
+  // Metros da corrida alem da distancia da marca quando vale o tempo da corrida INTEIRA (0 quando o trecho e exato).
+  extraMeters: number;
   activityId: string;
   startedAt: string;
+  localDate: string;
+  // Como o tempo foi coletado (a tela explica): distancia total da corrida e, nos trechos, onde ele comeca e termina dentro dela.
+  runMeters: number | null;
+  windowStartMeters: number | null;
+  windowEndMeters: number | null;
   source: MarkSource;
   provider: string | null;
   method: MarkMethod;
@@ -105,6 +115,11 @@ function timeAtDistance(points: Array<{ t: number; d: number }>, target: number)
 
 // Menor tempo de relogio para cobrir EXATAMENTE `meters` sem pausa dentro do trecho. Null se a serie nao tem esse trecho.
 export function bestSegmentSeconds(rawPoints: SeriesPoint[], meters: number): number | null {
+  return bestSegment(rawPoints, meters)?.seconds ?? null;
+}
+
+// Igual a bestSegmentSeconds, mas diz ONDE (em metros desde o inicio da corrida) o melhor trecho comecou.
+export function bestSegment(rawPoints: SeriesPoint[], meters: number): { seconds: number; startMeters: number } | null {
   const points = cleanSeries(rawPoints);
   if (points.length < 2 || points[points.length - 1].d - points[0].d < meters) return null;
   const intervals: number[] = [];
@@ -114,28 +129,33 @@ export function bestSegmentSeconds(rawPoints: SeriesPoint[], meters: number): nu
   for (let i = 1; i < points.length; i++) if (points[i].t - points[i - 1].t > gapLimit) gaps.push({ from: points[i - 1].t, to: points[i].t });
   const valid = (start: number, end: number) => !gaps.some((g) => g.from < end && g.to > start);
 
-  let best: number | null = null;
-  const consider = (start: number | null, end: number | null) => {
+  let best: { seconds: number; startMeters: number } | null = null;
+  const consider = (start: number | null, end: number | null, startMeters: number) => {
     if (start === null || end === null || end <= start || !valid(start, end)) return;
     const seconds = end - start;
-    if (best === null || seconds < best) best = seconds;
+    if (best === null || seconds < best.seconds) best = { seconds, startMeters: Math.round(startMeters - first) };
   };
   const first = points[0].d;
   const last = points[points.length - 1].d;
   for (const p of points) {
-    if (p.d + meters <= last) consider(p.t, timeAtDistance(points, p.d + meters)); // trecho que COMECA num ponto
-    if (p.d - meters >= first) consider(timeAtDistance(points, p.d - meters), p.t); // trecho que TERMINA num ponto
+    if (p.d + meters <= last) consider(p.t, timeAtDistance(points, p.d + meters), p.d); // trecho que COMECA num ponto
+    if (p.d - meters >= first) consider(timeAtDistance(points, p.d - meters), p.t, p.d - meters); // trecho que TERMINA num ponto
   }
   return best;
 }
 
-function toMark(distance: MarkDistance, activity: MarkActivity, seconds: number, method: MarkMethod, timeBasis: MarkTimeBasis): BestMark {
+function toMark(distance: MarkDistance, activity: MarkActivity, seconds: number, method: MarkMethod, timeBasis: MarkTimeBasis, coveredMeters: number = distance.meters, windowStartMeters: number | null = null): BestMark {
   return {
     distanceId: distance.id,
     seconds: Math.round(seconds),
-    paceSecondsKm: Math.round(seconds / (distance.meters / 1000)),
+    paceSecondsKm: Math.round(seconds / (coveredMeters / 1000)),
+    extraMeters: Math.max(0, Math.round(coveredMeters - distance.meters)),
     activityId: activity.id,
     startedAt: activity.startedAt.toISOString(),
+    localDate: activity.localDate,
+    runMeters: activity.distanceMeters != null ? Math.round(activity.distanceMeters) : null,
+    windowStartMeters,
+    windowEndMeters: windowStartMeters !== null ? Math.round(windowStartMeters + distance.meters) : null,
     source: activity.source,
     provider: activity.provider,
     method,
@@ -145,18 +165,19 @@ function toMark(distance: MarkDistance, activity: MarkActivity, seconds: number,
 
 // Melhor candidato de UMA atividade para uma distancia (ou null).
 export function candidateFor(activity: MarkActivity, distance: MarkDistance): BestMark | null {
-  const exact = activity.distanceMeters != null && Math.round(activity.distanceMeters) === Math.round(distance.meters);
+  const reached = activity.distanceMeters != null && Math.round(activity.distanceMeters) >= Math.floor(distance.meters); // igual ou maior (ao metro)
   const points = cleanSeries(activity.series);
   const hasSeries = points.length >= 2;
   let whole: BestMark | null = null;
-  if (exact) {
-    if (hasSeries && points[points.length - 1].t - points[0].t > 0) whole = toMark(distance, activity, points[points.length - 1].t - points[0].t, 'whole', 'series_clock');
-    else if (activity.durationSec != null && activity.durationSec > 0) whole = toMark(distance, activity, activity.durationSec, 'whole', 'duration');
+  if (reached) {
+    const covered = activity.distanceMeters as number;
+    if (hasSeries && points[points.length - 1].t - points[0].t > 0) whole = toMark(distance, activity, points[points.length - 1].t - points[0].t, 'whole', 'series_clock', covered);
+    else if (activity.durationSec != null && activity.durationSec > 0) whole = toMark(distance, activity, activity.durationSec, 'whole', 'duration', covered);
   }
   let segment: BestMark | null = null;
   if (hasSeries && activity.source === 'device') {
-    const seconds = bestSegmentSeconds(activity.series, distance.meters);
-    if (seconds !== null) segment = toMark(distance, activity, seconds, 'segment', 'series_clock');
+    const found = bestSegment(activity.series, distance.meters);
+    if (found !== null) segment = toMark(distance, activity, found.seconds, 'segment', 'series_clock', distance.meters, found.startMeters);
   }
   if (whole && segment) return whole.seconds <= segment.seconds ? whole : segment;
   return whole ?? segment;

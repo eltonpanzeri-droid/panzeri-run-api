@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 // Aluno > Evolução > "Melhores marcas" (09/11/2026). Só LEITURA: GET /coach/students/:id/best-marks (mesma conta da tela da aluna). Mostra, por distância, a melhor marca registrada e a origem do tempo
 // (relógio, registro manual, teste de 3 km; trecho de corrida maior; tempo sem série). O relato da entrevista fica em tabela à parte e nunca se mistura com as marcas registradas.
-type Mark = { distanceId: string; seconds: number; paceSecondsKm: number; activityId: string; startedAt: string; source: 'device' | 'manual' | 'test'; provider: string | null; method: 'whole' | 'segment'; timeBasis: 'series_clock' | 'duration' };
+type Mark = { distanceId: string; seconds: number; paceSecondsKm: number; extraMeters: number; activityId: string; startedAt: string; source: 'device' | 'manual' | 'test'; provider: string | null; method: 'whole' | 'segment'; timeBasis: 'series_clock' | 'duration' };
 type DistanceMarks = { distanceId: string; label: string; meters: number; best: Mark | null; ranking: Mark[] };
 type SelfReported = { rank: 1 | 2 | 3; distanceKm: number | null; distanceRaw: string | null; timesRun: number | null; timeSeconds: number | null };
 type Result = { marks: DistanceMarks[]; selfReported: SelfReported[]; notes: string[] };
@@ -13,7 +13,7 @@ const two = (n: number) => String(n).padStart(2, '0');
 const time = (total: number) => { const s = Math.round(total); const h = Math.floor(s / 3600); return h > 0 ? `${h}:${two(Math.floor((s % 3600) / 60))}:${two(s % 60)}` : `${Math.floor(s / 60)}:${two(s % 60)}`; };
 const pace = (s: number) => `${Math.floor(s / 60)}:${two(Math.round(s) % 60)} /km`;
 const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
-const origin = (m: Mark) => [m.source === 'manual' ? 'registro manual' : m.source === 'test' ? 'teste de 3 km' : `relógio${m.provider ? ` (${m.provider})` : ''}`, m.method === 'segment' ? 'trecho de corrida maior' : null, m.source === 'device' && m.timeBasis === 'duration' ? 'tempo informado, sem série para conferir paradas' : null].filter(Boolean).join(' · ');
+const origin = (m: Mark) => [m.source === 'manual' ? 'registro manual' : m.source === 'test' ? 'teste de 3 km' : `relógio${m.provider ? ` (${m.provider})` : ''}`, m.method === 'segment' ? 'trecho de corrida maior' : null, m.method === 'whole' && m.extraMeters >= 1 ? 'tempo da corrida inteira (maior que a distância)' : null, m.source === 'device' && m.timeBasis === 'duration' ? 'tempo informado, sem série para conferir paradas' : null].filter(Boolean).join(' · ');
 
 export default function BestMarks({ studentId, accessToken, apiUrl }: { studentId: string; accessToken: string; apiUrl: string }) {
   const [data, setData] = useState<Result | null>(null);

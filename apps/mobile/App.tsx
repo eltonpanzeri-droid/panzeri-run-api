@@ -49,6 +49,7 @@ import { MedalsScreen } from './home/MedalsScreen';
 import { FeelingsDetailScreen } from './home/FeelingsDetailScreen';
 import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
+import { mondayOf } from './home/bestMarks';
 import { EvolutionAreaId } from './home/EvolutionAreaGrid';
 import { IndicatorMeaning } from './home/IndicatorMeaning';
 import type { FeelingDomain, SnapshotLite } from './home/insights';
@@ -1529,6 +1530,8 @@ function AppInner() {
   // weekTabOffset: quando o calendario historico navega para uma semana especifica,
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
   const [weekTabOffset, setWeekTabOffset] = useState(0);
+  // Melhores marcas: atividade do relogio aberta no "Treino completo" (09/11/2026).
+  const [marksActivityId, setMarksActivityId] = useState<string | null>(null);
   const [feelingDomain, setFeelingDomain] = useState<FeelingDomain>('sleep');
   const [evolutionArea, setEvolutionArea] = useState<EvolutionAreaId | undefined>(undefined);
   // Sair da Evolução apaga a área escolhida: voltar pelo menu abre a grade, não a última área.
@@ -2012,8 +2015,11 @@ function AppInner() {
                 renderProgress={(focus) => <Progress accessToken={accessToken} focus={focus} />}
                 onOpenRecovery={() => setActiveTab('recovery')}
                 onOpenPainReport={() => { setPainReportFromFeedback(true); setActiveTab('painReport'); }}
+                onOpenActivity={(activityLogId) => setMarksActivityId(activityLogId)}
+                onOpenWeekOfDate={(localDate) => { setWeekTabOffset(computeWeekOffsetMobile(mondayOf(localDate))); setActiveTab('week'); }}
               />
             )}
+            {marksActivityId ? <ActivityDetailModal activityLogId={marksActivityId} accessToken={accessToken} visible onClose={() => setMarksActivityId(null)} /> : null}
             {activeTab === 'recovery' && <RecoveryScreen accessToken={accessToken} apiUrl={API_URL} onOpenIntegrations={() => setActiveTab('devices')} />}
             {activeTab === 'history' && (
               <HistoryCalendar
@@ -11502,8 +11508,8 @@ function IgnoredActivitiesSection({ accessToken, refreshKey, onChanged }: { acce
   );
 }
 
-function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
-  const [open, setOpen] = useState(false);
+// Modal "Treino completo" (detalhe da atividade do relogio). Usado pelo botao de cada treino e pelas Melhores marcas (que abrem o treino da marca).
+function ActivityDetailModal({ activityLogId, accessToken, visible, onClose }: { activityLogId: string; accessToken: string; visible: boolean; onClose: () => void }) {
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -11512,45 +11518,56 @@ function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: s
   const safeAreaInsets = useSafeAreaInsets();
   const modalTopInset = Platform.OS === 'ios' ? safeAreaInsets.top : 0;
 
-  async function openDetail() {
-    setOpen(true);
-    if (detail) return;
+  useEffect(() => {
+    if (!visible || (detail && detail.activityLogId === activityLogId)) return;
+    let cancelled = false;
     setLoading(true);
     setFailed(false);
-    try {
-      const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/detail`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!response.ok) { setFailed(true); return; }
-      setDetail((await response.json()) as ActivityDetail);
-    } catch {
-      setFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  }
+    (async () => {
+      try {
+        const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/detail`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (cancelled) return;
+        if (!response.ok) { setFailed(true); return; }
+        setDetail((await response.json()) as ActivityDetail);
+      } catch {
+        if (!cancelled) setFailed(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visible, activityLogId, accessToken, detail]);
 
   return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        {/* Cabecalho FIXO (fora do ScrollView): so' o conteudo do relatorio rola. */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, paddingTop: modalTopInset + 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#fff' }}>
+          <Text style={{ fontSize: 17, fontWeight: '700' }}>Treino completo</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Fechar" hitSlop={12} onPress={onClose} style={{ paddingVertical: 8, paddingHorizontal: 8 }}>
+            <Text style={{ fontSize: 15, color: '#1769AA', fontWeight: '600' }}>Fechar</Text>
+          </Pressable>
+        </View>
+        <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
+          {loading ? <Text style={{ color: '#64748b' }}>Carregando...</Text> : null}
+          {failed ? <Text style={{ color: '#b91c1c' }}>Não consegui carregar o detalhe agora.</Text> : null}
+          {detail && detail.activityLogId === activityLogId ? <ActivityDetailBody detail={detail} /> : null}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
+  const [open, setOpen] = useState(false);
+  return (
     <>
-      <Pressable onPress={openDetail} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }}>
+      <Pressable onPress={() => setOpen(true)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }}>
         <Text style={{ fontSize: 13, fontWeight: '700', color: '#1769AA' }}>Ver treino completo ›</Text>
       </Pressable>
-      <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: '#fff' }}>
-          {/* Cabecalho FIXO (fora do ScrollView): so' o conteudo do relatorio rola. */}
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, paddingTop: modalTopInset + 12, borderBottomWidth: 1, borderBottomColor: '#e5e7eb', backgroundColor: '#fff' }}>
-            <Text style={{ fontSize: 17, fontWeight: '700' }}>Treino completo</Text>
-            <Pressable accessibilityRole="button" accessibilityLabel="Fechar" hitSlop={12} onPress={() => setOpen(false)} style={{ paddingVertical: 8, paddingHorizontal: 8 }}>
-              <Text style={{ fontSize: 15, color: '#1769AA', fontWeight: '600' }}>Fechar</Text>
-            </Pressable>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: 16, gap: 16 }}>
-            {loading ? <Text style={{ color: '#64748b' }}>Carregando...</Text> : null}
-            {failed ? <Text style={{ color: '#b91c1c' }}>Não consegui carregar o detalhe agora.</Text> : null}
-            {detail ? <ActivityDetailBody detail={detail} /> : null}
-          </ScrollView>
-        </View>
-      </Modal>
+      <ActivityDetailModal activityLogId={activityLogId} accessToken={accessToken} visible={open} onClose={() => setOpen(false)} />
     </>
   );
 }

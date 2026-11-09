@@ -50,6 +50,8 @@ export function EvolutionHub({
   renderProgress,
   onOpenRecovery,
   onOpenPainReport,
+  onOpenActivity,
+  onOpenWeekOfDate,
 }: {
   accessToken: string;
   /** Área aberta ao entrar (toque numa das seis áreas da tela principal). Sem ela, abre a grade. */
@@ -58,6 +60,10 @@ export function EvolutionHub({
   renderProgress: (focus: ProgressFocus) => React.ReactNode;
   onOpenRecovery: () => void;
   onOpenPainReport: () => void;
+  /** Melhores marcas: abre o "Treino completo" da atividade do relógio. */
+  onOpenActivity: (activityLogId: string) => void;
+  /** Melhores marcas: abre a semana do dia (registro manual e teste). */
+  onOpenWeekOfDate: (localDate: string) => void;
 }) {
   const [view, setView] = useState<View_>(initialArea ?? 'hub');
 
@@ -80,7 +86,7 @@ export function EvolutionHub({
   if (view === 'marks') {
     return (
       <View style={styles.container}>
-        <BestMarksScreen accessToken={accessToken} onBack={() => setView('hub')} />
+        <BestMarksScreen accessToken={accessToken} onBack={() => setView('hub')} onOpenActivity={onOpenActivity} onOpenWeekOfDate={onOpenWeekOfDate} />
       </View>
     );
   }
