@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreateTargetRaceDto {
   @IsString()
@@ -26,6 +26,20 @@ export class CreateTargetRaceDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // Local e horario da prova (09/11/2026): opcionais na API (provas antigas nao tem); o app exige cidade e horario ao CADASTRAR uma prova nova.
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string;
+
+  @IsOptional()
+  @Matches(/^[A-Za-z]{2}$/, { message: 'state deve ter 2 letras (UF)' })
+  state?: string;
+
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'startTime deve ser HH:MM (00:00 a 23:59)' })
+  startTime?: string;
 
   // Questionario de contexto sobre a meta (10/08) — escala de 1 a 10, tudo opcional. Ver
   // comentario no schema.prisma (TargetRace) e a regra de uso em prescription-agent.service.ts.

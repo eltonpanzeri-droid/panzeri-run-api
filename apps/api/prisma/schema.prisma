@@ -1054,6 +1054,12 @@ model TargetRace {
   anxietyLevel            Int?
   isFirstTimeAtDistance   Boolean?
 
+  // 09/11/2026 (ordem do Elton): local e horario da prova, guardados para o futuro indice de temperatura de bulbo umido (WBGT). city/state = cidade e UF; startTime = 'HH:MM' (horario local da largada).
+  // Provas cadastradas antes ficam sem esses dados ate serem editadas. Nao entra em nenhuma regra de treino.
+  city      String?
+  state     String?
+  startTime String?
+
   @@index([userId, status])
 }
 

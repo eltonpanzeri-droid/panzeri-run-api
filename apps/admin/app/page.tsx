@@ -183,6 +183,9 @@ interface StudentDetail {
     targetSeconds: number | null;
     priority: string;
     status: string;
+    city?: string | null;
+    state?: string | null;
+    startTime?: string | null;
     paceSecondsPerKm: number | null;
   }>;
   analysisAgent?: {
@@ -3868,6 +3871,7 @@ function StudentPanel({
                       <span>{dateLabel(race.raceDate)}</span>
                       <span>{race.distanceKm} km</span>
                       {race.paceSecondsPerKm ? <span>pace alvo {paceLabel(race.paceSecondsPerKm)}</span> : null}
+                      {race.city || race.startTime ? <span>{[race.city ? (race.state ? `${race.city}/${race.state}` : race.city) : null, race.startTime ? `largada ${race.startTime}` : null].filter(Boolean).join(' · ')}</span> : <span style={{ color: 'var(--muted)' }}>local e horário não informados</span>}
                     </div>
                     <span className={`status ${race.priority === 'principal' ? 'good' : 'warn'}`}>{race.priority === 'principal' ? 'Meta principal' : 'Meta secundaria'}</span>
                     {race.status !== 'em_andamento' ? <small style={{ marginLeft: 8, color: 'var(--muted)' }}>{race.status}</small> : null}

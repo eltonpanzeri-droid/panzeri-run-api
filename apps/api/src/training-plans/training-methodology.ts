@@ -373,6 +373,8 @@ export interface WeeklyMethodologyDecision {
   // Weekdays esperados na rotina de corrida mas que a IA nao cobriu — usados por generateWeek()
   // pra montar a notificacao Telegram com nome/data de cada dia faltante.
   routineMismatchMissingRunWeekdays?: number[];
+  // Dias da rotina sem corrida da IA que estao cobertos pela prescricao de prova alvo (nao sao falta).
+  routineMismatchRaceCoveredWeekdays?: number[];
   // Mesma informacao, quebrada por sessao (chave "weekday:modality", modality="corrida" pra
   // qualquer sessao de corrida) — generateWeek() usa isso pra marcar SO a sessao especifica que
   // saiu do combinado (TrainingSession.routineMismatchNote), em vez de tratar a semana inteira
@@ -395,6 +397,18 @@ export function computeRunSlots(availability: MethodologyAvailability[]) {
 // 09/11/2026 (caso Andreia): quando a aluna escolhe "Nao, a partir de amanha" (generateFrom), o prompt manda a IA PULAR os dias anteriores a essa data — entao a conferencia nao pode EXIGIR a
 // forca desses dias. Devolve so' os dias de forca cuja data e' >= generateFrom. Sem generateFrom: todos (comportamento de sempre). Dia sem data conhecida: continua exigido (conservador).
 // Estrutural: nao escolhe treino nenhum; so' diz quais dias da rotina ainda cabem na geracao.
+// 09/11/2026 (caso Brenda): dias da semana cuja data e' a de uma prova alvo ATIVA. Nesse dia a prova substitui a corrida (modulo do calendario de provas), entao a ausencia de corrida da IA nele
+// nao e' "sem cobertura": e' "coberto por prescricao de prova alvo". Estrutural: so' compara datas.
+export function raceCoveredWeekdays(targetRaces: Array<{ raceDate: string }> | null | undefined, weekDates: Array<{ weekday: number; date: string }> | null | undefined): number[] {
+  const dateToWeekday = new Map((weekDates ?? []).map((item) => [item.date, item.weekday]));
+  const out = new Set<number>();
+  for (const race of targetRaces ?? []) {
+    const weekday = dateToWeekday.get(String(race.raceDate).slice(0, 10));
+    if (weekday !== undefined) out.add(weekday);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
 export function requiredStrengthSlots<T extends { weekday: number }>(slots: T[], weekDates: Array<{ weekday: number; date: string }> | null | undefined, generateFrom: string | null | undefined): T[] {
   if (!generateFrom) return slots;
   const dateOf = new Map((weekDates ?? []).map((item) => [item.weekday, item.date]));

@@ -1,6 +1,12 @@
 // Textos de uma meta de prova nova: aviso ao treinador (Telegram) e linha do Prontuario. Puro texto (sem I/O): so' formata fatos que a aluna informou.
+import { formatRaceWhere } from './race-location';
+
 export interface RaceSummary {
   name: string;
+  // Local e horario da prova (09/11/2026).
+  city?: string | null;
+  state?: string | null;
+  startTime?: string | null;
   raceDate: Date;
   distanceKm: number;
   targetSeconds?: number | null;
@@ -51,6 +57,8 @@ function scalesLine(race: RaceSummary): string | null {
 
 function baseLines(race: RaceSummary): string[] {
   const lines = [`${race.name} — ${race.distanceKm} km em ${formatRaceDate(race.raceDate)}`];
+  const where = formatRaceWhere(race);
+  if (where) lines.push(`Local: ${where}`);
   lines.push(race.targetSeconds ? `Tempo-alvo: ${formatTargetTime(race.targetSeconds)}` : 'Sem tempo-alvo informado');
   lines.push(`Prioridade: ${race.priority === 'secundaria' ? 'secundaria' : 'principal'}`);
   if (typeof race.isFirstTimeAtDistance === 'boolean') lines.push(`Primeira vez nessa distancia: ${race.isFirstTimeAtDistance ? 'sim' : 'nao'}`);
@@ -95,6 +103,7 @@ export function describeRaceChanges(before: RaceState, after: RaceState): string
   push('Nome', before.name, after.name);
   push('Data', formatRaceDate(before.raceDate), formatRaceDate(after.raceDate));
   push('Distancia', `${before.distanceKm} km`, `${after.distanceKm} km`);
+  push('Local e horario', formatRaceWhere(before) ?? 'nao informado', formatRaceWhere(after) ?? 'nao informado');
   push('Tempo-alvo', timeOf(before.targetSeconds), timeOf(after.targetSeconds));
   push('Prioridade', before.priority === 'secundaria' ? 'secundaria' : 'principal', after.priority === 'secundaria' ? 'secundaria' : 'principal');
   push('Status', STATUS_LABEL[before.status ?? ''] ?? String(before.status ?? ''), STATUS_LABEL[after.status ?? ''] ?? String(after.status ?? ''));

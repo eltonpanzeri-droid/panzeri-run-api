@@ -1783,6 +1783,9 @@ export class CoachService {
         priority: race.priority,
         status: race.status,
         paceSecondsPerKm: race.targetSeconds && race.distanceKm ? Math.round(race.targetSeconds / race.distanceKm) : null,
+        city: race.city ?? null,
+        state: race.state ?? null,
+        startTime: race.startTime ?? null,
       })),
       interview: student.onboardingInterview ? {
         answers: sanitizeInterviewAnswers(jsonObject(student.onboardingInterview.answers)),

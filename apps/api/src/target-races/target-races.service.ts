@@ -9,6 +9,7 @@ import {
 } from './target-race-messages';
 import { TargetRaceCalendarService } from './target-race-calendar.service';
 import { CreateTargetRaceDto } from './dto/create-target-race.dto';
+import { normalizeRaceLocation } from './race-location';
 import { UpdateTargetRaceDto } from './dto/update-target-race.dto';
 
 const dayNames = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
@@ -44,6 +45,7 @@ export class TargetRacesService {
         targetSeconds: dto.targetSeconds,
         priority: dto.priority ?? 'principal',
         notes: dto.notes,
+        ...normalizeRaceLocation({ city: dto.city, state: dto.state, startTime: dto.startTime }),
         performanceIntent: dto.performanceIntent,
         socialIntent: dto.socialIntent,
         personalImportance: dto.personalImportance,
@@ -74,6 +76,7 @@ export class TargetRacesService {
       where: { id: raceId },
       data: {
         name: dto.name?.trim(),
+        ...normalizeRaceLocation({ city: dto.city, state: dto.state, startTime: dto.startTime }),
         raceDate: dto.raceDate ? new Date(dto.raceDate) : undefined,
         distanceKm: dto.distanceKm,
         targetSeconds: dto.targetSeconds,

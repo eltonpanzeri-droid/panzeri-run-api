@@ -51,6 +51,7 @@ import { EvolutionObjectiveSections } from './home/EvolutionObjective';
 import { EvolutionHub, ProgressFocus } from './home/EvolutionHub';
 import { mondayOf } from './home/bestMarks';
 import { registerAppScroll, reportAppScrollOffset, scrollAppToWindowY } from './src/appScroll';
+import { formatRaceWhere, formatTimeInputText, normalizeStartTime, validateRaceLocation } from './src/targetRace/raceLocation';
 import { FEEDBACK_BADGE_TEXT, feedbackBadge, type FeedbackBadgeState } from './src/feedbackStatus';
 import { availableSheetHeight } from './src/keyboardLayout';
 import { useKeyboardHeight } from './src/useKeyboardHeight';
@@ -6632,6 +6633,10 @@ interface TargetRaceItem {
   priority: string;
   status: string;
   notes: string | null;
+  // Local e horario da prova (09/11/2026).
+  city: string | null;
+  state: string | null;
+  startTime: string | null;
   paceSecondsPerKm: number | null;
   speedKmh: number | null;
   performanceIntent: number | null;
@@ -6676,6 +6681,10 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   const [viewMode, setViewMode] = useState<'form' | 'timeline'>('form');
   const [name, setName] = useState('');
   const [raceDateInput, setRaceDateInput] = useState('');
+  // Local e horario da prova (09/11/2026, ordem do Elton): cidade e horario obrigatorios ao CADASTRAR; UF opcional. Para o futuro indice de bulbo umido (WBGT).
+  const [cityInput, setCityInput] = useState('');
+  const [stateInput, setStateInput] = useState('');
+  const [startTimeInput, setStartTimeInput] = useState('');
   const [distanceInput, setDistanceInput] = useState('');
   const [hours, setHours] = useState('');
   const [minutes, setMinutes] = useState('');
@@ -6720,6 +6729,9 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
   function resetForm() {
     setName('');
     setRaceDateInput('');
+    setCityInput('');
+    setStateInput('');
+    setStartTimeInput('');
     setDistanceInput('');
     setHours('');
     setMinutes('');
@@ -6744,6 +6756,9 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     setEditingId(race.id);
     setName(race.name);
     setRaceDateInput(formatDateFromApi(race.raceDate));
+    setCityInput(race.city ?? '');
+    setStateInput(race.state ?? '');
+    setStartTimeInput(race.startTime ?? '');
     setDistanceInput(String(race.distanceKm).replace('.', ','));
     const total = race.targetSeconds ?? 0;
     setHours(total >= 3600 ? String(Math.floor(total / 3600)) : '');
@@ -6777,6 +6792,8 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
     const isoDate = dateInputValueToIso(raceDateInput);
     if (!isoDate) { setMessage('Digite uma data válida no formato dia/mês/ano.'); return; }
     if (!distanceKm || distanceKm <= 0) { setMessage('Digite uma distância válida em quilômetros.'); return; }
+    const locationProblem = validateRaceLocation({ city: cityInput, state: stateInput, time: startTimeInput }, { required: editingId === null });
+    if (locationProblem) { setMessage(locationProblem); return; }
     const timeProblem = validateTargetTime(hours, minutes, seconds);
     if (timeProblem) { setMessage(timeProblem); return; }
     setSaving(true);
@@ -6790,6 +6807,9 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         body: JSON.stringify({
           name: name.trim(),
           raceDate: isoDate,
+          city: cityInput.trim() || clear,
+          state: stateInput.trim().toUpperCase() || clear,
+          startTime: normalizeStartTime(startTimeInput) ?? clear,
           distanceKm,
           targetSeconds: totalSeconds > 0 ? totalSeconds : clear,
           priority,
@@ -6962,6 +6982,7 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
                           {formatRaceDate(race.raceDate)}
                           {race.distanceKm ? ` · ${race.distanceKm} km` : ''}
                         </Text>
+                        {formatRaceWhere(race) ? <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>{formatRaceWhere(race)}</Text> : null}
                         {race.paceSecondsPerKm ? (
                           <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 1 }}>
                             Pace alvo: {formatPace(race.paceSecondsPerKm)}
@@ -7014,6 +7035,13 @@ function TargetRaceScreen({ accessToken }: { accessToken: string }) {
         <Text style={styles.formSectionTitle}>Nova meta</Text>
         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Nome da prova (ex: Meia Maratona de SP)" />
         <TextInput style={styles.input} value={raceDateInput} onChangeText={(text) => setRaceDateInput(formatDateInputText(text))} placeholder="Data (dd/mm/aaaa)" keyboardType="number-pad" maxLength={10} />
+        <Text style={styles.inputLabel}>Onde e que horas é a prova</Text>
+        <TextInput style={styles.input} value={cityInput} onChangeText={setCityInput} placeholder="Cidade da prova (ex: Belo Horizonte)" maxLength={80} />
+        <View style={styles.couponRow}>
+          <TextInput style={[styles.input, styles.couponInput]} value={stateInput} onChangeText={(text) => setStateInput(text.replace(/[^A-Za-z]/g, '').toUpperCase())} placeholder="UF (opcional)" autoCapitalize="characters" maxLength={2} />
+          <TextInput style={[styles.input, styles.couponInput]} value={startTimeInput} onChangeText={(text) => setStartTimeInput(formatTimeInputText(text))} placeholder="Largada (hh:mm)" keyboardType="number-pad" maxLength={5} />
+        </View>
+        <Text style={styles.formHint}>Cidade e horário ajudam a avaliar o calor e a umidade na hora da prova.</Text>
         <TextInput style={styles.input} value={distanceInput} onChangeText={setDistanceInput} placeholder="Distância em km (ex: 21 ou 134,5)" keyboardType="decimal-pad" />
         <Text style={styles.inputLabel}>Tempo que espera fazer (opcional)</Text>
         <View style={styles.couponRow}>

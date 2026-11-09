@@ -11,6 +11,7 @@ import {
   WeeklyMethodologyDecision,
   computeRunSlots,
   computeStrengthSlots,
+  raceCoveredWeekdays,
   requiredStrengthSlots,
   hasSafetyConcern,
   isNovice,
@@ -626,7 +627,7 @@ export class PrescriptionAgentService {
       // mais rejeicao por estrutura malformada — o discriminatedUnion do Zod ja garante que cada
       // parte veio numa das duas formas validas (nunca as duas juntas, nunca nenhuma), entao nao
       // ha mais nada pra "sessao inteira mal formada" rejeitar aqui.
-      const validated = this.validateSessions(parsed.sessions, runSlots);
+      const validated = this.validateSessions(parsed.sessions, runSlots, raceCoveredWeekdays(input.targetRaces, input.weekDates));
       const sessions = validated.sessions;
 
       // Dias de forca anteriores a "gerar a partir de" (aluna escolheu "Nao, a partir de amanha") foram PULADOS por instrucao: nao sao exigidos nem reparados (caso Andreia, 09/11/2026).
@@ -668,6 +669,7 @@ export class PrescriptionAgentService {
         physiologicalReferenceAdjustment: parsed.ajusteDeReferenciaFisiologica ?? null,
         routineMismatch: validated.routineMismatch,
         routineMismatchMissingRunWeekdays: validated.missingRunWeekdays,
+        routineMismatchRaceCoveredWeekdays: validated.raceCoveredRunWeekdays,
         sessionMismatches: { ...validated.sessionMismatches, ...strengthValidation.sessionMismatches },
       };
     } catch (error) {
@@ -691,6 +693,7 @@ export class PrescriptionAgentService {
   private validateSessions(
     sessions: z.infer<typeof AiSessionSchema>[],
     runSlots: RunSlot[],
+    raceWeekdays: number[] = [],
   ): {
     sessions: RunSessionDecision[];
     routineMismatch: string | null;
@@ -704,6 +707,8 @@ export class PrescriptionAgentService {
     // Weekdays que a rotina de corrida esperava mas a IA nao cobriu — usado por generateWeek()
     // pra formatar a notificacao Telegram com nome e data de cada dia faltante.
     missingRunWeekdays: number[];
+    // Dias esperados pela rotina que nao tem corrida da IA mas tem a prova alvo (09/11/2026): aparecem no aviso como "coberto por prescricao de prova alvo", nunca como falta.
+    raceCoveredRunWeekdays: number[];
   } {
     // ATE 02/08 isso rejeitava a semana INTEIRA quando a IA cobria menos dias do que a rotina
     // cadastrada — ordem explicita do treinador: cobertura de dias (e duracao, ver
@@ -714,10 +719,14 @@ export class PrescriptionAgentService {
     // diretriz, o desvio e esperado e nao precisa de aviso).
     const slotByWeekday = new Map(runSlots.map((slot) => [slot.weekday, slot]));
     const coveredWeekdays = new Set(sessions.map((session) => session.weekday));
-    const missingWeekdays = runSlots.filter((slot) => !coveredWeekdays.has(slot.weekday));
+    const notCoveredByAi = runSlots.filter((slot) => !coveredWeekdays.has(slot.weekday));
+    // Dia da prova alvo: a prova substitui a corrida do dia (calendario de provas), entao nao e' falta — e' "coberto por prescricao de prova alvo" (o aviso continua, com este nome).
+    const raceCovered = notCoveredByAi.filter((slot) => raceWeekdays.includes(slot.weekday));
+    const missingWeekdays = notCoveredByAi.filter((slot) => !raceWeekdays.includes(slot.weekday));
+    const dayName = (slot: RunSlot) => WEEKDAY_PT_FULL[slot.weekday] ?? `dia ${slot.weekday}`;
     let routineMismatch: string | null = null;
-    if (sessions.length < runSlots.length || missingWeekdays.length) {
-      routineMismatch = `IA gerou ${sessions.length} dia(s) de corrida em vez dos ${runSlots.length} combinados na rotina${missingWeekdays.length ? ` (sem cobertura: ${missingWeekdays.map((slot) => WEEKDAY_PT_FULL[slot.weekday] ?? `dia ${slot.weekday}`).join(', ')})` : ''}.`;
+    if (sessions.length < runSlots.length || notCoveredByAi.length) {
+      routineMismatch = `IA gerou ${sessions.length} dia(s) de corrida em vez dos ${runSlots.length} combinados na rotina${missingWeekdays.length ? ` (sem cobertura: ${missingWeekdays.map(dayName).join(', ')})` : ''}${raceCovered.length ? ` (coberto por prescricao de prova alvo: ${raceCovered.map(dayName).join(', ')})` : ''}.`;
       this.logger.log(`Aviso (nao bloqueia): ${routineMismatch}`);
     }
 
@@ -771,7 +780,7 @@ export class PrescriptionAgentService {
       routineMismatch = routineMismatch ? `${routineMismatch} ${durationNote}` : durationNote;
     }
 
-    return { sessions: result, routineMismatch, sessionMismatches, missingRunWeekdays: missingWeekdays.map((s) => s.weekday) };
+    return { sessions: result, routineMismatch, sessionMismatches, missingRunWeekdays: missingWeekdays.map((s) => s.weekday), raceCoveredRunWeekdays: raceCovered.map((s) => s.weekday) };
   }
 
   // Chamado so com os slots da rotina que ficaram sem nenhuma sessao correspondente (ver

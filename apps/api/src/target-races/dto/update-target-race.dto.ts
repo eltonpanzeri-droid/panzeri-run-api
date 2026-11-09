@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class UpdateTargetRaceDto {
   @IsOptional()
@@ -25,6 +25,20 @@ export class UpdateTargetRaceDto {
   @IsOptional()
   @IsIn(['principal', 'secundaria'])
   priority?: string;
+
+  // Local e horario (09/11/2026): null limpa o valor.
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  city?: string | null;
+
+  @IsOptional()
+  @Matches(/^[A-Za-z]{2}$/, { message: 'state deve ter 2 letras (UF)' })
+  state?: string | null;
+
+  @IsOptional()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'startTime deve ser HH:MM (00:00 a 23:59)' })
+  startTime?: string | null;
 
   @IsOptional()
   @IsIn(['em_andamento', 'concluida', 'arquivada'])

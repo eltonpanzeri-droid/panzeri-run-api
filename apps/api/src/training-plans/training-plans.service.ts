@@ -1325,6 +1325,12 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
         mismatchLines.push(`• ${dateFmt} — sem cobertura pela IA`);
       }
+      // Dia da prova alvo: a prova substitui a corrida (09/11/2026) — o aviso continua, com o nome certo.
+      for (const wd of (methodology.routineMismatchRaceCoveredWeekdays ?? [])) {
+        const date = addDays(weekStart, weekdayOffsetFromMonday(wd));
+        const dateFmt = date.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+        mismatchLines.push(`• ${dateFmt} — coberto por prescrição de prova alvo`);
+      }
       const mismatchBody = mismatchLines.length ? mismatchLines.join('\n') : methodology.routineMismatch;
       await this.telegram.notifyCoach(
         `ℹ️ Treino gerado com rotina diferente do estipulado (sem diretriz).\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\n${mismatchBody}`,
