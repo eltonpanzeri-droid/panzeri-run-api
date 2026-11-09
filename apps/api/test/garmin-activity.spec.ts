@@ -2,7 +2,7 @@ import { Body, Controller, Module, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { NotFoundException } from '@nestjs/common';
-import { activityKeyOf, GARMIN_ACTIVITY_EVENT_TYPES, modalityFromGarmin, parseGarminActivityPush, toActivityDrafts } from '../src/garmin/garmin-activity';
+import { activityKeyOf, applyActivityConsent, GARMIN_ACTIVITY_EVENT_TYPES, modalityFromGarmin, parseGarminActivityPush, toActivityDrafts } from '../src/garmin/garmin-activity';
 import { GarminActivityIngestionService } from '../src/garmin/garmin-activity-ingestion.service';
 import { GarminActivityEventService } from '../src/garmin/garmin-activity-events.service';
 import { GarminController } from '../src/garmin/garmin.controller';
@@ -33,19 +33,25 @@ describe('leitura do push de atividades', () => {
     expect(records).toHaveLength(1);
     expect(records[0]).toMatchObject({ kind: 'summary', userId: 'garmin-user-1', activityId: '5001968355', activityType: 'RUNNING', startedAtSec: START, startOffsetSec: -10800, durationSec: 3600, distanceMeters: 10000, avgHeartRateBpm: 150, maxHeartRateBpm: 172, avgRunCadenceSpm: 168, elevationGainMeters: 40, caloriesKcal: 700, deviceName: 'Forerunner 265', samples: null });
   });
-  it('detalhes: amostras em offsets reais, velocidade em km/h, potencia media — e NENHUMA coordenada', () => {
+  it('detalhes: amostras em offsets reais, velocidade em km/h, potencia media, temperatura e posicao (o que pode ser guardado depende da autorizacao)', () => {
     const { records } = parseGarminActivityPush({ activityDetails: [detailsItem()] });
     expect(records).toHaveLength(1);
     expect(records[0].kind).toBe('details');
     expect(records[0].samples).toEqual([
-      { offsetSec: 0, heartRateBpm: 120, speedKmh: 9, distanceMeters: 0, cadenceSpm: 160, powerWatts: 200, elevationMeters: 800, clockDurationSec: 0, timerDurationSec: 0, movingDurationSec: 0 },
-      { offsetSec: 1, heartRateBpm: 122, speedKmh: 2.6 * 3.6, distanceMeters: 2.6, cadenceSpm: 162, powerWatts: 210, elevationMeters: 801, clockDurationSec: 1, timerDurationSec: 1, movingDurationSec: 1 },
+      { offsetSec: 0, heartRateBpm: 120, speedKmh: 9, distanceMeters: 0, cadenceSpm: 160, powerWatts: 200, elevationMeters: 800, clockDurationSec: 0, timerDurationSec: 0, movingDurationSec: 0, temperatureCelsius: 24, latitude: -19.9, longitude: -43.9 },
+      { offsetSec: 1, heartRateBpm: 122, speedKmh: 2.6 * 3.6, distanceMeters: 2.6, cadenceSpm: 162, powerWatts: 210, elevationMeters: 801, clockDurationSec: 1, timerDurationSec: 1, movingDurationSec: 1, temperatureCelsius: null, latitude: -19.9001, longitude: -43.9001 },
     ]);
     expect(records[0].powerAvgWatts).toBe(205);
-    // Regra da Politica 5D: GPS nunca e' guardado. Nada que lembre coordenada ou temperatura sobrevive ao filtro (voltas passam, so' como horario de inicio).
-    const everything = JSON.stringify(records) + JSON.stringify(toActivityDrafts(records));
-    expect(everything).not.toMatch(/latitude|longitude|lat"|lon"|-19\.9|-43\.9|airTemperature/i);
     expect(records[0].lapStartOffsetsSec).toEqual([0]);
+    // Sem autorizacao de percurso e de sensores, coordenadas e temperatura somem ANTES da fila.
+    const none = applyActivityConsent(records[0], ['activity']);
+    expect(JSON.stringify(none) + JSON.stringify(toActivityDrafts([none]))).not.toMatch(/-19\.9|-43\.9|"temperatureCelsius":2/);
+    expect(none.samples![0]).toMatchObject({ latitude: null, longitude: null, temperatureCelsius: null, heartRateBpm: 120 });
+    const sensorsOnly = applyActivityConsent(records[0], ['activity', 'activity_sensors']);
+    expect(sensorsOnly.samples![0]).toMatchObject({ latitude: null, longitude: null, temperatureCelsius: 24 });
+    const withRoute = applyActivityConsent(records[0], ['activity', 'activity_sensors', 'activity_route']);
+    expect(withRoute.samples![0]).toMatchObject({ latitude: -19.9, longitude: -43.9, temperatureCelsius: 24 });
+    expect(records[0].samples![0].latitude).toBe(-19.9); // o original nao e alterado
   });
   it('atividade manual e atividade-mae (multiesporte) sao ignoradas', () => {
     const result = parseGarminActivityPush({ activities: [summaryItem({ manual: true }), summaryItem({ summaryId: 'p', isParent: true }), summaryItem({ summaryId: 'ok2', activityId: 9 })], activityDetails: [detailsItem({ manual: true })] });
@@ -61,7 +67,7 @@ describe('leitura do push de atividades', () => {
   });
   it('valores absurdos viram nulos (FC fora de 30–250, velocidade negativa)', () => {
     const { records } = parseGarminActivityPush({ activityDetails: [detailsItem({ samples: [{ startTimeInSeconds: START, heartRate: 400, speedMetersPerSecond: -3 }, { startTimeInSeconds: START - 100, heartRate: 150 }] })] });
-    expect(records[0].samples).toEqual([{ offsetSec: 0, heartRateBpm: null, speedKmh: null, distanceMeters: null, cadenceSpm: null, powerWatts: null, elevationMeters: null, clockDurationSec: null, timerDurationSec: null, movingDurationSec: null }]);
+    expect(records[0].samples).toEqual([{ offsetSec: 0, heartRateBpm: null, speedKmh: null, distanceMeters: null, cadenceSpm: null, powerWatts: null, elevationMeters: null, clockDurationSec: null, timerDurationSec: null, movingDurationSec: null, temperatureCelsius: null, latitude: null, longitude: null }]);
   });
   it('a chave da atividade e o activityId (igual no resumo e nos detalhes)', () => {
     const s = parseGarminActivityPush({ activities: [summaryItem()] }).records[0];
@@ -209,9 +215,9 @@ describe('processador de eventos (GarminActivityEventService)', () => {
 
 describe('endereco do push de atividades', () => {
   const KEY = 'k'.repeat(40);
-  function build() {
+  function build(opts: { categories?: string[] } = {}) {
     const events: any = { record: jest.fn(async () => ({ created: true, id: 'x' })) };
-    const consent: any = { resolveActiveUserId: jest.fn(async (_p: string, id: string) => (id === 'garmin-user-1' ? 'u1' : null)) };
+    const consent: any = { resolveActiveUserId: jest.fn(async (_p: string, id: string) => (id === 'garmin-user-1' ? 'u1' : null)), snapshot: jest.fn(async () => ({ categories: opts.categories ?? ['activity', 'activity_sensors'], purposes: [], collectFrom: null })) };
     const ctrl = new GarminController({} as any, { get: (n: string) => (n === 'GARMIN_WEBHOOK_KEY' ? KEY : undefined) } as any, consent, events, {} as any);
     return { ctrl, events, consent };
   }
@@ -220,14 +226,22 @@ describe('endereco do push de atividades', () => {
     await expect(ctrl.activities('errada', { activities: [summaryItem()] })).rejects.toBeInstanceOf(NotFoundException);
     expect(events.record).not.toHaveBeenCalled();
   });
-  it('enfileira so atividades de contas com conexao ativa, ja filtradas (sem GPS)', async () => {
+  it('enfileira so atividades de contas com conexao ativa, ja filtradas pela autorizacao (sem percurso: sem GPS)', async () => {
     const { ctrl, events } = build();
     const result = await ctrl.activities(KEY, { activities: [summaryItem(), summaryItem({ userId: 'desconhecida', summaryId: 'z' })], activityDetails: [detailsItem()] });
     expect(result).toEqual({ ok: true, queued: 2, ignored: 0 });
     expect(events.record).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(events.record.mock.calls)).not.toMatch(/latitude|longitude/);
+    expect(JSON.stringify(events.record.mock.calls)).not.toMatch(/-19\.9|-43\.9/);
     expect(events.record.mock.calls[0][0]).toBe('garmin');
     expect(events.record.mock.calls[0][2]).toBe('u1');
+  });
+  it('com a autorizacao de percurso as coordenadas entram na fila; sem ela, nunca (nem a temperatura sem sensores)', async () => {
+    const withRoute = build({ categories: ['activity', 'activity_sensors', 'activity_route'] });
+    await withRoute.ctrl.activities(KEY, { activityDetails: [detailsItem()] });
+    expect(JSON.stringify(withRoute.events.record.mock.calls)).toMatch(/-19\.9/);
+    const without = build({ categories: ['activity'] });
+    await without.ctrl.activities(KEY, { activityDetails: [detailsItem()] });
+    expect(JSON.stringify(without.events.record.mock.calls)).not.toMatch(/-19\.9|-43\.9|"temperatureCelsius":24/);
   });
   it('reenvio (duplicado) nao conta como novo; corpo vazio nao quebra', async () => {
     const { ctrl, events } = build();

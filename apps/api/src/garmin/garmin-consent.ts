@@ -1,23 +1,23 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
 
-// Textos de autorizacao Garmin — versao 1.0 (08/11/2026). Mesmo desenho da COROS/Zepp: TRES autorizacoes INDEPENDENTES (nenhuma caixa vem marcada; nenhuma e' presumida a partir da outra):
+// Textos de autorizacao Garmin — versao 1.1 (09/11/2026; a 1.0 de 08/11/2026 nao tinha o grupo de percurso GPS nem citava a temperatura). Mesmo desenho da COROS/Zepp: TRES autorizacoes INDEPENDENTES (nenhuma caixa vem marcada; nenhuma e' presumida a partir da outra):
 //  1. CONEXAO (este documento): importar atividades e os grupos de saude que a aluna selecionar.
 //  2. ENVIO DE TREINOS AO RELOGIO (finalidade `watch_delivery`, tela propria): opcional, depois de conectar.
 //  3. ANALISE COM O ATLAS / Anthropic (finalidade `ai_external`, tela propria): opcional. Regra da Garmin (declarada na Politica, secao 5D): dados Garmin e derivados NUNCA treinam, avaliam ou
 //     melhoram modelos de IA; so' resumos, so' com esta autorizacao separada e retiravel.
-// Coerencia com a Politica de Privacidade (5D): NAO ha' grupo de percurso GPS e NAO ha' dados de saude da mulher (ciclo). O Starter nao traz historico: nao existe "importar atividades anteriores".
+// Coerencia com a Politica de Privacidade (5D): ha' um grupo proprio de Percurso GPS (09/11/2026, opcional, depende de Atividades) e NAO ha' dados de saude da mulher (ciclo). O Starter nao traz historico: nao existe "importar atividades anteriores".
 // O texto do envio de treinos foi conferido com a Training API V2 (08/11/2026): a Garmin permite criar, atualizar e APAGAR treino e agendamento. Ajustar ANTES de qualquer aluna conectar nao exige nova
 // versao; depois disso, qualquer mudanca muda o hash e EXIGE nova versao.
 export const GARMIN_CONSENT: ConsentCapability = {
-  version: '1.0',
-  dateLabel: '08/11/2026',
+  version: '1.1',
+  dateLabel: '09/11/2026',
   title: 'Conecte sua Garmin ao Panzeri Run',
   intro: 'Conecte sua conta Garmin ao Panzeri Run para acompanhar seus treinos e sua recuperação em um só lugar.',
   sections: [
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência e elevação) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, oxigenação do sangue, respiração, temperatura da pele, pressão arterial, nutrição e hidratação, passos e atividade do dia, inclusive minuto a minuto).',
+        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação, temperatura, voltas e, se você marcar, o percurso GPS) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, oxigenação do sangue, respiração, temperatura da pele, pressão arterial, nutrição e hidratação, passos e atividade do dia, inclusive minuto a minuto).',
         'Essas informações serão utilizadas para acompanhar sua evolução e sua recuperação, comparar os treinos planejados com os realizados e personalizar seu treinamento. Seu treinador vê no painel os dados que você autorizou. Elas não substituem avaliação médica.',
       ],
     },
@@ -25,7 +25,7 @@ export const GARMIN_CONSENT: ConsentCapability = {
       heading: 'Você escolhe quais dados compartilhar',
       paragraphs: [
         'Marque abaixo apenas os grupos de dados que você quer compartilhar. O que você não marcar não será guardado nem utilizado. Na página da Garmin você também controla o que ela compartilha conosco. Nem todos os dados estarão sempre disponíveis: isso depende do seu relógio e do que a Garmin disponibilizar.',
-        'Os dados chegam a partir da conexão: a Garmin não envia o histórico de atividades anteriores a ela. O Panzeri Run não guarda coordenadas nem trajetos GPS da Garmin e não recebe dados de saúde da mulher (como o ciclo menstrual).',
+        'Os dados chegam a partir da conexão: a Garmin não envia o histórico de atividades anteriores a ela. O percurso GPS (trajeto e localização da atividade) só é guardado se você marcar o grupo “Percurso GPS”. O Panzeri Run não recebe dados de saúde da mulher (como o ciclo menstrual).',
         'O identificador da sua conta Garmin é necessário apenas para vincular a conexão.',
       ],
     },
@@ -46,7 +46,8 @@ export const GARMIN_CONSENT: ConsentCapability = {
   groups: [
     { id: 'account', label: 'Identificação da conta Garmin', description: 'Identificador da conta, necessário apenas para vincular a conexão. É o mínimo para a conexão existir.', required: true, categories: ['profile'] },
     { id: 'activity', label: 'Atividades', description: 'Data e horário, tipo, distância, duração, ritmo e calorias das corridas e demais atividades.', required: false, categories: ['activity'] },
-    { id: 'sensors', label: 'Frequência cardíaca, cadência, potência e elevação', description: 'Informações registradas durante a atividade, quando o seu relógio as medir. Depende de “Atividades”.', required: false, categories: ['activity_sensors'], requires: ['activity'] },
+    { id: 'sensors', label: 'Frequência cardíaca, cadência, potência, elevação e temperatura', description: 'Informações registradas durante a atividade, como a dinâmica de corrida e a temperatura do ar, quando o seu relógio as medir. Depende de “Atividades”.', required: false, categories: ['activity_sensors'], requires: ['activity'] },
+    { id: 'route', label: 'Percurso GPS', description: 'Trajeto e localização da atividade, quando disponíveis. Depende de “Atividades”.', required: false, categories: ['activity_route'], requires: ['activity'] },
     { id: 'sleep', label: 'Sono e recuperação', description: 'Duração e etapas do sono, horários e pontuação de sono, quando o seu relógio os medir.', required: false, categories: ['sleep'] },
     { id: 'daily', label: 'Saúde diária', description: 'Passos, distância e atividade do dia e frequência cardíaca de repouso, quando o seu relógio os medir.', required: false, categories: ['daily_activity', 'resting_heart_rate'] },
     { id: 'hrv', label: 'Variabilidade da frequência cardíaca (HRV)', description: 'HRV, quando o seu relógio a medir.', required: false, categories: ['hrv'] },

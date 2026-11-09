@@ -11,6 +11,7 @@ import { GarminController } from './garmin.controller';
 import { GarminActivityIngestionService } from './garmin-activity-ingestion.service';
 import { GarminActivityEventService } from './garmin-activity-events.service';
 import { GarminHealthEventService } from './garmin-health-events.service';
+import { GarminFitService } from './garmin-fit.service';
 import { GarminTrainingClient } from './garmin-training-client';
 import { GarminWorkoutPublisherService } from './garmin-workout-publisher.service';
 import { GarminWorkoutSchedulerService } from './garmin-workout-scheduler.service';
@@ -21,7 +22,7 @@ import { GarminCoachController, GarminMeasuresController, GarminMeasuresService 
 @Module({
   imports: [ProviderHubModule, PrismaModule, ActivityExecutionModule, DeviceRegistryModule, WorkoutDeliveryModule],
   controllers: [GarminController, GarminMeasuresController, GarminCoachController],
-  providers: [GarminActivityIngestionService, GarminHealthEventService, GarminActivityEventService, GarminTrainingClient, GarminWorkoutPublisherService, GarminWorkoutSchedulerService, GarminDataDeletionService, GarminMeasuresService],
+  providers: [GarminActivityIngestionService, GarminFitService, GarminHealthEventService, GarminActivityEventService, GarminTrainingClient, GarminWorkoutPublisherService, GarminWorkoutSchedulerService, GarminDataDeletionService, GarminMeasuresService],
   exports: [GarminWorkoutPublisherService],
 })
 export class GarminModule implements OnModuleInit {

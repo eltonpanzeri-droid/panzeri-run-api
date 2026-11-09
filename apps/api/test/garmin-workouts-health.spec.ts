@@ -439,10 +439,10 @@ describe('exclusao, IA e catalogo', () => {
     expect(EXTERNAL_AI_APPROVED_PROVIDERS).toContain('garmin');
     expect(JSON.stringify(GARMIN_CONSENT)).toContain('treinar, avaliar ou melhorar modelos');
   });
-  it('autorizacao: todos os grupos de saude estao no texto (VO2 e composicao corporal inclusive), sem GPS e sem ciclo', () => {
+  it('autorizacao: todos os grupos de saude estao no texto (VO2 e composicao corporal inclusive), percurso GPS so em grupo proprio e sem ciclo', () => {
     const categories = GARMIN_CONSENT.groups.flatMap((g) => g.categories);
     for (const c of ['activity', 'activity_sensors', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'lifestyle_load', 'vo2_max', 'body_composition']) expect(categories).toContain(c);
-    expect(categories).not.toContain('activity_route');
+    expect(categories).toContain('activity_route');
     expect(categories).not.toContain('menstrual_cycle');
     const watch = GARMIN_CONSENT.optionalPurposes.find((p) => p.id === 'watch_delivery')!;
     expect(watch.screen!.paragraphs.join(' ')).toContain('apaga os que saírem do programa');

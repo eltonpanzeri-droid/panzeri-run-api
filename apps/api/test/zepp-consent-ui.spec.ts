@@ -147,7 +147,7 @@ describe('Politica de Privacidade e Termos de Uso: Zepp/Amazfit e Atlas', () => 
     expect(PRIVACY).toContain('Anthropic: tecnologia de inteligência artificial usada pelo Atlas');
     for (const preserved of ['Asaas, RevenueCat', 'Cloudflare (R2)', 'Excluir os dados importados de um serviço é uma ação separada de desconectar', 'Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo', 'dependem dos termos do próprio fornecedor']) expect(PRIVACY).toContain(preserved);
     // a frase antiga "nao armazena GPS" agora tem a unica excecao declarada
-    expect(JSON.stringify(LEGAL_SUMMARY)).toContain('exceto o percurso GPS do Amazfit, que só é guardado se você o autorizar');
+    expect(JSON.stringify(LEGAL_SUMMARY)).toContain('exceto o percurso GPS do Amazfit (seção 5A) e o da Garmin (seção 5D), que só são guardados se você os autorizar');
   });
 
   it('os Termos explicam que o Atlas e apoio com limitacoes e que a integracao depende da disponibilidade e compatibilidade da Zepp/Amazfit', () => {

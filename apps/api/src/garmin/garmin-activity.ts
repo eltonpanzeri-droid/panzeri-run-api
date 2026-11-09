@@ -4,8 +4,9 @@ import { InboundEventDraft } from '../provider-hub/provider-connector';
 // Atividades da Garmin por PUSH (Activity API 2.1, Starter: so' push; "Activity_API 2.1.pdf" na pasta "Documentação Garmin"), 08/11/2026. Parte PURA (sem banco, sem rede):
 //  - o push de `activities` traz o resumo; o de `activityDetails` traz o resumo + amostras (ate 1 Hz) + voltas; os dois chegam com o `userId` Garmin em cada item;
 //  - `activityFiles` (FIT) NAO e' usado: o link de download vale uma vez, 24 h, e o JSON ja' traz FC, velocidade, cadencia, potencia e elevacao por amostra (dinamica de corrida so' existe no FIT: futuro);
-//  - REGRA DA POLITICA (5D): coordenadas GPS NUNCA sao guardadas (decisao nossa, nao exigencia do contrato da Garmin). O filtro roda AQUI, antes de o evento entrar na fila: latitude/longitude e temperatura ainda nao passam
-//    (ficam para quando o texto de autorizacao for atualizado). 09/11/2026: PASSAM as voltas (a Garmin manda so' o horario de inicio de cada uma, sem coordenadas) e os tres tempos por amostra (relogio, cronometro, em movimento);
+//  - 09/11/2026 (ordem de Elton): relogios nao tem a limitacao de GPS das lojas. O parser le latitude/longitude e temperatura do ar, mas o que PODE ser guardado depende da autorizacao da aluna:
+//    'activity_route' (Percurso GPS) libera as coordenadas e 'activity_sensors' libera a temperatura; sem elas os campos viram null ANTES da fila (garmin.controller) e de novo na gravacao (ingestao).
+//    Tambem passam as voltas (a Garmin manda so' o horario de inicio de cada uma) e os tres tempos por amostra (relogio, cronometro, em movimento);
 //  - atividade manual (`manual: true`) nao e' execucao medida: descartada (mesma regra da Zepp); atividade-mae de multiesporte (`isParent`) e' ignorada para nao contar duas vezes;
 //  - `manuallyUpdatedActivities` e `moveIQActivities` nao sao tratados (nao sao atividades iniciadas e medidas pelo relogio).
 export const GARMIN_WEBHOOK_MAX_BYTES = 10 * 1024 * 1024;
@@ -24,6 +25,10 @@ export interface GarminSample {
   clockDurationSec: number | null;
   timerDurationSec: number | null;
   movingDurationSec: number | null;
+  // Temperatura do ar (graus Celsius) e posicao: so' sobrevivem com as autorizacoes certas (ver applyActivityConsent).
+  temperatureCelsius: number | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface GarminActivityRecord {
@@ -112,7 +117,9 @@ function readSamples(raw: unknown, startedAtSec: number): GarminSample[] | null 
     const offsetSec = Math.round(t - startedAtSec);
     if (offsetSec < 0 || offsetSec > MAX_DURATION_SEC) continue;
     const speedMps = within(num(s.speedMetersPerSecond), 0, 100);
-    // NUNCA le latitudeInDegree / longitudeInDegree / airTemperatureCelcius: nao existem no tipo.
+    const latitude = within(num(s.latitudeInDegree), -90, 90);
+    const longitude = within(num(s.longitudeInDegree), -180, 180);
+    const validPosition = latitude !== null && longitude !== null && !(latitude === 0 && longitude === 0);
     byOffset.set(offsetSec, {
       offsetSec,
       heartRateBpm: within(num(s.heartRate), 30, 250),
@@ -124,6 +131,9 @@ function readSamples(raw: unknown, startedAtSec: number): GarminSample[] | null 
       clockDurationSec: within(num(s.clockDurationInSeconds), 0, MAX_DURATION_SEC),
       timerDurationSec: within(num(s.timerDurationInSeconds), 0, MAX_DURATION_SEC),
       movingDurationSec: within(num(s.movingDurationInSeconds), 0, MAX_DURATION_SEC),
+      temperatureCelsius: within(num(s.airTemperatureCelcius), -60, 70),
+      latitude: validPosition ? latitude : null,
+      longitude: validPosition ? longitude : null,
     });
   }
   return [...byOffset.values()].sort((a, b) => a.offsetSec - b.offsetSec);
@@ -142,6 +152,14 @@ function readLapStarts(raw: unknown, startedAtSec: number): number[] | null {
     offsets.add(offsetSec);
   }
   return offsets.size > 0 ? [...offsets].sort((a, b) => a - b) : null;
+}
+
+// Aplica a autorizacao da aluna a UM registro: sem 'activity_route' as coordenadas viram null; sem 'activity_sensors' a temperatura vira null. Pura e idempotente; devolve copia (nao altera o original).
+export function applyActivityConsent(record: GarminActivityRecord, categories: readonly string[]): GarminActivityRecord {
+  if (!record.samples) return record;
+  const route = categories.includes('activity_route');
+  const sensors = categories.includes('activity_sensors');
+  return { ...record, samples: record.samples.map((sample) => ({ ...sample, latitude: route ? sample.latitude : null, longitude: route ? sample.longitude : null, temperatureCelsius: sensors ? sample.temperatureCelsius : null })) };
 }
 
 export interface GarminActivityParse { records: GarminActivityRecord[]; ignored: number }
@@ -180,7 +198,7 @@ export function parseGarminActivityPush(body: unknown): GarminActivityParse {
 export const GARMIN_ACTIVITY_EVENT_TYPES = ['activity_summary', 'activity_details'] as const;
 export type GarminActivityEventType = (typeof GARMIN_ACTIVITY_EVENT_TYPES)[number];
 
-// Rascunhos para a fila: payload JA' filtrado (sem coordenadas). dedupeKey inclui um resumo do conteudo: reenvio igual nao vira dois trabalhos, atualizacao real sim (a gravacao e' idempotente).
+// Rascunhos para a fila (a autorizacao da aluna e' aplicada pelo chamador, ver applyActivityConsent). dedupeKey inclui um resumo do conteudo: reenvio igual nao vira dois trabalhos, atualizacao real sim (a gravacao e' idempotente).
 export function toActivityDrafts(records: GarminActivityRecord[]): InboundEventDraft[] {
   return records.map((record) => {
     const payload = record as unknown as Record<string, unknown>;

@@ -9,13 +9,13 @@ import { ActivityNotificationService } from '../activity-execution/activity-noti
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { GARMIN_PROVIDER_ID } from './garmin.connector';
-import { activityKeyOf, GarminActivityRecord, modalityFromGarmin } from './garmin-activity';
+import { activityKeyOf, applyActivityConsent, GarminActivityRecord, modalityFromGarmin } from './garmin-activity';
 
 // Gravacao de uma atividade da Garmin no pipeline existente: RawExternalActivity -> ActivityLog -> serie temporal -> identidade fisica -> classificacao/vinculo (08/11/2026). Mesma esteira da
 // Zepp/COROS; muda a ORIGEM (JSON do push da Garmin, sem arquivo) e a regra de consentimento por campo:
 //   'activity'         : data/hora, distancia, duracao, calorias, modalidade e a serie de distancia/velocidade;
 //   'activity_sensors' : frequencia cardiaca, cadencia, potencia, altitude e ganho de elevacao;
-//   percurso GPS       : NAO EXISTE na Garmin (Politica, secao 5D): latitude/longitude nunca chegam aqui; hasRoute e' sempre false.
+//   'activity_route'   : percurso GPS (latitude/longitude, 09/11/2026); hasRoute so' e' true quando as coordenadas foram guardadas. 'activity_sensors' tambem libera a temperatura do ar.
 //  - Idempotente: a chave e' o activityId do Garmin Connect (igual no resumo e nos detalhes). O resumo nunca apaga a serie dos detalhes; os detalhes refazem a serie.
 //  - Classificacao, vinculos e feedback ja' decididos nao sao tocados na atualizacao.
 export const GARMIN_PAYLOAD_SCHEMA = 'garmin-activity-push-1';
@@ -54,7 +54,9 @@ export class GarminActivityIngestionService {
       const removed: string[] = sensors ? [] : ['sensors'];
       const startedAt = new Date(record.startedAtSec * 1000);
       const modality = modalityFromGarmin(record.activityType);
-      const points = (record.samples ?? []).map((sample) => ({
+      const consented = applyActivityConsent(record, granted.categories);
+      const route = granted.categories.includes('activity_route');
+      const points = (consented.samples ?? []).map((sample) => ({
         offsetSec: sample.offsetSec,
         distanceMeters: sample.distanceMeters,
         speedKmh: sample.speedKmh,
@@ -66,7 +68,11 @@ export class GarminActivityIngestionService {
         clockDurationSec: sample.clockDurationSec,
         timerDurationSec: sample.timerDurationSec,
         movingDurationSec: sample.movingDurationSec,
-      })).filter((point) => point.distanceMeters !== null || point.speedKmh !== null || point.heartRateBpm !== null || point.cadenceSpm !== null || point.powerWatts !== null || point.elevationMeters !== null || point.movingDurationSec !== null || point.timerDurationSec !== null || point.clockDurationSec !== null);
+        temperatureCelsius: sample.temperatureCelsius,
+        latitude: sample.latitude,
+        longitude: sample.longitude,
+      })).filter((point) => point.distanceMeters !== null || point.speedKmh !== null || point.heartRateBpm !== null || point.cadenceSpm !== null || point.powerWatts !== null || point.elevationMeters !== null || point.movingDurationSec !== null || point.timerDurationSec !== null || point.clockDurationSec !== null || point.temperatureCelsius !== null || point.latitude !== null);
+      const hasRoute = points.some((point) => point.latitude !== null && point.longitude !== null);
 
       const payload = {
         summaryId: record.summaryId,
@@ -78,7 +84,7 @@ export class GarminActivityIngestionService {
         distanceMeters: record.distanceMeters,
         modality,
         sensorsIncluded: sensors,
-        routeIncluded: false,
+        routeIncluded: route && hasRoute,
         points: points.length,
       };
       const ingestionMeta = { source: 'push', kind: record.kind, fitStored: false, receivedAt: new Date().toISOString(), removedGroups: removed };
@@ -99,7 +105,7 @@ export class GarminActivityIngestionService {
         cadenceAvg: sensors ? record.avgRunCadenceSpm : null,
         powerAvgWatts: sensors && record.powerAvgWatts !== null ? Math.round(record.powerAvgWatts) : null,
         elevationGainMeters: sensors ? record.elevationGainMeters : null,
-        hasRoute: false,
+        hasRoute: record.samples === null ? undefined : hasRoute,
         detailFetchedAt: new Date(),
         providerMetrics: await this.mergedProviderMetrics(tx, userId, externalId, record),
       };
@@ -127,8 +133,9 @@ export class GarminActivityIngestionService {
               clockDurationSec: point.clockDurationSec,
               timerDurationSec: point.timerDurationSec,
               movingDurationSec: point.movingDurationSec,
-              latitude: null,
-              longitude: null,
+              temperatureCelsius: point.temperatureCelsius,
+              latitude: point.latitude,
+              longitude: point.longitude,
             })),
             skipDuplicates: true,
           });

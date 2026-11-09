@@ -17,7 +17,7 @@ export function buildGarminConnector(config: ConfigService, deps: GarminConnecto
   return {
     id: GARMIN_PROVIDER_ID,
     displayName: 'Garmin',
-    categories: ['activity', 'activity_sensors', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'lifestyle_load', 'vo2_max', 'body_composition', 'pulse_ox', 'respiratory_rate', 'heart_rate', 'clinical_vitals', 'skin_temperature', 'nutrition', 'profile'],
+    categories: ['activity', 'activity_sensors', 'activity_route', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'lifestyle_load', 'vo2_max', 'body_composition', 'pulse_ox', 'respiratory_rate', 'heart_rate', 'clinical_vitals', 'skin_temperature', 'nutrition', 'profile'],
     consent: GARMIN_CONSENT,
     oauth: new GarminOAuth(config),
     revocation: new GarminRevocation(config),

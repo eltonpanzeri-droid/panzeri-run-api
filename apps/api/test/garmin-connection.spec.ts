@@ -135,12 +135,13 @@ describe('texto de autorizacao (coerente com a Politica, secao 5D)', () => {
     expect(GARMIN_CONSENT.purposes).not.toContain('ai_external');
     expect(GARMIN_CONSENT.purposes).not.toContain('watch_delivery');
   });
-  it('sem percurso GPS, sem ciclo menstrual e sem historico (o Starter nao traz historico)', () => {
+  it('percurso GPS so com grupo proprio (09/11/2026), sem ciclo menstrual e sem historico (o Starter nao traz historico)', () => {
     const categories = GARMIN_CONSENT.groups.flatMap((g) => g.categories);
-    expect(categories).not.toContain('activity_route');
+    expect(categories).toContain('activity_route');
+    expect(GARMIN_CONSENT.groups.find((g) => g.id === 'route')).toMatchObject({ required: false, requires: ['activity'] });
     expect(categories).not.toContain('menstrual_cycle');
     expect(GARMIN_CONSENT.optionalPurposes.map((p) => p.id)).not.toContain('history_backfill');
-    expect(all).toContain('não guarda coordenadas');
+    expect(all).toContain('só é guardado se você marcar o grupo “Percurso GPS”');
   });
   it('declara que dados Garmin nao treinam modelos de IA e que nao ha venda', () => {
     expect(all).toContain('não usa dados da Garmin');

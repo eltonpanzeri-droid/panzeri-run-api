@@ -1804,6 +1804,8 @@ model ActivityTimeSeriesPoint {
   timerDurationSec  Int?
   movingDurationSec Int?
   clockDurationSec  Int?
+  // Garmin (09/11/2026): temperatura do ar medida pelo relogio (graus Celsius), so' com a autorizacao de sensores. Nulo nos demais provedores. Rollback: DROP COLUMN.
+  temperatureCelsius Float?
 
   normalizationVersion Int
 

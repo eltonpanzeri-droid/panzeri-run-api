@@ -7,7 +7,8 @@ import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { ProviderConnectionService } from '../provider-hub/provider-connection.service';
 import { ProviderConsentService } from '../provider-hub/provider-consent.service';
 import { ProviderInboundEventService } from '../provider-hub/provider-inbound-event.service';
-import { parseGarminActivityPush, toActivityDrafts } from './garmin-activity';
+import { applyActivityConsent, parseGarminActivityPush, toActivityDrafts } from './garmin-activity';
+import { parseGarminActivityFiles, toFileDrafts } from './garmin-fit';
 import { parseGarminHealthPush, toHealthDrafts } from './garmin-health';
 import { GarminWorkoutPublisherService } from './garmin-workout-publisher.service';
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
@@ -182,9 +183,19 @@ export class GarminController {
     this.assertWebhookKey(key);
     const activity = parseGarminActivityPush(body);
     const health = parseGarminHealthPush(body);
-    const ignored = activity.ignored + health.ignored;
+    const files = parseGarminActivityFiles(body);
+    const ignored = activity.ignored + health.ignored + files.ignored;
     let queued = 0;
-    for (const draft of [...toActivityDrafts(activity.records), ...toHealthDrafts(health.records)]) {
+    // Coordenadas e temperatura so' entram na fila se a aluna autorizou ('activity_route' / 'activity_sensors'): o resto vira null aqui, antes de qualquer gravacao.
+    const categoriesByUser = new Map<string, readonly string[]>();
+    const consentedActivities = [] as typeof activity.records;
+    for (const record of activity.records) {
+      const owner = await this.consentService.resolveActiveUserId(GARMIN_PROVIDER_ID, record.userId);
+      if (!owner) { consentedActivities.push(applyActivityConsent(record, [])); continue; }
+      if (!categoriesByUser.has(owner)) categoriesByUser.set(owner, (await this.consentService.snapshot(GARMIN_PROVIDER_ID, owner))?.categories ?? []);
+      consentedActivities.push(applyActivityConsent(record, categoriesByUser.get(owner) ?? []));
+    }
+    for (const draft of [...toActivityDrafts(consentedActivities), ...toFileDrafts(files.notices), ...toHealthDrafts(health.records)]) {
       const userId = draft.externalAccountId ? await this.consentService.resolveActiveUserId(GARMIN_PROVIDER_ID, draft.externalAccountId) : null;
       if (!userId) continue;
       const result = await this.events.record(GARMIN_PROVIDER_ID, draft, userId);

@@ -6,6 +6,8 @@ import { GARMIN_ACTIVITY_EVENT_TYPES, GarminActivityRecord } from './garmin-acti
 import { GarminActivityIngestionService } from './garmin-activity-ingestion.service';
 import { GARMIN_HEALTH_EVENT_TYPES } from './garmin-health';
 import { GarminHealthEventService } from './garmin-health-events.service';
+import { GarminFitService } from './garmin-fit.service';
+import { GarminFileNotice } from './garmin-fit';
 
 // Processador dos eventos de atividade da Garmin na fila duravel (08/11/2026). A fila ja' garante idempotencia, trava, espera crescente e o descarte de aluna sem conexao/categoria ANTES de
 // chegar aqui. Este servico revalida a conexao e grava no pipeline. Desfechos: 'discard' = nunca vira dado; 'retry' = falha transitoria (excecao tem o mesmo efeito).
@@ -17,9 +19,12 @@ export class GarminActivityEventService implements EventProcessingCapability {
     private readonly consent: ProviderConsentService,
     private readonly ingestion: GarminActivityIngestionService,
     private readonly health?: GarminHealthEventService,
+    private readonly fit?: GarminFitService,
   ) {}
 
   async handle(event: InboundEventView): Promise<EventOutcome> {
+    // Aviso de arquivo FIT (09/11/2026): download unico, processador proprio.
+    if (event.eventType === 'activity_file') return this.fit && event.userId ? this.fit.handle(event.userId, event.payload as Partial<GarminFileNotice> | null) : { status: 'discard', reason: 'processador de arquivo indisponivel ou conta desconhecida' };
     // Sono, dia, HRV e metricas (push, sem download): processador proprio.
     if ((GARMIN_HEALTH_EVENT_TYPES as readonly string[]).includes(event.eventType)) return this.health ? this.health.handle(event) : { status: 'discard', reason: 'processador de saude indisponivel' };
     if (!(GARMIN_ACTIVITY_EVENT_TYPES as readonly string[]).includes(event.eventType)) return { status: 'discard', reason: 'tipo de evento desconhecido' };
