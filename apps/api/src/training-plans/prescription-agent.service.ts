@@ -465,7 +465,8 @@ export class PrescriptionAgentService {
     );
   }
 
-  private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot, trace?: AgentCallTrace[], purpose: 'dia_forca' | 'reparo_forca' = 'dia_forca'): Promise<StrengthSessionDecision | null> {
+  // 09/11/2026 (caso Andreia): `diag.reason` recebe a CAUSA TECNICA quando a chamada devolve null (antes: null mudo, e o aviso dizia so' "o reparo avulso tambem falhou"). Nao muda nenhum resultado.
+  private async attemptStrengthSessionDecision(input: MethodologyInput, slot: StrengthSlot, trace?: AgentCallTrace[], purpose: 'dia_forca' | 'reparo_forca' = 'dia_forca', diag?: { reason?: string }): Promise<StrengthSessionDecision | null> {
     const client = this.client;
     if (!client) return null;
     const strengthSystem = this.buildSingleStrengthSystemPrompt();
@@ -490,14 +491,23 @@ export class PrescriptionAgentService {
       );
       logAiUsage(this.logger, { agent: 'treinador_dia_forca', model: AI_MODELS.SONNET_5, usage: response.usage, durationMs: Date.now() - startedAt, ttl: cacheTtlLabel('treinador_dia_forca') });
       const parsed = response.parsed_output;
-      if (!parsed) return null;
+      if (!parsed) {
+        if (diag) diag.reason = briefReason(`resposta vazia ou invalida (stop_reason=${String(response.stop_reason)} output_tokens=${response.usage?.output_tokens})`);
+        this.logger.warn(`Chamada avulsa de forca sem resposta utilizavel (slot ${slot.weekday}:${slot.modality}): stop_reason=${String(response.stop_reason)} output_tokens=${response.usage?.output_tokens}.`);
+        return null;
+      }
       // Chamada avulsa pra um slot ESPECIFICO (repo de dia faltante ou regenerar-1-dia do
       // treinador) — diferente da validacao da semana inteira, aqui queremos exatamente o dia
       // pedido, entao se a IA devolver weekday/modalidade diferente do slot, e falha mesmo.
       const validated = this.validateStrengthSessions([parsed], [slot]);
-      if (validated.missingSlots.length) return null;
+      if (validated.missingSlots.length) {
+        if (diag) diag.reason = briefReason(`a IA devolveu o dia ${parsed.weekday} (${parsed.modality}) em vez do pedido ${slot.weekday} (${slot.modality})`);
+        this.logger.warn(`Chamada avulsa de forca devolveu o slot errado: pedido ${slot.weekday}:${slot.modality}, veio ${parsed.weekday}:${parsed.modality}.`);
+        return null;
+      }
       return validated.sessions[0] ?? null;
     } catch (error) {
+      if (diag) diag.reason = briefReason(describeAiError(error));
       this.logger.warn(`Falha ao gerar decisao de forca avulsa com o agente de IA: ${describeAiError(error)}`);
       return null;
     }
@@ -629,10 +639,11 @@ export class PrescriptionAgentService {
         // regenerar-1-dia do treinador) — o que a IA ja acertou (inclusive dias extras por
         // diretriz) fica como esta, nao e descartado.
         this.logger.warn(`${strengthValidation.missingSlots.length} dia(s) de forca da rotina sem sessao correspondente — repondo via chamada avulsa por dia: [${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}].`);
-        const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots, trace);
+        const repairDiag: { reason?: string } = {};
+        const repaired = await this.repairStrengthSessions(input, strengthValidation.missingSlots, trace, repairDiag);
         if (!repaired) {
-          this.logger.warn('Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa.');
-          if (failure) failure.reason = briefReason(`faltaram dias de forca/fortalecimento na resposta (${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')}) e o reparo avulso tambem falhou`);
+          this.logger.warn(`Reparo avulso dos dias de forca tambem falhou — descartando esta tentativa. Causa: ${repairDiag.reason ?? 'nao identificada'}`);
+          if (failure) failure.reason = briefReason(`reparo de forca falhou — causa: ${repairDiag.reason ?? 'nao identificada'} (a resposta semanal tinha omitido os dias ${strengthValidation.missingSlots.map((s) => `${s.weekday}:${s.modality}`).join(',')})`);
           return null;
         }
         strengthSessions = [...strengthSessions, ...repaired];
@@ -764,10 +775,15 @@ export class PrescriptionAgentService {
   // usada no "regenerar 1 dia" do treinador, sem mexer no que a IA ja acertou (inclusive dias
   // extras por diretriz individual). Se qualquer dia faltante falhar de novo, desiste (retorna
   // null) e deixa o attemptDecision descartar esta tentativa como antes.
-  private async repairStrengthSessions(input: MethodologyInput, missingSlots: StrengthSlot[], trace?: AgentCallTrace[]): Promise<StrengthSessionDecision[] | null> {
+  private async repairStrengthSessions(input: MethodologyInput, missingSlots: StrengthSlot[], trace?: AgentCallTrace[], diag?: { reason?: string }): Promise<StrengthSessionDecision[] | null> {
+    const slotDiags = missingSlots.map(() => ({} as { reason?: string }));
     const repaired = await Promise.all(
-      missingSlots.map((slot) => this.attemptStrengthSessionDecision(input, slot, trace, 'reparo_forca')),
+      missingSlots.map((slot, index) => this.attemptStrengthSessionDecision(input, slot, trace, 'reparo_forca', slotDiags[index])),
     );
+    if (diag) {
+      const reasons = slotDiags.map((entry, index) => (repaired[index] === null ? `${missingSlots[index].weekday}:${missingSlots[index].modality} ${entry.reason ?? 'motivo nao identificado'}` : null)).filter((reason): reason is string => reason !== null);
+      if (reasons.length > 0) diag.reason = reasons.join(' | ');
+    }
     if (repaired.some((decision) => decision === null)) {
       this.logger.warn(`Reparo avulso de forca falhou para ${repaired.filter((decision) => decision === null).length} dia(s).`);
       return null;
