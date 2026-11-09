@@ -40,6 +40,8 @@ type RevenueCatEvent = {
   purchased_at_ms?: number;
   // 09/11/2026 (caso Tiago): ambiente da compra no RevenueCat — 'SANDBOX' (teste: licenca de teste do Google, sandbox da Apple) ou 'PRODUCTION'. Ausente = desconhecido (comportamento antigo).
   environment?: string;
+  // 09/11/2026: loja da compra no RevenueCat ('APP_STORE', 'PLAY_STORE', 'MAC_APP_STORE'...). Usada so' no texto do aviso ao treinador.
+  store?: string;
   // Interno (nunca vem do RevenueCat): evento sintetico de RECUPERACAO por reconciliacao automatica — restaura o acesso sem anunciar nova transacao financeira.
   reconciliation_recovery?: boolean;
   // TRANSFER (compra restaurada em OUTRA conta): ids de origem e destino.
@@ -251,6 +253,14 @@ function resolveAppStatusFromEvent(event?: string): 'active' | 'overdue' | 'canc
 export function storeEnvironmentOf(event: { environment?: unknown } | undefined): 'SANDBOX' | 'PRODUCTION' | null {
   const value = typeof event?.environment === 'string' ? event.environment.trim().toUpperCase() : '';
   return value === 'SANDBOX' || value === 'PRODUCTION' ? value : null;
+}
+
+// Nome da loja para o aviso ao treinador (09/11/2026): "App Store" ou "Google Play"; loja desconhecida mantem o texto generico.
+export function storeLabelOf(store: unknown): string {
+  const value = typeof store === 'string' ? store.trim().toUpperCase().replace(/[\s-]+/g, '_') : '';
+  if (value === 'APP_STORE' || value === 'MAC_APP_STORE') return 'App Store';
+  if (value === 'PLAY_STORE') return 'Google Play';
+  return 'App Store / Google Play';
 }
 
 // Contas de revisao da Apple/Google ficam SEMPRE marcadas como teste, mesmo depois de uma compra de producao.
@@ -998,6 +1008,7 @@ export class BillingService {
         await this.handleRevenueCatEvent({
           type: recoverable ? 'RENEWAL' : 'INITIAL_PURCHASE', app_user_id: userId, product_id: chosen.product_identifier,
           ...(typeof chosen.is_sandbox === 'boolean' ? { environment: chosen.is_sandbox ? 'SANDBOX' : 'PRODUCTION' } : {}),
+          ...(chosen.store ? { store: chosen.store } : {}),
           ...(recoverable && options.automatic ? { reconciliation_recovery: true } : {}),
           purchased_at_ms: chosen.original_purchase_date && !Number.isNaN(new Date(chosen.original_purchase_date).getTime()) ? new Date(chosen.original_purchase_date).getTime() : undefined,
         });
@@ -1533,7 +1544,7 @@ export class BillingService {
         this.triggerFirstWeekGeneration(userId);
         // 09/11/2026: compra de TESTE — avisa o treinador como teste e para aqui (sem 'Pagamento recebido', sem e-mail de pagamento e sem 'primeira compra paga').
         if (storeEnvironment === 'SANDBOX') {
-          await this.telegram.notifyCoach(`Compra de TESTE na loja (nao e pagamento real). Conta marcada como teste automaticamente.\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}`);
+          await this.telegram.notifyCoach(`Compra de TESTE na ${storeLabelOf(event?.store)} (nao e pagamento real). Conta marcada como teste automaticamente.\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}`);
           return { received: true };
         }
         // 18/10/2026: recuperacao de acesso por reconciliacao NAO e' uma nova transacao financeira — sem 'Pagamento recebido' nem e-mail de confirmacao.
@@ -1542,7 +1553,7 @@ export class BillingService {
           this.logger.log(`Acesso recuperado por reconciliacao com a loja (userId=${userId}); notificacoes de pagamento nao enviadas.`);
           return { received: true };
         }
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run (loja)!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ ${APP_STORE_PLAN_PRICE.toFixed(2).replace('.', ',')} via App Store / Google Play`);
+        await this.telegram.notifyCoach(`Eba!! Pagamento recebido no Panzeri Run! 🎉\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ ${APP_STORE_PLAN_PRICE.toFixed(2).replace('.', ',')} via ${storeLabelOf(event?.store)}`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',

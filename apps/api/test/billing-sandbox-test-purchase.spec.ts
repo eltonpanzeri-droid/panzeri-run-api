@@ -1,4 +1,4 @@
-import { BillingService, isStoreReviewAccountEmail, storeEnvironmentOf } from '../src/billing/billing.service';
+import { BillingService, isStoreReviewAccountEmail, storeEnvironmentOf, storeLabelOf } from '../src/billing/billing.service';
 
 // 09/11/2026 (caso Tiago): compra de TESTE da loja (SANDBOX) nao e' compra real. Prisma e servicos externos totalmente simulados.
 type Dict = Record<string, jest.Mock>;
@@ -43,6 +43,39 @@ describe('funcoes puras', () => {
     expect(isStoreReviewAccountEmail('Revisao-Google-2@x.com')).toBe(true);
     expect(isStoreReviewAccountEmail('tiago@x.com')).toBe(false);
     expect(isStoreReviewAccountEmail(null)).toBe(false);
+  });
+});
+
+describe('aviso de pagamento com a loja certa (09/11/2026)', () => {
+  it('nome da loja: Google Play, App Store; desconhecida mantem o texto generico', () => {
+    expect(storeLabelOf('PLAY_STORE')).toBe('Google Play');
+    expect(storeLabelOf('play_store')).toBe('Google Play');
+    expect(storeLabelOf('APP_STORE')).toBe('App Store');
+    expect(storeLabelOf('app store')).toBe('App Store');
+    expect(storeLabelOf('MAC_APP_STORE')).toBe('App Store');
+    expect(storeLabelOf('STRIPE')).toBe('App Store / Google Play');
+    expect(storeLabelOf(undefined)).toBe('App Store / Google Play');
+  });
+  it('pagamento real pelo Google Play: "Eba!! Pagamento recebido" com a loja certa', async () => {
+    const { service, telegram } = build({ userStatus: 'pending', studentCode: null });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rc('INITIAL_PURCHASE', { environment: 'PRODUCTION', store: 'PLAY_STORE' }));
+    const message = telegram.notifyCoach.mock.calls[0][0] as string;
+    expect(message).toContain('Eba!! Pagamento recebido no Panzeri Run!');
+    expect(message).toContain('via Google Play');
+    expect(message).not.toContain('App Store');
+  });
+  it('pagamento real pela App Store diz App Store', async () => {
+    const { service, telegram } = build({ userStatus: 'pending', studentCode: null });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rc('INITIAL_PURCHASE', { store: 'APP_STORE' }));
+    expect(telegram.notifyCoach.mock.calls[0][0]).toContain('via App Store');
+    expect(telegram.notifyCoach.mock.calls[0][0]).not.toContain('Google Play');
+  });
+  it('compra de TESTE tambem diz a loja e nunca comemora como pagamento', async () => {
+    const { service, telegram } = build({ userStatus: 'pending', studentCode: null });
+    await service.processRevenueCatWebhook('Bearer rc-secret', rc('INITIAL_PURCHASE', { environment: 'SANDBOX', store: 'PLAY_STORE' }));
+    const message = telegram.notifyCoach.mock.calls[0][0] as string;
+    expect(message).toContain('Compra de TESTE na Google Play');
+    expect(message).not.toContain('Eba!!');
   });
 });
 
