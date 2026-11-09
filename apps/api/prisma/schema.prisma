@@ -41,8 +41,10 @@ model User {
   lastPlanGenerationFailedAt       DateTime?
   accountStatus                    String    @default("active")
   // 05/11/2026 (ordem do Elton): cadastros de TESTE (contas de revisao Apple/Google e cadastros de teste) ficam FORA de todas as contas, contagens e listas de alunas; aparecem so na secao
-  // "Cadastros de teste" do painel. Continuam podendo entrar (as lojas precisam). Nunca e' preenchido sozinho para aluna real.
+  // "Cadastros de teste" do painel. Continuam podendo entrar (as lojas precisam). Marcada pelo painel ou, desde 09/11/2026, automaticamente por compra de TESTE da loja (SANDBOX); a 1a compra de producao desmarca (exceto contas de revisao).
   isTestAccount                    Boolean   @default(false)
+  // 09/11/2026 (ordem do Elton): a aluna pode pedir para NAO receber o relatorio mensal por e-mail (link de descadastro no proprio e-mail). Padrao: recebe.
+  monthlyReportOptOut              Boolean   @default(false)
   subscriptionStatus               String    @default("pending")
   subscriptionUpdatedAt            DateTime  @default(now())
   subscriptionManualOverride       Boolean   @default(false)

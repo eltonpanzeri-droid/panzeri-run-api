@@ -11,6 +11,7 @@ import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import GarminMeasures from './garmin-measures';
 import BestMarks from './best-marks';
+import MonthlyReport from './monthly-report';
 import StudentTrainingLoad from './student-training-load';
 import AiCostSection from './ai-cost';
 import { EXCLUSION_REASON_LABEL } from './exclusion-reasons';
@@ -4242,6 +4243,7 @@ function StudentPanel({
             }}
           />
           <BestMarks studentId={student.id} accessToken={token} apiUrl={API_URL} />
+          <MonthlyReport studentId={student.id} accessToken={token} apiUrl={API_URL} />
         </div>
         );
       })() : null}

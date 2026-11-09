@@ -14,11 +14,11 @@ export class MessagingService {
     private readonly emailService: EmailService,
   ) {}
 
-  async sendEmail(userId: string, params: { subject: string; content: string; trigger: string }) {
+  async sendEmail(userId: string, params: { subject: string; content: string; trigger: string; html?: string; headers?: Record<string, string> }) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (!user) throw new NotFoundException('Aluno nao encontrado.');
 
-    const result = await this.emailService.send(user.email, params.subject, params.content);
+    const result = await this.emailService.send(user.email, params.subject, params.content, undefined, params.html || params.headers ? { html: params.html, headers: params.headers } : undefined);
 
     await this.prisma.messageLog.create({
       data: {

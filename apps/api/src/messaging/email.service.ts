@@ -19,6 +19,8 @@ export class EmailService {
     subject: string,
     text: string,
     attachments?: Array<{ filename: string; content: Buffer }>,
+    // 09/11/2026 (relatorio mensal): versao HTML opcional (o texto simples segue como alternativa) e cabecalhos extras (ex.: List-Unsubscribe).
+    options?: { html?: string; headers?: Record<string, string> },
   ): Promise<{ ok: boolean; error?: string; resendEmailId?: string }> {
     if (!this.client) {
       this.logger.warn('RESEND_API_KEY nao configurado - e-mail nao enviado.');
@@ -32,6 +34,8 @@ export class EmailService {
         subject,
         text,
         attachments,
+        ...(options?.html ? { html: options.html } : {}),
+        ...(options?.headers ? { headers: options.headers } : {}),
       });
 
       if (result.error) {
