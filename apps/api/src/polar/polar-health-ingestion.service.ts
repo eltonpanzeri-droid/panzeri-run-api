@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarService } from './polar.service';
 import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID, POLAR_WEARABLE_PROVIDER, type PolarHealthCategory, type PolarHealthRow } from './polar-health-consent';
-import { extractPolarList, mapPolarDailyActivity, mapPolarNightlyRecharge, mapPolarSleep } from './polar-health-mapper';
+import { extractPolarList, mapPolarDailyActivity, mapPolarNightlyRecharge, mapPolarNightlyRechargeExtras, mapPolarSleep } from './polar-health-mapper';
 
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -110,6 +110,16 @@ export class PolarHealthIngestionService {
             return true;
           }
           if (category === 'hrv') {
+            // Campos extras do Nightly Recharge (ANS charge etc.): registro proprio, no mesmo grupo "HRV" autorizado. Falha aqui nunca derruba a HRV da noite.
+            const extras = mapPolarNightlyRechargeExtras(item);
+            if (extras) {
+              const identityKey = `polar:nightly-recharge-extras:${extras.calendarDate}`;
+              await tx.wearableMetricRecord.upsert({
+                where: { userId_provider_metricKind_identityKey: { userId, provider, metricKind: 'recovery_nightly', identityKey } },
+                create: { userId, provider, metricKind: 'recovery_nightly', identityKey, calendarDate: extras.calendarDate, startTimeSec: extras.startTimeSec, startOffsetSec: 0, providerSummaryId: extras.providerSummaryId, values: extras.values },
+                update: { calendarDate: extras.calendarDate, startTimeSec: extras.startTimeSec, providerSummaryId: extras.providerSummaryId, values: extras.values },
+              }).catch((error: unknown) => this.logger.warn(`Extras do Nightly Recharge ignorados: ${error instanceof Error ? error.message.slice(0, 100) : 'erro'}`));
+            }
             const m = mapPolarNightlyRecharge(item);
             if (!m) return null;
             const { calendarDate, startTimeSec, ...rest } = m;

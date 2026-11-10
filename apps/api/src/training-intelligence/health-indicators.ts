@@ -68,6 +68,11 @@ export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
   { kind: 'nutrition', key: 'sodiumMg', label: 'Sódio consumido no dia', unit: 'mg' },
   { kind: 'hydration', key: 'waterMl', label: 'Água consumida no dia', unit: 'mL' },
   { kind: 'hydration', key: 'caffeineMg', label: 'Cafeína consumida no dia', unit: 'mg' },
+  { kind: 'recovery_nightly', key: 'ansCharge', label: 'Carga do sistema nervoso autônomo da noite (ANS charge, Polar)', unit: 'escala da Polar' },
+  { kind: 'recovery_nightly', key: 'ansChargeStatus', label: 'Status da carga do sistema nervoso autônomo (Polar)', unit: 'código da Polar' },
+  { kind: 'recovery_nightly', key: 'nightlyRechargeStatus', label: 'Status do Nightly Recharge (Polar)', unit: 'código da Polar' },
+  { kind: 'recovery_nightly', key: 'heartRateAvgBpm', label: 'Frequência cardíaca média da noite (Polar)', unit: 'bpm' },
+  { kind: 'recovery_nightly', key: 'beatToBeatAvgMs', label: 'Intervalo médio entre batimentos da noite (Polar)', unit: 'ms' },
   { kind: 'clinical_vitals', key: 'systolicMmHgAvg', label: 'Pressão arterial sistólica média do dia', unit: 'mmHg' },
   { kind: 'clinical_vitals', key: 'systolicMmHgMin', label: 'Pressão arterial sistólica mínima do dia', unit: 'mmHg' },
   { kind: 'clinical_vitals', key: 'systolicMmHgMax', label: 'Pressão arterial sistólica máxima do dia', unit: 'mmHg' },
@@ -83,7 +88,7 @@ export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
 // Tipo de registro -> categoria de consentimento/IA.
 export const AI_INDICATOR_CATEGORY: Readonly<Record<string, string>> = {
   daily_energy: 'daily_activity', daily_movement: 'daily_activity', heart_rate_daily: 'heart_rate', cardiac_events: 'heart_rate', vo2_max: 'vo2_max', body_composition: 'body_composition',
-  pulse_ox: 'pulse_ox', skin_temperature: 'skin_temperature', respiratory_rate: 'respiratory_rate', mobility: 'mobility', lifestyle_daily: 'lifestyle_load', nutrition: 'nutrition', hydration: 'nutrition', clinical_vitals: 'clinical_vitals', menstrual_cycle: 'menstrual_cycle',
+  pulse_ox: 'pulse_ox', skin_temperature: 'skin_temperature', respiratory_rate: 'respiratory_rate', mobility: 'mobility', lifestyle_daily: 'lifestyle_load', nutrition: 'nutrition', hydration: 'nutrition', clinical_vitals: 'clinical_vitals', menstrual_cycle: 'menstrual_cycle', recovery_nightly: 'hrv',
 };
 
 // Registros do ciclo do Apple Saude que sao CATEGORIAS (listas de codigos do HealthKit por dia). Rotulos fieis ao que o HealthKit define; nada e' calculado nem interpretado.

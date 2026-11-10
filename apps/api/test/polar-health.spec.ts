@@ -589,3 +589,16 @@ describe('estrutura da ampliacao', () => {
     expect(service).not.toMatch(/providerConnection/i); // o pipeline de exercicios nao toca na conexao generica
   });
 });
+
+// 10/11/2026: campos do Nightly Recharge alem da HRV, antes descartados.
+describe('Nightly Recharge: campos extras', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { mapPolarNightlyRechargeExtras } = require('../src/polar/polar-health-mapper');
+  it('guarda so os campos presentes e numericos; nada vira zero; sem data ou sem nenhum campo, nada', () => {
+    const out = mapPolarNightlyRechargeExtras({ date: '2026-11-09', ans_charge: 4.5, ans_charge_status: 4, nightly_recharge_status: 3, heart_rate_avg: 52, beat_to_beat_avg: 1100, breathing_rate_avg: 14.2, heart_rate_variability_avg: 61 });
+    expect(out.values).toEqual({ ansCharge: 4.5, ansChargeStatus: 4, nightlyRechargeStatus: 3, heartRateAvgBpm: 52, beatToBeatAvgMs: 1100 }); // respiracao e HRV ficam fora deste registro
+    expect(mapPolarNightlyRechargeExtras({ date: '2026-11-09', ans_charge: null })).toBeNull();
+    expect(mapPolarNightlyRechargeExtras({ ans_charge: 1 })).toBeNull();
+    expect(mapPolarNightlyRechargeExtras({ date: '2026-11-09', ans_charge: 0 }).values).toEqual({ ansCharge: 0 }); // zero informado e valor
+  });
+});

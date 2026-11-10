@@ -6,6 +6,9 @@ import { APPLE_RECORD_CATEGORY } from '../src/apple-health/apple-health-records'
 
 // Acesso seletivo da IA aos indicadores de saude autorizados (29/10/2026). Dados SINTETICOS.
 
+// Tipos de registro que existem so fora do Apple Saude (provedores de relogio).
+const NON_APPLE_KINDS = ['recovery_nightly'];
+
 const row = (over: Partial<MetricRow> & { values: Record<string, unknown> }): MetricRow => ({ provider: 'apple_health', providerSummaryId: 'com.apple.health|x', metricKind: 'body_composition', calendarDate: '2026-10-20', startTimeSec: Date.parse('2026-10-20T03:00:00Z') / 1000, ...over });
 const all = () => true;
 
@@ -16,7 +19,7 @@ describe('catalogo e categorias de IA', () => {
       const category = AI_INDICATOR_CATEGORY[def.kind];
       expect({ kind: def.kind, category: Boolean(category) }).toEqual({ kind: def.kind, category: true });
       expect([...HEALTH_AI_CATEGORIES, ...sensitive]).toContain(category);
-      expect(def.kind in APPLE_RECORD_CATEGORY).toBe(true);
+      expect(def.kind in APPLE_RECORD_CATEGORY || NON_APPLE_KINDS.includes(def.kind)).toBe(true); // recovery_nightly = Nightly Recharge da Polar (nao e do Apple Saude)
     }
     expect(HEALTH_AI_CATEGORIES as readonly string[]).not.toContain('clinical_vitals');
     expect(HEALTH_AI_CATEGORIES as readonly string[]).not.toContain('menstrual_cycle');

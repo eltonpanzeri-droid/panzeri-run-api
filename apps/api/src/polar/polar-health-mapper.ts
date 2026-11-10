@@ -80,6 +80,26 @@ export function mapPolarNightlyRecharge(item: unknown): MappedHrv | null {
   return { calendarDate, startTimeSec: dayStartSec(calendarDate), startOffsetSec: 0, lastNightAvg: avg, hrvValues: asJson(r.hrv_samples), providerSummaryId: `polar:nightly-recharge:${calendarDate}` };
 }
 
+/**
+ * Nightly Recharge, campos alem da HRV (10/11/2026, varredura "pegar tudo"): carga do sistema nervoso autonomo (ANS charge) e seu status, status do Nightly Recharge, FC media e intervalo
+ * entre batimentos medios da noite. Sao valores que a Polar JA entrega no mesmo registro e que eram descartados. Unidades NAO convertidas nem presumidas; campo ausente nao entra (nunca vira zero).
+ * A frequencia respiratoria da noite NAO e' guardada aqui: o grupo "HRV" autorizado pela aluna nao a cobre.
+ */
+export function mapPolarNightlyRechargeExtras(item: unknown): { calendarDate: string; startTimeSec: number; values: Record<string, number>; providerSummaryId: string } | null {
+  if (!item || typeof item !== 'object') return null;
+  const r = item as Record<string, unknown>;
+  const calendarDate = dateOnly(r.date);
+  if (!calendarDate) return null;
+  const values: Record<string, number> = {};
+  const put = (key: string, raw: unknown) => { const value = num(raw); if (value != null) values[key] = value; };
+  put('ansCharge', r.ans_charge);
+  put('ansChargeStatus', r.ans_charge_status);
+  put('nightlyRechargeStatus', r.nightly_recharge_status);
+  put('heartRateAvgBpm', r.heart_rate_avg);
+  put('beatToBeatAvgMs', r.beat_to_beat_avg);
+  return Object.keys(values).length === 0 ? null : { calendarDate, startTimeSec: dayStartSec(calendarDate), values, providerSummaryId: `polar:nightly-recharge-extras:${calendarDate}` };
+}
+
 /** Resumo diario da Polar. FC de repouso NAO e' mapeada: a Polar nao tem serie diaria de FC de repouso (o valor do perfil nao e' diario; a media da noite nao e' FC de repouso). */
 export function mapPolarDailyActivity(item: unknown): MappedDaily | null {
   if (!item || typeof item !== 'object') return null;
