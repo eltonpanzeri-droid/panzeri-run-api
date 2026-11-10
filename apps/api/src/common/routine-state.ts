@@ -1,5 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 
 // Estado da ROTINA do aluno (26/10/2026). A rotina vigente e' WeeklyAvailability (uma linha por dia). Aqui so' se decide o que ela SIGNIFICA:
 //   - nunca cadastrada:     nenhuma linha e nenhum registro de estado  -> o app pede o formulario da rotina; nada e' inventado nem recuperado da entrevista;
@@ -23,6 +24,23 @@ export interface RoutineState {
   allRest: boolean;
 }
 
+// 09/11/2026 (ordem de Elton): so' existe CORRIDA. Linha antiga com esteira (ou corrida+esteira no mesmo dia) e' lida como UMA corrida, em QUALQUER consumidor (geracao, painel, app).
+// A migracao 20261109220000 corrige o banco; esta leitura garante o mesmo resultado mesmo para linha que escape.
+export function runOnlyRoutineDay<T extends { modalities: string[]; modalityDurations: unknown }>(day: T): T {
+  const asRun = (item: string) => (canonicalModality(item) === 'corrida' ? 'corrida' : item);
+  const modalities = [...new Set((day.modalities ?? []).map(asRun))];
+  const source = day.modalityDurations && typeof day.modalityDurations === 'object' && !Array.isArray(day.modalityDurations) ? (day.modalityDurations as Record<string, unknown>) : null;
+  if (!source) return { ...day, modalities };
+  const durations: Record<string, unknown> = {};
+  for (const [key, minutes] of Object.entries(source)) {
+    const target = asRun(key);
+    if (target !== key && durations[target] !== undefined) continue; // corrida informada explicitamente ganha da duracao antiga de esteira
+    durations[target] = minutes;
+  }
+  for (const [key, minutes] of Object.entries(source)) if (asRun(key) === key) durations[key] = minutes;
+  return { ...day, modalities, modalityDurations: durations };
+}
+
 type RoutineReader = Pick<PrismaClient, 'weeklyAvailability' | 'weeklyRoutineState'>;
 
 export async function readRoutineState(prisma: RoutineReader, userId: string): Promise<RoutineState> {
@@ -30,7 +48,7 @@ export async function readRoutineState(prisma: RoutineReader, userId: string): P
     prisma.weeklyRoutineState.findUnique({ where: { userId }, select: { revision: true } }),
     prisma.weeklyAvailability.findMany({ where: { userId }, orderBy: { weekday: 'asc' } }),
   ]);
-  const days = rows as RoutineDayRow[];
+  const days = (rows as RoutineDayRow[]).map(runOnlyRoutineDay);
   const configured = Boolean(state) || days.length > 0;
   const activeDays = days.filter((day) => !day.noTraining);
   return { configured, revision: state?.revision ?? 0, days, activeDays, allRest: configured && activeDays.length === 0 };

@@ -2838,17 +2838,6 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       };
     }
 
-    if (modality === 'esteira') {
-      return {
-        title: 'Corrida na esteira',
-        modality,
-        sessionType: 'aerobic',
-        zone: 'Z2',
-        durationMin: 45,
-        notes: 'Manter intensidade controlada e respiracao confortavel.',
-      };
-    }
-
     return {
       title: 'Corrida leve',
       modality: 'corrida',

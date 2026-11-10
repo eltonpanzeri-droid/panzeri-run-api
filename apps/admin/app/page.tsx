@@ -7218,7 +7218,6 @@ function EditableSession({
                 <label>Modalidade
                   <select value={modality} onChange={(event) => changeModality(event.target.value)}>
                     <option value="corrida">Corrida</option>
-                    <option value="esteira">Corrida na esteira</option>
                     <option value="forca">Musculacao</option>
                     <option value="fortalecimento_corredores">Fortalecimento para corredores</option>
                   </select>
