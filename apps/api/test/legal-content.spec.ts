@@ -149,10 +149,9 @@ describe('tela Privacidade e dados (app)', () => {
   it('reutiliza os endpoints existentes (sem regra duplicada) e o resumo canonico', () => {
     const screen = app.slice(app.indexOf('function PrivacyDataScreen'), app.indexOf('function Anamnese('));
     expect(screen).toContain('/legal/summary');
-    expect(screen).toContain('<PolarConnect accessToken={accessToken} variant="status" />');
     expect(screen).toContain('<PolarConnect accessToken={accessToken} variant="manage" />');
     expect(screen).not.toMatch(/\/polar\/(disconnect|data)/);
-    expect(screen).not.toMatch(/garmin/i);
+    expect(screen).toContain('<GarminIntegration accessToken={accessToken} apiUrl={API_URL} variant="manage"'); // Garmin entrou na tela de privacidade em 08/11/2026; a variante "status" do Polar saiu
     for (const title of ['Seus dados', 'Dispositivos e integrações', 'Inteligência Artificial', 'Gerenciar dados da integração', 'Privacidade e Termos', 'Terceiros e processamento', 'Solicitações sobre meus dados']) {
       expect(screen).toContain(title);
     }
