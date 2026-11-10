@@ -9,6 +9,8 @@ import {
   readCategorySamples,
   readDailyStatistics,
   readWorkoutRoute,
+  readWorkoutSeries,
+  type AppleSeriesSpec,
   readWorkoutsInRange,
   requestHealthAuthorizationFor,
   type AppleRunningWorkout,
@@ -28,6 +30,23 @@ const WORKOUTS_PER_REQUEST = 50;
 // Percursos lidos por sincronizacao: cada um e' uma consulta ao app Saude; o restante fica para a proxima sincronizacao (nada se perde, e o servidor so' pede os que ainda faltam).
 const MAX_ROUTES_PER_SYNC = 150;
 const PENDING_IDS_PER_REQUEST = 200;
+// Series do treino (10/11/2026): lidas depois dos percursos, so' com o grupo de medidas autorizado. Cada treino e' lido uma vez; o resultado (enviado ou "sem dado") fica guardado no aparelho para nao
+// repetir a leitura a cada sincronizacao. O servidor e' a autoridade (consentimento, limites, idempotencia).
+const MAX_SERIES_PER_SYNC = 60;
+const SERIES_CHECKED_KEY = 'pr:appleSeriesChecked';
+const SERIES_SPECS: AppleSeriesSpec[] = [
+  { metric: 'heartRate', identifier: 'HKQuantityTypeIdentifierHeartRate', unit: 'bpm', kind: 'avg' },
+  { metric: 'runningSpeed', identifier: 'HKQuantityTypeIdentifierRunningSpeed', unit: 'mps', kind: 'avg' },
+  { metric: 'runningPower', identifier: 'HKQuantityTypeIdentifierRunningPower', unit: 'W', kind: 'avg' },
+  { metric: 'stepCount', identifier: 'HKQuantityTypeIdentifierStepCount', unit: 'count', kind: 'sum' },
+  { metric: 'distance', identifier: 'HKQuantityTypeIdentifierDistanceWalkingRunning', unit: 'm', kind: 'sum' },
+];
+async function loadSeriesChecked(): Promise<Set<string>> {
+  try { const raw = await AsyncStorage.getItem(SERIES_CHECKED_KEY); const parsed = raw ? JSON.parse(raw) : []; return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []); } catch { return new Set(); }
+}
+async function saveSeriesChecked(ids: Set<string>): Promise<void> {
+  try { await AsyncStorage.setItem(SERIES_CHECKED_KEY, JSON.stringify([...ids].slice(-4000))); } catch { /* sem armazenamento: so' le de novo na proxima */ }
+}
 const DEFAULT_ROUTE_LIMITS = { maxRoutesPerRequest: 3, maxPointsPerRoute: 1200, maxRequestBytes: 60_000 };
 
 type ConsentDocument = {
@@ -182,6 +201,49 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
     return null;
   }
 
+  // Series do treino ao longo do tempo. Falta de autorizacao no servidor (403) NAO e' falha da sincronizacao: o grupo de medidas simplesmente nao esta liberado para guardar series.
+  async function syncSeries(workouts: AppleRunningWorkout[], counters: SyncCounters): Promise<SyncOutcome | null> {
+    const checked = await loadSeriesChecked();
+    const candidates = [...new Set(workouts.map((workout) => workout.uuid.toLowerCase()))].filter((id) => !checked.has(id));
+    if (candidates.length === 0) return null;
+    const pending: string[] = [];
+    try {
+      for (let start = 0; start < candidates.length; start += 100) {
+        const result = await call<{ pending: string[]; complete: string[] }>('POST', '/apple-health/series/pending', { recordIds: candidates.slice(start, start + 100) });
+        pending.push(...result.pending);
+        for (const id of result.complete) checked.add(id);
+      }
+    } catch (error) {
+      await saveSeriesChecked(checked);
+      return error instanceof HttpError && (error.status === 401 || error.status === 403) ? null : classifyFailure(error);
+    }
+    const todo = pending.slice(0, MAX_SERIES_PER_SYNC);
+    for (let index = 0; index < todo.length; index += 1) {
+      setProgress(`Lendo os gráficos dos treinos (${index + 1} de ${todo.length})…`);
+      let metrics;
+      try {
+        metrics = await readWorkoutSeries(todo[index], SERIES_SPECS, 600);
+      } catch {
+        counters.seriesFailed += 1;
+        continue;
+      }
+      if (Object.keys(metrics).length === 0) { checked.add(todo[index]); continue; } // sem dado de serie neste treino (ou sem permissao: o iOS nao diferencia)
+      try {
+        const result = await call<{ stored: number; items: Array<{ status: string; reason?: string }> }>('POST', '/apple-health/series', { series: [{ recordId: todo[index], metrics }] });
+        if (result.stored > 0) { counters.seriesStored += 1; checked.add(todo[index]); }
+        else if (result.items.some((item) => item.reason === 'sem_pontos_validos')) checked.add(todo[index]);
+        else counters.seriesFailed += 1;
+      } catch (error) {
+        await saveSeriesChecked(checked);
+        if (error instanceof HttpError && (error.status === 401 || error.status === 403)) return null;
+        counters.seriesFailed += todo.length - index;
+        return classifyFailure(error);
+      }
+    }
+    await saveSeriesChecked(checked);
+    return null;
+  }
+
   // Uma janela de datas: treinos de TODOS os tipos (se autorizados) e a saude do dia a dia dos grupos autorizados. Devolve a falha que interrompe a sincronizacao (comunicacao/servidor/autorizacao)
   // ou null. Erros de leitura nativa sobem como NativeReadError. Tudo o que o servidor ja' tem e' reconhecido (idempotente), entao reenviar uma janela nunca duplica.
   async function syncWindow(window: SyncWindow, counters: SyncCounters, workouts: AppleRunningWorkout[], unreadable: Set<string>): Promise<SyncOutcome | null> {
@@ -278,9 +340,16 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
             failure = classifyFailure(error);
           }
         }
+        if (failure === null && granted.has('sensors') && workouts.length > 0) {
+          try {
+            failure = await syncSeries(workouts, counters);
+          } catch (error) {
+            failure = classifyFailure(error);
+          }
+        }
       }
-      const anyDone = counters.created + counters.enriched + counters.already + counters.routesStored + counters.healthStored > 0;
-      const anyPending = counters.workoutsNotSent + counters.routesFailed + counters.routesTooLarge + counters.rejected + counters.healthNotSent + counters.healthRejected + counters.windowsPending + counters.routesDeferred + counters.workoutsMaybeTruncated > 0;
+      const anyDone = counters.created + counters.enriched + counters.already + counters.routesStored + counters.seriesStored + counters.healthStored > 0;
+      const anyPending = counters.workoutsNotSent + counters.seriesFailed + counters.routesFailed + counters.routesTooLarge + counters.rejected + counters.healthNotSent + counters.healthRejected + counters.windowsPending + counters.routesDeferred + counters.workoutsMaybeTruncated > 0;
       if (failure !== null) outcome = anyDone && failure !== 'not_authorized' ? 'partial' : failure;
       else if (!anyDone && !anyPending && workouts.length === 0) outcome = 'no_activities';
       else outcome = anyPending ? 'partial' : 'completed';

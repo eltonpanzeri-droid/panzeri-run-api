@@ -86,6 +86,7 @@ interface NativeModule {
   requestHealthAuthorization(): Promise<{ requested: boolean }>;
   readRecentRunningWorkouts(limit: number): Promise<AppleRunningWorkout[]>;
   readWorkoutRoute(uuid: string, maxPoints: number): Promise<AppleRoutePoint[]>;
+  readWorkoutSeries(uuid: string, specsJson: string, maxSamples: number): Promise<AppleWorkoutSeries>;
   readWorkoutsInRange(startIso: string, endIso: string, limit: number): Promise<AppleRunningWorkout[]>;
   requestHealthAuthorizationFor(quantityIds: string[], categoryIds: string[]): Promise<{ requested: boolean; typeCount: number }>;
   readDailyStatistics(specsJson: string, startIso: string, endIso: string): Promise<NativeRows<AppleStatRow>>;
@@ -112,6 +113,11 @@ export const getHealthAuthorizationRequestStatus = () => module_().getHealthAuth
 export const requestHealthAuthorization = () => module_().requestHealthAuthorization();
 export const readRecentRunningWorkouts = (limit = 5) => module_().readRecentRunningWorkouts(limit);
 export const readWorkoutRoute = (uuid: string, maxPoints = 2000) => module_().readWorkoutRoute(uuid, maxPoints);
+// Series do treino (frequencia cardiaca, velocidade, potencia, passos e distancia ao longo do treino): { metrica: [[inicioSeg, fimSeg, valor]] }. Metrica sem dado nao aparece.
+export type AppleSeriesSample = [number, number, number];
+export type AppleWorkoutSeries = Record<string, AppleSeriesSample[]>;
+export type AppleSeriesSpec = { metric: string; identifier: string; unit: string; kind: 'sum' | 'avg' };
+export const readWorkoutSeries = (uuid: string, specs: AppleSeriesSpec[], maxSamples = 600) => module_().readWorkoutSeries(uuid, JSON.stringify(specs), maxSamples);
 // Treinos de TODOS os tipos num periodo (mais recente primeiro).
 export const readWorkoutsInRange = (start: Date, end: Date, limit = 500) => module_().readWorkoutsInRange(start.toISOString(), end.toISOString(), limit);
 // Pede leitura (nunca escrita) dos tipos de saude informados, alem dos de treino.

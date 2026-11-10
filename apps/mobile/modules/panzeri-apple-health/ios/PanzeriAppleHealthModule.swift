@@ -212,6 +212,27 @@ public class PanzeriAppleHealthModule: Module {
       }
     }
 
+    // Series do treino (10/11/2026, regra "pegar TUDO"): amostras [inicioSeg, fimSeg, valor] (segundos desde o inicio do treino) dos tipos pedidos em specsJson
+    // ([{ metric, identifier, unit, kind: "sum" | "avg" }]) dentro do periodo do treino. Passa de maxSamples: junta amostras vizinhas (soma para tipos cumulativos como distancia e passos, media
+    // para os demais), sem perder o total. Tipo sem dado, sem permissao ou indisponivel neste iOS simplesmente nao aparece (o iOS nao diferencia negado de ausente).
+    AsyncFunction("readWorkoutSeries") { (uuid: String, specsJson: String, maxSamples: Int, promise: Promise) in
+      guard let id = UUID(uuidString: uuid) else {
+        promise.reject("E_INVALID_ID", "uuid invalido.")
+        return
+      }
+      guard let data = specsJson.data(using: .utf8), let specs = (try? JSONSerialization.jsonObject(with: data)) as? [[String: String]] else {
+        promise.reject("E_INVALID_SPECS", "Especificacao de series invalida.")
+        return
+      }
+      Task {
+        do {
+          promise.resolve(try await self.workoutSeries(workoutId: id, specs: specs, maxSamples: max(10, min(maxSamples, 800))))
+        } catch {
+          promise.reject("E_HEALTH_SERIES", error.localizedDescription)
+        }
+      }
+    }
+
     // --- WorkoutKit --------------------------------------------------------------------------
 
     // Devolve authorized | denied | notDetermined | restricted. Chamar de novo e' seguro (so' mostra a folha uma vez).
@@ -434,6 +455,36 @@ public class PanzeriAppleHealthModule: Module {
     }
   }
 
+  private func workoutSeries(workoutId: UUID, specs: [[String: String]], maxSamples: Int) async throws -> [String: Any] {
+    let workouts = try await fetchSamples(type: HKObjectType.workoutType(), predicate: HKQuery.predicateForObject(with: workoutId))
+    guard let workout = workouts.first as? HKWorkout else { return [:] }
+    var result: [String: Any] = [:]
+    for spec in specs {
+      guard let metric = spec["metric"], let identifier = spec["identifier"], let token = spec["unit"], let unit = Self.unit(for: token) else { continue }
+      guard let type = HKObjectType.quantityType(forIdentifier: HKQuantityTypeIdentifier(rawValue: identifier)), type.is(compatibleWith: unit) else { continue }
+      let cumulative = spec["kind"] == "sum"
+      let predicate = HKQuery.predicateForSamples(withStart: workout.startDate, end: workout.endDate, options: [])
+      let samples = (try? await fetchSamples(type: type, predicate: predicate)) ?? []
+      let ordered = samples.compactMap { $0 as? HKQuantitySample }.sorted { $0.startDate < $1.startDate }
+      var rows: [[Double]] = []
+      for sample in ordered where sample.quantity.is(compatibleWith: unit) {
+        rows.append([sample.startDate.timeIntervalSince(workout.startDate), sample.endDate.timeIntervalSince(workout.startDate), sample.quantity.doubleValue(for: unit)])
+      }
+      if rows.isEmpty { continue }
+      let bucket = max(1, Int((Double(rows.count) / Double(maxSamples)).rounded(.up)))
+      var merged: [[Double]] = []
+      var index = 0
+      while index < rows.count {
+        let slice = Array(rows[index..<min(index + bucket, rows.count)])
+        let total = slice.reduce(0.0) { $0 + $1[2] }
+        merged.append([slice[0][0], slice[slice.count - 1][1], cumulative ? total : total / Double(slice.count)])
+        index += bucket
+      }
+      result[metric] = merged
+    }
+    return result
+  }
+
   private func locations(of route: HKWorkoutRoute) async throws -> [CLLocation] {
     try await withCheckedThrowingContinuation { continuation in
       var all: [CLLocation] = []
@@ -488,6 +539,7 @@ public class PanzeriAppleHealthModule: Module {
     case "s": return HKUnit.second()
     case "min": return HKUnit.minute()
     case "mps": return HKUnit.meter().unitDivided(by: HKUnit.second())
+    case "W": return HKUnit.watt()
     case "kg": return HKUnit.gramUnit(with: .kilo)
     case "g": return HKUnit.gram()
     case "mg": return HKUnit.gramUnit(with: .milli)

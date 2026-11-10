@@ -71,11 +71,13 @@ export interface SyncCounters {
   created: number; enriched: number; already: number; rejected: number;
   routesStored: number; routesFailed: number; routesTooLarge: number;
   workoutsNotSent: number;
+  // Series do treino (10/11/2026)
+  seriesStored: number; seriesFailed: number;
   // Saude do dia a dia (29/10/2026)
   healthStored: number; healthRejected: number; healthNotSent: number; healthUnreadable: number; windowsPending: number; workoutsMaybeTruncated: number; routesDeferred: number;
 }
 
-export const emptyCounters = (): SyncCounters => ({ created: 0, enriched: 0, already: 0, rejected: 0, routesStored: 0, routesFailed: 0, routesTooLarge: 0, workoutsNotSent: 0, healthStored: 0, healthRejected: 0, healthNotSent: 0, healthUnreadable: 0, windowsPending: 0, workoutsMaybeTruncated: 0, routesDeferred: 0 });
+export const emptyCounters = (): SyncCounters => ({ created: 0, enriched: 0, already: 0, rejected: 0, routesStored: 0, routesFailed: 0, routesTooLarge: 0, workoutsNotSent: 0, seriesStored: 0, seriesFailed: 0, healthStored: 0, healthRejected: 0, healthNotSent: 0, healthUnreadable: 0, windowsPending: 0, workoutsMaybeTruncated: 0, routesDeferred: 0 });
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -85,6 +87,7 @@ export function summarize(counters: SyncCounters): string {
     counters.enriched > 0 ? `${plural(counters.enriched, 'treino atualizado', 'treinos atualizados')} com mais dados` : null,
     counters.already > 0 ? `${plural(counters.already, 'já estava', 'já estavam')} no Panzeri Run` : null,
     counters.routesStored > 0 ? plural(counters.routesStored, 'percurso guardado', 'percursos guardados') : null,
+    counters.seriesStored > 0 ? plural(counters.seriesStored, 'treino com gráficos de frequência cardíaca, ritmo e outras medidas', 'treinos com gráficos de frequência cardíaca, ritmo e outras medidas') : null,
     counters.healthStored > 0 ? plural(counters.healthStored, 'registro de saúde guardado', 'registros de saúde guardados') : null,
   ].filter(Boolean);
   return parts.length > 0 ? parts.join(' · ') : 'Nada novo para importar';
@@ -95,6 +98,7 @@ export function pendingNotes(counters: SyncCounters): string[] {
   if (counters.workoutsNotSent > 0) notes.push(`${plural(counters.workoutsNotSent, 'treino não foi enviado', 'treinos não foram enviados')}.`);
   if (counters.rejected > 0) notes.push(`${plural(counters.rejected, 'treino foi recusado pelo servidor', 'treinos foram recusados pelo servidor')}.`);
   if (counters.routesFailed > 0) notes.push(`${plural(counters.routesFailed, 'percurso não foi enviado', 'percursos não foram enviados')}.`);
+  if (counters.seriesFailed > 0) notes.push(`${plural(counters.seriesFailed, 'treino não teve os gráficos de medidas enviados', 'treinos não tiveram os gráficos de medidas enviados')}.`);
   if (counters.routesTooLarge > 0) notes.push(`${plural(counters.routesTooLarge, 'percurso é grande demais para enviar', 'percursos são grandes demais para enviar')}.`);
   if (counters.healthNotSent > 0) notes.push(`${plural(counters.healthNotSent, 'registro de saúde não foi enviado', 'registros de saúde não foram enviados')}.`);
   if (counters.healthRejected > 0) notes.push(`${plural(counters.healthRejected, 'registro de saúde foi recusado pelo servidor', 'registros de saúde foram recusados pelo servidor')}.`);
