@@ -329,6 +329,7 @@ async function wipeOwnedData(tx: Prisma.TransactionClient, userId: string, kind:
   await tx.onboardingInterview.deleteMany({ where: { userId } });
   await tx.menstrualCycleLog.deleteMany({ where: { userId } });
   await tx.menstrualDailyLog.deleteMany({ where: { userId } });
+  await tx.menstrualAiConsent.deleteMany({ where: { userId } });
   await tx.menstrualProfile.deleteMany({ where: { userId } });
   await tx.userNotification.deleteMany({ where: { userId } });
 }

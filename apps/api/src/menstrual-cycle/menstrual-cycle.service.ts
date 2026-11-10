@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MathLayerService, SeriesPoint } from '../training-intelligence/math-layer.service';
 import { LongitudinalDynamicsService } from '../training-intelligence/longitudinal-dynamics.service';
@@ -8,6 +8,7 @@ import { StartCycleDto } from './dto/start-cycle.dto';
 import { EndCycleDto } from './dto/end-cycle.dto';
 import { CorrectCycleDto } from './dto/correct-cycle.dto';
 import { UpsertDailyLogDto } from './dto/upsert-daily-log.dto';
+import { CYCLE_AI_CONSENT_TEXT, CYCLE_AI_CONSENT_VERSION, cycleAiConsentHash, isCycleAiConsentCurrent } from './menstrual-ai-consent';
 
 // Nomes das fases para exibicao e contexto da IA
 export const CYCLE_PHASES = ['menstruacao', 'folicular', 'ovulatoria', 'lutea'] as const;
@@ -332,6 +333,8 @@ export class MenstrualCycleService {
    * a descrever, mesma convencao de "n=0 -> campo ausente" usada no resto do Compact Agent Context.
    */
   async getAgentContext(userId: string): Promise<AgentMenstrualCycleContext | null> {
+    // Sem aceite vigente (nunca aceitou, retirou, ou o texto mudou) o ciclo NAO vai a IA, mesmo com dado registrado.
+    if (!isCycleAiConsentCurrent(await this.prisma.menstrualAiConsent.findUnique({ where: { userId } }))) return null;
     const [profile, overview] = await Promise.all([this.getProfile(userId), this.getCycleOverview(userId)]);
     const maturity = overview.maturity;
     if (!profile?.hasActiveCycle || maturity === 'none') return null;
@@ -347,6 +350,38 @@ export class MenstrualCycleService {
       predictedNextPeriod: overview.predictedNextPeriod,
       reliabilityCaveats: overview.reliabilityCaveats,
     };
+  }
+
+  // Aceite do ciclo para a IA (10/11/2026). O texto e a versao vem do servidor; o app mostra e devolve versao+hash, e so vale se bater com o texto vigente.
+  async getAiConsent(userId: string) {
+    const row = await this.prisma.menstrualAiConsent.findUnique({ where: { userId } });
+    const current = isCycleAiConsentCurrent(row);
+    return {
+      text: CYCLE_AI_CONSENT_TEXT,
+      version: CYCLE_AI_CONSENT_VERSION,
+      textHash: cycleAiConsentHash(),
+      accepted: current,
+      acceptedAt: current && row ? row.acceptedAt : null,
+      needsReconfirmation: !!row && row.revokedAt === null && !current,
+    };
+  }
+
+  async acceptAiConsent(userId: string, body: { version?: unknown; textHash?: unknown }) {
+    if (body.version !== CYCLE_AI_CONSENT_VERSION || body.textHash !== cycleAiConsentHash()) {
+      throw new BadRequestException({ code: 'consent_text_changed', message: 'O texto da autorização mudou. Leia a versão atual e aceite de novo.' });
+    }
+    const now = new Date();
+    await this.prisma.menstrualAiConsent.upsert({
+      where: { userId },
+      create: { userId, version: CYCLE_AI_CONSENT_VERSION, textHash: cycleAiConsentHash(), acceptedAt: now },
+      update: { version: CYCLE_AI_CONSENT_VERSION, textHash: cycleAiConsentHash(), acceptedAt: now, revokedAt: null },
+    });
+    return this.getAiConsent(userId);
+  }
+
+  async revokeAiConsent(userId: string) {
+    await this.prisma.menstrualAiConsent.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return this.getAiConsent(userId);
   }
 
   /**

@@ -8621,6 +8621,44 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
   const [pendingCheck, setPendingCheck] = useState<PendingCycleCheck | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // (10/11/2026) Aceite do ciclo para a IA: o texto e a versao vem do servidor; a aluna aceita (ou retira) aqui.
+  const [aiConsent, setAiConsent] = useState<{ text: string; version: string; textHash: string; accepted: boolean; acceptedAt: string | null; needsReconfirmation: boolean } | null>(null);
+  const [aiConsentChecked, setAiConsentChecked] = useState(false);
+  const [aiConsentBusy, setAiConsentBusy] = useState(false);
+  const [aiConsentMessage, setAiConsentMessage] = useState('');
+
+  async function loadAiConsent() {
+    try {
+      const res = await fetch(`${API_URL}/menstrual-cycle/ai-consent`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (res.ok) setAiConsent(await res.json());
+    } catch { /* o cartao simplesmente nao aparece; o ciclo continua so no calendario */ }
+  }
+
+  async function changeAiConsent(accept: boolean) {
+    if (!aiConsent || aiConsentBusy) return;
+    setAiConsentBusy(true);
+    setAiConsentMessage('');
+    try {
+      const res = await fetch(`${API_URL}/menstrual-cycle/ai-consent${accept ? '' : '/revoke'}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: accept ? JSON.stringify({ version: aiConsent.version, textHash: aiConsent.textHash }) : undefined,
+      });
+      if (res.ok) {
+        setAiConsent(await res.json());
+        setAiConsentChecked(false);
+        setAiConsentMessage(accept ? 'Autorização registrada.' : 'Autorização retirada. Seus dados de ciclo não vão mais à inteligência artificial.');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setAiConsentMessage(typeof data?.message === 'string' ? data.message : 'Não consegui registrar agora. Tente de novo.');
+        if (accept) void loadAiConsent();
+      }
+    } catch {
+      setAiConsentMessage('Sem conexão com o servidor. Tente de novo.');
+    } finally {
+      setAiConsentBusy(false);
+    }
+  }
 
   async function load() {
     try {
@@ -8636,7 +8674,7 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { void load(); }, [accessToken]);
+  useEffect(() => { void load(); void loadAiConsent(); }, [accessToken]);
 
   const MATURITY_LABELS: Record<string, string> = { none: 'sem dado ainda', low: 'baixa', moderate: 'moderada', established: 'estabelecida' };
 
@@ -8647,10 +8685,38 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
       <Text style={styles.copyTight}>
         Toque em qualquer dia pra registrar ou corrigir.
       </Text>
-      {/* (01/11/2026) Aviso de uso pela IA, texto de Elton. Substitui a frase antiga "não altera sua prescrição", que contradizia o que o servidor faz (o contexto do ciclo chega ao agente de prescrição). Sem caixa de marcar, por decisão dele. */}
-      <Text style={[styles.copyTight, { marginTop: 8 }]}>
-        Os dados de ciclo menstrual podem ajudar a entender melhor sobre você, inclusive aspectos relacionados a dores e performance. Ao registrar seus dados de ciclo menstrual, você consente que esses dados serão usados por nossa inteligência artificial para criar prescrições melhores para você.
-      </Text>
+      {/* (10/11/2026) Aceite explicito do uso do ciclo pela IA (decisao de Elton de 01/11). Sem aceite vigente o servidor NAO envia o ciclo a IA; o calendario funciona igual. */}
+      {aiConsent ? (
+        <View style={[styles.coachBox, { marginTop: 8 }]}>
+          <Text style={styles.copyTight}>{aiConsent.text}</Text>
+          {aiConsent.accepted ? (
+            <>
+              <Text style={[styles.copyTight, { marginTop: 8, fontWeight: '700' }]}>
+                ✓ Você autorizou{aiConsent.acceptedAt ? ` em ${new Date(aiConsent.acceptedAt).toLocaleDateString('pt-BR')}` : ''}.
+              </Text>
+              <Pressable style={[styles.secondaryButton, { marginTop: 8 }, aiConsentBusy && { opacity: 0.6 }]} disabled={aiConsentBusy} onPress={() => void changeAiConsent(false)} accessibilityRole="button">
+                <Text style={styles.secondaryButtonText}>Retirar autorização</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              {aiConsent.needsReconfirmation ? (
+                <Text style={[styles.copyTight, { marginTop: 8, color: '#A35C00' }]}>O texto desta autorização mudou. Leia e aceite de novo para seus dados de ciclo voltarem a ser usados pela inteligência artificial.</Text>
+              ) : (
+                <Text style={[styles.copyTight, { marginTop: 8 }]}>Enquanto você não aceitar, seus dados de ciclo ficam só no seu calendário e não são usados pela inteligência artificial.</Text>
+              )}
+              <Pressable style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }} onPress={() => setAiConsentChecked((value) => !value)} accessibilityRole="checkbox" accessibilityState={{ checked: aiConsentChecked }}>
+                <Switch value={aiConsentChecked} onValueChange={setAiConsentChecked} />
+                <Text style={[styles.copyTight, { flex: 1, marginLeft: 8 }]}>Li e autorizo o uso dos meus dados de ciclo pela inteligência artificial.</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton, { marginTop: 8 }, (!aiConsentChecked || aiConsentBusy) && { opacity: 0.5 }]} disabled={!aiConsentChecked || aiConsentBusy} onPress={() => void changeAiConsent(true)} accessibilityRole="button">
+                <Text style={styles.primaryButtonText}>Aceitar</Text>
+              </Pressable>
+            </>
+          )}
+          {aiConsentMessage ? <Text style={[styles.copyTight, { marginTop: 8 }]}>{aiConsentMessage}</Text> : null}
+        </View>
+      ) : null}
 
       {pendingCheck && (
         <PendingCheckBanner

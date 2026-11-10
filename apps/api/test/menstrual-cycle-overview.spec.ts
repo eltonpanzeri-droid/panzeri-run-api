@@ -1,4 +1,5 @@
 import { MenstrualCycleService } from '../src/menstrual-cycle/menstrual-cycle.service';
+import { CYCLE_AI_CONSENT_VERSION, cycleAiConsentHash } from '../src/menstrual-cycle/menstrual-ai-consent';
 import { MathLayerService } from '../src/training-intelligence/math-layer.service';
 import { LongitudinalDynamicsService } from '../src/training-intelligence/longitudinal-dynamics.service';
 
@@ -28,6 +29,8 @@ function buildService(logs: ReturnType<typeof cycleLog>[], profile: Record<strin
     menstrualCycleLog: { findMany: jest.fn().mockResolvedValue(logs), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
     menstrualProfile: { findUnique: jest.fn().mockResolvedValue(profile), upsert: jest.fn() },
     menstrualDailyLog: { upsert: jest.fn(), findMany: jest.fn() },
+    // 10/11/2026: o ciclo so vai a IA com aceite vigente; estes testes validam o CONTEUDO do contexto, entao a aluna ja aceitou.
+    menstrualAiConsent: { findUnique: jest.fn().mockResolvedValue({ version: CYCLE_AI_CONSENT_VERSION, textHash: cycleAiConsentHash(), acceptedAt: new Date(), revokedAt: null }) },
   };
   const mathLayer = new MathLayerService();
   const service = new MenstrualCycleService(prisma as never, mathLayer, new LongitudinalDynamicsService(mathLayer));

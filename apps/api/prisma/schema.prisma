@@ -135,6 +135,7 @@ model User {
   weeklyCheckIns        WeeklyCheckIn[]
   funnelEvents          FunnelEvent[]
   menstrualProfile      MenstrualProfile?
+  menstrualAiConsent    MenstrualAiConsent?
   menstrualCycleLogs    MenstrualCycleLog[]
   menstrualDailyLogs    MenstrualDailyLog[]
   rawExternalActivities RawExternalActivity[]
@@ -1180,6 +1181,18 @@ model WeeklyCheckIn {
 // Finalidade: correlacao estatistica (ex: "na fase 1 a aderencia cai X%") — nao diagnostico.
 // O agente de treino recebe o contexto como dado geral, nao como regra de prescricao.
 // A futura camada de analise de padroes (agente de evolucao) cruzara esses dados com o historico.
+// Aceite da aluna para o ciclo menstrual alimentar a IA (10/11/2026). Uma linha por aluna; retirar = revokedAt. Ver menstrual-ai-consent.ts.
+model MenstrualAiConsent {
+  userId     String    @id
+  user       User      @relation(fields: [userId], references: [id])
+  version    String
+  textHash   String
+  acceptedAt DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
 model MenstrualProfile {
   id                        String   @id @default(uuid())
   userId                    String   @unique

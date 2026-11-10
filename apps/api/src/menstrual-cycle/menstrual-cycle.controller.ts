@@ -74,6 +74,22 @@ export class MenstrualCycleController {
     return this.svc.getCycleOverview(user.sub);
   }
 
+  // Aceite do ciclo para a IA (10/11/2026): texto vigente + estado; aceitar (versao+hash do texto lido); retirar.
+  @Get('ai-consent')
+  getAiConsent(@CurrentUser() user: CurrentUserPayload) {
+    return this.svc.getAiConsent(user.sub);
+  }
+
+  @Post('ai-consent')
+  acceptAiConsent(@CurrentUser() user: CurrentUserPayload, @Body() body: { version?: unknown; textHash?: unknown }) {
+    return this.svc.acceptAiConsent(user.sub, body ?? {});
+  }
+
+  @Post('ai-consent/revoke')
+  revokeAiConsent(@CurrentUser() user: CurrentUserPayload) {
+    return this.svc.revokeAiConsent(user.sub);
+  }
+
   // Item 9/10 (26/09/2026) — o app consulta isso ao abrir a tela de Ciclo, pra mostrar o banner de
   // confirmação mesmo se a aluna não tiver visto (ou não puder ver, notificações desativadas) o push.
   @Get('pending-check')
