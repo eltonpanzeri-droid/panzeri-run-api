@@ -290,6 +290,7 @@ interface StudentDetail {
       feedback?: string | null;
       notes?: string | null;
       completedDurationMin?: number | null;
+      completedSources?: string[];
       completedDistanceKm?: number | null;
       completedPaceSecondsKm?: number | null;
       completedAt?: string | null;
@@ -348,6 +349,7 @@ interface StudentDetail {
       completionStatus: string;
       completedAt?: string | null;
       completedDurationMin?: number | null;
+      completedSources?: string[];
       completedDistanceKm?: number | null;
       completedPaceSecondsKm?: number | null;
       perceivedEffort?: number | null;
@@ -6779,6 +6781,7 @@ function SessionExecutionPanel({ session }: { session: NonNullable<StudentDetail
     <strong>Realizado pelo aluno</strong>
     {session.completionStatus === 'sem_registro' ? <span>Sem registro</span> : (
       <>
+        {session.completedSources?.length ? <span><strong>Origem:</strong> {session.completedSources.join(' + ')}</span> : null}
         <span>
           {session.completedDurationMin ? exactDurationLabel(session.completedDurationMin) : 'Tempo nao informado'}
           {session.completedDistanceKm ? ` | ${session.completedDistanceKm} km` : ''}

@@ -2,8 +2,10 @@
 // com atividade basta para "feito" (o feedback nao confirma nem nega a execucao) e o volume vem da atividade, nao do que foi digitado. Sem isto, treino feito e vinculado
 // mas sem feedback aparecia como "sem registro" e com 0 km nos graficos do painel (bug real 20/10/2026: 10,15 km de terca nao entravam na semana).
 
+import { activitySourceLabels } from './activity-source-label';
+
 export interface LinkedActivityLike {
-  activityLog: { id?: string; distanceMeters: number | null; durationSec: number | null };
+  activityLog: { id?: string; distanceMeters: number | null; durationSec: number | null; provider?: string | null; providerMetrics?: unknown };
 }
 
 export interface ObjectiveExecution {
@@ -47,5 +49,7 @@ export function completedMetrics(session: { executionLinks?: LinkedActivityLike[
     completedDurationMin: objective.linked ? (objective.durationMin ?? own?.durationMin ?? null) : (own?.durationMin ?? null),
     completedDistanceKm: objective.linked ? (objective.distanceKm ?? own?.distanceKm ?? null) : (own?.distanceKm ?? null),
     completedPaceSecondsKm: objective.linked ? (objective.paceSecondsKm ?? own?.avgPaceSecondsKm ?? null) : (own?.avgPaceSecondsKm ?? null),
+    // De onde veio o treino: relogio/canal vinculado; sem vinculo mas com feedback feito, foi a aluna que informou. Vazio quando nao ha nenhum dos dois.
+    completedSources: objective.linked ? activitySourceLabels(session.executionLinks) : (own ? ['Informado pela aluna (sem relogio vinculado)'] : []),
   };
 }

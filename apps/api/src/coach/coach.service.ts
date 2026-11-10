@@ -2579,7 +2579,7 @@ function hashToken(token: string) {
 }
 
 // Vinculos ativos com a atividade do relogio (so' o que o resumo precisa): execucao objetiva prevalece sobre o feedback digitado (ver objective-execution.ts).
-export const ACTIVE_LINK_DISTANCE_INCLUDE = { where: { status: 'active' }, select: { activityLog: { select: { id: true, distanceMeters: true, durationSec: true } } } } as const;
+export const ACTIVE_LINK_DISTANCE_INCLUDE = { where: { status: 'active' }, select: { activityLog: { select: { id: true, distanceMeters: true, durationSec: true, provider: true, providerMetrics: true } } } } as const;
 
 export function summarizeSessions(sessions: Array<{ scheduledDate: Date; durationMin: number | null; distanceKm: number | null; completion: { status: string; distanceKm: number | null } | null; executionLinks?: Array<{ activityLog: { id?: string; distanceMeters: number | null; durationSec: number | null } }> | null }>) {
   const today = new Date();
