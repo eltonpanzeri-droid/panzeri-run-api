@@ -4072,3 +4072,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Correção:** (1) migração `20261109220000_esteira_vira_corrida` (dados: rotina, treinos, análises, decisões, medalhas; idempotente; sem rollback automático — backup); (2) `runOnlyRoutineDay` em `common/routine-state.ts`: toda leitura da rotina junta esteira em corrida; (3) DTOs de sessão manual/edição do treinador convertem esteira em corrida; (4) removidos o modelo "Corrida na esteira" e a opção do painel. Teste `esteira-vira-corrida-rotina.spec.ts`.
 - **REGRA DE ELTON:** nunca mais perguntar nada sobre esteira; resolver sozinho. Leitores tolerantes a 'esteira' (ingestão de relógio, medalhas, rótulos) ficam: servem para dado que chega de fora.
 - **Pós-Deploy:** gerar de novo o programa da Fernanda e da Thais.
+
+### 09/11/2026 (noite) — Painel: "Refazer nova semana" não fica mais rodando sem resposta (caso Fernanda) — commit local
+- Sintoma: botão ficava rodando e nada acontecia (nem erro). Causa: o painel esperava a geração inteira (1-2+ min) numa única chamada sem tempo-limite; o proxy derruba a conexão sem resposta. Mesma família do bug de polling do app da aluna.
+- Correção (`apps/admin/app/page.tsx`, `regenerateWeek`): vale a resposta do POST se chegar; senão acompanha `generation.inProgress` do servidor (a cada 6 s, até 11 min), recarrega e compara os treinos antes/depois: avisa "gerada" ou "terminou, mas o programa não mudou (falha da IA)". NÃO descobri se a geração da Fernanda falhou no servidor: sem acesso ao log de produção.

@@ -3569,19 +3569,43 @@ function StudentPanel({
     );
     onStatus('Gerando nova semana de treinos...');
     setLocalGeneratingSince(Date.now());
+    // 09/11/2026: a geracao passa de 1-2 min e o proxy pode derrubar a conexao SEM resposta (a tela ficava rodando para sempre, sem erro). A resposta do POST vale quando chega;
+    // se nao chegar, o painel acompanha a trava de geracao do servidor e confere se o programa mudou.
+    const sessionsSignature = (detail: any) => ((detail?.plan?.sessions ?? []) as Array<{ id: string }>).map((item) => item.id).sort().join(',');
+    const readDetail = async () => {
+      try {
+        const detailResponse = await fetch(`${API_URL}/coach/students/${student.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        return detailResponse.ok ? await detailResponse.json() : null;
+      } catch { return null; }
+    };
     try {
-      const response = await fetch(`${API_URL}/coach/students/${student.id}/plan/regenerate-week`, {
+      const before = sessionsSignature(await readDetail());
+      const post = fetch(`${API_URL}/coach/students/${student.id}/plan/regenerate-week`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ allowToday }),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        onStatus(typeof data?.message === 'string' ? data.message : 'Nao consegui gerar uma nova semana.');
+      }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) })).catch(() => null);
+      const startedAt = Date.now();
+      let sawInProgress = false;
+      let answer: { ok: boolean; data: any } | null = null;
+      let ended = false;
+      while (Date.now() - startedAt < 11 * 60 * 1000) {
+        const result = await Promise.race([post.then((value) => ({ value })), new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000))]);
+        if (result) { answer = result.value; ended = true; break; }
+        const detail = await readDetail();
+        if (detail?.generation?.inProgress) sawInProgress = true;
+        else if (detail && (sawInProgress || Date.now() - startedAt > 30000)) { ended = true; break; }
+      }
+      if (answer && !answer.ok) {
+        onStatus(typeof answer.data?.message === 'string' ? answer.data.message : 'Nao consegui gerar uma nova semana.');
         return;
       }
       await onRefresh();
-      onStatus('Nova semana de treinos gerada.');
+      if (answer?.ok) { onStatus('Nova semana de treinos gerada.'); return; }
+      // Sem resposta do POST (conexao derrubada): confere o resultado no servidor.
+      const after = sessionsSignature(await readDetail());
+      if (!ended) onStatus('A geracao esta demorando mais de 10 minutos. Aguarde e recarregue o painel antes de tentar de novo.');
+      else onStatus(after !== before ? 'Nova semana de treinos gerada.' : 'A geracao terminou, mas o programa nao mudou: houve falha na IA. Veja o aviso da aluna ou tente de novo.');
     } catch {
       onStatus('Nao consegui conectar com a API.');
     } finally {
