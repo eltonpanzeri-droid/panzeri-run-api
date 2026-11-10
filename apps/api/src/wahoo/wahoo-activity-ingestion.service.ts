@@ -8,6 +8,7 @@ import { SessionExecutionLinkService } from '../activity-execution/session-execu
 import { ActivityNotificationService } from '../activity-execution/activity-notification.service';
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { WahooService } from './wahoo.service';
+import { WAHOO_FIT_MAX_BYTES, fitUrlOf, readWahooFit, seriesRows } from './wahoo-fit';
 import {
   asId, extractWahooProviderMetrics, isCompletedSummary, mapWahooActivity, parseWahooStartedAt,
   WahooSummaryPayload, WahooWorkoutPayload,
@@ -203,6 +204,34 @@ export class WahooActivityIngestionService {
     });
   }
 
+  // Arquivo FIT do treino (10/11/2026): serie por segundo, voltas e dinamica. Melhor esforco e UMA vez por treino (so' baixa se ainda nao ha serie da Wahoo); nunca derruba o resumo ja' salvo.
+  private async importFitSafely(userId: string, activityLogId: string, summary: WahooSummaryPayload): Promise<void> {
+    try {
+      const url = fitUrlOf(summary);
+      if (!url) return;
+      if ((await this.prisma.activityTimeSeriesPoint.count({ where: { activityLogId, provider: 'wahoo' } })) > 0) return;
+      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) return;
+      const declared = Number(response.headers.get('content-length') ?? 0);
+      if (declared > WAHOO_FIT_MAX_BYTES) return;
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length === 0 || buffer.length > WAHOO_FIT_MAX_BYTES) return;
+      const activity = await readWahooFit(buffer);
+      const rows = seriesRows(activity, activityLogId);
+      await this.writeIfStillAuthorized(userId, async (tx) => {
+        await tx.activityTimeSeriesPoint.deleteMany({ where: { activityLogId, provider: 'wahoo' } });
+        if (rows.length > 0) await tx.activityTimeSeriesPoint.createMany({ data: rows, skipDuplicates: true });
+        if (activity.fitExtras) {
+          const current = await tx.activityLog.findUnique({ where: { id: activityLogId }, select: { providerMetrics: true } });
+          const base = current?.providerMetrics && typeof current.providerMetrics === 'object' && !Array.isArray(current.providerMetrics) ? (current.providerMetrics as Record<string, unknown>) : {};
+          await tx.activityLog.update({ where: { id: activityLogId }, data: { providerMetrics: { ...base, fit: JSON.parse(JSON.stringify(activity.fitExtras)) } as Prisma.InputJsonValue } });
+        }
+      });
+    } catch (error) {
+      this.logger.warn(`FIT do treino Wahoo ignorado (${activityLogId}): ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`);
+    }
+  }
+
   private async ingestWorkout(userId: string, workout: WahooWorkoutPayload, summary: WahooSummaryPayload, externalId: string) {
     // Atividade ja excluida/ignorada pela aluna ou treinador: a sincronizacao NAO regrava nada (nem payload bruto, metricas ou amostras) — senao o relogio traria de volta o que foi excluido.
     if (await isActivityExcluded(this.prisma, userId, 'wahoo', externalId)) return;
@@ -240,6 +269,7 @@ export class WahooActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao notificar sincronizacao da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+    await this.importFitSafely(userId, activityLog.id, summary);
     this.deviceRegistry?.scheduleRefresh(userId); // identifica/atualiza o dispositivo desta aluna (proveniencia preservada, agrupado e nao bloqueante)
     // D2: reconcilia as OUTRAS observacoes cuja identidade/canonica mudou nesta avaliacao (so' o que mudou).
     await this.sessionExecutionLink.reconcileAffectedByIdentity(identity, activityLog.id);
