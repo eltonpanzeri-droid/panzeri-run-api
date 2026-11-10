@@ -13,6 +13,7 @@ import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 import { describeSessionShape, pacingModeLabel } from '../training-plans/agent-context-format';
 import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { doneDateLabel, painLine, prescribedDateLabel, trainingNumberLabel } from './feedback-telegram-lines';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -359,17 +360,35 @@ export class WorkoutCompletionsService {
         posLines.push(`✅ Correu tudo sem caminhar/parar`);
       }
 
-      // Dor
+      // Dor (10/11/2026): sempre aparece. "Sem dor" marcado vem como sem dor; com dor, junta o relato detalhado de hoje (0 a 10), se houver. Best-effort: falha na consulta nunca bloqueia o aviso.
+      let todayReport: { intensity: number; regions: string[] } | null = null;
       if (dto.painFlag && dto.painFlag !== 'none') {
-        const dor = `🩹 Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` — ${painTimingLabel(dto.painTiming)}` : ''}`;
-        posLines.push(dor);
+        try {
+          const startOfTodaySp = new Date(`${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}T00:00:00-03:00`);
+          const report = await this.prisma.painReport.findFirst({ where: { userId, createdAt: { gte: startOfTodaySp } }, orderBy: { createdAt: 'desc' }, select: { intensity: true, regions: true } });
+          if (report) todayReport = { intensity: report.intensity, regions: report.regions };
+        } catch { /* sem o relato detalhado, segue so com a marcacao do feedback */ }
       }
+      posLines.push(painLine({ painFlag: dto.painFlag, timingLabel: dto.painTiming ? painTimingLabel(dto.painTiming) : null, todayReport }));
+
+      // Numero do treino no programa (posicao por data) e codigo do programa. Best-effort.
+      let trainingNumber = trainingNumberLabel(null, 0, null);
+      try {
+        const [plan, siblings] = await Promise.all([
+          this.prisma.trainingPlan.findUnique({ where: { id: session.planId }, select: { planCode: true } }),
+          this.prisma.trainingSession.findMany({ where: { planId: session.planId }, orderBy: [{ scheduledDate: 'asc' }, { createdAt: 'asc' }], select: { id: true } }),
+        ]);
+        const position = siblings.findIndex((item) => item.id === session.id);
+        trainingNumber = trainingNumberLabel(position >= 0 ? position : null, siblings.length, plan?.planCode);
+      } catch { /* fica sem a posicao */ }
 
       // Montagem da mensagem final
       const linhas: string[] = [
         `📋 Feedback — treino fora da rotina.`,
         `👤 ${student?.name ?? 'desconhecido'} (Cod. ${student ? formatStudentCode(student.studentCode) : '?'})`,
         `🗓 ${session.title} (${session.modality}) — ${weekdayAbrev} ${dataFormatada}`,
+        `🔢 ${trainingNumber}`,
+        `📅 Prescrito para: ${prescribedDateLabel(session.scheduledDate)} | Realizado em: ${doneDateLabel(completion.completedAt)}`,
         `⚠️ Desvio: ${session.routineMismatchNote}`,
         `Status: Aluno ${statusLabel} este treino.`,
       ];
