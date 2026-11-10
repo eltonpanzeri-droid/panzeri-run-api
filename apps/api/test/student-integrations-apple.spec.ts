@@ -58,8 +58,9 @@ describe('Apple Saúde no painel do treinador', () => {
     expect(view.atlas).toMatchObject({ authorized: false, needsNewAuthorization: true });
   });
 
-  it('dados sensíveis: a nota da IA informa que percurso, pressão, glicemia e ciclo nunca são enviados', () => {
+  it('dados sensíveis: a nota da IA informa que o percurso nunca é enviado e que pressão, glicemia e ciclo só vão se marcados', () => {
     const view = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']) }), NOW, false));
-    expect(view.atlas.note).toContain('nunca são enviados');
+    expect(view.atlas.note).toContain('nunca é enviado');
+    expect(view.atlas.note).toContain('só vão à IA se a aluna marcou');
   });
 });

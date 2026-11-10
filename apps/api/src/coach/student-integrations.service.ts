@@ -465,7 +465,7 @@ function appleHealthEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
     categories,
     atlas: {
       applies: true, authorized: active && consentCurrent, needsNewAuthorization: Boolean(active && !consentCurrent), since: null, systemEnabled: null,
-      note: active && consentCurrent ? 'O uso pela IA segue os grupos autorizados (sem autorização separada). Percurso GPS, pressão arterial, glicemia e ciclo menstrual nunca são enviados.' : 'Sem autorização vigente: nenhum dado do Apple Saúde é enviado à IA.',
+      note: active && consentCurrent ? 'O uso pela IA segue os grupos autorizados (sem autorização separada). O percurso GPS nunca é enviado; pressão arterial, glicemia e ciclo menstrual só vão à IA se a aluna marcou esses grupos.' : 'Sem autorização vigente: nenhum dado do Apple Saúde é enviado à IA.',
     },
     failures: [], warnings,
   };

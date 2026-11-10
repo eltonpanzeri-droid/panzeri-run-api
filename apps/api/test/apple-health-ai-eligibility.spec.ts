@@ -81,4 +81,23 @@ describe('Apple Health na governanca de IA', () => {
     expect(scope.blocked).toEqual(['apple_health', 'health_connect']);
     await runWithAiScope(scope, async () => { expect(aiActivityWhere()).toEqual({ provider: { notIn: ['apple_health', 'health_connect'] } }); });
   });
+  // 10/11/2026 (decisao de Elton de 01/11): pressao/glicemia e ciclo do Apple Saude alimentam a IA somente com o grupo marcado, sobre o texto vigente; nenhum outro provedor os libera.
+  it('pressao, glicemia e ciclo: somente entram no escopo de IA do Apple Saude quando a aluna marcou o grupo; sem o grupo ficam bloqueados; outros provedores sempre bloqueados', async () => {
+    const { eligibility, connect, connections } = setup();
+    connect({ grantedCategories: ['activity'] });
+    let scope = await eligibility.scopeFor('u1', 'external_ai');
+    expect(scope.blockedHealth).toEqual(expect.arrayContaining(['apple_health:clinical_vitals', 'apple_health:menstrual_cycle']));
+    connections.length = 0;
+    connect({ grantedCategories: ['activity', 'clinical_vitals', 'menstrual_cycle'] });
+    scope = await eligibility.scopeFor('u1', 'external_ai');
+    expect(scope.blockedHealth).not.toContain('apple_health:clinical_vitals');
+    expect(scope.blockedHealth).not.toContain('apple_health:menstrual_cycle');
+    for (const provider of ['garmin', 'health_connect', 'polar', 'wahoo', 'zepp', 'coros']) {
+      expect(scope.blockedHealth).toEqual(expect.arrayContaining([provider + ':clinical_vitals', provider + ':menstrual_cycle']));
+    }
+    // texto antigo (v2.1) nao vale para as categorias sensiveis: reconfirmar
+    connections[0].consentVersion = '2.1';
+    scope = await eligibility.scopeFor('u1', 'external_ai');
+    expect(scope.blockedHealth).toEqual(expect.arrayContaining(['apple_health:clinical_vitals', 'apple_health:menstrual_cycle']));
+  });
 });

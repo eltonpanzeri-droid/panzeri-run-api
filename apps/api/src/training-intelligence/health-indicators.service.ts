@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasAiScope, isHealthBlockedForAi } from '../ai-governance/ai-scope';
-import { AI_INDICATOR_CATEGORY, INDICATORS_NOTE, IndicatorSeries, MetricRow, buildIndicatorSeries } from './health-indicators';
+import { AI_INDICATOR_CATEGORY, CycleDayEntry, INDICATORS_NOTE, IndicatorSeries, MetricRow, buildCycleEntries, buildIndicatorSeries } from './health-indicators';
 
-export interface HealthIndicatorsSummary { periodo: { de: string; ate: string }; observacao: string; indicadores: IndicatorSeries[] }
+export interface HealthIndicatorsSummary { periodo: { de: string; ate: string }; observacao: string; indicadores: IndicatorSeries[]; cicloMenstrualAppleSaude?: CycleDayEntry[] }
 
 // Acesso seletivo da IA aos indicadores de saude autorizados (29/10/2026). Dois usos:
 //  - summary(): resumo enxuto dos ultimos dias, so do que existe e esta autorizado, que entra no contexto do aluno (sem historico bruto);
@@ -28,9 +28,11 @@ export class HealthIndicatorsService {
     if (!hasAiScope()) return null; // sem escopo de IA nao ha como saber o que o aluno autorizou: nada sai
     const now = options.now ?? new Date();
     const from = new Date(now.getTime() - (options.days ?? 28) * 86_400_000);
-    const indicadores = buildIndicatorSeries(await this.rows(athleteId, from, now), this.allowed, { lastValues: 7, maxSeries: 80 });
-    if (indicadores.length === 0) return null;
-    return { periodo: { de: from.toISOString().slice(0, 10), ate: now.toISOString().slice(0, 10) }, observacao: INDICATORS_NOTE, indicadores };
+    const rows = await this.rows(athleteId, from, now);
+    const indicadores = buildIndicatorSeries(rows, this.allowed, { lastValues: 7, maxSeries: 80 });
+    const ciclo = buildCycleEntries(rows, this.allowed);
+    if (indicadores.length === 0 && ciclo.length === 0) return null;
+    return { periodo: { de: from.toISOString().slice(0, 10), ate: now.toISOString().slice(0, 10) }, observacao: INDICATORS_NOTE, indicadores, ...(ciclo.length > 0 ? { cicloMenstrualAppleSaude: ciclo } : {}) };
   }
 
   // Serie completa (um valor por dia) de indicadores especificos num periodo. `indicatorIds` no formato "<tipo>.<chave>" (ex.: "vo2_max.vo2MaxMlKgMin"); vazio = todos os autorizados.

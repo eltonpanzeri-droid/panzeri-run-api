@@ -1,7 +1,7 @@
-import { AI_INDICATOR_CATEGORY, INDICATOR_CATALOG, MetricRow, buildIndicatorSeries } from '../src/training-intelligence/health-indicators';
+import { AI_INDICATOR_CATEGORY, INDICATOR_CATALOG, MetricRow, buildCycleEntries, buildIndicatorSeries } from '../src/training-intelligence/health-indicators';
 import { HealthIndicatorsService } from '../src/training-intelligence/health-indicators.service';
 import { runWithAiScope } from '../src/ai-governance/ai-scope';
-import { HEALTH_AI_CATEGORIES } from '../src/ai-governance/ai-data-eligibility.service';
+import { APPLE_SENSITIVE_AI_CATEGORIES, HEALTH_AI_CATEGORIES } from '../src/ai-governance/ai-data-eligibility.service';
 import { APPLE_RECORD_CATEGORY } from '../src/apple-health/apple-health-records';
 
 // Acesso seletivo da IA aos indicadores de saude autorizados (29/10/2026). Dados SINTETICOS.
@@ -10,17 +10,16 @@ const row = (over: Partial<MetricRow> & { values: Record<string, unknown> }): Me
 const all = () => true;
 
 describe('catalogo e categorias de IA', () => {
-  it('todo indicador do catalogo pertence a um tipo com categoria de IA permitida; pressao, glicemia e ciclo nunca entram', () => {
+  it('todo indicador do catalogo pertence a um tipo com categoria de IA permitida (10/11/2026: pressao, glicemia e ciclo entram so como categorias sensiveis do Apple Saude); GPS nunca', () => {
+    const sensitive = APPLE_SENSITIVE_AI_CATEGORIES as readonly string[];
     for (const def of INDICATOR_CATALOG) {
       const category = AI_INDICATOR_CATEGORY[def.kind];
       expect({ kind: def.kind, category: Boolean(category) }).toEqual({ kind: def.kind, category: true });
-      expect(HEALTH_AI_CATEGORIES as readonly string[]).toContain(category);
+      expect([...HEALTH_AI_CATEGORIES, ...sensitive]).toContain(category);
       expect(def.kind in APPLE_RECORD_CATEGORY).toBe(true);
     }
-    for (const sensitive of ['clinical_vitals', 'menstrual_cycle']) {
-      expect(Object.keys(AI_INDICATOR_CATEGORY)).not.toContain(sensitive);
-      expect(Object.values(AI_INDICATOR_CATEGORY)).not.toContain(sensitive);
-    }
+    expect(HEALTH_AI_CATEGORIES as readonly string[]).not.toContain('clinical_vitals');
+    expect(HEALTH_AI_CATEGORIES as readonly string[]).not.toContain('menstrual_cycle');
     expect(Object.values(AI_INDICATOR_CATEGORY)).not.toContain('activity_route');
   });
 });
@@ -54,13 +53,27 @@ describe('series de indicadores', () => {
     expect(buildIndicatorSeries(rows, () => false)).toEqual([]);
   });
 
-  it('tipos sem categoria de IA (ciclo, pressao) e tipos desconhecidos nunca viram indicador', () => {
-    const series = buildIndicatorSeries([
-      row({ metricKind: 'menstrual_cycle', values: { menstrualFlow: [2] } }),
+  it('tipos desconhecidos nunca viram indicador; pressao e ciclo so passam quando a categoria sensivel esta liberada para a fonte', () => {
+    const rows = [
+      row({ metricKind: 'menstrual_cycle', values: { menstrualFlow: [2], basalBodyTemperatureC: 36.4 } }),
       row({ metricKind: 'clinical_vitals', values: { systolicMmHgAvg: 120 } }),
       row({ metricKind: 'algo_novo', values: { x: 1 } }),
-    ], all);
-    expect(series).toEqual([]);
+    ];
+    expect(buildIndicatorSeries(rows, (_provider, category) => !['clinical_vitals', 'menstrual_cycle'].includes(category))).toEqual([]);
+    const allowed = buildIndicatorSeries(rows, all).map((s) => s.id).sort();
+    expect(allowed).toEqual(['clinical_vitals.systolicMmHgAvg', 'menstrual_cycle.basalBodyTemperatureC']); // o fluxo (lista de codigos) vai pelo registro do ciclo, nao por serie numerica
+  });
+
+  it('ciclo do Apple Saude: dias em texto (fluxo, ovulacao, muco), so com a categoria liberada; sem liberacao nada sai', () => {
+    const rows = [
+      row({ metricKind: 'menstrual_cycle', calendarDate: '2026-11-02', values: { menstrualFlow: [3, 3], ovulationTestResult: [2], basalBodyTemperatureC: 36.4 } }),
+      row({ metricKind: 'menstrual_cycle', calendarDate: '2026-11-01', values: { menstrualFlow: [2] } }),
+      row({ metricKind: 'menstrual_cycle', calendarDate: '2026-11-03', values: { basalBodyTemperatureC: 36.5 } }),
+    ];
+    const days = buildCycleEntries(rows, all);
+    expect(days.map((d) => d.data)).toEqual(['2026-11-01', '2026-11-02']); // dia so com temperatura nao e registro de ciclo em texto
+    expect(days[1].registros).toEqual([{ rotulo: 'Fluxo menstrual', valores: ['médio'] }, { rotulo: 'Teste de ovulação', valores: ['positivo'] }]);
+    expect(buildCycleEntries(rows, () => false)).toEqual([]);
   });
 
   it('chave desconhecida de um tipo permitido entra pelo caminho generico, com unidade da origem (nada util e descartado)', () => {

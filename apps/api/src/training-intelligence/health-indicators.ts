@@ -5,7 +5,8 @@
 // so' o que ele autorizou (categoria), por fonte, com unidade e origem originais. Nao e' um escore de prontidao, nao interpreta causa e nao envia o historico bruto: serie completa fica disponivel
 // por consulta (HealthIndicatorsService.query) para quem precisar de um periodo ou indicador especifico.
 //
-// Fora da IA por decisao de produto: pressao arterial, glicemia (clinical_vitals) e ciclo menstrual (menstrual_cycle) nao tem categoria de IA — nunca entram aqui. Percurso GPS tambem nao.
+// Pressao arterial/glicemia (clinical_vitals) e ciclo menstrual (menstrual_cycle) so' entram aqui para o Apple Saude, com o grupo marcado e texto v2.2 (ver APPLE_SENSITIVE_AI_CATEGORIES); o escopo de IA
+// bloqueia estes dois para qualquer outro provedor. Percurso GPS continua fora.
 
 export interface IndicatorDef { kind: string; key: string; label: string; unit: string }
 
@@ -67,13 +68,54 @@ export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
   { kind: 'nutrition', key: 'sodiumMg', label: 'Sódio consumido no dia', unit: 'mg' },
   { kind: 'hydration', key: 'waterMl', label: 'Água consumida no dia', unit: 'mL' },
   { kind: 'hydration', key: 'caffeineMg', label: 'Cafeína consumida no dia', unit: 'mg' },
+  { kind: 'clinical_vitals', key: 'systolicMmHgAvg', label: 'Pressão arterial sistólica média do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'systolicMmHgMin', label: 'Pressão arterial sistólica mínima do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'systolicMmHgMax', label: 'Pressão arterial sistólica máxima do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'diastolicMmHgAvg', label: 'Pressão arterial diastólica média do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'diastolicMmHgMin', label: 'Pressão arterial diastólica mínima do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'diastolicMmHgMax', label: 'Pressão arterial diastólica máxima do dia', unit: 'mmHg' },
+  { kind: 'clinical_vitals', key: 'glucoseMgDlAvg', label: 'Glicose no sangue média do dia', unit: 'mg/dL' },
+  { kind: 'clinical_vitals', key: 'glucoseMgDlMin', label: 'Glicose no sangue mínima do dia', unit: 'mg/dL' },
+  { kind: 'clinical_vitals', key: 'glucoseMgDlMax', label: 'Glicose no sangue máxima do dia', unit: 'mg/dL' },
+  { kind: 'menstrual_cycle', key: 'basalBodyTemperatureC', label: 'Temperatura basal do dia', unit: '°C' },
 ];
 
-// Tipo de registro -> categoria de consentimento/IA. Tipos sem categoria de IA (pressao, glicemia, ciclo) NAO estao aqui de proposito.
+// Tipo de registro -> categoria de consentimento/IA.
 export const AI_INDICATOR_CATEGORY: Readonly<Record<string, string>> = {
   daily_energy: 'daily_activity', daily_movement: 'daily_activity', heart_rate_daily: 'heart_rate', cardiac_events: 'heart_rate', vo2_max: 'vo2_max', body_composition: 'body_composition',
-  pulse_ox: 'pulse_ox', skin_temperature: 'skin_temperature', respiratory_rate: 'respiratory_rate', mobility: 'mobility', lifestyle_daily: 'lifestyle_load', nutrition: 'nutrition', hydration: 'nutrition',
+  pulse_ox: 'pulse_ox', skin_temperature: 'skin_temperature', respiratory_rate: 'respiratory_rate', mobility: 'mobility', lifestyle_daily: 'lifestyle_load', nutrition: 'nutrition', hydration: 'nutrition', clinical_vitals: 'clinical_vitals', menstrual_cycle: 'menstrual_cycle',
 };
+
+// Registros do ciclo do Apple Saude que sao CATEGORIAS (listas de codigos do HealthKit por dia). Rotulos fieis ao que o HealthKit define; nada e' calculado nem interpretado.
+const CYCLE_CODE_LABELS: Readonly<Record<string, { rotulo: string; codigos: Readonly<Record<number, string>> }>> = {
+  menstrualFlow: { rotulo: 'Fluxo menstrual', codigos: { 1: 'não especificado', 2: 'leve', 3: 'médio', 4: 'intenso', 5: 'nenhum' } },
+  intermenstrualBleeding: { rotulo: 'Sangramento fora do período', codigos: { 0: 'registrado' } },
+  ovulationTestResult: { rotulo: 'Teste de ovulação', codigos: { 1: 'negativo', 2: 'positivo', 3: 'inconclusivo', 4: 'aumento de estrogênio' } },
+  cervicalMucusQuality: { rotulo: 'Muco cervical', codigos: { 1: 'seco', 2: 'pegajoso', 3: 'cremoso', 4: 'aquoso', 5: 'clara de ovo' } },
+};
+
+export interface CycleDayEntry { data: string; fonte: string; registros: Array<{ rotulo: string; valores: string[] }> }
+
+// Dias do ciclo registrados no Apple Saude (so' a fonte/categoria autorizada). Devolve o registro por dia, em texto, do mais antigo ao mais recente; vazio quando nao ha nada autorizado.
+export function buildCycleEntries(rows: readonly MetricRow[], allowed: (provider: string, category: string) => boolean, maxDays = 60): CycleDayEntry[] {
+  const out: CycleDayEntry[] = [];
+  for (const row of rows) {
+    if (row.metricKind !== 'menstrual_cycle' || !allowed(row.provider, 'menstrual_cycle')) continue;
+    const values = row.values && typeof row.values === 'object' && !Array.isArray(row.values) ? (row.values as Record<string, unknown>) : null;
+    if (!values) continue;
+    const registros: CycleDayEntry['registros'] = [];
+    for (const [key, def] of Object.entries(CYCLE_CODE_LABELS)) {
+      const raw = values[key];
+      if (!Array.isArray(raw)) continue;
+      const labels = [...new Set(raw.filter((v): v is number => typeof v === 'number').map((code) => def.codigos[code] ?? `código ${code}`))];
+      if (labels.length > 0) registros.push({ rotulo: def.rotulo, valores: labels });
+    }
+    if (registros.length === 0) continue;
+    out.push({ data: row.calendarDate ?? new Date(row.startTimeSec * 1000).toISOString().slice(0, 10), fonte: sourceKeyForMetric(row.provider, row.providerSummaryId), registros });
+  }
+  out.sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  return out.slice(-maxDays);
+}
 const CATALOG = new Map(INDICATOR_CATALOG.map((d) => [`${d.kind}.${d.key}`, d]));
 
 export interface MetricRow { provider: string; providerSummaryId: string | null; metricKind: string; calendarDate: string | null; startTimeSec: number; values: unknown }

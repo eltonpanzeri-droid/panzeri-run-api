@@ -46,6 +46,10 @@ export function externalAiUnlockedFor(provider: string, config: { get<T = string
   return config.get<string>(`${provider.toUpperCase()}_EXTERNAL_AI_ENABLED`)?.trim().toLowerCase() === 'true';
 }
 
+// Categorias SENSIVEIS do Apple Saude que tambem alimentam a IA (10/11/2026, decisao de Elton de 01/11): pressao arterial/glicemia e ciclo menstrual, SO' do Apple Saude e SO' com o grupo marcado pela aluna
+// sobre o texto vigente (v2.2). Para qualquer outro provedor ficam SEMPRE bloqueadas (fail-closed): o texto dos demais conectores nao cobre IA para estes dados.
+export const APPLE_SENSITIVE_AI_CATEGORIES = ['clinical_vitals', 'menstrual_cycle'] as const;
+
 // Categorias de saude e recuperacao (autorizadas uma a uma pelo aluno). Cada par provedor:categoria e' avaliado separadamente no escopo de IA.
 export const HEALTH_AI_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'vo2_max', 'body_composition', 'pulse_ox', 'skin_temperature', 'respiratory_rate', 'nutrition', 'heart_rate', 'mobility', 'lifestyle_load'] as const; // Apple Saude tambem usa esta lista (29/10/2026); pressao, glicemia e ciclo ficam de fora
 
@@ -157,9 +161,13 @@ export class AiDataEligibility {
       }
     }
     // Apple Saude (29/10/2026): a saude do dia a dia segue o consentimento POR CATEGORIA ja' registrado (sem autorizacao nova de IA). Categoria nao autorizada, retirada ou com texto desatualizado fica
-    // fora do contexto da IA. Pressao arterial, glicemia e ciclo menstrual nao estao em HEALTH_AI_CATEGORIES: nunca chegam a IA.
-    for (const healthCategory of HEALTH_AI_CATEGORIES) {
+    // fora do contexto da IA. Pressao arterial, glicemia e ciclo menstrual (APPLE_SENSITIVE_AI_CATEGORIES) so' entram com o grupo marcado sobre o texto vigente (v2.2).
+    for (const healthCategory of [...HEALTH_AI_CATEGORIES, ...APPLE_SENSITIVE_AI_CATEGORIES]) {
       if (!(await this.decide(userId, APPLE_HEALTH_PROVIDER_ID, { category: healthCategory, destination })).allowed) blockedHealth.add(`${APPLE_HEALTH_PROVIDER_ID}:${healthCategory}`);
+    }
+    // Nenhum outro provedor entrega pressao/glicemia/ciclo a IA (ex.: pressao da Garmin segue fora).
+    for (const provider of new Set([...consentProviders.map((c) => c.id), 'garmin', 'zepp', 'coros', 'health_connect', 'polar', 'wahoo', 'strava'])) {
+      for (const sensitive of APPLE_SENSITIVE_AI_CATEGORIES) blockedHealth.add(`${provider}:${sensitive}`);
     }
     // Polar (01/11/2026, ordem de Elton): a saude da Polar (sono, HRV, atividade diaria) alimenta a IA quando a aluna (1) AUTORIZOU o Atlas para a Polar, de forma EXPLICITA e sobre o texto vigente
     // (o mesmo texto que cobre os treinos — legacy-consent.ts; "sem decisao" NAO vale como autorizacao para saude) e (2) marcou aquele grupo de saude, sobre o texto vigente (polar-health-consent.ts).

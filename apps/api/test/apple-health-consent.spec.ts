@@ -59,9 +59,9 @@ describe('documento de consentimento do Apple Saude', () => {
     for (const group of doc.groups) { expect(group.required).toBe(false); for (const r of group.requires ?? []) expect(ids.has(r)).toBe(true); }
     const text = JSON.stringify(doc);
     expect(text).toContain('últimos 3 anos');
-    expect(text).toContain('não são enviados à inteligência artificial');
+    expect(text).toContain('só são usados pela inteligência artificial se você marcar esses grupos');
     expect(text).not.toContain('não importa sono');
-    expect(doc.version).toBe('2.1');
+    expect(doc.version).toBe('2.2');
     expect(text).toContain('Anthropic');
     expect(text).toContain('transferência internacional');
     expect(text).toContain('não serão vendidos nem divulgados publicamente');
