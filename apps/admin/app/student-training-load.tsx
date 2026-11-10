@@ -46,7 +46,7 @@ type Result = {
 };
 
 const REASON: Record<Excluded['reason'], string> = { sem_esforco: 'sem esforço percebido (PSE)', sem_duracao: 'sem duração (nem informada, nem de atividade vinculada)', sem_esforco_e_duracao: 'sem esforço percebido e sem duração' };
-const MODALITY: Record<string, string> = { corrida: 'Corrida', esteira: 'Esteira', forca: 'Força', fortalecimento_corredores: 'Fortalecimento', caminhada: 'Caminhada' };
+const MODALITY: Record<string, string> = { corrida: 'Corrida', forca: 'Força', fortalecimento_corredores: 'Fortalecimento', caminhada: 'Caminhada' };
 const PROVIDER: Record<string, string> = { polar: 'Polar', zepp: 'Zepp', health_connect: 'Health Connect', apple_health: 'Apple Saúde', wahoo: 'Wahoo', coros: 'COROS' };
 const VIEW_LABEL: Record<View, string> = { geral: 'Geral (soma)', corrida: 'Corrida', forca: 'Força', outras: 'Outras' };
 const MODE_LABEL: Record<Mode, string> = { sessoes: 'Sessões', acumulada: 'Carga acumulada', semanas: 'Semanas' };

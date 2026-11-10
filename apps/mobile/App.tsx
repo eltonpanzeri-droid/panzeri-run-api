@@ -1041,14 +1041,13 @@ const modalityOptions = [
   'Pilates',
   'Outra',
 ];
-const locationOptions = ['Academia de musculacao', 'Academia de funcional', 'Esteira', 'Treino em casa', 'Corrida na rua'];
+const locationOptions = ['Academia de musculacao', 'Academia de funcional', 'Treino em casa', 'Corrida na rua'];
 const dayTrainingOptions = [
   'Sem treinos',
   'Musculacao',
   'Fortalecimento para corredores',
   'Treino de forca em casa',
   'Corrida na rua',
-  'Corrida na esteira',
 ];
 const timeOptions = ['30', '45', '60', '75', '90', '120'];
 const goalOptions = [
@@ -6319,7 +6318,6 @@ const MODALITY_LABEL: Record<string, string> = {
   corrida: '🏃 Corrida',
   fortalecimento_corredores: '💪 Fortalecimento',
   forca: '🏋 Força',
-  esteira: '🔄 Esteira',
 };
 
 // 10/09: períodos do gráfico de km — filtro client-side sobre as 24 semanas buscadas.
@@ -13870,9 +13868,6 @@ function normalizeModality(modality: string) {
   if (lower.includes('musculacao') || lower.includes('forca')) {
     return 'forca';
   }
-  if (lower.includes('esteira')) {
-    return 'esteira';
-  }
   return 'corrida';
 }
 
@@ -13999,9 +13994,6 @@ function labelFromSavedModality(modality: string) {
   }
   if (modality === 'fortalecimento_corredores') {
     return 'Fortalecimento para corredores';
-  }
-  if (modality === 'esteira') {
-    return 'Corrida na esteira';
   }
   return 'Corrida na rua';
 }

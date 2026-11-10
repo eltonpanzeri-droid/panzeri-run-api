@@ -114,7 +114,7 @@ const MONTHS = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'jul
 const STATUS_LABEL: Record<CalendarStatus, string> = { feito: 'feito', ajustado: 'ajustado', nao_feito: 'não feito', sem_registro: 'sem registro', futuro: 'a fazer' };
 
 const MODALITY_LABEL: Record<string, string> = {
-  corrida: 'Corrida', esteira: 'Esteira', forca: 'Musculação', fortalecimento_corredores: 'Fortalecimento', caminhada: 'Caminhada', natacao: 'Natação', bike: 'Bike', funcional: 'Funcional', outra: 'Outra',
+  corrida: 'Corrida', forca: 'Musculação', fortalecimento_corredores: 'Fortalecimento', caminhada: 'Caminhada', natacao: 'Natação', bike: 'Bike', funcional: 'Funcional', outra: 'Outra',
 };
 const modalityName = (modality: string) => MODALITY_LABEL[modality] ?? modality;
 

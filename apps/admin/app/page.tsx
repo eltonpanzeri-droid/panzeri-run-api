@@ -8251,7 +8251,6 @@ function zonePrescription(zone: string, testPaceSeconds: number | null) {
 function modalityLabel(value: string) {
   const labels: Record<string, string> = {
     corrida: 'Corrida',
-    esteira: 'Corrida na esteira',
     forca: 'Musculacao',
     fortalecimento_corredores: 'Fortalecimento para corredores',
     bike: 'Bike ou aerobico',
