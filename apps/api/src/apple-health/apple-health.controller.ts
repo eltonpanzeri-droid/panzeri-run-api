@@ -46,6 +46,21 @@ export class AppleHealthController {
     return this.ingestion.importRoutes(user.sub, body);
   }
 
+  // Series do treino (frequencia cardiaca, velocidade, potencia, cadencia e distancia ao longo do treino), 10/11/2026.
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('series/pending')
+  pendingSeries(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.ingestion.pendingSeries(user.sub, body);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('series')
+  importSeries(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.ingestion.importSeries(user.sub, body);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @Get('consent')
   consentDocument() {

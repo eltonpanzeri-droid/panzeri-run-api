@@ -12,6 +12,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { normalizeRoutes } from '../health-connect/health-connect-route';
 import { AppleHealthConsentService, type AppleConsentAccess } from './apple-health-consent.service';
 import { APPLE_HEALTH_CHANNEL, APPLE_HEALTH_PAYLOAD_SCHEMA, APPLE_HEALTH_PROVIDER, normalizeAppleHealthWorkout, NormalizedAppleWorkout } from './apple-health-normalizer';
+import { APPLE_SERIES_LIMITS, appleSeriesBodyBytes, buildSeriesPoints, normalizeSeries } from './apple-health-series';
 
 export const MAX_WORKOUTS_PER_BATCH = 50;
 
@@ -189,6 +190,64 @@ export class AppleHealthIngestionService {
       } catch (error) {
         this.logger.warn(`Falha ao gravar percurso HealthKit: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
         items.push({ recordId: externalId, status: 'rejected', reason: 'falha_ao_gravar' });
+      }
+    }
+    return { stored: items.filter((i) => i.status === 'stored').length, rejected: items.filter((i) => i.status === 'rejected').length + normalized.dropped, items };
+  }
+
+  // Quais treinos importados ainda NAO tem a serie (frequencia cardiaca, velocidade, potencia, cadencia, distancia ao longo do treino). Uma serie ja' guardada = ha linhas do Apple Saude sem latitude.
+  async pendingSeries(userId: string, body: unknown): Promise<{ pending: string[]; complete: string[]; notImported: string[]; limits: typeof APPLE_SERIES_LIMITS }> {
+    const ids = (body as { recordIds?: unknown } | null)?.recordIds;
+    if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Informe recordIds (lista nao vazia).');
+    if (ids.length > APPLE_SERIES_LIMITS.maxPendingIds) throw new BadRequestException(`No maximo ${APPLE_SERIES_LIMITS.maxPendingIds} treinos por consulta.`);
+    const wanted = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map((id) => id.trim().toLowerCase().slice(0, 64)))];
+    const logs = await this.prisma.activityLog.findMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER, externalId: { in: wanted } }, select: { id: true, externalId: true } });
+    const withSeries = logs.length === 0 ? [] : await this.prisma.activityTimeSeriesPoint.findMany({ where: { activityLogId: { in: logs.map((log) => log.id) }, provider: APPLE_HEALTH_PROVIDER, latitude: null }, distinct: ['activityLogId'], select: { activityLogId: true } });
+    const done = new Set(withSeries.map((row) => row.activityLogId));
+    const known = new Map(logs.map((log) => [log.externalId as string, done.has(log.id)]));
+    return {
+      pending: wanted.filter((id) => known.get(id) === false),
+      complete: wanted.filter((id) => known.get(id) === true),
+      notImported: wanted.filter((id) => !known.has(id)),
+      limits: APPLE_SERIES_LIMITS,
+    };
+  }
+
+  // Series do treino ligadas ao treino JA importado (recordId = uuid do HKWorkout). As medidas de sensor (frequencia cardiaca, potencia, cadencia) exigem consentimento REGISTRADO para
+  // 'activity' e 'activity_sensors', checado DENTRO da transacao que grava. Nao cria atividade, nao mexe no percurso (linhas com latitude) e refaz a serie do treino do zero (idempotente).
+  async importSeries(userId: string, body: unknown): Promise<{ stored: number; rejected: number; items: Array<{ recordId: string; status: 'stored' | 'rejected'; reason?: string; points?: number }> }> {
+    const bytes = appleSeriesBodyBytes(body);
+    if (bytes > APPLE_SERIES_LIMITS.maxRequestBytes) throw new PayloadTooLargeException(`O envio de series tem ${bytes} bytes e o limite e ${APPLE_SERIES_LIMITS.maxRequestBytes}. Envie um treino por vez.`);
+    const normalized = normalizeSeries(body);
+    if (!normalized.ok) throw new BadRequestException(`Series invalidas: ${normalized.reason}.`);
+    const access: AppleConsentAccess = this.consent ? await this.consent.access(userId) : { mode: 'legacy', allowed: new Set() };
+    if (access.mode !== 'recorded' || !access.allowed.has('activity') || !access.allowed.has('activity_sensors')) throw new ForbiddenException('Autorizacao das medidas do treino ausente para este aluno.');
+    const items: Array<{ recordId: string; status: 'stored' | 'rejected'; reason?: string; points?: number }> = [];
+    for (const entry of normalized.series) {
+      try {
+        const outcome = await this.consent!.writeWhileAuthorized(userId, async (tx, granted) => {
+          if (granted.mode !== 'recorded' || !granted.allowed.has('activity') || !granted.allowed.has('activity_sensors')) return { reason: 'categoria_nao_autorizada' as const };
+          const log = await tx.activityLog.findUnique({ where: { provider_userId_externalId: { provider: APPLE_HEALTH_PROVIDER, userId, externalId: entry.recordId } }, select: { id: true } });
+          if (!log) return { reason: 'atividade_nao_encontrada' as const };
+          const points = buildSeriesPoints(entry.metrics);
+          if (points.length === 0) return { reason: 'sem_pontos_validos' as const };
+          // Linhas do percurso (com latitude) ficam; se um segundo da serie cai no mesmo segundo de um ponto do percurso, a serie usa +0,5 s (a chave e' unica por atividade e segundo).
+          const routeRows = await tx.activityTimeSeriesPoint.findMany({ where: { activityLogId: log.id, provider: APPLE_HEALTH_PROVIDER, latitude: { not: null } }, select: { offsetSec: true } });
+          const taken = new Set(routeRows.map((row) => row.offsetSec));
+          await tx.activityTimeSeriesPoint.deleteMany({ where: { activityLogId: log.id, provider: APPLE_HEALTH_PROVIDER, latitude: null } });
+          await tx.activityTimeSeriesPoint.createMany({
+            data: points.map((p) => ({
+              activityLogId: log.id, provider: APPLE_HEALTH_PROVIDER, offsetSec: taken.has(p.offsetSec) ? p.offsetSec + 0.5 : p.offsetSec, normalizationVersion: 1,
+              heartRateBpm: p.heartRateBpm ?? null, speedKmh: p.speedKmh ?? null, distanceMeters: p.distanceMeters ?? null, cadenceSpm: p.cadenceSpm ?? null, powerWatts: p.powerWatts ?? null,
+            })),
+            skipDuplicates: true,
+          });
+          return { stored: points.length };
+        });
+        items.push('stored' in outcome ? { recordId: entry.recordId, status: 'stored', points: outcome.stored } : { recordId: entry.recordId, status: 'rejected', reason: outcome.reason });
+      } catch (error) {
+        this.logger.warn(`Falha ao gravar series HealthKit: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
+        items.push({ recordId: entry.recordId, status: 'rejected', reason: 'falha_ao_gravar' });
       }
     }
     return { stored: items.filter((i) => i.status === 'stored').length, rejected: items.filter((i) => i.status === 'rejected').length + normalized.dropped, items };

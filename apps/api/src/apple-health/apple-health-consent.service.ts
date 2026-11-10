@@ -249,6 +249,8 @@ export class AppleHealthConsentService {
   // Apaga FC, cadencia, potencia e elevacao (colunas da atividade), a altitude dos pontos e as chaves de sensor do resumo do provedor e do bruto recebido.
   private async scrubSensorData(userId: string, db: Prisma.TransactionClient): Promise<void> {
     await db.activityLog.updateMany({ where: { userId, provider: APPLE_HEALTH_PROVIDER_ID }, data: { avgHeartRateBpm: null, maxHeartRateBpm: null, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null } });
+    // Series do treino (10/11/2026): as linhas sem latitude sao as series de frequencia cardiaca, velocidade, potencia, cadencia e distancia ao longo do treino; saem junto com as medidas.
+    await db.activityTimeSeriesPoint.deleteMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, latitude: null, activityLog: { userId } } });
     await db.activityTimeSeriesPoint.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, elevationMeters: { not: null }, activityLog: { userId } }, data: { elevationMeters: null } });
     const strip = (value: unknown): Record<string, unknown> | null => {
       const object = value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : null;
