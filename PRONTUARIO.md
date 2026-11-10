@@ -4069,6 +4069,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ### 09/11/2026 (noite) — Esteira vira corrida de vez (caso Fernanda: 2 treinos na terça) — commit local; vale no Deploy
 - **Causa real:** a geração monta uma sessão POR modalidade do dia; rotina antiga com corrida+esteira no mesmo dia gerava 2 corridas (e a IA dividia o tempo: 74+27 min). O lote 1 só tinha consertado a lista de vagas da IA.
-- **Correção:** (1) migração  (dados: rotina, treinos, análises, decisões, medalhas; idempotente; sem rollback automático — backup); (2)  em : toda leitura da rotina junta esteira em corrida; (3) DTOs de sessão manual/edição do treinador convertem esteira em corrida; (4) removidos o modelo "Corrida na esteira" e a opção do painel. Teste .
+- **Correção:** (1) migração `20261109220000_esteira_vira_corrida` (dados: rotina, treinos, análises, decisões, medalhas; idempotente; sem rollback automático — backup); (2) `runOnlyRoutineDay` em `common/routine-state.ts`: toda leitura da rotina junta esteira em corrida; (3) DTOs de sessão manual/edição do treinador convertem esteira em corrida; (4) removidos o modelo "Corrida na esteira" e a opção do painel. Teste `esteira-vira-corrida-rotina.spec.ts`.
 - **REGRA DE ELTON:** nunca mais perguntar nada sobre esteira; resolver sozinho. Leitores tolerantes a 'esteira' (ingestão de relógio, medalhas, rótulos) ficam: servem para dado que chega de fora.
 - **Pós-Deploy:** gerar de novo o programa da Fernanda e da Thais.
