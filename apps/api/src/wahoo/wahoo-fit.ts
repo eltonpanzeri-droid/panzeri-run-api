@@ -1,8 +1,7 @@
-import { applyZeppConsent } from '../zepp/zepp-fit-consent';
-import { readZeppFit, type ZeppFitActivity } from '../zepp/zepp-fit';
+import { readFitActivity, type FitActivity } from '../fit/fit-reader';
 
 // FIT do treino Wahoo (10/11/2026, varredura "pegar tudo"): o resumo do treino traz `workout_summary.file.url` (arquivo FIT em CDN publico, sem autenticacao — conforme a documentacao de
-// terceiros; NAO validado com um treino real: nao ha aluna Wahoo conectada). O arquivo e' lido com o mesmo leitor do FIT da Zepp (padrao FIT) e gravado como serie por segundo (FC, ritmo, cadencia,
+// terceiros; NAO validado com um treino real: nao ha aluna Wahoo conectada). O arquivo e' lido com o leitor de FIT neutro (padrao FIT) e gravado como serie por segundo (FC, ritmo, cadencia,
 // potencia, elevacao, distancia) + voltas e dinamica de corrida em medias. REGRA: percurso GPS NAO e' guardado (GPS adiado por Elton: so' a Garmin tem); o filtro de consentimento retira as coordenadas.
 export const WAHOO_FIT_MAX_BYTES = 15 * 1024 * 1024;
 
@@ -22,13 +21,13 @@ export function fitUrlOf(summary: unknown): string | null {
   return isSafeFitUrl(file?.url) ? file!.url as string : null;
 }
 
-// Le o FIT e ja' aplica o filtro: sensores permitidos, GPS removido.
-export async function readWahooFit(buffer: Buffer): Promise<ZeppFitActivity> {
-  const fit = await readZeppFit(buffer);
-  return applyZeppConsent(fit, ['activity', 'activity_sensors']).activity;
+// Le o FIT e remove o GPS: latitude/longitude nunca sao guardadas (GPS adiado por Elton; so' a Garmin tem).
+export async function readWahooFit(buffer: Buffer): Promise<FitActivity> {
+  const fit = await readFitActivity(buffer);
+  return { ...fit, hasRoute: false, points: fit.points.map((point) => ({ ...point, latitude: null, longitude: null })) };
 }
 
-export function seriesRows(activity: ZeppFitActivity, activityLogId: string) {
+export function seriesRows(activity: FitActivity, activityLogId: string) {
   return activity.points.map((p) => ({
     activityLogId, provider: 'wahoo', offsetSec: p.offsetSec, normalizationVersion: 1,
     heartRateBpm: p.heartRateBpm !== null ? Math.round(p.heartRateBpm) : null, speedKmh: p.speedKmh, distanceMeters: p.distanceMeters,

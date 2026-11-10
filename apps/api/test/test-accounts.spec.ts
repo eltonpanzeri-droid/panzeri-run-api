@@ -43,7 +43,7 @@ describe('migracao 20261105160000_test_accounts', () => {
   });
   it('e a mais recente das migracoes e o schema tem o campo', () => {
     const names = readdirSync(join(__dirname, '..', 'prisma', 'migrations')).filter((n) => /^\d/.test(n)).sort();
-    expect(names[names.length - 1]).toBe('20261105160000_test_accounts');
+    expect(names).toContain('20261105160000_test_accounts'); // 10/11/2026: deixou de exigir que seja a MAIS RECENTE (ja existem migracoes posteriores); basta existir
     expect(readFileSync(join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8')).toMatch(/isTestAccount\s+Boolean\s+@default\(false\)/);
   });
 });
