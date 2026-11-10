@@ -4175,3 +4175,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Google Play:** envio nº 14 (10/11/2026 18:12) com a versão 18 (1.0.4) em Produção, 100%, está **"Em análise"** no Google. Histórico: nº 13 (05/11) e nº 12 (03/11) publicados; nº 11 e nº 10 (out) recusados. Publicação gerenciada ATIVADA: ao aprovar, a versão aparece em "Alterações prontas para publicação" e Elton precisa PUBLICAR.
 - **Apple:** compilação 18 (1.0.4) adicionada ao rascunho de revisão (tela "Envio do rascunho", 18:11); falta confirmar que Elton clicou em "Enviar para revisão" e que trocou o primeiro parágrafo das notas (era o da 1.0.3) e testou no TestFlight. Lançamento MANUAL: após aprovada, Elton libera.
 - **Pendências de Elton:** aviso urgente de PAGAMENTOS da conta Google; liberar a versão nas duas lojas depois da aprovação; avisos de ofuscação (3%) e de APIs de tela cheia (prazo fev/2027).
+
+### 10/11/2026 (18:21) — APPLE: 1.0.4 (18) ENVIADA E "AGUARDANDO REVISÃO"
+- Envio `79d9b3b2-44ae-407e-9f52-19e077e638e3`, feito por Elton em 10/11/2026 às 18:12; status "Aguardando revisão". Lançamento MANUAL (liberar depois da aprovação). **As duas lojas estão com a 1.0.4 em revisão** (Google: envio nº 14 em análise). Próximo passo de Elton: acompanhar a revisão, liberar nas duas lojas após aprovadas, resolver o aviso de pagamentos do Google.
