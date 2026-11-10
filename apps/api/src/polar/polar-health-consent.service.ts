@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import {
   grantedPolarHealthCategories, isPolarHealthCategory, isPolarHealthConsentCurrent, polarHealthTextHash, POLAR_HEALTH_CATEGORIES, POLAR_HEALTH_CONSENT, POLAR_HEALTH_PROVIDER_ID,
-  POLAR_HEALTH_PURPOSES, POLAR_HEALTH_TABLE, POLAR_WEARABLE_PROVIDER, type PolarHealthCategory, type PolarHealthRow,
+  POLAR_HEALTH_METRIC_KINDS, POLAR_HEALTH_PURPOSES, POLAR_HEALTH_TABLE, POLAR_WEARABLE_PROVIDER, type PolarHealthCategory, type PolarHealthRow,
 } from './polar-health-consent';
 
 // Decisao da aluna sobre os dados de SAUDE da Polar (23/10/2026). Sempre do PROPRIO usuario (o id vem do token). Nao toca na conexao Polar nem na decisao sobre o Atlas.
@@ -69,10 +69,19 @@ export class PolarHealthConsentService {
       await tx.providerConnection.upsert({ where: { provider_userId: { provider: POLAR_HEALTH_PROVIDER_ID, userId } }, create: { userId, provider: POLAR_HEALTH_PROVIDER_ID, ...data }, update: data });
       // SEMPRE apaga o que NAO esta selecionado, sem depender do que valia antes (texto mudou, desconexao/reconexao, linha antiga): nenhum dado fica guardado sem autorizacao. Idempotente.
       const toErase = POLAR_HEALTH_CATEGORIES.filter((category) => !categories.includes(category));
-      for (const category of toErase) await (tx as never as Record<string, { deleteMany(args: unknown): Promise<unknown> }>)[POLAR_HEALTH_TABLE[category]].deleteMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER } });
+      for (const category of toErase) await this.eraseCategory(tx, userId, category);
     });
     await this.audit(userId, categories.length > 0 ? 'purposes_granted' : 'purposes_revoked', { categories, removed, consentVersion: POLAR_HEALTH_CONSENT.version });
     return this.permissions(userId);
+  }
+
+  // Apaga os dados importados de UMA categoria: a tabela de resumo (se houver) e os registros de metrica dela (Nightly Recharge extras, Cardio Load, SleepWise, FC continua).
+  private async eraseCategory(db: unknown, userId: string, category: PolarHealthCategory): Promise<void> {
+    const client = db as Record<string, { deleteMany(args: unknown): Promise<unknown> }>;
+    const table = POLAR_HEALTH_TABLE[category];
+    if (table) await client[table].deleteMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER } });
+    const kinds = POLAR_HEALTH_METRIC_KINDS[category];
+    if (kinds.length > 0) await client.wearableMetricRecord.deleteMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER, metricKind: { in: [...kinds] } } });
   }
 
   /** Desconectar a Polar encerra a autorizacao de saude (reconectar exige escolher de novo). Nao apaga o historico — isso e' a exclusao de dados. */
@@ -82,9 +91,7 @@ export class PolarHealthConsentService {
 
   /** Exclusao dos dados da Polar do proprio usuario: a saude importada sai junto. */
   async eraseImportedData(userId: string): Promise<void> {
-    for (const category of POLAR_HEALTH_CATEGORIES) {
-      await (this.prisma as never as Record<string, { deleteMany(args: unknown): Promise<unknown> }>)[POLAR_HEALTH_TABLE[category]].deleteMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER } });
-    }
+    for (const category of POLAR_HEALTH_CATEGORIES) await this.eraseCategory(this.prisma, userId, category);
   }
 
   /** Categorias que podem ser importadas AGORA (conexao Polar ativa + texto vigente + grupo concedido). */

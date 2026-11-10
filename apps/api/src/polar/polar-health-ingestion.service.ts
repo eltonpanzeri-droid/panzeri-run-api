@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PolarService } from './polar.service';
 import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID, POLAR_WEARABLE_PROVIDER, type PolarHealthCategory, type PolarHealthRow } from './polar-health-consent';
-import { extractPolarList, mapPolarDailyActivity, mapPolarNightlyRecharge, mapPolarNightlyRechargeExtras, mapPolarSleep } from './polar-health-mapper';
+import { extractPolarList, mapPolarDailyActivity, mapPolarMetric, mapPolarNightlyRecharge, mapPolarNightlyRechargeExtras, mapPolarSleep, type PolarMetricKind } from './polar-health-mapper';
 
 const ACCESSLINK_BASE = 'https://www.polaraccesslink.com';
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -69,19 +69,26 @@ export class PolarHealthIngestionService {
       const token = this.polar.decryptAccessToken(connection.accessTokenEncrypted);
 
       const result: PolarHealthSyncResult = { status: 'synced', categories: {} };
-      const plan: Array<{ category: PolarHealthCategory; path: string; keys: string[] }> = [
+      const plan: Array<{ category: PolarHealthCategory; path: string; keys: string[]; metricKind?: PolarMetricKind }> = [
         { category: 'sleep', path: '/v3/users/sleep', keys: ['nights', 'sleep'] },
         { category: 'hrv', path: '/v3/users/nightly-recharge', keys: ['recharges', 'nightly_recharges', 'nightly-recharge'] },
         { category: 'daily_activity', path: '/v3/users/activities', keys: ['activities', 'activity-log'] },
+        // 10/11/2026 (nao validado ao vivo): FC continua, Cardio Load e SleepWise. 204/404/403 seguem como "nada novo" (registrado, sem erro).
+        { category: 'heart_rate', path: '/v3/users/continuous-heart-rate', keys: ['heart_rates', 'continuous_heart_rates', 'continuous-heart-rate'], metricKind: 'heart_rate_continuous' },
+        { category: 'daily_activity', path: '/v3/users/cardio-load', keys: ['cardio_loads', 'cardio-load', 'cardio_load'], metricKind: 'cardio_load' },
+        { category: 'sleep', path: '/v3/users/sleepwise/alertness', keys: ['alertness', 'alertnesses'], metricKind: 'sleepwise_alertness' },
+        { category: 'sleep', path: '/v3/users/sleepwise/circadian-bedtime', keys: ['circadian_bedtimes', 'circadian-bedtime'], metricKind: 'sleepwise_circadian' },
       ];
       for (const step of plan.filter((p) => categories.includes(p.category))) {
         const { status, body } = await this.get(step.path, token);
         if (status === 429) { result.categories[step.category] = { httpStatus: status, written: 0, skipped: 0 }; result.status = 'rate_limited'; break; }
         if (status === 401) { result.categories[step.category] = { httpStatus: status, written: 0, skipped: 0 }; result.status = 'token_invalid'; break; }
-        if (status !== 200) { result.categories[step.category] = { httpStatus: status, written: 0, skipped: 0 }; continue; } // 204/404 = nada novo; 403/outros: registrado, sem erro
+        // Endpoint extra (FC continua, Cardio Load, SleepWise) sem dado/permissao nao apaga o resultado do endpoint principal da mesma categoria.
+        if (status !== 200) { if (!step.metricKind || !result.categories[step.category]) result.categories[step.category] = { httpStatus: status, written: 0, skipped: 0 }; continue; } // 204/404 = nada novo; 403/outros: registrado, sem erro
         const items = extractPolarList(body, step.keys);
-        const stats = await this.write(userId, step.category, items);
-        result.categories[step.category] = { httpStatus: status, written: stats.written, skipped: stats.skipped };
+        const stats = await this.write(userId, step.category, items, step.metricKind);
+        const previous = result.categories[step.category];
+        result.categories[step.category] = { httpStatus: previous?.httpStatus ?? status, written: stats.written + (previous?.written ?? 0), skipped: stats.skipped + (previous?.skipped ?? 0) };
       }
       if (result.status === 'synced') {
         await this.prisma.providerConnection.updateMany({ where: { provider: POLAR_HEALTH_PROVIDER_ID, userId, disconnectedAt: null }, data: { lastSyncCompletedAt: new Date() } });
@@ -92,13 +99,24 @@ export class PolarHealthIngestionService {
     }
   }
 
-  private async write(userId: string, category: PolarHealthCategory, items: unknown[]): Promise<{ written: number; skipped: number }> {
+  private async write(userId: string, category: PolarHealthCategory, items: unknown[], metricKind?: PolarMetricKind): Promise<{ written: number; skipped: number }> {
     let written = 0; let skipped = 0;
     for (const item of items) {
       try {
         const ok = await this.writeWhileAuthorized(userId, async (tx, granted) => {
           if (!granted.includes(category)) return false; // retirado no meio do processamento
           const provider = POLAR_WEARABLE_PROVIDER;
+          if (metricKind) {
+            const metric = mapPolarMetric(metricKind, item);
+            if (!metric) return null;
+            const data = { calendarDate: metric.calendarDate, startTimeSec: metric.startTimeSec, startOffsetSec: 0, providerSummaryId: metric.providerSummaryId, values: metric.values };
+            await tx.wearableMetricRecord.upsert({
+              where: { userId_provider_metricKind_identityKey: { userId, provider, metricKind: metric.metricKind, identityKey: metric.identityKey } },
+              create: { userId, provider, metricKind: metric.metricKind, identityKey: metric.identityKey, ...data },
+              update: data,
+            });
+            return true;
+          }
           if (category === 'sleep') {
             const m = mapPolarSleep(item);
             if (!m) return null;

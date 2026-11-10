@@ -7,7 +7,7 @@ import { APPLE_RECORD_CATEGORY } from '../src/apple-health/apple-health-records'
 // Acesso seletivo da IA aos indicadores de saude autorizados (29/10/2026). Dados SINTETICOS.
 
 // Tipos de registro que existem so fora do Apple Saude (provedores de relogio).
-const NON_APPLE_KINDS = ['recovery_nightly'];
+const NON_APPLE_KINDS = ['recovery_nightly', 'heart_rate_continuous'];
 
 const row = (over: Partial<MetricRow> & { values: Record<string, unknown> }): MetricRow => ({ provider: 'apple_health', providerSummaryId: 'com.apple.health|x', metricKind: 'body_composition', calendarDate: '2026-10-20', startTimeSec: Date.parse('2026-10-20T03:00:00Z') / 1000, ...over });
 const all = () => true;

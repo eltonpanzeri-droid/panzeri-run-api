@@ -14,7 +14,7 @@
 // 01/11/2026 (2a): preco unico de R$19,90/mes em todos os canais (Asaas e Google Play; o Play foi de R$24,90 para R$19,90 por Elton). A versao muda porque o texto mudou.
 // 06/11/2026: secao da Garmin (5D) e declaracao de IA da Garmin; secao 4 (Apple Watch) descreve o cartao com autorizacao e o envio ao abrir o aplicativo. A versao muda porque o texto mudou.
 // 09/11/2026 (ordem do Elton): secao 5 dos Termos passa a dizer que o aluno atesta a veracidade de tudo o que informa (cadastro, entrevista, registros manuais, feedbacks e marcas). A versao muda porque o texto mudou.
-export const LEGAL_VERSION = '2026-11-10.1';
+export const LEGAL_VERSION = '2026-11-10.2';
 export const LEGAL_UPDATED_LABEL = '9 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
@@ -39,7 +39,7 @@ export const DATA_CATEGORIES = [
 ];
 
 export const WEARABLE_INTRO =
-  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A) e, em aprovação pela Garmin, com a Garmin (seção 5D). Na Polar, além das atividades, você pode escolher à parte compartilhar sono, recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV) e atividade diária (passos, distância e calorias): isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, só são enviados à inteligência artificial (Atlas) se você também autorizar o Atlas no mesmo cartão da Polar no aplicativo (a mesma autorização que cobre seus treinos da Polar), e você pode retirar cada autorização quando quiser, o que, para os grupos de saúde, apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
+  'Você pode autorizar serviços externos compatíveis a compartilhar suas atividades com o Panzeri Run. Hoje o aplicativo oferece conexão com a Polar, com o Strava e com a Wahoo e, conforme o aparelho, com o Apple Saúde (iPhone) e o Health Connect (Android). Em validação, há também a conexão com a Zepp/Amazfit (seção 5A) e, em aprovação pela Garmin, com a Garmin (seção 5D). Na Polar, além das atividades, você pode escolher à parte compartilhar sono (incluindo, quando existir, o SleepWise: estado de alerta e horário ideal para dormir), recuperação noturna (incluindo a variabilidade da frequência cardíaca, o HRV, e indicadores como a carga do sistema nervoso autônomo), atividade diária (passos, distância, calorias e a carga de treino, o Cardio Load) e frequência cardíaca ao longo do dia: isso exige sua autorização por grupo no aplicativo, esses dados ficam visíveis ao seu treinador no painel, só são enviados à inteligência artificial (Atlas) se você também autorizar o Atlas no mesmo cartão da Polar no aplicativo (a mesma autorização que cobre seus treinos da Polar), e você pode retirar cada autorização quando quiser, o que, para os grupos de saúde, apaga os dados importados daquele grupo. Outros serviços poderão ser adicionados e, nesse caso, esta política será atualizada.';
 
 const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',

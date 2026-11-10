@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 export const POLAR_HEALTH_PROVIDER_ID = 'polar_health';
 export const POLAR_WEARABLE_PROVIDER = 'polar'; // valor gravado em Wearable*.provider (a fonte dos dados)
 
-export const POLAR_HEALTH_CATEGORIES = ['sleep', 'hrv', 'daily_activity'] as const;
+export const POLAR_HEALTH_CATEGORIES = ['sleep', 'hrv', 'daily_activity', 'heart_rate'] as const;
 export type PolarHealthCategory = (typeof POLAR_HEALTH_CATEGORIES)[number];
 export const isPolarHealthCategory = (value: unknown): value is PolarHealthCategory => typeof value === 'string' && (POLAR_HEALTH_CATEGORIES as readonly string[]).includes(value);
 
@@ -17,20 +17,21 @@ export const POLAR_HEALTH_PURPOSES = ['history', 'tracking', 'indicators', 'coac
 export interface PolarHealthGroup { id: PolarHealthCategory; label: string; description: string }
 
 export const POLAR_HEALTH_CONSENT = {
-  version: '1.1',
-  dateLabel: '01/11/2026',
+  version: '1.2',
+  dateLabel: '10/11/2026',
   title: 'Saúde e recuperação da sua Polar',
   paragraphs: [
     'Você já conectou a Polar ao Panzeri Run para importar seus treinos, e isso continua valendo. Agora você pode escolher, à parte, compartilhar também dados de saúde e recuperação medidos pelo seu relógio Polar.',
-    'Com sua autorização, o Panzeri Run poderá receber da Polar o seu sono (duração e etapas), a sua recuperação noturna (Nightly Recharge, incluindo a variabilidade da frequência cardíaca, o HRV, da noite) e a sua atividade diária (passos, distância e calorias). Nem todos os dados existem em todos os relógios.',
+    'Com sua autorização, o Panzeri Run poderá receber da Polar o seu sono (duração e etapas e, no SleepWise, o estado de alerta e o horário ideal para dormir), a sua recuperação noturna (Nightly Recharge, incluindo a variabilidade da frequência cardíaca, o HRV, da noite), a sua atividade diária (passos, distância e calorias e a carga de treino, o Cardio Load) e a sua frequência cardíaca ao longo do dia. Nem todos os dados existem em todos os relógios.',
     'Esses dados serão usados para acompanhar sua recuperação e sua evolução, e seu treinador os verá no painel dele para acompanhar seu treino. Se você também autorizar o Atlas (nossa inteligência artificial) nesta mesma página, ele poderá usar os grupos que você marcar aqui para personalizar seus treinos; sem essa autorização, eles ficam só para você e para o seu treinador. Eles não substituem avaliação médica.',
     'Ao autorizar, importamos o que a Polar disponibilizar, normalmente os últimos 28 dias, e passamos a importar os dados novos. A origem de cada dado (Polar) é sempre preservada.',
     'Você escolhe cada grupo. Ao retirar um grupo, a importação dele para e os dados já importados desse grupo são apagados do Panzeri Run. Desconectar a Polar também interrompe a importação. Os detalhes estão na Política de Privacidade.',
   ],
   groups: [
-    { id: 'sleep', label: 'Sono', description: 'Duração e etapas do sono de cada noite.' },
+    { id: 'sleep', label: 'Sono', description: 'Duração e etapas do sono de cada noite e, quando existir, o SleepWise (estado de alerta e horário ideal para dormir).' },
     { id: 'hrv', label: 'Recuperação noturna (Nightly Recharge e HRV)', description: 'HRV médio da noite e indicadores de recuperação noturna.' },
-    { id: 'daily_activity', label: 'Atividade diária', description: 'Passos, distância e calorias do dia.' },
+    { id: 'daily_activity', label: 'Atividade diária', description: 'Passos, distância e calorias do dia e a carga de treino (Cardio Load).' },
+    { id: 'heart_rate', label: 'Frequência cardíaca ao longo do dia', description: 'Frequência cardíaca medida pelo relógio ao longo do dia (mínima, média e máxima de cada dia).' },
   ] as PolarHealthGroup[],
   checkboxText: 'Autorizo o Panzeri Run a importar da Polar os grupos de dados que marquei, para acompanhamento da minha recuperação e do meu treino, inclusive pelo meu treinador.',
   buttonLabel: 'Salvar minha escolha',
@@ -59,9 +60,18 @@ export function grantedPolarHealthCategories(row: PolarHealthRow | null | undefi
   return POLAR_HEALTH_CATEGORIES.filter((category) => granted.includes(category));
 }
 
-/** Tabela de dados importados (Wearable*) por categoria — usada para apagar quando a aluna retira o grupo. */
-export const POLAR_HEALTH_TABLE: Record<PolarHealthCategory, 'wearableSleepSummary' | 'wearableHrvSummary' | 'wearableDailySummary'> = {
+/** Tabela de dados importados (Wearable*) por categoria — usada para apagar quando a aluna retira o grupo. null = a categoria so' tem registros de metrica (ver POLAR_HEALTH_METRIC_KINDS). */
+export const POLAR_HEALTH_TABLE: Record<PolarHealthCategory, 'wearableSleepSummary' | 'wearableHrvSummary' | 'wearableDailySummary' | null> = {
   sleep: 'wearableSleepSummary',
   hrv: 'wearableHrvSummary',
   daily_activity: 'wearableDailySummary',
+  heart_rate: null,
+};
+
+/** Tipos de registro (WearableMetricRecord) de cada categoria: tambem saem quando a aluna retira o grupo ou exclui os dados da Polar. */
+export const POLAR_HEALTH_METRIC_KINDS: Record<PolarHealthCategory, readonly string[]> = {
+  sleep: ['sleepwise_alertness', 'sleepwise_circadian'],
+  hrv: ['recovery_nightly'],
+  daily_activity: ['cardio_load'],
+  heart_rate: ['heart_rate_continuous'],
 };

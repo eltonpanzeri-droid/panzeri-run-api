@@ -100,6 +100,45 @@ export function mapPolarNightlyRechargeExtras(item: unknown): { calendarDate: st
   return Object.keys(values).length === 0 ? null : { calendarDate, startTimeSec: dayStartSec(calendarDate), values, providerSummaryId: `polar:nightly-recharge-extras:${calendarDate}` };
 }
 
+// Metricas novas da Polar (10/11/2026): FC continua, Cardio Load e SleepWise. NAO VALIDADO AO VIVO (sem aluna conectada com esses dados): o mapeador e' tolerante — guarda o que for numerico, nunca
+// inventa campo, ausente nunca vira zero, e ignora o que nao reconhece. Unidades nao convertidas.
+const DATE_KEYS = ['date', 'calendar_date', 'day', 'start_time', 'start', 'timestamp'];
+function metricDate(record: Record<string, unknown>): string | null {
+  for (const key of DATE_KEYS) { const d = dateOnly(record[key]); if (d) return d; }
+  return null;
+}
+// Achata campos numericos (ate 2 niveis de objeto); texto, listas e datas ficam de fora (listas de amostras sao resumidas a parte).
+function numericLeaves(record: Record<string, unknown>, prefix = '', depth = 0, out: Record<string, number> = {}): Record<string, number> {
+  for (const [key, raw] of Object.entries(record)) {
+    if (DATE_KEYS.includes(key) || key === 'polar_user') continue;
+    const name = prefix ? `${prefix}_${key}` : key;
+    if (typeof raw === 'number' && Number.isFinite(raw)) out[name] = raw;
+    else if (raw && typeof raw === 'object' && !Array.isArray(raw) && depth < 2) numericLeaves(raw as Record<string, unknown>, name, depth + 1, out);
+  }
+  return out;
+}
+
+export type PolarMetricKind = 'heart_rate_continuous' | 'cardio_load' | 'sleepwise_alertness' | 'sleepwise_circadian';
+export interface MappedPolarMetric { metricKind: PolarMetricKind; calendarDate: string; startTimeSec: number; values: Record<string, number>; identityKey: string; providerSummaryId: string }
+
+export function mapPolarMetric(kind: PolarMetricKind, item: unknown): MappedPolarMetric | null {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+  const record = item as Record<string, unknown>;
+  const calendarDate = metricDate(record);
+  if (!calendarDate) return null;
+  let values: Record<string, number> = {};
+  if (kind === 'heart_rate_continuous') {
+    // amostras do dia -> minima, media e maxima do dia (descritivo; a serie bruta nao e' guardada)
+    const list = ['heart_rate_samples', 'samples', 'heart_rates'].map((key) => record[key]).find((value) => Array.isArray(value)) as unknown[] | undefined;
+    const bpm = (list ?? []).map((sample) => num((sample as Record<string, unknown> | null)?.heart_rate ?? (sample as Record<string, unknown> | null)?.value)).filter((v): v is number => v != null && v >= 25 && v <= 250);
+    if (bpm.length > 0) values = { hrMinBpm: Math.min(...bpm), hrAvgBpm: Math.round((bpm.reduce((s, v) => s + v, 0) / bpm.length) * 10) / 10, hrMaxBpm: Math.max(...bpm), samples: bpm.length };
+  } else {
+    values = numericLeaves(record);
+  }
+  if (Object.keys(values).length === 0) return null;
+  return { metricKind: kind, calendarDate, startTimeSec: dayStartSec(calendarDate), values, identityKey: `polar:${kind}:${calendarDate}`, providerSummaryId: `polar:${kind}:${calendarDate}` };
+}
+
 /** Resumo diario da Polar. FC de repouso NAO e' mapeada: a Polar nao tem serie diaria de FC de repouso (o valor do perfil nao e' diario; a media da noite nao e' FC de repouso). */
 export function mapPolarDailyActivity(item: unknown): MappedDaily | null {
   if (!item || typeof item !== 'object') return null;

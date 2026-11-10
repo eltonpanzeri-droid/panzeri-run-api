@@ -73,6 +73,9 @@ export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
   { kind: 'recovery_nightly', key: 'nightlyRechargeStatus', label: 'Status do Nightly Recharge (Polar)', unit: 'código da Polar' },
   { kind: 'recovery_nightly', key: 'heartRateAvgBpm', label: 'Frequência cardíaca média da noite (Polar)', unit: 'bpm' },
   { kind: 'recovery_nightly', key: 'beatToBeatAvgMs', label: 'Intervalo médio entre batimentos da noite (Polar)', unit: 'ms' },
+  { kind: 'heart_rate_continuous', key: 'hrMinBpm', label: 'Frequência cardíaca mínima do dia (Polar)', unit: 'bpm' },
+  { kind: 'heart_rate_continuous', key: 'hrAvgBpm', label: 'Frequência cardíaca média do dia (Polar)', unit: 'bpm' },
+  { kind: 'heart_rate_continuous', key: 'hrMaxBpm', label: 'Frequência cardíaca máxima do dia (Polar)', unit: 'bpm' },
   { kind: 'clinical_vitals', key: 'systolicMmHgAvg', label: 'Pressão arterial sistólica média do dia', unit: 'mmHg' },
   { kind: 'clinical_vitals', key: 'systolicMmHgMin', label: 'Pressão arterial sistólica mínima do dia', unit: 'mmHg' },
   { kind: 'clinical_vitals', key: 'systolicMmHgMax', label: 'Pressão arterial sistólica máxima do dia', unit: 'mmHg' },
@@ -89,6 +92,7 @@ export const INDICATOR_CATALOG: readonly IndicatorDef[] = [
 export const AI_INDICATOR_CATEGORY: Readonly<Record<string, string>> = {
   daily_energy: 'daily_activity', daily_movement: 'daily_activity', heart_rate_daily: 'heart_rate', cardiac_events: 'heart_rate', vo2_max: 'vo2_max', body_composition: 'body_composition',
   pulse_ox: 'pulse_ox', skin_temperature: 'skin_temperature', respiratory_rate: 'respiratory_rate', mobility: 'mobility', lifestyle_daily: 'lifestyle_load', nutrition: 'nutrition', hydration: 'nutrition', clinical_vitals: 'clinical_vitals', menstrual_cycle: 'menstrual_cycle', recovery_nightly: 'hrv',
+  heart_rate_continuous: 'heart_rate', cardio_load: 'daily_activity', sleepwise_alertness: 'sleep', sleepwise_circadian: 'sleep',
 };
 
 // Registros do ciclo do Apple Saude que sao CATEGORIAS (listas de codigos do HealthKit por dia). Rotulos fieis ao que o HealthKit define; nada e' calculado nem interpretado.

@@ -29,7 +29,7 @@ describe('Termos de Uso: o aluno atesta a veracidade das informacoes', () => {
     expect(text).toContain('único responsável');
   });
   it('a versao dos textos legais mudou porque o texto mudou', () => {
-    expect(LEGAL_VERSION).toBe('2026-11-10.1');
+    expect(LEGAL_VERSION).toBe('2026-11-10.2');
     expect(text(TERMS_SECTIONS)).not.toMatch(/motor|plano de treino/i);
   });
   function text(sections: typeof TERMS_SECTIONS) { return sections.flatMap((s) => s.paragraphs).join(' '); }

@@ -27,8 +27,8 @@ const row = (over: Partial<PolarHealthRow> = {}): PolarHealthRow => ({ disconnec
 describe('consentimento por categoria da Polar', () => {
   it('o texto tem versao e hash; o hash muda se uma palavra mudar; cobre sono, HRV e atividade diaria; NAO contradiz o Atlas (01/11/2026) e remete a autorizacao do Atlas a mesma pagina', () => {
     expect(polarHealthTextHash()).toMatch(/^[0-9a-f]{64}$/);
-    expect(POLAR_HEALTH_CONSENT.version).toBe('1.1');
-    expect(POLAR_HEALTH_CONSENT.groups.map((g) => g.id)).toEqual(['sleep', 'hrv', 'daily_activity']);
+    expect(POLAR_HEALTH_CONSENT.version).toBe('1.2');
+    expect(POLAR_HEALTH_CONSENT.groups.map((g) => g.id)).toEqual(['sleep', 'hrv', 'daily_activity', 'heart_rate']);
     const text = POLAR_HEALTH_CONSENT.paragraphs.join(' ');
     expect(text).toMatch(/seu treinador os verá no painel/);
     expect(text).not.toMatch(/não inclui o envio desses dados à inteligência artificial/); // a frase que contradizia o texto do Atlas saiu
@@ -65,6 +65,7 @@ function fakeDb(opts: { polarConnected?: boolean; consent?: PolarHealthRow & { c
     },
     providerConnectionEvent: { create: async (args: any) => { calls.push({ op: 'create', table: 'providerConnectionEvent', args }); return {}; } },
     wearableSleepSummary: wearable('sleep'), wearableHrvSummary: wearable('hrv'), wearableDailySummary: wearable('daily'),
+    wearableMetricRecord: wearable('metric'),
     $queryRaw: async () => (state.consent ? [state.consent] : []),
   };
   db.$transaction = async (cb: (tx: any) => unknown) => cb(db);
@@ -83,7 +84,7 @@ describe('PolarHealthConsentService', () => {
     expect(upsert.args.update.grantedCategories).toEqual(['sleep', 'hrv']);
     expect(upsert.args.update.disconnectedAt).toBeNull();
     expect(permissions.granted).toEqual(['sleep', 'hrv']);
-    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table)).toEqual(['daily']); // o grupo NAO marcado nunca fica guardado
+    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table)).toEqual(['daily', 'metric', 'metric']); // grupos NAO marcados (atividade diaria e FC) nunca ficam guardados, nem os registros de metrica deles
     expect(calls.some((c) => c.table === 'providerConnection' && c.args?.where?.provider_userId?.provider === 'polar')).toBe(false);
     expect(calls.find((c) => c.table === 'providerConnectionEvent')!.args.data.type).toBe('purposes_granted');
   });
@@ -103,11 +104,12 @@ describe('PolarHealthConsentService', () => {
     const { db, calls } = fakeDb({ consent: row() });
     const service = new PolarHealthConsentService(db);
     await service.set('u1', { categories: ['sleep', 'daily_activity'], ...doc() }); // retirou hrv
-    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table)).toEqual(['hrv']);
+    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table)).toEqual(['hrv', 'metric', 'metric']); // hrv (resumo + extras do Nightly Recharge) e FC continua (nao marcada)
     expect(calls.find((c) => c.op === 'deleteMany')!.args.where).toEqual({ userId: 'u1', provider: 'polar' });
+    expect(calls.filter((c) => c.table === 'metric').map((c) => c.args.where.metricKind.in)).toEqual([['recovery_nightly'], ['heart_rate_continuous']]);
     calls.length = 0;
     const all = await service.set('u1', { categories: [] });
-    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv', 'sleep']);
+    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv', 'metric', 'metric', 'metric', 'metric', 'sleep']);
     expect(calls.find((c) => c.op === 'upsert')!.args.update.disconnectedAt).toBeInstanceOf(Date);
     expect(all.granted).toEqual([]);
     expect(calls.find((c) => c.table === 'providerConnectionEvent')!.args.data.type).toBe('purposes_revoked');
@@ -117,7 +119,7 @@ describe('PolarHealthConsentService', () => {
     for (const stale of [row({ consentTextHash: 'texto-antigo' }), row({ disconnectedAt: new Date('2026-10-01T00:00:00Z') })]) {
       const { db, calls } = fakeDb({ consent: stale });
       await new PolarHealthConsentService(db).set('u1', { categories: ['sleep'], ...doc() });
-      expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv']);
+      expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv', 'metric', 'metric', 'metric']);
     }
   });
 
@@ -128,7 +130,7 @@ describe('PolarHealthConsentService', () => {
     expect(calls.find((c) => c.op === 'updateMany')!.args).toMatchObject({ where: { provider: 'polar_health', userId: 'u1', disconnectedAt: null } });
     expect(calls.filter((c) => c.op === 'deleteMany')).toEqual([]);
     await service.eraseImportedData('u1');
-    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv', 'sleep']);
+    expect(calls.filter((c) => c.op === 'deleteMany').map((c) => c.table).sort()).toEqual(['daily', 'hrv', 'metric', 'metric', 'metric', 'metric', 'sleep']);
   });
 
   it('texto que mudou depois da autorizacao: nada importavel e a tela pede nova autorizacao', async () => {
@@ -262,7 +264,7 @@ describe('PolarHealthIngestionService', () => {
     const fetchMock = stubFetch({ '/v3/users/sleep': { status: 200, body: { nights: [sleepItem, { date: 'invalida' }] } } });
     const result = await new PolarHealthIngestionService(db, polar as never).sync('u1');
     expect(result.status).toBe('synced');
-    expect(fetchMock.mock.calls.map((c) => String(c[0]).replace('https://www.polaraccesslink.com', ''))).toEqual(['/v3/users/sleep']);
+    expect(fetchMock.mock.calls.map((c) => String(c[0]).replace('https://www.polaraccesslink.com', ''))).toEqual(['/v3/users/sleep', '/v3/users/sleepwise/alertness', '/v3/users/sleepwise/circadian-bedtime']);
     expect(result.categories.sleep).toEqual({ httpStatus: 200, written: 1, skipped: 1 });
     const upsert = calls.find((c) => c.table === 'sleep' && c.op === 'upsert')!;
     expect(upsert.args.create).toMatchObject({ userId: 'u1', provider: 'polar', calendarDate: '2026-10-22', durationSec: 25000 });
@@ -528,7 +530,7 @@ describe('painel: Polar na aba Integracoes e na Saude e Recuperacao', () => {
 
   it('sem escolha da aluna: as tres categorias de saude aparecem como NAO autorizadas (atividades seguem como antes)', () => {
     const entry = polarEntry(baseRaw());
-    expect(entry.categories.map((c) => [c.id, c.authorized])).toEqual([['activity', true], ['sleep', false], ['hrv', false], ['daily_activity', false]]);
+    expect(entry.categories.map((c) => [c.id, c.authorized])).toEqual([['activity', true], ['sleep', false], ['hrv', false], ['daily_activity', false], ['heart_rate', false]]);
   });
 
   it('com autorizacao vigente e recebimento: autorizada, com contagem e ultima chegada', () => {
@@ -600,5 +602,31 @@ describe('Nightly Recharge: campos extras', () => {
     expect(mapPolarNightlyRechargeExtras({ date: '2026-11-09', ans_charge: null })).toBeNull();
     expect(mapPolarNightlyRechargeExtras({ ans_charge: 1 })).toBeNull();
     expect(mapPolarNightlyRechargeExtras({ date: '2026-11-09', ans_charge: 0 }).values).toEqual({ ansCharge: 0 }); // zero informado e valor
+  });
+});
+
+// 10/11/2026: FC continua, Cardio Load e SleepWise (NAO validados ao vivo: formato da API conferido so pela documentacao).
+describe('Polar: metricas novas (mapeador tolerante e apagamento por grupo)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { mapPolarMetric } = require('../src/polar/polar-health-mapper');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { POLAR_HEALTH_METRIC_KINDS, POLAR_HEALTH_CATEGORIES } = require('../src/polar/polar-health-consent');
+  it('FC continua: resume o dia em minima, media e maxima e descarta valor impossivel; sem amostra valida nao grava', () => {
+    const out = mapPolarMetric('heart_rate_continuous', { date: '2026-11-09', heart_rate_samples: [{ heart_rate: 50 }, { heart_rate: 70 }, { heart_rate: 300 }, { heart_rate: 'x' }] });
+    expect(out.values).toEqual({ hrMinBpm: 50, hrAvgBpm: 60, hrMaxBpm: 70, samples: 2 });
+    expect(out.identityKey).toBe('polar:heart_rate_continuous:2026-11-09');
+    expect(mapPolarMetric('heart_rate_continuous', { date: '2026-11-09', heart_rate_samples: [] })).toBeNull();
+  });
+  it('Cardio Load e SleepWise: guardam so o que e numerico (ate 2 niveis), nunca inventam campo e exigem data', () => {
+    const load = mapPolarMetric('cardio_load', { date: '2026-11-09', cardio_load: 55.5, cardio_load_status: 'OK', load_ratio: { strain: 120, tolerance: 100 } });
+    expect(load.values).toEqual({ cardio_load: 55.5, load_ratio_strain: 120, load_ratio_tolerance: 100 });
+    expect(mapPolarMetric('sleepwise_alertness', { date: '2026-11-09', grade: 4.2, grade_type: 'text' }).values).toEqual({ grade: 4.2 });
+    expect(mapPolarMetric('sleepwise_circadian', { grade: 1 })).toBeNull();
+    expect(mapPolarMetric('cardio_load', { date: '2026-11-09', cardio_load_status: 'OK' })).toBeNull();
+  });
+  it('toda categoria autorizavel tem seus registros apagados na retirada (nenhum tipo novo fica sem dono)', () => {
+    expect(POLAR_HEALTH_CATEGORIES).toEqual(['sleep', 'hrv', 'daily_activity', 'heart_rate']);
+    const all = Object.values(POLAR_HEALTH_METRIC_KINDS).flat();
+    for (const kind of ['recovery_nightly', 'cardio_load', 'sleepwise_alertness', 'sleepwise_circadian', 'heart_rate_continuous']) expect(all).toContain(kind);
   });
 });
