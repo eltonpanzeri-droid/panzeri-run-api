@@ -93,3 +93,5 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Android 1.0.2 (versionCode 15) e iOS 1.0.2 (compilação 16), gerados em 31/10/2026 e enviados às revisões. Lista completa: `ATUALIZACOES_DESDE_ULTIMO_BUILD.md`.
 
 | 09/11/2026 | **App nativo nunca usa o Asaas** (caso Renatha): sem loja disponível mostra "atualize o aplicativo"; fatura pendente regulariza pela loja; texto do cartão no nativo. Código em `apps/mobile/App.tsx` (subscribe, openSubscriptionCheckout, handleCta). O servidor já recusa `/billing/checkout` do app nativo no Deploy da API. **Exige build** (app). |
+| 10/11/2026 | **Conexão com autorização do relógio e da IA na mesma tela** (Zepp, COROS, Garmin; Health Connect registra o Atlas junto do Salvar) | `apps/mobile/src/{zepp,coros,garmin}/*Integration.tsx`, `src/integrations/pendingPurposeGrants.ts`, `src/healthConnect/HealthConnectConsent.tsx` | PWA no Deploy do app; **nativo só no build 1.0.4** |
+| 10/11/2026 | **Aceite do ciclo menstrual na aba Ciclo** (cartão com aceite/retirada) | `apps/mobile/App.tsx` (`MenstrualCycleScreen`); servidor: `menstrual-cycle/*` | PWA no Deploy do app; **nativo só no build 1.0.4** |

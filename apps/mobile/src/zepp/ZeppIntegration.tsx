@@ -3,6 +3,7 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, View } from 'react-n
 import { Text } from '../PtText';
 import { Ionicons } from '@expo/vector-icons';
 import { PRColors } from '../../theme/tokens';
+import { savePendingPurposeGrants, takePendingPurposeGrants } from '../integrations/pendingPurposeGrants';
 
 // Zepp/Amazfit (consentimento 2.0, 20/10/2026) — telas de conexao, de cada autorizacao opcional e de "Privacidade e permissoes".
 // O app so' EXIBE: textos, versoes e hashes vem do servidor (GET /zepp/consent) e sao devolvidos em cada autorizacao, para o servidor registrar o que o aluno de fato viu.
@@ -174,6 +175,8 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
   const [selectedGroups, setSelectedGroups] = useState<string[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
   const [history, setHistory] = useState(false);
+  // Autorizacoes com texto proprio, pedidas na conexao (desmarcadas): { id da finalidade: aceite marcado }
+  const [wantedPurposes, setWantedPurposes] = useState<Record<string, boolean>>({});
   // autorizacoes por tela propria / grupos (uma aberta por vez); confirmacoes de retirada, desconexao e exclusao
   const [open, setOpen] = useState<string | null>(null);
   const [openAck, setOpenAck] = useState(false);
@@ -190,7 +193,27 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
       ]);
       if (consentResponse.status === 403 || permissionsResponse.status === 403) { setBlocked(true); return; }
       if (consentResponse.ok) setDoc((await consentResponse.json()) as ConsentDocument);
-      if (permissionsResponse.ok) setPermissions((await permissionsResponse.json()) as Permissions);
+      const loadedDoc = consentResponse.ok ? ((await consentResponse.json()) as ConsentDocument) : null;
+      const loadedPermissions = permissionsResponse.ok ? ((await permissionsResponse.json()) as Permissions) : null;
+      if (loadedDoc) setDoc(loadedDoc);
+      if (loadedPermissions) setPermissions(loadedPermissions);
+      // (10/11/2026) Conexao concluida: concede, uma por vez e sobre o texto proprio, o que a aluna marcou na tela da conexao.
+      if (loadedDoc && loadedPermissions?.connected) {
+        const pending = await takePendingPurposeGrants('zepp');
+        let granted = 0;
+        for (const id of pending) {
+          const option = loadedDoc.optionalPurposes.find((item) => item.id === id);
+          const state = loadedPermissions.purposes.find((item) => item.id === id);
+          if (!option?.screen || (state && !state.available)) continue;
+          const result = await call('/zepp/purposes', 'POST', { grant: [id], acknowledged: true, consentVersion: option.screen.version, consentTextHash: loadedDoc.purposeHashes[id] });
+          if (result.ok) granted += 1;
+        }
+        if (granted > 0) {
+          setMessage({ ok: true, text: granted === 1 ? 'Conta conectada e autorização registrada.' : 'Conta conectada e autorizações registradas.' });
+          const refreshed = await fetch(`${apiUrl}/zepp/permissions`, { headers });
+          if (refreshed.ok) setPermissions((await refreshed.json()) as Permissions);
+        }
+      }
       setBlocked(false);
     } catch {
       setMessage({ ok: false, text: 'Não consegui consultar a integração agora. Tente novamente em instantes.' });
@@ -239,6 +262,7 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
       return;
     }
     setMessage({ ok: true, text: 'Abrindo a Zepp para você autorizar. Depois, volte ao Panzeri Run.' });
+    await savePendingPurposeGrants('zepp', ['watch_delivery', 'ai_external'].filter((id) => wantedPurposes[id] === true));
     void Linking.openURL(result.data.url);
   }
 
@@ -513,6 +537,23 @@ export function ZeppIntegration({ accessToken, apiUrl, variant = 'screen', priva
           <Check checked={acknowledged} onPress={() => setAcknowledged(!acknowledged)} label={doc.acknowledgementText} />
           <Text style={styles.permLabel}>Autorização opcional para histórico</Text>
           <Check checked={history} onPress={() => setHistory(!history)} label={optionById(HISTORY)?.label ?? ''} />
+          <Text style={styles.permLabel}>Autorizações opcionais, cada uma com o próprio texto</Text>
+          <Text style={styles.hint}>Começam desmarcadas. Você pode autorizar agora ou depois de conectar, na tela de cada autorização, e retirar quando quiser.</Text>
+          {['watch_delivery', 'ai_external'].map((purposeId) => {
+            const option = optionById(purposeId);
+            const state = purposeState(purposeId);
+            if (!option?.screen) return null;
+            const unavailable = state ? !state.available : false;
+            return (
+              <View key={`connect-${purposeId}`} style={{ gap: 6 }}>
+                <Text style={styles.cardTitle}>{option.screen.title}</Text>
+                {option.screen.paragraphs.map((paragraph, index) => <Text key={index} style={styles.body}>{paragraph}</Text>)}
+                <Text style={styles.hint}>Versão {option.screen.version} de {option.screen.dateLabel}.</Text>
+                {unavailable ? <Text style={[styles.hint, { color: PRColors.warning }]}>Esta autorização ainda não está disponível; nada é enviado.</Text> : null}
+                <Check checked={wantedPurposes[purposeId] === true} onPress={() => setWantedPurposes({ ...wantedPurposes, [purposeId]: !(wantedPurposes[purposeId] === true) })} disabled={unavailable} label={option.screen.checkboxText} />
+              </View>
+            );
+          })}
           <Text style={styles.hint}>Versão {doc.version} de {doc.dateLabel}. <Text style={styles.link} onPress={() => void Linking.openURL(privacyUrl)}>Política de Privacidade</Text></Text>
           <Primary label={doc.confirmButtonLabel} onPress={() => void connect()} disabled={!acknowledged} busy={busy === 'connect'} />
           {messageView}

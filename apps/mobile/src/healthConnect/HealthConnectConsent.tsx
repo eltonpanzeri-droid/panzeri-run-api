@@ -80,7 +80,14 @@ export function HealthConnectConsent({ apiUrl, accessToken, onSaved }: { apiUrl:
           ? { grant: ['history_backfill'], acknowledged: ack, consentVersion: doc!.version, consentTextHash: doc!.textHash }
           : { revoke: ['history_backfill'] });
       }
+      // (10/11/2026) A analise pelo Atlas (texto proprio) e' pedida na mesma tela: se a aluna marcou o aceite dela, e' registrada junto, sobre o texto da propria autorizacao, depois dos grupos.
+      let atlasGranted = false;
+      if (ok && atlas?.screen && atlasAck && !atlasState?.granted && !doc!.locked.ai_external && (perms?.connected || grant.length > 0)) {
+        ok = await post('consent/purposes', { grant: ['ai_external'], acknowledged: true, consentVersion: atlas.screen.version, consentTextHash: doc!.purposeHashes.ai_external });
+        atlasGranted = ok;
+      }
       if (!ok) { setMessage({ ok: false, text: 'Não foi possível salvar suas autorizações. Tente de novo.' }); return; }
+      if (atlasGranted) setAtlasAck(false);
       setAck(false);
       setMessage({ ok: true, text: 'Autorizações salvas.' });
       await load();
@@ -213,7 +220,7 @@ export function HealthConnectConsent({ apiUrl, accessToken, onSaved }: { apiUrl:
               <Pressable style={[styles.primary, (!atlasAck || doc.locked.ai_external || busy !== '' || !perms.connected) && styles.disabled]} disabled={!atlasAck || doc.locked.ai_external || busy !== '' || !perms.connected} onPress={atlasGrant} accessibilityRole="button">
                 <Text style={styles.primaryText}>{atlas.screen.buttonLabel}</Text>
               </Pressable>
-              {!perms.connected ? <Text style={styles.hint}>Salve primeiro ao menos um grupo de dados acima.</Text> : null}
+              {!perms.connected ? <Text style={styles.hint}>Marque o aceite acima e toque em “{doc.confirmButtonLabel}”: a análise com o Atlas é registrada junto com os grupos que você escolheu (escolha ao menos um grupo de dados).</Text> : null}
             </>
           )}
         </View>
