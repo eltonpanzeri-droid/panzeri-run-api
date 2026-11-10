@@ -3953,7 +3953,7 @@ function StudentPanel({
         ) : student.billing ? (
           <div className="interviewAnswerGrid">
             <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Vencimento</span><span className="interviewAnswerValue">{student.billing.nextChargeAt ? dateLabel(student.billing.nextChargeAt) : 'Nao definido'}</span></div>
-            <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Status no Asaas</span><span className="interviewAnswerValue">{student.billing.providerStatus}</span></div>
+            <div className="interviewAnswerRow"><span className="interviewAnswerLabel">{student.billing.provider === 'asaas' ? 'Status no Asaas' : student.billing.provider === 'revenuecat' ? 'Status na loja (Apple/Google)' : student.billing.provider === 'coupon' ? 'Status (cupom)' : 'Status da assinatura'}</span><span className="interviewAnswerValue">{student.billing.providerStatus}</span></div>
             <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Ultima sincronizacao</span><span className="interviewAnswerValue">{student.billing.lastSyncAt ? dateTimeLabel(student.billing.lastSyncAt) : 'Nunca'}</span></div>
           </div>
         ) : (
