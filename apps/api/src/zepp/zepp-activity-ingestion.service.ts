@@ -88,7 +88,7 @@ export class ZeppActivityIngestionService {
         elevationGainMeters: activity.elevationGainMeters,
         hasRoute: activity.hasRoute,
         detailFetchedAt: new Date(),
-        providerMetrics: { zepp: { activityType: meta.activityType, deviceName: meta.deviceName, sportRaw: activity.sportRaw } } as Prisma.InputJsonValue,
+        providerMetrics: { zepp: { activityType: meta.activityType, deviceName: meta.deviceName, sportRaw: activity.sportRaw, ...(activity.fitExtras ? { fit: JSON.parse(JSON.stringify(activity.fitExtras)) } : {}) } } as Prisma.InputJsonValue,
       };
       const log = await tx.activityLog.upsert({
         where: { provider_userId_externalId: { provider: ZEPP_PROVIDER_ID, userId, externalId } },

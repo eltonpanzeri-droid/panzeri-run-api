@@ -411,3 +411,23 @@ describe('protecoes estruturais da importacao', () => {
     expect(read('zepp/zepp-activity-ingestion.service.ts')).not.toMatch(/providerConnection/);
   });
 });
+
+// 10/11/2026: voltas e dinamica de corrida do FIT da Zepp (NAO validado com FIT real da Zepp: so' a leitura pura, igual a da Garmin).
+describe('Zepp: voltas e dinamica por consentimento', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { applyZeppConsent } = require('../src/zepp/zepp-fit-consent');
+  const base: any = {
+    startedAt: new Date('2026-11-09T10:00:00Z'), utcOffsetMinutes: null, durationSec: 600, distanceMeters: 2000, modality: 'corrida', sportRaw: { sport: 'running', subSport: null }, caloriesKcal: null,
+    avgHeartRateBpm: 150, maxHeartRateBpm: 170, cadenceAvg: null, powerAvgWatts: null, elevationGainMeters: null, hasRoute: false, points: [{ offsetSec: 0, distanceMeters: 0, speedKmh: 10, heartRateBpm: 150, cadenceSpm: null, powerWatts: null, elevationMeters: null, latitude: null, longitude: null }], notes: [],
+    fitExtras: { laps: [{ index: 0, startOffsetSec: 0, durationSec: 300, distanceMeters: 1000, avgHeartRateBpm: 150, maxHeartRateBpm: 165, avgPowerWatts: 200, avgSpeedKmh: 12, ascentMeters: 3 }], dynamics: { samples: 10, groundContactTimeMsAvg: 240, verticalOscillationMmAvg: 80, strideLengthMmAvg: 1100, verticalRatioPctAvg: 7 } },
+  };
+  it('com sensores: voltas completas e dinamica; sem sensores: so tempo/distancia/ritmo das voltas e nada de dinamica', () => {
+    const withSensors = applyZeppConsent(base, ['activity', 'activity_sensors']).activity.fitExtras;
+    expect(withSensors.laps[0]).toMatchObject({ avgHeartRateBpm: 150, avgPowerWatts: 200 });
+    expect(withSensors.dynamics).not.toBeNull();
+    const withoutSensors = applyZeppConsent(base, ['activity']).activity.fitExtras;
+    expect(withoutSensors.laps[0]).toMatchObject({ durationSec: 300, distanceMeters: 1000, avgSpeedKmh: 12, avgHeartRateBpm: null, maxHeartRateBpm: null, avgPowerWatts: null, ascentMeters: null });
+    expect(withoutSensors.dynamics).toBeNull();
+    expect(applyZeppConsent({ ...base, fitExtras: null }, ['activity']).activity.fitExtras).toBeNull();
+  });
+});

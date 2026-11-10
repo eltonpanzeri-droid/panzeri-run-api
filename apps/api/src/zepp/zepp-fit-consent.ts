@@ -47,6 +47,11 @@ export function applyZeppConsent(activity: ZeppFitActivity, categories: readonly
       elevationGainMeters: sensors ? activity.elevationGainMeters : null,
       hasRoute: route && points.some((point) => point.latitude !== null),
       points,
+      // Voltas: sem a categoria de sensores ficam so' o tempo, a distancia e o ritmo (sem FC, potencia e subida); a dinamica de corrida e' sensor.
+      fitExtras: activity.fitExtras ? {
+        laps: sensors ? activity.fitExtras.laps : activity.fitExtras.laps.map((lap) => ({ ...lap, avgHeartRateBpm: null, maxHeartRateBpm: null, avgPowerWatts: null, ascentMeters: null })),
+        dynamics: sensors ? activity.fitExtras.dynamics : null,
+      } : null,
     },
     removed,
   };

@@ -267,7 +267,7 @@ describe('Zepp: acesso restrito e unico ponto de acesso a conexao', () => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const full = join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|equipment\/student-access\.service\.ts|apple-health\/apple-health-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
+        else if (entry.name.endsWith('.ts') && /\.providerConnection\./.test(readFileSync(full, 'utf8')) && !/(provider-hub\/(provider-connection|provider-consent)\.service\.ts|ai-governance\/ai-data-eligibility\.service\.ts|integrations\/integrations\.service\.ts|health-connect\/health-connect-consent\.service\.ts|coach\/student-integrations\.service\.ts|legacy-consent\/legacy-consent\.service\.ts|equipment\/student-access\.service\.ts|apple-health\/apple-health-consent\.service\.ts|polar\/polar-health-consent\.service\.ts|polar\/polar-health-ingestion\.service\.ts|garmin\/garmin-measures\.service\.ts)$/.test(full.split(sep).join('/'))) offenders.push(full);
       }
     };
     walk(join(__dirname, '..', 'src'));

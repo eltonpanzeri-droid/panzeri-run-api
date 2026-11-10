@@ -1,4 +1,5 @@
 import FitParser from 'fit-file-parser';
+import { summarizeFitExtras, type GarminFitExtras } from '../garmin/garmin-fit';
 
 // Leitor e normalizador de FIT da Zepp (Lote 3, 20/10/2026). So' le o que o arquivo contem — nao interpreta treino, nao calcula prescricao.
 // Principios:
@@ -45,6 +46,9 @@ export interface ZeppFitActivity {
   elevationGainMeters: number | null;
   hasRoute: boolean;
   points: ZeppFitPoint[];
+  // Voltas (com metricas) e dinamica de corrida em medias (10/11/2026, varredura "pegar tudo"). Mesma leitura pura usada no FIT da Garmin; null quando o arquivo nao traz voltas nem dinamica. NAO validado
+  // ao vivo com um FIT real da Zepp (nao ha aluna conectada): campos ausentes simplesmente nao aparecem.
+  fitExtras: GarminFitExtras | null;
   // Observacoes de qualidade do arquivo (o que foi descartado por estar fora de limites, cadencia nao confirmada etc.). Nunca contem coordenadas.
   notes: string[];
 }
@@ -73,6 +77,16 @@ export function modalityFromFit(sport: string | null, subSport: string | null): 
   if (s === 'swimming') return 'natacao';
   if (s === 'training') return sub === 'strength_training' ? 'forca' : sub === 'cardio_training' || sub === 'hiit' ? 'funcional' : 'outra';
   return 'outra';
+}
+
+function readFitExtras(data: unknown, startMs: number): GarminFitExtras | null {
+  try {
+    const parsed = data as { records?: unknown; laps?: unknown };
+    const extras = summarizeFitExtras((Array.isArray(parsed.records) ? parsed.records : []) as Array<Record<string, unknown>>, (Array.isArray(parsed.laps) ? parsed.laps : []) as Array<Record<string, unknown>>, startMs);
+    return extras.laps.length > 0 || extras.dynamics !== null ? extras : null;
+  } catch {
+    return null; // as voltas/dinamica nunca derrubam a leitura da atividade
+  }
 }
 
 export async function readZeppFit(buffer: Buffer, profile: ZeppFitProfile = ZEPP_FIT_PROFILE): Promise<ZeppFitActivity> {
@@ -169,6 +183,7 @@ export async function readZeppFit(buffer: Buffer, profile: ZeppFitProfile = ZEPP
     elevationGainMeters: within(num(session.total_ascent), 0, 20_000),
     hasRoute: points.some((p) => p.latitude !== null),
     points,
+    fitExtras: readFitExtras(data, start.getTime()),
     notes,
   };
 }
