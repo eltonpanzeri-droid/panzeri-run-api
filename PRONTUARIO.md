@@ -4201,3 +4201,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ### 11/11/2026 (09:41) — APPLE: 1.0.4 (compilação 20, COM a correção da Garmin) ENVIADA e "Aguardando revisão"
 - Envio `4b7234be-a036-457b-a047-177b5fe007bb`, feito por Elton às 09:41; lançamento MANUAL (liberar depois de aprovada). Substitui a compilação 18 (removida da revisão). **Falta:** (1) Google: subir o `.aab` versão 20 como nova versão em Produção (a 18 está no ar com o erro das telas de conexão); (2) Push + Deploy do app web (PWA); (3) aviso de pagamentos da conta Google; (4) Garmin: conferir se a Thais está na lista GARMIN_ENABLED_USER_IDS.
+
+### 11/11/2026 (09:46) — `.aab` DA VERSÃO 20 BAIXADO PARA ELTON
+- Arquivo: `C:\Users\elton\OneDrive\Documentos\GitHub\arquivos .aab\PanzeriRun_1.0.4_versionCode-20_ANDROID_Google-Play.aab` (51,9 MB; build EAS `c9bf2b0f-2d86-4823-8c97-8ecdc144336a`, 1.0.4, versionCode 20, COM a correção das telas de conexão). Na mesma pasta ficou o `application-28f53233-…aab` (versionCode 18, COM o erro, já no ar): NÃO usar. Próximo passo de Elton: subir o arquivo da 20 no Google Play Console em Produção → Criar nova versão.
