@@ -4,6 +4,7 @@ import { Text } from '../PtText';
 import { Ionicons } from '@expo/vector-icons';
 import { PRColors } from '../../theme/tokens';
 import { savePendingPurposeGrants, takePendingPurposeGrants } from '../integrations/pendingPurposeGrants';
+import { fetchConsentAndPermissions, type FetchLike } from '../integrations/loadIntegration';
 
 // COROS (consentimento 2.0, 20/10/2026) — telas de conexao, de cada autorizacao opcional e de "Privacidade e permissoes".
 // O app so' EXIBE: textos, versoes e hashes vem do servidor (GET /coros/consent) e sao devolvidos em cada autorizacao, para o servidor registrar o que o aluno de fato viu.
@@ -221,13 +222,10 @@ export function CorosIntegration({ accessToken, apiUrl, variant = 'screen', priv
 
   const load = useCallback(async () => {
     try {
-      const [consentResponse, permissionsResponse] = await Promise.all([
-        fetch(`${apiUrl}/coros/consent`, { headers }),
-        fetch(`${apiUrl}/coros/permissions`, { headers }),
-      ]);
-      if (consentResponse.status === 403 || permissionsResponse.status === 403) { setBlocked(true); return; }
-      const loadedDoc = consentResponse.ok ? ((await consentResponse.json()) as ConsentDocument) : null;
-      const loadedPermissions = permissionsResponse.ok ? ((await permissionsResponse.json()) as Permissions) : null;
+      const loaded = await fetchConsentAndPermissions<ConsentDocument, Permissions>(fetch as unknown as FetchLike, apiUrl, 'coros', headers);
+      if (loaded.blocked) { setBlocked(true); return; }
+      const loadedDoc = loaded.doc;
+      const loadedPermissions = loaded.permissions;
       if (loadedDoc) setDoc(loadedDoc);
       if (loadedPermissions) setPermissions(loadedPermissions);
       // (10/11/2026) Conexao concluida: concede, uma por vez e sobre o texto proprio, o que a aluna marcou na tela da conexao.

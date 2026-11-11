@@ -34,15 +34,39 @@ describe('autorizacoes do relogio e da IA na tela da conexao', () => {
   });
 });
 
-// 11/11/2026 (REGRESSAO real: Thais nao conseguiu conectar a Garmin): o corpo da resposta so pode ser lido UMA vez. A leitura duplicada fazia a 2a falhar ("Body already read"), caia no catch e a tela
-// mostrava "Nao consegui consultar a integracao agora" sem nunca carregar. tsc nao pega isso: o teste confere cada leitura do corpo no carregamento das telas de conexao.
-describe('carregamento das telas de conexao: cada resposta e lida uma unica vez', () => {
-  for (const file of ['zepp/ZeppIntegration.tsx', 'coros/CorosIntegration.tsx', 'garmin/GarminIntegration.tsx']) {
-    it(`${file}: consentimento e permissoes lidos uma vez cada`, () => {
+// 11/11/2026 (REGRESSAO real: Thais nao conseguiu conectar a Garmin): o corpo da resposta so pode ser lido UMA vez. A leitura duplicada fazia a 2a falhar ("Body already read"), caia no catch e a tela mostrava
+// "Nao consegui consultar a integracao agora" sem nunca carregar. tsc e teste de texto nao pegam isso: aqui o carregamento e EXECUTADO com objetos Response de verdade (que lancam se o corpo for lido duas vezes).
+import { fetchConsentAndPermissions } from '../../mobile/src/integrations/loadIntegration';
+
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const fakeFetch = (routes: Record<string, () => Response>) => (async (url: string) => {
+  const key = Object.keys(routes).find((route) => url.endsWith(route));
+  if (!key) throw new Error('rota inesperada ' + url);
+  return routes[key]();
+}) as never;
+
+describe('carregamento das telas de conexao: executado com respostas reais', () => {
+  it('consentimento e permissoes carregam (cada corpo lido uma vez); um Response lido duas vezes realmente falha', async () => {
+    const response = json({ x: 1 });
+    await response.json();
+    await expect(response.json()).rejects.toThrow(); // prova de que o teste detecta a leitura duplicada
+    const loaded = await fetchConsentAndPermissions<{ version: string }, { connected: boolean }>(fakeFetch({ '/garmin/consent': () => json({ version: '1.1' }), '/garmin/permissions': () => json({ connected: false }) }), 'https://api', 'garmin', {});
+    expect(loaded).toEqual({ blocked: false, doc: { version: '1.1' }, permissions: { connected: false } });
+  });
+  it('403 em qualquer das duas rotas = integracao bloqueada para a aluna (sem erro)', async () => {
+    const blocked = await fetchConsentAndPermissions(fakeFetch({ '/zepp/consent': () => json({}, 403), '/zepp/permissions': () => json({}) }), 'https://api', 'zepp', {});
+    expect(blocked).toEqual({ blocked: true, doc: null, permissions: null });
+  });
+  it('permissoes com erro 500 nao derrubam o carregamento do consentimento', async () => {
+    const loaded = await fetchConsentAndPermissions(fakeFetch({ '/coros/consent': () => json({ version: '1' }), '/coros/permissions': () => json({ message: 'erro' }, 500) }), 'https://api', 'coros', {});
+    expect(loaded).toEqual({ blocked: false, doc: { version: '1' }, permissions: null });
+  });
+  it('as tres telas usam a funcao unica e nao leem o corpo por conta propria', () => {
+    for (const [file, provider] of [['zepp/ZeppIntegration.tsx', 'zepp'], ['coros/CorosIntegration.tsx', 'coros'], ['garmin/GarminIntegration.tsx', 'garmin']] as const) {
       const src = read(file);
-      const load = src.slice(src.indexOf('const load = useCallback(async () => {', src.indexOf('export function')), src.indexOf("setMessage({ ok: false, text: 'Não consegui consultar a integração agora."));
-      expect((load.match(/consentResponse\.json\(\)/g) ?? []).length).toBe(1);
-      expect((load.match(/permissionsResponse\.json\(\)/g) ?? []).length).toBe(1);
-    });
-  }
+      expect(src).toContain(`fetchConsentAndPermissions<ConsentDocument, Permissions>(fetch as unknown as FetchLike, apiUrl, '${provider}', headers)`);
+      expect(src).not.toContain('consentResponse');
+      expect(src).not.toContain('permissionsResponse.json()');
+    }
+  });
 });
