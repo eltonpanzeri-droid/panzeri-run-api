@@ -4204,3 +4204,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ### 11/11/2026 (09:46) — `.aab` DA VERSÃO 20 BAIXADO PARA ELTON
 - Arquivo: `C:\Users\elton\OneDrive\Documentos\GitHub\arquivos .aab\PanzeriRun_1.0.4_versionCode-20_ANDROID_Google-Play.aab` (51,9 MB; build EAS `c9bf2b0f-2d86-4823-8c97-8ecdc144336a`, 1.0.4, versionCode 20, COM a correção das telas de conexão). Na mesma pasta ficou o `application-28f53233-…aab` (versionCode 18, COM o erro, já no ar): NÃO usar. Próximo passo de Elton: subir o arquivo da 20 no Google Play Console em Produção → Criar nova versão.
+
+### 11/11/2026 (10:08) — GOOGLE: versão 20 (1.0.4, COM a correção das telas de conexão) ENVIADA e "Em análise"
+- Em "Alterações em análise" aparece 20 (1.0.4) "Iniciar o lançamento completo" (100%, todos os países). A versão 18 (com o erro) segue NO AR até a 20 ser aprovada e PUBLICADA por Elton (publicação gerenciada ativada). Notas pt-BR com a linha "Correção na conexão de relógios (Garmin, Zepp e COROS)".
+- **Estado das duas lojas:** Apple 1.0.4 compilação 20 aguardando revisão (envio 09:41); Google 1.0.4 versão 20 em análise. **Falta:** aprovação das lojas, Elton liberar/publicar nas duas; Push + Deploy do app web (PWA) se ainda não feito; aviso de pagamentos da conta Google; Garmin da Thais (lista GARMIN_ENABLED_USER_IDS).
