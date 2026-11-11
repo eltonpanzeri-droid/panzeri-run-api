@@ -4198,3 +4198,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ### 11/11/2026 — TESTE NO TESTFLIGHT: a tela da Garmin ABRE na 1.0.4 (20)
 - Elton confirmou no iPhone (TestFlight 1.0.4 compilação 20) que as caixas/grupos de dados da Garmin carregam: a correção da leitura duplicada está VERIFICADA em aparelho real (iPhone). Próximo: escolher a compilação 20 na versão 1.0.4 e reenviar à Apple; Android versão 20 para o Google; PWA com Push + Deploy.
+
+### 11/11/2026 (09:41) — APPLE: 1.0.4 (compilação 20, COM a correção da Garmin) ENVIADA e "Aguardando revisão"
+- Envio `4b7234be-a036-457b-a047-177b5fe007bb`, feito por Elton às 09:41; lançamento MANUAL (liberar depois de aprovada). Substitui a compilação 18 (removida da revisão). **Falta:** (1) Google: subir o `.aab` versão 20 como nova versão em Produção (a 18 está no ar com o erro das telas de conexão); (2) Push + Deploy do app web (PWA); (3) aviso de pagamentos da conta Google; (4) Garmin: conferir se a Thais está na lista GARMIN_ENABLED_USER_IDS.
