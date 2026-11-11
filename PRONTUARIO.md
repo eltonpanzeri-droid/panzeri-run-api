@@ -4195,3 +4195,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ### 11/11/2026 (09:35) — APPLE: compilação 20 (1.0.4) enviada ao App Store Connect a pedido de Elton
 - Submissão EAS `66c4b824-d8a4-4c68-ae64-1cd5618b2603` (build `15d097fd-a4b8-46cb-a29b-850271e942ed`, 1.0.4, compilação 20). Falta: a Apple processar (~10–30 min, e-mail do TestFlight), Elton testar a tela da Garmin no TestFlight, escolher a compilação 20 na versão 1.0.4 e reenviar para revisão. Android versão 20 ainda em andamento no EAS.
+
+### 11/11/2026 — TESTE NO TESTFLIGHT: a tela da Garmin ABRE na 1.0.4 (20)
+- Elton confirmou no iPhone (TestFlight 1.0.4 compilação 20) que as caixas/grupos de dados da Garmin carregam: a correção da leitura duplicada está VERIFICADA em aparelho real (iPhone). Próximo: escolher a compilação 20 na versão 1.0.4 e reenviar à Apple; Android versão 20 para o Google; PWA com Push + Deploy.
