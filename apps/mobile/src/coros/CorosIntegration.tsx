@@ -226,7 +226,6 @@ export function CorosIntegration({ accessToken, apiUrl, variant = 'screen', priv
         fetch(`${apiUrl}/coros/permissions`, { headers }),
       ]);
       if (consentResponse.status === 403 || permissionsResponse.status === 403) { setBlocked(true); return; }
-      if (consentResponse.ok) setDoc((await consentResponse.json()) as ConsentDocument);
       const loadedDoc = consentResponse.ok ? ((await consentResponse.json()) as ConsentDocument) : null;
       const loadedPermissions = permissionsResponse.ok ? ((await permissionsResponse.json()) as Permissions) : null;
       if (loadedDoc) setDoc(loadedDoc);

@@ -33,3 +33,16 @@ describe('autorizacoes do relogio e da IA na tela da conexao', () => {
     expect(src).toMatch(/const \[atlasAck, setAtlasAck\] = useState\(false\)/);
   });
 });
+
+// 11/11/2026 (REGRESSAO real: Thais nao conseguiu conectar a Garmin): o corpo da resposta so pode ser lido UMA vez. A leitura duplicada fazia a 2a falhar ("Body already read"), caia no catch e a tela
+// mostrava "Nao consegui consultar a integracao agora" sem nunca carregar. tsc nao pega isso: o teste confere cada leitura do corpo no carregamento das telas de conexao.
+describe('carregamento das telas de conexao: cada resposta e lida uma unica vez', () => {
+  for (const file of ['zepp/ZeppIntegration.tsx', 'coros/CorosIntegration.tsx', 'garmin/GarminIntegration.tsx']) {
+    it(`${file}: consentimento e permissoes lidos uma vez cada`, () => {
+      const src = read(file);
+      const load = src.slice(src.indexOf('const load = useCallback(async () => {', src.indexOf('export function')), src.indexOf("setMessage({ ok: false, text: 'Não consegui consultar a integração agora."));
+      expect((load.match(/consentResponse\.json\(\)/g) ?? []).length).toBe(1);
+      expect((load.match(/permissionsResponse\.json\(\)/g) ?? []).length).toBe(1);
+    });
+  }
+});
