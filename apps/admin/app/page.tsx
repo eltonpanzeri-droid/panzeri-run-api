@@ -7,6 +7,7 @@ import { Area, Bar, CartesianGrid, Cell, LabelList, ComposedChart, Legend, Line,
 import TrainingIntelligenceStudio from './ti/studio';
 import EvolutionHub from './evolution-hub';
 import ZeppTestPanel from './zepp-test-panel';
+import BroadcastEmail from './broadcast-email';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import GarminMeasures from './garmin-measures';
@@ -1771,6 +1772,7 @@ export default function AdminHome() {
 
         {/* 19/10/2026: pagina TEMPORARIA de teste da conexao Zepp/Amazfit (so' autenticacao; nada e' importado). Remover apos os testes. */}
         {activeView === 'tools' ? <ZeppTestPanel apiUrl={API_URL} token={token} /> : null}
+        {activeView === 'tools' ? <BroadcastEmail apiUrl={API_URL} token={token} /> : null}
 
         {activeView === 'students' ? <section className="workArea">
           {/* 01/09: lista e detalhe viraram dois "modos" da mesma view (opcao B combinada com o

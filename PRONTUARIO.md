@@ -4208,3 +4208,11 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ### 11/11/2026 (10:08) — GOOGLE: versão 20 (1.0.4, COM a correção das telas de conexão) ENVIADA e "Em análise"
 - Em "Alterações em análise" aparece 20 (1.0.4) "Iniciar o lançamento completo" (100%, todos os países). A versão 18 (com o erro) segue NO AR até a 20 ser aprovada e PUBLICADA por Elton (publicação gerenciada ativada). Notas pt-BR com a linha "Correção na conexão de relógios (Garmin, Zepp e COROS)".
 - **Estado das duas lojas:** Apple 1.0.4 compilação 20 aguardando revisão (envio 09:41); Google 1.0.4 versão 20 em análise. **Falta:** aprovação das lojas, Elton liberar/publicar nas duas; Push + Deploy do app web (PWA) se ainda não feito; aviso de pagamentos da conta Google; Garmin da Thais (lista GARMIN_ENABLED_USER_IDS).
+
+## 11/11/2026 — Comunicado por e-mail para todas as alunas (painel, Ferramentas)
+- Pedido de Elton: avisar a todas da versão 1.0.4 (atualizar, conferir integrações com relógios e permissões de dados). Não existia envio em massa; construído.
+- API: `apps/api/src/broadcast-email/` (rotas `GET status`, `POST preview|test|send` em `/coach/broadcast-email`, só treinador/admin). Painel: `apps/admin/app/broadcast-email.tsx`, na tela Ferramentas.
+- Destinatárias: aluna com acesso (`active/manual_active/grace`), conta ativa, nunca conta de teste. Prospecto, ex-aluna e teste ficam de fora. `{nome}` vira o primeiro nome.
+- Travas: teste só para o e-mail do treinador; envio exige digitar a contagem mostrada; idempotente por chave do comunicado (`MessageLog.trigger = broadcast:<chave>`, quem já recebeu não recebe de novo); roda em segundo plano (pausa de 700 ms entre envios) com trava de envio simultâneo; falhas ficam contadas e o reenvio vai só para quem falta.
+- Testes: `apps/api/test/broadcast-email.spec.ts` (6 verdes, banco e e-mail falsos). `tsc` verde em api e admin. NÃO enviado nada real; NÃO validado ao vivo com a Resend (nota, não impedimento).
+- Texto padrão já preenchido na tela (versão 1.0.4). Elton faz Push + Deploy; depois usa: Ferramentas > Comunicado > ver quantas > teste > digitar contagem > enviar. Só enviar depois de a 1.0.4 (20) estar publicada nas duas lojas.
