@@ -167,7 +167,9 @@ export class AppleHealthConsentService {
       if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) { await this.scrubRouteData(userId, tx); audits.push({ type: 'route_data_scrubbed', details: {} }); }
       const revokedHealth = [...new Set(revokedIds.flatMap((id) => [...(known(id)?.categories ?? [])]).filter((c) => APPLE_HEALTH_RECORD_CATEGORIES.includes(c)))];
       if (revokedHealth.length > 0) { await this.scrubHealthData(userId, revokedHealth, tx); audits.push({ type: 'health_data_scrubbed', details: { categories: revokedHealth } }); }
-      const updated = await tx.providerConnection.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null }, data: { grantedCategories: categories as never } });
+      // 12/11/2026 (caso Lorena): quem ja' estava conectada com um texto ANTIGO (needsReview) e marca/salva grupos com o texto vigente (ja' validado acima: versao+hash+aceite) esta reconfirmando de fato. Antes so' as categorias eram gravadas, a versao do texto ficava velha, needsReview nunca saia e 'Continuar e sincronizar' ficava cinza para sempre.
+      const reconfirmsCurrentText = grant.length > 0 && !isConnectionConsentCurrent(document, row);
+      const updated = await tx.providerConnection.updateMany({ where: { provider: APPLE_HEALTH_PROVIDER_ID, userId, disconnectedAt: null }, data: { grantedCategories: categories as never, ...(reconfirmsCurrentText ? { consentVersion: document.version, consentTextHash: hash, consentedAt: now } : {}) } });
       if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
       if (grantedIds.length > 0) audits.push({ type: 'groups_updated', details: { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash } });
       if (revokedIds.length > 0) audits.push({ type: 'groups_updated', details: { decision: 'revoked', groups: revokedIds } });

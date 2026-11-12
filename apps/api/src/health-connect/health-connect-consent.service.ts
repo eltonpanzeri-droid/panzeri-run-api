@@ -173,8 +173,10 @@ export class HealthConnectConsentService {
     if (revokedIds.some((id) => (known(id)?.categories ?? []).includes('activity_sensors'))) await this.scrubSensorData(userId);
     // Retirar o PERCURSO GPS (ou os exercicios, de que ele depende) apaga os pontos de localizacao ja guardados.
     if (revokedIds.some((id) => (known(id)?.categories ?? []).some((c) => c === 'activity_route' || c === 'activity'))) await this.scrubRouteData(userId);
+    // 12/11/2026 (mesma falha do caso Lorena no Apple Saude): conectada com texto ANTIGO e concedendo grupos com o texto vigente (versao+hash+aceite ja' validados) = reconfirmacao; sem isto needsReview nunca saia e a sincronizacao ficava bloqueada.
+    const reconfirmsCurrentText = grant.length > 0 && !isConnectionConsentCurrent(document, row as Row);
     // Atualizacao CONDICIONAL ao que foi lido: duas alteracoes simultaneas nao se sobrescrevem (a segunda recebe conflito e refaz), entao uma revogacao nunca se perde.
-    const updated = await this.prisma.providerConnection.updateMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, userId, disconnectedAt: null, grantedCategories: { equals: (row as Row).grantedCategories as Prisma.InputJsonValue } }, data: { grantedCategories: categories as never } });
+    const updated = await this.prisma.providerConnection.updateMany({ where: { provider: HEALTH_CONNECT_PROVIDER_ID, userId, disconnectedAt: null, grantedCategories: { equals: (row as Row).grantedCategories as Prisma.InputJsonValue } }, data: { grantedCategories: categories as never, ...(reconfirmsCurrentText ? { consentVersion: document.version, consentTextHash: hash, consentedAt: now } : {}) } });
     if (updated.count !== 1) throw new ConflictException('Suas autorizacoes mudaram ao mesmo tempo. Tente de novo.');
     if (grantedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'granted', groups: grantedIds, consentVersion: document.version, consentTextHash: hash });
     if (revokedIds.length > 0) await this.audit(userId, 'groups_updated', { decision: 'revoked', groups: revokedIds });

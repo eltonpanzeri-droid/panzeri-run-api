@@ -135,6 +135,34 @@ describe('AppleHealthConsentService', () => {
     expect(await service.writeWhileAuthorized('u1', async (_tx, access) => access.mode)).toBe('blocked');
   });
 
+  // 12/11/2026 (REGRESSAO real, aluna Lorena): conectada com texto ANTIGO, marcava os grupos e salvava, mas "Continuar e sincronizar" seguia cinza porque a versao do texto nunca era atualizada.
+  it('conectada com texto antigo: marcar grupos e salvar com o texto vigente reconfirma e libera a sincronizacao (needsReview sai)', async () => {
+    const { prisma, rows } = fakeDb();
+    const service = new AppleHealthConsentService(prisma);
+    await service.updateGroups('u1', { grant: ['workouts'], ...ack });
+    rows.get('u1').consentVersion = '0.9';
+    rows.get('u1').consentTextHash = 'antigo';
+    const before = await service.permissions('u1');
+    expect(before.consent.needsReview).toBe(true);
+    expect(before.groups.some((g) => g.granted)).toBe(false); // a tela abre sem nada marcado, como no aparelho dela
+    await service.updateGroups('u1', { grant: ['workouts'], ...ack }); // o que a tela envia ao tocar em "Salvar minhas autorizacoes"
+    const after = await service.permissions('u1');
+    expect(after.consent.needsReview).toBe(false);
+    expect(after.groups.find((g) => g.id === 'workouts')?.granted).toBe(true);
+    expect(rows.get('u1').consentVersion).toBe(doc.version);
+    expect(rows.get('u1').consentTextHash).toBe(hash);
+    expect((await service.access('u1')).mode).toBe('recorded');
+  });
+
+  it('retirar grupos (sem conceder) com texto antigo NAO reconfirma o texto', async () => {
+    const { prisma, rows } = fakeDb();
+    const service = new AppleHealthConsentService(prisma);
+    await service.updateGroups('u1', { grant: ['workouts'], ...ack });
+    rows.get('u1').consentVersion = '0.9';
+    await service.updateGroups('u1', { revoke: ['workouts'] });
+    expect(rows.get('u1').consentVersion).toBe('0.9');
+  });
+
   it('permissoes: legacyImport indica importacao anterior sem registro; grupos e historico refletem o estado', async () => {
     const { prisma } = fakeDb();
     const service = new AppleHealthConsentService(prisma);
