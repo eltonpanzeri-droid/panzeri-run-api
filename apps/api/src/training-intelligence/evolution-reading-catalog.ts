@@ -36,6 +36,8 @@ export interface IndicatorReading {
   weekly?: { unitLabel: string };
   /** Medido pelo relógio: usa só a fonte principal da aluna (nunca mistura fontes) e, no sono, só a sessão principal da noite. */
   wearable?: boolean;
+  /** O que a TENDÊNCIA da aluna representa (voz de professor), para indicadores sem "bom/ruim": above = valores subindo, below = caindo, stable = sem mudança relevante. */
+  trendMeaning?: { above: string; below: string; stable: string };
   /** Frase do padrão de longo prazo (substitui "O seu caso mostra uma média de..."). */
   habitualTemplate?: (mean: string, n: number) => string;
 }
@@ -247,6 +249,77 @@ export const READING_CATALOG: IndicatorReading[] = [
     meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento da frequência de repouso', below: 'queda da frequência de repouso' },
   },
 ];
+
+// "O que isso indica" para os indicadores SEM bom/ruim (14/11/2026, ordem de Elton: o Panzeri Run é o professor da aluna e diz o que a tendência dela representa; não explica a conta). Rascunho a revisar.
+// Sem causa direta e sem diagnóstico: "pode refletir", "costuma acompanhar".
+const TREND_MEANING: Record<string, { above: string; below: string; stable: string }> = {
+  'workout.perceivedEffort': {
+    above: 'Nas últimas semanas você vem percebendo os treinos mais pesados do que o seu habitual: pode ser uma fase de carga maior, mais cansaço ou menos recuperação entre os treinos.',
+    below: 'Nas últimas semanas você vem percebendo os treinos mais leves do que o seu habitual: pode ser uma fase de base ou de recuperação, ou o corpo se adaptando ao treino.',
+    stable: 'A sua percepção de esforço está estável: os treinos vêm sendo sentidos de forma parecida com o seu habitual.',
+  },
+  'workout.postPhysicalFatigue': {
+    above: 'Os treinos vêm deixando você com mais cansaço do que o habitual: acompanhe junto com o sono e o esforço percebido.',
+    below: 'Os treinos vêm deixando você com menos cansaço do que o habitual.',
+    stable: 'O cansaço que os treinos deixam está estável, parecido com o seu habitual.',
+  },
+  'checkin.weekDemandVsNormal': {
+    above: 'As suas semanas vêm parecendo mais exigentes do que o normal: vale cuidar do descanso.',
+    below: 'As suas semanas vêm parecendo menos exigentes do que o normal.',
+    stable: 'A exigência das suas semanas está estável, parecida com o seu normal.',
+  },
+  'training.volumeCompletedTotalKm': {
+    above: 'O seu volume semanal vem aumentando. Em geral, correr mais quilômetros tende a levar a melhores resultados, mas também aumenta o risco de lesões e de sobrecarga: vale cuidar da recuperação e do sono.',
+    below: 'O seu volume semanal vem diminuindo. Menos quilômetros reduzem a sobrecarga; se isso se mantiver por muito tempo, tende a levar a menos ganho de resultado.',
+    stable: 'O seu volume semanal está estável: você vem mantendo o mesmo padrão de carga, o que dá tempo para o corpo se adaptar.',
+  },
+  'training.volumePrescribedKm': {
+    above: 'O programa vem pedindo mais quilômetros por semana: a carga prescrita está subindo.',
+    below: 'O programa vem pedindo menos quilômetros por semana: a carga prescrita está caindo, como acontece em semanas de ajuste ou descanso.',
+    stable: 'O programa vem pedindo um volume estável por semana.',
+  },
+  'training.volumeRatioCompletedPrescribed': {
+    above: 'Você vem fazendo uma parte maior do volume prescrito, ou até passando dele.',
+    below: 'Você vem fazendo uma parte menor do volume prescrito. Se foi por imprevisto, tudo bem; se foi por cansaço ou dor, conte no feedback do treino.',
+    stable: 'Você vem mantendo a mesma relação entre o que faz e o que o programa pede.',
+  },
+  'training.volumeExtraKm': {
+    above: 'Você vem fazendo cada vez mais quilômetros por iniciativa própria, além do prescrito: isso soma carga e pede atenção à recuperação.',
+    below: 'Você vem fazendo menos quilômetros extras do que antes.',
+    stable: 'Os seus quilômetros extras estão estáveis.',
+  },
+  'activity.avgPaceSecondsKm': {
+    above: 'O seu ritmo médio vem ficando mais lento. Isso pode refletir mais treinos leves, calor, cansaço ou uma fase de base: o ritmo médio depende do tipo de treino do dia.',
+    below: 'O seu ritmo médio vem ficando mais rápido. É natural que a média melhore com o passar do tempo, e isso aparece principalmente no longo prazo.',
+    stable: 'O seu ritmo médio está estável. É natural: a média costuma ficar mais rápida com o passar do tempo, principalmente no longo prazo.',
+  },
+  'wearable.sleepDurationMin': {
+    above: 'Você vem dormindo mais horas por noite do que o seu habitual. Em geral, mais tempo de sono favorece a recuperação.',
+    below: 'Você vem dormindo menos horas por noite do que o seu habitual. Em geral, dormir menos reduz a recuperação e a prontidão para treinar.',
+    stable: 'O seu tempo de sono está estável, parecido com o seu habitual.',
+  },
+  'wearable.sleepDeepMin': {
+    above: 'Você vem tendo mais sono profundo do que o seu habitual, fase ligada à recuperação física.',
+    below: 'Você vem tendo menos sono profundo do que o seu habitual, fase ligada à recuperação física.',
+    stable: 'O seu sono profundo está estável, parecido com o seu habitual.',
+  },
+  'wearable.sleepRemMin': {
+    above: 'Você vem tendo mais sono REM do que o seu habitual, fase ligada à recuperação mental.',
+    below: 'Você vem tendo menos sono REM do que o seu habitual, fase ligada à recuperação mental.',
+    stable: 'O seu sono REM está estável, parecido com o seu habitual.',
+  },
+  'wearable.hrvLastNightAvg': {
+    above: 'A sua HRV está acima do seu normal, o que costuma acompanhar boa recuperação.',
+    below: 'A sua HRV está abaixo do seu normal, o que pode acompanhar cansaço, estresse ou sono ruim.',
+    stable: 'A sua HRV está estável, parecida com o seu normal.',
+  },
+  'wearable.restingHeartRateBpm': {
+    above: 'A sua frequência cardíaca de repouso está acima do seu normal, o que pode acompanhar cansaço, estresse ou sono ruim.',
+    below: 'A sua frequência cardíaca de repouso está abaixo do seu normal, o que costuma acompanhar boa recuperação e melhor condicionamento.',
+    stable: 'A sua frequência cardíaca de repouso está estável, parecida com o seu normal.',
+  },
+};
+for (const entry of READING_CATALOG) entry.trendMeaning = TREND_MEANING[entry.variableId];
 
 export interface AreaReading {
   id: AreaId;

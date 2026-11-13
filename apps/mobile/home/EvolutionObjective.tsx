@@ -18,6 +18,7 @@ import {
 } from './insights';
 import { dayFromIso, formatDayLabel, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 import { IndicatorMeaning } from './IndicatorMeaning';
+import { useIndicatorReading } from './evolutionReading';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
 // prescrito/realizado/extra ja' existente em Progress (App.tsx): interpretacao em texto do volume,
@@ -103,6 +104,7 @@ function MetricCard({
 }) {
   const points = useMemo(() => (snapshot ? observationPoints(snapshot) : []), [snapshot]);
   const mm = useMemo(() => (snapshot ? movingAveragePoints(snapshot, 'short_21d') : []), [snapshot]);
+  const hasReading = useIndicatorReading(meaningId) != null;
   if (!snapshot || snapshot.evidence.n === 0) {
     return <Card title={title}><Text style={styles.muted}>{emptyText}</Text></Card>;
   }
@@ -131,7 +133,7 @@ function MetricCard({
         <Text style={styles.muted}>É preciso ao menos 2 treinos com este dado para desenhar a evolução.</Text>
       )}
       <Sentences items={sentences} />
-      {caution ? <Text style={styles.caution}>{caution}</Text> : null}
+      {caution && !hasReading ? <Text style={styles.caution}>{caution}</Text> : null}
       <IndicatorMeaning id={meaningId} />
     </Card>
   );
@@ -166,6 +168,7 @@ export function WeeklyCard({
   /** Ritmo: o mais rapido (menor s/km) fica no alto. So' representacao. */
   higherIsUp?: boolean;
 }) {
+  const hasReading = useIndicatorReading(meaningId) != null;
   const [modality, setModality] = useState<string | null>(null);
   const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
   useEffect(() => {
@@ -223,7 +226,7 @@ export function WeeklyCard({
         <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
       )}
       <Sentences items={[...weeklySentences(snapshot, descriptor), ...(acuteChronicSentence(snapshot, descriptor.fmt) ? [acuteChronicSentence(snapshot, descriptor.fmt) as string] : [])]} />
-      {caution ? <Text style={styles.caution}>{caution}</Text> : null}
+      {caution && !hasReading ? <Text style={styles.caution}>{caution}</Text> : null}
       <IndicatorMeaning id={meaningId} />
     </Card>
   );

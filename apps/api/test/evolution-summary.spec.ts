@@ -201,7 +201,9 @@ describe('esforço, volume, ritmo e relógio', () => {
     expect(r.texts.habitual).toContain('A última semana observável teve 40 km, acima do seu padrão');
     expect(r.texts.whatItMeasures).toContain('maior risco de lesões e de sobrecarga');
     expect(r.bucket).toBe('tracked');
-    expect(r.texts.meaning).toBeNull();
+    // professor: diz o que a tendência representa (aumento de volume = mais resultado, mais risco), sem qualificar o volume
+    expect(r.texts.meaning).toContain('O seu volume semanal vem aumentando');
+    expect(r.texts.meaning).toContain('risco de lesões e de sobrecarga');
     expect(r.texts.trend ?? '').not.toMatch(/melhora|piora/);
   });
 
@@ -212,6 +214,11 @@ describe('esforço, volume, ritmo e relógio', () => {
     expect(faster.texts.whatItMeasures).toContain('principalmente no longo prazo');
     expect(faster.texts.whatItMeasures).toContain('sem avaliar capacidade');
     expect(faster.bucket).toBe('tracked');
+    // professor: explica o que o ritmo mais rápido representa e que a melhora vem no longo prazo
+    expect(faster.texts.meaning).toContain('O seu ritmo médio vem ficando mais rápido');
+    expect(faster.texts.meaning).toContain('principalmente no longo prazo');
+    expect(result('activity.avgPaceSecondsKm', repeat(330, 90)).texts.meaning).toContain('O seu ritmo médio está estável');
+    expect(result('activity.avgPaceSecondsKm', [...repeat(330, 60), ...repeat(400, 30)]).texts.meaning).toContain('mais lento');
     expect(faster.texts.habitual).toMatch(/\d:\d\d\/km/);
   });
 

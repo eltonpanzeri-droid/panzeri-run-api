@@ -26,7 +26,7 @@ describe('limites e frase de procedência', () => {
   });
 
   it('a frase diz quantos vieram do relógio, quantos preenchidos e quantos ficaram de fora', () => {
-    expect(paceProvenanceSentence({ watch: 12, manual: 3, discarded: 0 })).toBe('Esse ritmo usa 12 treinos do relógio (distância ÷ tempo) e 3 preenchidos por você (distância ÷ tempo).');
+    expect(paceProvenanceSentence({ watch: 12, manual: 3, discarded: 0 })).toBe('Base: 12 treinos do relógio e 3 preenchidos por você.');
     expect(paceProvenanceSentence({ watch: 0, manual: 1, discarded: 2 })).toContain('1 preenchido por você');
     expect(paceProvenanceSentence({ watch: 0, manual: 1, discarded: 2 })).toContain('2 treinos ficaram de fora por ritmo impossível');
     expect(paceProvenanceSentence({ watch: 0, manual: 0, discarded: 0 })).toBeNull();

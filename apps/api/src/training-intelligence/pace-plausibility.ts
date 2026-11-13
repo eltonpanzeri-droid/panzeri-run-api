@@ -26,14 +26,14 @@ export function formatPaceText(paceSecondsKm: number): string {
 
 export interface PaceProvenance { watch: number; manual: number; discarded: number }
 
-/** "Como foi computado": quantos treinos vieram do relógio (distância ÷ tempo), quantos foram preenchidos pela aluna e quantos ficaram de fora por ritmo impossível. */
+/** Nota curta de procedência (no fim do texto; o professor explica o que o número significa, não a conta): quantos treinos vieram do relógio, quantos foram preenchidos e quantos ficaram de fora por ritmo impossível. */
 export function paceProvenanceSentence(p: PaceProvenance): string | null {
   const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
   const parts: string[] = [];
-  if (p.watch > 0) parts.push(`${p.watch} ${plural(p.watch, 'treino do relógio', 'treinos do relógio')} (distância ÷ tempo)`);
-  if (p.manual > 0) parts.push(`${p.manual} ${plural(p.manual, 'preenchido', 'preenchidos')} por você (distância ÷ tempo)`);
+  if (p.watch > 0) parts.push(`${p.watch} ${plural(p.watch, 'treino do relógio', 'treinos do relógio')}`);
+  if (p.manual > 0) parts.push(`${p.manual} ${plural(p.manual, 'preenchido', 'preenchidos')} por você`);
   if (parts.length === 0 && p.discarded === 0) return null;
-  const used = parts.length ? `Esse ritmo usa ${parts.join(' e ')}.` : 'Nenhum treino válido entrou nesse ritmo.';
+  const used = parts.length ? `Base: ${parts.join(' e ')}.` : 'Nenhum treino válido entrou nesse ritmo.';
   const out = p.discarded > 0 ? ` ${p.discarded} ${plural(p.discarded, 'treino ficou de fora', 'treinos ficaram de fora')} por ritmo impossível: confira distância e tempo no registro.` : '';
   return `${used}${out}`;
 }

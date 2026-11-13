@@ -41,7 +41,7 @@ export function useEvolutionSummary(accessToken: string | null): SummaryDto | nu
 }
 
 // Ids dos textos "O que isso representa" que não são ids de variável.
-const MEANING_TO_VARIABLE: Record<string, string> = { 'training.volume': 'training.volumeCompletedTotalKm' };
+const MEANING_TO_VARIABLE: Record<string, string> = { 'training.volume': 'training.volumeCompletedTotalKm', 'activity.weeklyAvgPaceSecondsKm': 'activity.avgPaceSecondsKm' };
 
 export function findIndicator(summary: SummaryDto | null | undefined, id: string | null | undefined): IndicatorDto | null {
   if (!summary || !id) return null;

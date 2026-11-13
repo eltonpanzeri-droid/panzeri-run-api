@@ -12,6 +12,11 @@ import { AREA_READING, EVOLUTION_READING_STATUS, EVOLUTION_READING_VERSION, EVOL
 //  - indicador SEM polaridade (esforço, volume, ritmo) nunca vira "melhora" ou "piora": só "acima/abaixo do habitual", e fica fora da contagem de bom/ruim da síntese.
 export const MIN_OBSERVATIONS = 8;
 export const MIN_BEFORE_FOR_LONG_TREND = 14;
+// Séries SEMANAIS (volume, razão, extras): as janelas de 7 e 28 registros virariam 28 semanas, que ainda não existem desde 01/08. Usa as MESMAS janelas que o gráfico já mostra: média das últimas 3 semanas
+// (aguda) contra a média das últimas 8 semanas completas (crônica), e o longo prazo = crônica contra as semanas anteriores (>= 4).
+export const WEEKLY_ACUTE_SIZE = 3;
+export const WEEKLY_CHRONIC_SIZE = 8;
+export const MIN_BEFORE_FOR_LONG_TREND_WEEKLY = 4;
 export const CHANGE_FRACTION = 0.1;
 export const GOOD_FRACTION = 0.75;
 export const POOR_FRACTION = 0.375;
@@ -110,6 +115,18 @@ export function bucketOf(level: Level | null, short: TrendReading | null, direct
   return 'steady';
 }
 
+function weeklyWindows(math: MathLayerService, recent: SeriesPoint[]) {
+  const acute = math.movingAverage(recent, { kind: 'observation_count', size: WEEKLY_ACUTE_SIZE });
+  const chronic = math.movingAverage(recent, { kind: 'observation_count', size: WEEKLY_CHRONIC_SIZE });
+  const acuteOk = !acute.isPartialWindow && acute.n > 0 && acute.value != null;
+  const chronicOk = !chronic.isPartialWindow && chronic.n > 0 && chronic.value != null;
+  return {
+    acute: { complete: acuteOk, value: acute.value },
+    chronic: { complete: chronicOk, value: chronic.value, windowStart: chronic.windowStart ? chronic.windowStart.toISOString() : null },
+    difference: acuteOk && chronicOk ? (acute.value as number) - (chronic.value as number) : null,
+  };
+}
+
 export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService, now: Date = new Date(), provenanceNote: string | null = null): IndicatorResult {
   const whatItMeasures = `${entry.scaleText} ${entry.why}`;
   // Série semanal: a semana em curso é incompleta e fica fora (regra de Elton, 05/11/2026).
@@ -124,7 +141,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   const directional = entry.levelGoodWhen !== null;
   const level = levelOf(overall, scale, entry.levelGoodWhen);
 
-  const ac = buildAcuteChronic(math, recent, definition, null);
+  const ac = entry.weekly ? weeklyWindows(math, recent) : buildAcuteChronic(math, recent, definition, null);
   let short: TrendReading | null = null;
   if (ac.acute.complete && ac.chronic.complete && ac.difference != null && ac.chronic.value != null) {
     short = { delta: ac.difference, verdict: verdictOf(ac.difference, ac.chronic.value, scale, entry.trendGoodWhen, entry.relativeChange) };
@@ -133,7 +150,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   if (ac.chronic.complete && ac.chronic.value != null && ac.chronic.windowStart) {
     const start = new Date(ac.chronic.windowStart).getTime();
     const before = recent.filter((p) => p.timestamp.getTime() < start).map((p) => p.value);
-    if (before.length >= MIN_BEFORE_FOR_LONG_TREND) {
+    if (before.length >= (entry.weekly ? MIN_BEFORE_FOR_LONG_TREND_WEEKLY : MIN_BEFORE_FOR_LONG_TREND)) {
       const baseline = mean(before);
       long = { delta: ac.chronic.value - baseline, verdict: verdictOf(ac.chronic.value - baseline, baseline, scale, entry.trendGoodWhen, entry.relativeChange) };
     }
@@ -141,7 +158,13 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
 
   const bucket = bucketOf(level, short, directional);
   const band = entry.positionMeaning ? positionBand(overall, scale) : null;
-  const meaning = level ? (entry.meaning[level] ?? null) : band && entry.positionMeaning ? entry.positionMeaning[band] : (entry.meaning.neutral ?? null);
+  // "O que isso indica": o texto do nível (ou da posição na escala) + o que a TENDÊNCIA representa + o rodapé neutro (só quando não há texto de nível). Tendência mais recente primeiro; sem ela, a de longo prazo.
+  // a mudança mais recente, se houve; senão a de longo prazo; senão "estável" (se houve leitura)
+  const trendVerdict = short && short.verdict !== 'stable' ? short.verdict : long && long.verdict !== 'stable' ? long.verdict : (short ?? long)?.verdict;
+  const trendKey = trendVerdict === 'above' ? 'above' : trendVerdict === 'below' ? 'below' : trendVerdict === 'stable' ? 'stable' : null;
+  const levelText = level ? (entry.meaning[level] ?? null) : band && entry.positionMeaning ? entry.positionMeaning[band] : null;
+  const meaningParts = [levelText, trendKey && entry.trendMeaning ? entry.trendMeaning[trendKey] : null, levelText ? null : (entry.meaning.neutral ?? null)].filter((part): part is string => !!part);
+  const meaning = meaningParts.length > 0 ? meaningParts.join(' ') : null;
   const unit = scale && 'unit' in scale ? (scale as { unit?: string }).unit : undefined;
   const meanText = formatValue(overall, entry.variableId, unit);
   let habitual = entry.habitualTemplate ? entry.habitualTemplate(meanText, recent.length) : `O seu caso mostra uma média de ${meanText} (${recent.length} registros desde 01/08/2026).`;
