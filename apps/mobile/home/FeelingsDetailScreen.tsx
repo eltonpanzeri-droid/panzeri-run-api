@@ -6,7 +6,6 @@ import { DetailChart } from '../src/activityDetail';
 import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
 import { fetchSnapshot, fetchSnapshots } from './homeApi';
 import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, acuteChronicSentence, domainSentences, shiftLabel } from './insights';
-import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 import { IndicatorMeaning } from './IndicatorMeaning';
 import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 
@@ -186,7 +185,6 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
             <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>
           </View>
           {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}
-          <SourcesLink themeIds={domain === 'sleep' ? ['ritmo-circadiano'] : ['neurociencia-comportamento']} />
         </>
       )}
     </View>

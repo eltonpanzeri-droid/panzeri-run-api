@@ -4302,3 +4302,10 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ## 14/11/2026 — Ritmo: relógio + preenchido, ritmo impossível fora da média e aviso à aluna
 - Decisão de Elton: usar o relógio quando entrega; distância e tempo quando só isso existe; o preenchido quando não há relógio; dizer à aluna como foi computado; avisar para confirmar dado impossível (ex.: 1:30/km). Só na Evolução (IA intocada). Detalhes e limitação em PLANO_FRENTE2_EVOLUCAO_CARDS.md seção 7. API no Deploy.
+
+## 14/11/2026 — Ajustes da tela inicial e da Evolução (pedido de Elton, com prints)
+- Frase sob o "Boa tarde" sobre a semana (mesmos números do cartão "Sua semana": ex. "Você está em dia: 7 de 8 treinos feitos."), em `homeLogic.weekSummarySentence`.
+- Cartão azul de hoje: menor; mostra "feedback enviado/falta o feedback" quando o treino foi feito; com mais de um treino prescrito mostra o que falta e "Você tem mais de um treino hoje (N)"; extra registrado pela aluna não conta. Feedback = `session.completion` existe (mesma regra da tela da semana).
+- Removido o link "Ver evolução" do cartão de gráfico (as seis áreas já estão logo abaixo).
+- "Treinos por modalidade" saiu do fim da Evolução do treinamento e virou cartão próprio logo após os gráficos de volume (decisão minha de posição; Elton pode mandar mudar).
+- Links "Fontes científicas e metodologia" removidos das telas de Evolução (treinamento, sono e bem-estar); o item continua no menu. Observação: eram links contextuais criados para a diretriz 1.4.1 da Apple; o menu continua dando acesso, mas vale lembrar se a Apple reclamar. Link do joelho (tela de lesão) mantido. Só app: PWA no Deploy, nativo no próximo build.

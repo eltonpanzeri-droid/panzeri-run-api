@@ -17,7 +17,6 @@ import {
   weeklySentences,
 } from './insights';
 import { dayFromIso, formatDayLabel, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
-import { SourcesLink } from '../src/scientificSources/ScientificSourcesScreen';
 import { IndicatorMeaning } from './IndicatorMeaning';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
@@ -318,7 +317,6 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         emptyText="Ainda não há corridas com faixa de ritmo prescrita e dados do relógio suficientes."
         caution="Mostra a parte do tempo observável do treino em que seu ritmo ficou dentro da faixa prescrita. Só entram corridas com faixa de ritmo prescrita e dados do relógio. Descrição dos seus registros; não é uma nota."
       />
-      <SourcesLink themeIds={['intensidade-treinamento', 'rigidez-tendinea-economia-corrida']} />
     </View>
   );
 }

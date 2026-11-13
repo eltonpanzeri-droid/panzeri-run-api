@@ -6649,27 +6649,30 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
             );
           })()}
 
+          {/* Treinos por modalidade (14/11/2026, pedido de Elton): bloco próprio, no mesmo estilo dos cartões de volume, logo depois deles. */}
+          {data.modalityBreakdown.length > 0 ? (
+            <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 16, gap: 10 }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Treinos por modalidade</Text>
+              <Text style={{ fontSize: 12, color: '#64748b' }}>Proporção dos treinos do seu programa em cada modalidade, desde {data.dataAvailableSince ? data.dataAvailableSince.slice(0, 7).replace('-', '/') : '—'}.</Text>
+              {data.modalityBreakdown.map((m) => (
+                <View key={m.modality}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: '#334155' }}>{MODALITY_LABEL[m.modality] ?? m.modality}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#475569' }}>{m.percentOfTotalPrescribed}%</Text>
+                  </View>
+                  <View style={{ height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+                    <View style={{ height: 6, width: `${m.percentOfTotalPrescribed}%`, backgroundColor: PRColors.ocean, borderRadius: 3 }} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {/* "O que isso representa" do volume por semana (02/11/2026; texto em home/indicatorMeanings.ts) */}
           <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" /></View>
 
           {/* Interpretação em texto + ritmo + cadência (motor longitudinal; Evolução objetiva, 04/10/2026) */}
           <EvolutionObjectiveSections accessToken={accessToken} weeks={data.recentWeeks} todayIso={saoPauloDateString(new Date())} />
-
-          {/* Distribuição de modalidades */}
-          <View style={{ backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: '#e2e8f0' }}>
-            <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e293b', marginBottom: 10 }}>Treinos por modalidade</Text>
-            {data.modalityBreakdown.map((m) => (
-              <View key={m.modality} style={{ marginBottom: 10 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <Text style={{ fontSize: 12, color: '#334155' }}>{MODALITY_LABEL[m.modality] ?? m.modality}</Text>
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#475569' }}>{m.percentOfTotalPrescribed}%</Text>
-                </View>
-                <View style={{ height: 6, backgroundColor: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
-                  <View style={{ height: 6, width: `${m.percentOfTotalPrescribed}%`, backgroundColor: PRColors.ocean, borderRadius: 3 }} />
-                </View>
-              </View>
-            ))}
-          </View>
 
           </>) : null}
 

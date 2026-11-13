@@ -30,6 +30,7 @@ import {
   daysUntil,
   formatShortDate,
   pickTodaySession,
+  weekSummarySentence,
   UnlockedMedalLite,
 } from './homeLogic';
 
@@ -237,6 +238,7 @@ export function HomeScreen({
   }, []);
 
   const firstName = userName?.split(' ')[0] ?? '';
+  const weekSentence = weekSummarySentence(currentWeekVolume);
 
   return (
     <View style={styles.container}>
@@ -244,7 +246,7 @@ export function HomeScreen({
       <View style={styles.header}>
         <View>
           <Text style={styles.greeting}>{greeting}, {firstName || 'atleta'}</Text>
-          <Text style={styles.greetingSubtitle}>Veja como está sua semana.</Text>
+          <Text style={styles.greetingSubtitle}>{weekSentence ?? 'Veja como está sua semana.'}</Text>
         </View>
       </View>
 
@@ -258,6 +260,8 @@ export function HomeScreen({
         state={today.state}
         session={today.session}
         nextSession={today.nextSession}
+        todayCount={today.todayCount}
+        feedbackGiven={today.feedbackGiven}
         onOpenWeek={onOpenWeek}
       />
 
@@ -278,7 +282,6 @@ export function HomeScreen({
         error={evolutionError && !evolution}
         weeks={evolution?.recentWeeks ?? []}
         accessToken={accessToken}
-        onOpenProgress={onOpenProgress}
       />
 
       {/* Bloco 4 — Sua evolução: as seis áreas (02/11/2026, no lugar do antigo "Como você está") */}
@@ -333,6 +336,8 @@ function HeroToday({
   state,
   session,
   nextSession,
+  todayCount,
+  feedbackGiven,
   onOpenWeek,
 }: {
   loading: boolean;
@@ -340,9 +345,11 @@ function HeroToday({
   state: TodaySessionState;
   session: HomeSessionLite | null;
   nextSession: HomeSessionLite | null;
+  todayCount: number;
+  feedbackGiven: boolean;
   onOpenWeek: () => void;
 }) {
-  if (loading) return <SkeletonBlock height={180} />;
+  if (loading) return <SkeletonBlock height={140} />;
   if (error) return null; // degrada graciosamente — resto da Home continua
 
   const isRestDay = state === 'rest_day';
@@ -369,6 +376,7 @@ function HeroToday({
             <View style={styles.heroDoneRow}>
               <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
               <Text style={styles.heroDoneText}>{isDoneAdjusted ? 'Treino concluído com alteração' : 'Treino concluído'}</Text>
+              <Text style={styles.heroFeedbackText}>· {feedbackGiven ? 'feedback enviado' : 'falta o feedback'}</Text>
             </View>
           )}
           <Text style={styles.heroTitle}>{session?.title ?? 'Seu treino de hoje'}</Text>
@@ -378,6 +386,7 @@ function HeroToday({
               session?.detail || null,
             ].filter(Boolean).join(' • ')}
           </Text>
+          {todayCount > 1 ? <Text style={styles.heroMore}>Você tem mais de um treino hoje ({todayCount}).</Text> : null}
         </>
       )}
       {!isRestDay && (
@@ -500,13 +509,11 @@ function ProgressSection({
   error,
   weeks,
   accessToken,
-  onOpenProgress,
 }: {
   loading: boolean;
   error: boolean;
   weeks: WeeklyVolumeLite[];
   accessToken: string;
-  onOpenProgress: () => void;
 }) {
   const [selected, setSelected] = useState<number | null>(null);
   // 15/10/2026 (pedido de Elton): o que aparece no grafico pode ser ligado/desligado pela aluna.
@@ -678,10 +685,6 @@ function ProgressSection({
       ) : (
         <Text style={styles.chartHint}>Toque numa semana para ver os detalhes.</Text>
       )}
-      <Pressable onPress={onOpenProgress} style={styles.linkRow}>
-        <Text style={styles.linkText}>Ver evolução</Text>
-        <Ionicons name="chevron-forward" size={14} color={HomeColors.panzeriInteraction} />
-      </Pressable>
     </View>
   );
 }
@@ -1005,15 +1008,17 @@ const styles = StyleSheet.create({
   heroLabel: { ...HomeTypography.label, color: 'rgba(255,255,255,0.75)', letterSpacing: 1 },
   heroDoneRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: HomeSpace.small },
   heroDoneText: { ...HomeTypography.bodyMedium, color: '#FFFFFF' },
-  heroTitle: { fontSize: 24, fontWeight: '700', color: '#FFFFFF', marginTop: HomeSpace.small },
+  heroTitle: { fontSize: 20, fontWeight: '700', color: '#FFFFFF', marginTop: 4 },
+  heroFeedbackText: { ...HomeTypography.body, color: 'rgba(255,255,255,0.85)' },
+  heroMore: { ...HomeTypography.body, color: '#FFFFFF', fontWeight: '600', marginTop: 6 },
   heroDetail: { ...HomeTypography.body, color: 'rgba(255,255,255,0.85)', marginTop: 4 },
   heroCta: {
     alignSelf: 'flex-start',
     backgroundColor: '#FFFFFF',
     borderRadius: HomeRadius.pill,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginTop: HomeSpace.component,
+    paddingVertical: 7,
+    paddingHorizontal: 16,
+    marginTop: HomeSpace.related,
   },
   heroCtaText: { ...HomeTypography.bodyMedium, color: HomeColors.panzeriPrimary, fontWeight: '700' },
   pressedScale: { transform: [{ scale: 0.985 }] },

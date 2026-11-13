@@ -1,4 +1,4 @@
-import { buildWeekDayCells, pickTodaySession, HomeSessionLite } from '../../mobile/home/homeLogic';
+import { buildWeekDayCells, pickTodaySession, weekSummarySentence, HomeSessionLite } from '../../mobile/home/homeLogic';
 
 // "Sua semana" (04/10/2026): as bolinhas diarias liam so' WorkoutCompletion, enquanto os agregados
 // (7/8 treinos, km) ja' reconheciam a execucao objetiva (ActivityLog + vinculo ativo). Caso real:
@@ -77,5 +77,34 @@ describe('pickTodaySession — execucao objetiva', () => {
   it('treino de hoje com execucao do relogio e sem feedback -> concluido', () => {
     const today = pickTodaySession([session('s', TODAY, { realized: { activityLogId: 'a' } })], TODAY);
     expect(today.state).toBe('done_as_planned');
+  });
+});
+
+describe('Hoje: vários treinos, feedback e frase da semana (14/11/2026)', () => {
+  it('com dois treinos hoje, mostra primeiro o que falta, avisa que há mais de um e o extra da aluna não conta como treino do dia', () => {
+    const done = session('forca', TODAY, { realized: { activityLogId: 'a' }, completion: { status: 'done' } });
+    const pending = session('corrida', TODAY);
+    const extra = session('extra', TODAY, { structure: { type: 'extra', source: 'student' } });
+    const out = pickTodaySession([done, pending, extra], TODAY);
+    expect(out.session?.id).toBe('corrida');
+    expect(out.state).toBe('not_done');
+    expect(out.todayCount).toBe(2);
+    expect(pickTodaySession([done, extra], TODAY).todayCount).toBe(1);
+  });
+
+  it('feedback: com registro = enviado; treino feito pelo relógio sem registro = falta o feedback', () => {
+    expect(pickTodaySession([session('s', TODAY, { realized: { activityLogId: 'a' } })], TODAY).feedbackGiven).toBe(false);
+    expect(pickTodaySession([session('s', TODAY, { realized: { activityLogId: 'a' }, completion: { status: 'done' } })], TODAY).feedbackGiven).toBe(true);
+    expect(pickTodaySession([], TODAY)).toMatchObject({ state: 'rest_day', todayCount: 0, feedbackGiven: false });
+  });
+
+  it('frase da semana usa os mesmos números do cartão e muda conforme o andamento', () => {
+    expect(weekSummarySentence(null)).toBeNull();
+    expect(weekSummarySentence({ sessoesPrescritas: 0, sessoesFeitas: 0, sessoesNaoFeitas: 0 })).toBeNull();
+    expect(weekSummarySentence({ sessoesPrescritas: 8, sessoesFeitas: 7, sessoesNaoFeitas: 0 })).toBe('Você está em dia: 7 de 8 treinos feitos.');
+    expect(weekSummarySentence({ sessoesPrescritas: 8, sessoesFeitas: 8, sessoesNaoFeitas: 0 })).toBe('Semana completa: você fez todos os treinos.');
+    expect(weekSummarySentence({ sessoesPrescritas: 4, sessoesFeitas: 0, sessoesNaoFeitas: 0 })).toBe('Sua semana está começando, com 4 treinos pela frente.');
+    expect(weekSummarySentence({ sessoesPrescritas: 5, sessoesFeitas: 2, sessoesNaoFeitas: 1 })).toContain('Você fez 2 de 5 treinos até agora');
+    expect(weekSummarySentence({ sessoesPrescritas: 5, sessoesFeitas: 3, sessoesNaoFeitas: 2 })).toBe('Você fez 3 de 5 treinos nesta semana.');
   });
 });

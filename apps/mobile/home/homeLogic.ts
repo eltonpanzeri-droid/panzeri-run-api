@@ -41,6 +41,10 @@ export interface TodaySessionResult {
   session: HomeSessionLite | null;
   state: TodaySessionState;
   nextSession: HomeSessionLite | null;
+  /** Quantos treinos prescritos há hoje (extras que a própria aluna registrou não contam). */
+  todayCount: number;
+  /** Feedback do treino mostrado: já registrado (true) ou pendente (false). */
+  feedbackGiven: boolean;
 }
 
 /**
@@ -50,11 +54,16 @@ export interface TodaySessionResult {
  * saoPauloDateString(new Date()) de src/weekWindow.ts, já testado e em uso no resto do app.
  */
 export function pickTodaySession(sessions: HomeSessionLite[], todayIso: string): TodaySessionResult {
-  const today = sessions.find((s) => s.isoDate === todayIso) ?? null;
+  const todays = sessions.filter((s) => s.isoDate === todayIso);
+  // Sem extras da própria aluna (não são "treino do dia"); com mais de um, mostra primeiro o que ainda não foi feito.
+  const pool = todays.filter((s) => !isExtraSession(s.structure));
+  const candidates = pool.length > 0 ? pool : todays;
+  const today = candidates.find((s) => sessionExecutionState(s) === null) ?? candidates[0] ?? null;
+  const todayCount = pool.length > 0 ? pool.length : todays.length;
   const future = sessions.filter((s) => s.isoDate > todayIso).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
   const nextSession = future[0] ?? null;
 
-  if (!today) return { session: null, state: 'rest_day', nextSession };
+  if (!today) return { session: null, state: 'rest_day', nextSession, todayCount: 0, feedbackGiven: false };
 
   const status = sessionExecutionState(today);
   let state: TodaySessionState;
@@ -63,7 +72,24 @@ export function pickTodaySession(sessions: HomeSessionLite[], todayIso: string):
   else if (status === 'missed') state = 'missed';
   else state = 'not_done';
 
-  return { session: today, state, nextSession };
+  return { session: today, state, nextSession, todayCount, feedbackGiven: today.completion != null };
+}
+
+/**
+ * Frase curta sob o "Boa tarde" sobre como vai a semana. Usa os MESMOS números do cartão "Sua semana" (treinos feitos/prescritos/não feitos): só descreve, sem cobrar nem comemorar demais.
+ * Sem treinos prescritos na semana, devolve null (a tela mostra a frase de sempre).
+ */
+export function weekSummarySentence(week: { sessoesPrescritas: number; sessoesFeitas: number; sessoesNaoFeitas: number } | null): string | null {
+  if (!week || week.sessoesPrescritas <= 0) return null;
+  const planned = week.sessoesPrescritas;
+  const done = Math.max(0, week.sessoesFeitas);
+  const missed = Math.max(0, week.sessoesNaoFeitas);
+  const remaining = Math.max(0, planned - done - missed);
+  if (missed === 0 && remaining === 0) return 'Semana completa: você fez todos os treinos.';
+  if (missed === 0 && done > 0) return `Você está em dia: ${done} de ${planned} treinos feitos.`;
+  if (missed === 0) return remaining === 1 ? 'Seu treino da semana ainda está por vir.' : `Sua semana está começando, com ${remaining} treinos pela frente.`;
+  if (remaining > 0) return `Você fez ${done} de ${planned} treinos até agora. Ainda dá tempo de seguir com os próximos.`;
+  return `Você fez ${done} de ${planned} treinos nesta semana.`;
 }
 
 /** Alvo ao tocar a bolinha: o treino/atividade daquele dia (nunca o calendario completo). */
