@@ -7,7 +7,9 @@ import { Copy, RefreshCw } from 'lucide-react';
 // "provavelmente só navegador" é estimativa (sem notificação registrada e sem Health Connect nem Apple Saúde conectados). Nada aqui altera dado de aluna.
 
 type Kind = 'android' | 'ios' | 'native_unknown' | 'browser_probable';
+type PaysVia = 'store' | 'asaas' | 'manual';
 type Row = {
+  paysVia: PaysVia; asaasLeftover: string | null;
   id: string; studentCode: number | null; name: string | null; subscriptionStatus: string; paymentGroup: 'confirmed' | 'courtesy' | 'overdue' | 'pending' | 'canceled' | 'desconhecido'; accountStatus: string; push: boolean; access: Kind;
   connections: Array<{ provider: string; lastSyncAt: string | null }>;
   activities: Array<{ provider: string; count: number; lastAt: string | null }>;
@@ -24,6 +26,8 @@ const FILTERS: Array<{ key: 'all' | Kind; label: string }> = [
 type Situation = 'current' | 'canceled' | 'all';
 const SITUATIONS: Array<{ key: Situation; label: string }> = [{ key: 'current', label: 'Alunas atuais' }, { key: 'canceled', label: 'Ex-alunas' }, { key: 'all', label: 'Todas' }];
 const inSituation = (row: Row, situation: Situation) => situation === 'all' || (situation === 'current' ? ['confirmed', 'courtesy', 'overdue'].includes(row.paymentGroup) : row.paymentGroup === situation);
+const PAYS_LABEL: Record<PaysVia, string> = { store: 'Loja (Apple/Google)', asaas: 'Asaas (cartão)', manual: 'Cortesia/manual' };
+const PAYS_FILTERS: Array<{ key: 'all' | PaysVia | 'duplicate'; label: string }> = [{ key: 'all', label: 'Todas as formas' }, { key: 'store', label: 'Paga pela loja' }, { key: 'asaas', label: 'Paga pelo Asaas' }, { key: 'manual', label: 'Cortesia/manual' }, { key: 'duplicate', label: 'Loja + Asaas gravado (conferir)' }];
 const providerName = (id: string) => PROVIDER_LABEL[id] ?? id;
 const dmy = (iso: string | null) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '—');
 const stripAccents = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -94,6 +98,7 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
   const [filter, setFilter] = useState<'all' | Kind>('browser_probable');
   const [situation, setSituation] = useState<Situation>('current');
   const [search, setSearch] = useState('');
+  const [pays, setPays] = useState<'all' | PaysVia | 'duplicate'>('all');
   const [copied, setCopied] = useState('');
 
   const load = useCallback(async () => {
@@ -110,8 +115,8 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
 
   const rows = useMemo(() => {
     const term = stripAccents(search.trim());
-    return (result?.rows ?? []).filter((row) => inSituation(row, situation) && (filter === 'all' || row.access === filter) && (!term || stripAccents(`${row.name ?? ''} ${row.studentCode ?? ''}`).includes(term)));
-  }, [result, filter, search, situation]);
+    return (result?.rows ?? []).filter((row) => inSituation(row, situation) && (pays === 'all' || (pays === 'duplicate' ? row.asaasLeftover != null : row.paysVia === pays)) && (filter === 'all' || row.access === filter) && (!term || stripAccents(`${row.name ?? ''} ${row.studentCode ?? ''}`).includes(term)));
+  }, [result, filter, search, situation, pays]);
 
   // Contagens recalculadas sobre a situação escolhida (alunas atuais por padrão), para os números dos filtros baterem com a lista.
   const scoped = useMemo(() => (result?.rows ?? []).filter((row) => inSituation(row, situation)), [result, situation]);
@@ -141,6 +146,13 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
               </button>
             ))}
           </div>
+          <div className="eqChips" role="group" aria-label="Filtrar por forma de pagamento">
+            {PAYS_FILTERS.map((item) => (
+              <button key={item.key} type="button" className={`eqChip${pays === item.key ? ' on' : ''}`} aria-pressed={pays === item.key} onClick={() => setPays(item.key)}>
+                {item.label} ({scoped.filter((row) => (item.key === 'all' ? true : item.key === 'duplicate' ? row.asaasLeftover != null : row.paysVia === item.key)).length})
+              </button>
+            ))}
+          </div>
           <div className="eqChips" role="group" aria-label="Filtrar por forma de acesso">
             {FILTERS.map((item) => (
               <button key={item.key} type="button" className={`eqChip${filter === item.key ? ' on' : ''}`} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}>
@@ -155,13 +167,14 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
           </div>
           <div className="extTableWrap">
             <table className="dataTable">
-              <thead><tr><th>Código</th><th>Aluna</th><th>Assinatura</th><th>Acesso (estimado)</th><th>Push</th><th>Conexões e atividades recebidas</th></tr></thead>
+              <thead><tr><th>Código</th><th>Aluna</th><th>Assinatura</th><th>Paga por</th><th>Acesso (estimado)</th><th>Push</th><th>Conexões e atividades recebidas</th></tr></thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.studentCode != null ? String(row.studentCode).padStart(7, '0') : '—'}</td>
                     <td>{row.name ?? 'Sem nome'}</td>
                     <td>{STATUS_LABEL[row.subscriptionStatus] ?? row.subscriptionStatus}</td>
+                    <td>{PAYS_LABEL[row.paysVia]}{row.asaasLeftover ? <div><small>Asaas gravado ({row.asaasLeftover}): conferir no Asaas</small></div> : null}</td>
                     <td>{KIND_LABEL[row.access]}</td>
                     <td>{row.push ? 'Sim' : 'Não'}</td>
                     <td>
@@ -172,7 +185,7 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
                     </td>
                   </tr>
                 ))}
-                {rows.length === 0 ? <tr><td colSpan={6}>Nenhuma aluna neste filtro.</td></tr> : null}
+                {rows.length === 0 ? <tr><td colSpan={7}>Nenhuma aluna neste filtro.</td></tr> : null}
               </tbody>
             </table>
           </div>

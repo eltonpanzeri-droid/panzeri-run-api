@@ -4360,3 +4360,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Todo gráfico das áreas tem os 5 botões (sem leitura do servidor, texto padrão); "Quais são os seus números?" é o primeiro e abre sozinho. Botões menores (40px, fonte 14).
 - Saíram os textos soltos sob os gráficos (frases de números, dicas, avisos, "O que seus registros mostram", "O que os números de volume mostram"). Ficam legendas, mensagens de erro/vazio e a lista "Quais corridas entram" do desacoplamento.
 - Regra de Elton: a palavra "esteira" não aparece para o aluno (só em dado/feedback do aluno ou fala da IA). Removida do texto de limitações e das descrições das medalhas; a chave "esteira" nos dados e o chip do teste físico ficam.
+
+### 14/11/2026 — Lista "Como as alunas acessam" ganhou "Paga por" (loja × Asaas × cortesia)
+- Caso Thalita: paga pela loja, mas tinha assinatura antiga no Asaas cobrando em paralelo (e-mail "não registramos o pagamento"). Nada foi alterado na aluna; Elton cancela no Asaas.
+- Nova coluna e filtros (somente leitura): "Paga pela loja", "Paga pelo Asaas", "Cortesia/manual" e "Loja + Asaas gravado (conferir)". O id do Asaas fica gravado mesmo após cancelar: é alerta para conferir, não prova de cobrança ativa. Apple × Google não é gravado por aluna.

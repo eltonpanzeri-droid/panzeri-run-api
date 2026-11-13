@@ -1,4 +1,4 @@
-import { StudentAccessService, classifyAccess } from '../src/equipment/student-access.service';
+import { StudentAccessService, classifyAccess, paysViaOf, asaasLeftoverOf } from '../src/equipment/student-access.service';
 
 // 05/11/2026 — "Como as alunas acessam": lista nominal SOMENTE LEITURA. O servidor nao guarda a plataforma; so' classifica pelo que sabe (push, Health Connect, Apple Saude).
 describe('classifyAccess', () => {
@@ -73,5 +73,21 @@ describe('StudentAccessService.run', () => {
     const { service, prisma } = build();
     await service.run();
     expect(prisma.providerConnection.findMany.mock.calls[0][0].where).toMatchObject({ disconnectedAt: null });
+  });
+});
+
+// 14/11/2026 — forma de pagamento (caso Thalita: paga pela loja e tinha assinatura antiga no Asaas cobrando em paralelo).
+describe('paysViaOf / asaasLeftoverOf', () => {
+  it('cortesia vence; revenuecat = loja; o resto = Asaas', () => {
+    expect(paysViaOf({ subscriptionProvider: 'revenuecat', subscriptionManualOverride: false })).toBe('store');
+    expect(paysViaOf({ subscriptionProvider: 'asaas', subscriptionManualOverride: false })).toBe('asaas');
+    expect(paysViaOf({ subscriptionProvider: 'revenuecat', subscriptionManualOverride: true })).toBe('manual');
+    expect(paysViaOf({ subscriptionProvider: null, subscriptionManualOverride: false })).toBe('asaas');
+  });
+  it('alerta so quando paga pela loja E existe assinatura gravada no Asaas', () => {
+    expect(asaasLeftoverOf({ paysVia: 'store', externalSubscriptionId: 'sub_1', providerStatus: 'active' })).toBe('active');
+    expect(asaasLeftoverOf({ paysVia: 'store', externalSubscriptionId: 'sub_1', providerStatus: null })).toBe('desconhecido');
+    expect(asaasLeftoverOf({ paysVia: 'store', externalSubscriptionId: null, providerStatus: 'new' })).toBeNull();
+    expect(asaasLeftoverOf({ paysVia: 'asaas', externalSubscriptionId: 'sub_1', providerStatus: 'active' })).toBeNull();
   });
 });

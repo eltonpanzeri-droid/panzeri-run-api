@@ -12,7 +12,22 @@ import { paymentGroupOf, type PaymentGroup } from '../coach/subscription-groups.
 // treinador/administrador (mesmo acesso dos demais paineis por aluna). Contas de revisao das lojas ficam de fora.
 export type StudentAccessKind = 'android' | 'ios' | 'native_unknown' | 'browser_probable';
 
+// Forma de pagamento (14/11/2026): 'store' = Apple/Google (RevenueCat), 'asaas' = cartao/Pix no Asaas, 'manual' = cortesia/liberacao manual. A loja (Apple x Google) nao e' gravada por aluna.
+export type PaysVia = 'store' | 'asaas' | 'manual';
+export function paysViaOf(input: { subscriptionProvider: string | null; subscriptionManualOverride: boolean }): PaysVia {
+  if (input.subscriptionManualOverride) return 'manual';
+  return input.subscriptionProvider === 'revenuecat' ? 'store' : 'asaas';
+}
+// Quem paga pela loja mas ainda tem assinatura gravada no Asaas: pode estar sendo cobrada em duplicidade (caso Thalita, 13/11/2026). O id do Asaas fica gravado mesmo apos cancelar,
+// entao isto e' um ALERTA para conferir no painel do Asaas, nao uma prova de cobranca ativa.
+export function asaasLeftoverOf(input: { paysVia: PaysVia; externalSubscriptionId: string | null | undefined; providerStatus: string | null | undefined }): string | null {
+  if (input.paysVia !== 'store' || !input.externalSubscriptionId) return null;
+  return input.providerStatus ?? 'desconhecido';
+}
+
 export interface StudentAccessRow {
+  paysVia: PaysVia;
+  asaasLeftover: string | null;
   id: string;
   studentCode: number | null;
   name: string | null;
@@ -53,7 +68,10 @@ export class StudentAccessService {
         accountStatus: { not: 'archived' },
         NOT: { OR: REVIEW_EMAIL_PREFIXES.map((prefix) => ({ email: { startsWith: prefix } })) },
       },
-      select: { id: true, name: true, studentCode: true, subscriptionStatus: true, accountStatus: true, expoPushToken: true },
+      select: {
+        id: true, name: true, studentCode: true, subscriptionStatus: true, accountStatus: true, expoPushToken: true, subscriptionProvider: true, subscriptionManualOverride: true,
+        billingSubscription: { select: { externalSubscriptionId: true, providerStatus: true } },
+      },
       orderBy: [{ name: 'asc' }],
     });
     const ids = students.map((s) => s.id);
@@ -73,7 +91,9 @@ export class StudentAccessService {
       const push = Boolean(s.expoPushToken);
       const access = classifyAccess({ push, providers: conns.map((c) => c.provider) });
       counts[access] += 1;
+      const paysVia = paysViaOf(s);
       return {
+        paysVia, asaasLeftover: asaasLeftoverOf({ paysVia, externalSubscriptionId: s.billingSubscription?.externalSubscriptionId, providerStatus: s.billingSubscription?.providerStatus }),
         id: s.id, studentCode: s.studentCode, name: s.name, subscriptionStatus: s.subscriptionStatus, paymentGroup: paymentGroupOf(s.subscriptionStatus), accountStatus: s.accountStatus, push, access,
         connections: conns, activities: (activitiesOf.get(s.id) ?? []).sort((a, b) => (a.provider < b.provider ? -1 : 1)),
       };
