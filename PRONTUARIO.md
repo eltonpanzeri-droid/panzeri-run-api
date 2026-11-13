@@ -4268,3 +4268,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - LIMITE: a leitura é do app nativo → o gráfico da Lorena só aparece com o PRÓXIMO build iPhone + ela sincronizar. Sem build não há como corrigir a leitura de FC/cadência.
 - PROPOSTA (aguarda decisão de Elton): derivar RITMO e DISTÂNCIA no servidor a partir do percurso GPS que JÁ chegou (898 pontos), marcando como "derivado do GPS", para dar o gráfico de ritmo à Lorena sem build; FC e cadência não dá para derivar. Risco: ruído do GPS (suavização) e distinguir dado medido × derivado.
 - 13/11/2026 (Elton): proposta de derivar ritmo/distância do GPS "para a Lorena sem build" RECUSADA ("nada que funcione só para uma aluna, a menos que eu peça"). Vale a correção geral do app (próximo build). Regra registrada na memória.
+
+## 13/11/2026 — Ritmo estimado pelo GPS: decisão e plano (nada implementado)
+- Elton reconsiderou depois da explicação (série medida × ritmo estimado pelo GPS): **aprovou como regra GERAL**, só quando o relógio não entrega a série; serve ao gráfico e ao texto/percentual de quanto ficou dentro da faixa prescrita (**percentual, decisão dele**); aviso à aluna e à IA de que é estimado e menos preciso; NUNCA para recordes pessoais. Texto informativo rascunhado em `PLANO_RITMO_ESTIMADO_GPS.md` (aprovação do texto final pendente).
+- Plano: calcular na leitura (nada gravado na coluna de velocidade) para os recordes e demais consumidores continuarem lendo só o medido; 5 lotes; opt-in do cliente para apps antigos não verem estimado sem aviso.
