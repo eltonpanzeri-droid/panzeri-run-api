@@ -6503,59 +6503,6 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
 
           </>) : null}
 
-          {focus !== 'adherence' ? (<>
-          {/* Cards de volume — linha 2 */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>TOTAL (km)</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {fmtKm(data.totalKmPercorridos)}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>percorridos</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>NO PERÍODO</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {periodKm > 0 ? `${fmtKm(periodKm)} km` : '—'}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{chartPeriodWeeks <= 4 ? '4 sem.' : chartPeriodWeeks <= 8 ? '8 sem.' : chartPeriodWeeks <= 13 ? '3 meses' : '6 meses'}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>MELHOR SEM.</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {bestWeekKm > 0 ? `${fmtKm(bestWeekKm)} km` : '—'}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>no período</Text>
-            </View>
-          </View>
-
-          {/* Cards de volume — linha 3 */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>MÉDIA/SEM.</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {avgWeeklyKm > 0 ? `${fmtKm(avgWeeklyKm)} km` : '—'}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>semanas c/ km</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>RECORDE SEQ.</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {data.consistency.longestStreakWeeks}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{data.consistency.longestStreakWeeks === 1 ? 'semana' : 'semanas'}</Text>
-            </View>
-            <View style={{ flex: 1, backgroundColor: '#f8fafc', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#e2e8f0' }}>
-              <Text style={{ fontSize: 10, color: '#64748b', fontWeight: '600', marginBottom: 4 }}>ÚLTIMO REG.</Text>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: '#1e293b' }}>
-                {fmtDate(data.consistency.lastRegisteredDate)}
-              </Text>
-              <Text style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>treino</Text>
-            </View>
-          </View>
-
-          </>) : null}
-
           {/* Aviso de baixa cobertura */}
           {focus !== 'training' && adherence?.lowCoverageWarning ? (
             <View style={{ backgroundColor: '#fefce8', borderRadius: 10, padding: 10, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: '#fde047' }}>

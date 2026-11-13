@@ -4337,3 +4337,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ## 14/11/2026 — "Treinos por modalidade" removido da tela (ordem de Elton)
 - O cartão saiu da Evolução do treinamento ("some com isso"). Os dados (`modalityBreakdown`) continuam na API; só a tela deixou de mostrar. Se Elton quiser de volta, escolher o local antes. Só app: PWA no Deploy do app; nativos no próximo build.
+
+## 14/11/2026 — Painel "Seu resumo" na tela inicial, com período livre (pedido de Elton)
+- Os 6 cartões de números saíram da "Evolução do treinamento"; agora há um painel só na tela inicial (`home/SummaryPanel.tsx`) com os 7 itens da lista de Elton. Período: Desde o início (padrão), 30 dias, 3 meses ou livre (dd/mm/aaaa). Sem período (sempre desde o início): semanas desde que entrou, semana com mais km, recorde de semanas ativas seguidas. Treinos por modalidade tem seletor de modalidade.
+- Servidor: `GET /me/evolution/panel?from&to` (`evolution/summary-panel.ts`, regra pura). Mesmas regras de "feita" e de km da Evolução (teste prova que o km total bate com a soma semanal); esteira = corrida; extras contam como treino feito.
+- **Atenção:** o "recorde de semanas ativas" do painel (semanas do calendário com pelo menos 1 treino FEITO) é diferente do antigo "RECORDE SEQ." da API (`longestStreakWeeks`, que contava semanas com feita OU não feita e ignorava lacunas). O campo antigo continua na API (medalhas etc.), só a tela deixou de usá-lo.
+- Limitação: atividade alternativa do relógio sem sessão materializada entra nos km, mas não em "treinos feitos". API no Deploy; tela no Deploy do app (PWA) e no próximo build (nativos).

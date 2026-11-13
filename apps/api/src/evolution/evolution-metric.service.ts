@@ -7,6 +7,7 @@ import { TRAINING_INTELLIGENCE_DATA_CUTOFF } from '../common/training-history-po
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { weekStartOf as getWeekStart } from '../common/weekly-volume';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import { buildSummaryPanel, type PanelPeriod, type SummaryPanel } from './summary-panel';
 import type {
   AdherencePeriod,
   AdherenceSummary,
@@ -510,6 +511,14 @@ export class EvolutionMetricService {
   // -------------------------------------------------------------------------
   // API pública
   // -------------------------------------------------------------------------
+
+  /** Painel de resumo da tela inicial (lista de Elton, 14/11/2026). Período opcional (`from`/`to`, 'YYYY-MM-DD'); sem período = desde o início. Endpoint: GET /me/evolution/panel */
+  async getPanel(userId: string, period: PanelPeriod = { from: null, to: null }): Promise<SummaryPanel> {
+    const todayBR = getTodayBR();
+    const sessions = await this.fetchRawSessions(userId);
+    const activities = await this.fetchRealizedActivities(userId);
+    return buildSummaryPanel(sessions, activities, todayBR, period, (s) => this.classifySession(s, todayBR));
+  }
 
   /** Calcula o overview de evolução de um aluno. Endpoint: GET /me/evolution/overview */
   async getOverview(userId: string, recentWeeks = 12): Promise<EvolutionOverview> {

@@ -4,6 +4,7 @@ import { Text } from '../src/PtText';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
+import { SummaryPanel } from './SummaryPanel';
 import { PendingIdentityNotice } from './PendingIdentity';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
@@ -283,6 +284,9 @@ export function HomeScreen({
         weeks={evolution?.recentWeeks ?? []}
         accessToken={accessToken}
       />
+
+      {/* Seu resumo (14/11/2026, pedido de Elton): os números gerais ficam SÓ aqui, com período escolhido pela aluna (padrão: desde o início). */}
+      <SummaryPanel accessToken={accessToken} todayIso={todayIso} />
 
       {/* Bloco 4 — Sua evolução: as seis áreas (02/11/2026, no lugar do antigo "Como você está") */}
       <View style={{ gap: 4 }}>
