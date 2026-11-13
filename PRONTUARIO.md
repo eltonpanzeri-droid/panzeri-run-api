@@ -4223,3 +4223,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Correção: `apple-health-consent.service.ts` (`updateGroups`) — ao conceder grupos com o texto vigente (versão+hash+aceite já validados) e a linha com texto antigo, grava também `consentVersion/consentTextHash/consentedAt`. Mesma falha existia em `health-connect-consent.service.ts` (Android): corrigida igual. Revogar sem conceder NÃO reconfirma. Provider-hub genérico (Zepp/COROS/Garmin/Polar/Wahoo) não tem esse gate nos grupos, não alterado.
 - Testes: 2 novos em `apple-health-consent.spec.ts` (reprodução do caso + revogação); 154 testes de Apple Saúde/Health Connect verdes; `tsc` verde na API. Só API → vale no Deploy da API; NÃO exige build. Validação ao vivo com a Lorena pendente (nota, não impedimento).
 - Depois do Deploy: a aluna abre a tela, marca os grupos, toca em "Salvar minhas autorizações" (marcando o aceite) e o botão habilita. Os treinos já no relógio entram na sincronização.
+
+## 13/11/2026 — Correções de Elton ao meu resumo de pendências
+- Não há Deploy pendente (Push + Deploy da API/painel/PWA já feitos por Elton, incluindo comunicado por e-mail e correção do botão da Lorena).
+- REGRA: nunca resolver caso de aluna específica com configuração por aluna. Proposta de pôr a Thais em `GARMIN_ENABLED_USER_IDS` foi RETIRADA. A porta `*_ENABLED_USER_IDS` (Garmin, COROS, Zepp, Wahoo) aceita `*` (todas); abrir para todas é decisão geral, não por id. Pendente: Elton decidir se libera Garmin para todas (`*` ou remover a porta no código).
