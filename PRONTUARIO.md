@@ -4227,3 +4227,4 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ## 13/11/2026 — Correções de Elton ao meu resumo de pendências
 - Não há Deploy pendente (Push + Deploy da API/painel/PWA já feitos por Elton, incluindo comunicado por e-mail e correção do botão da Lorena).
 - REGRA: nunca resolver caso de aluna específica com configuração por aluna. Proposta de pôr a Thais em `GARMIN_ENABLED_USER_IDS` foi RETIRADA. A porta `*_ENABLED_USER_IDS` (Garmin, COROS, Zepp, Wahoo) aceita `*` (todas); abrir para todas é decisão geral, não por id. Pendente: Elton decidir se libera Garmin para todas (`*` ou remover a porta no código).
+- 13/11/2026 (Elton): `GARMIN_ENABLED_USER_IDS` no EasyPanel SEMPRE foi `*` (todas). A porta nunca foi causa do caso Thais; a causa foi só a leitura dupla do corpo da resposta (corrigida e em produção). Pendência "decidir liberar Garmin para todas" ENCERRADA; não listar mais nada de `*_ENABLED_USER_IDS` como pendência.
