@@ -3,10 +3,19 @@ import { ObservationReaderService } from './observation-reader.service';
 import { MathLayerService, type SeriesPoint } from './math-layer.service';
 import { getVariableDefinition } from './variable-registry';
 import { AREA_READING, READING_CATALOG, type AreaId } from './evolution-reading-catalog';
+import { chooseMainSource } from './wearable-source';
 import { EVOLUTION_SUMMARY_META, buildAreaSummary, buildIndicatorResult, type AreaSummary, type IndicatorResult } from './evolution-summary';
 
 // Evolução da aluna: leitura por regra de cada indicador e síntese por área (13/11/2026). SOMENTE LEITURA, sempre com o id da aluna autenticada. Reaproveita o leitor de observações e a camada
 // matemática existentes: nenhum cálculo novo de série. Os dados que a IA usa NÃO passam por aqui (a tela pode esconder gráficos sem afetar a IA).
+// Dados do relógio: só a fonte PRINCIPAL da aluna (a ativa e mais constante; nunca mistura marcas) e, no sono, só a sessão principal de cada noite. Sem fonte identificada = tudo, como já era.
+export function mainSourceOnly<T extends { timestamp: Date; context: { sourceKey?: string; sessionRole?: 'principal' | 'additional' } }>(rows: T[], now: Date = new Date()): T[] {
+  const keys = new Set(rows.map((r) => r.context?.sourceKey).filter((k): k is string => !!k));
+  if (keys.size === 0) return rows;
+  const main = chooseMainSource([...keys].map((key) => ({ key, timestamps: rows.filter((r) => r.context?.sourceKey === key).map((r) => r.timestamp) })), null, now);
+  return rows.filter((r) => r.context?.sourceKey === main && r.context?.sessionRole !== 'additional');
+}
+
 @Injectable()
 export class EvolutionSummaryService {
   private readonly logger = new Logger(EvolutionSummaryService.name);
@@ -21,7 +30,9 @@ export class EvolutionSummaryService {
       let series: SeriesPoint[] = [];
       try {
         const observations = await this.reader.getObservations(userId, entry.variableId);
-        series = observations.filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value)).map((o) => ({ value: o.value, timestamp: o.timestamp }));
+        let usable = observations.filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value));
+        if (entry.wearable) usable = mainSourceOnly(usable);
+        series = usable.map((o) => ({ value: o.value, timestamp: o.timestamp }));
       } catch (error) {
         // um indicador que falha ao ler nao derruba a tela: entra como "dados insuficientes"
         this.logger.warn(`Evolucao: leitura de ${entry.variableId} falhou (${error instanceof Error ? error.message : String(error)}).`);
@@ -34,7 +45,7 @@ export class EvolutionSummaryService {
       ...EVOLUTION_SUMMARY_META,
       areas,
       notes: [
-        'A área de dor tem tela própria. Indicadores medidos por relógio (sono, variabilidade cardíaca, frequência de repouso) entram numa próxima etapa, por fonte de dados.',
+        'A área de dor tem tela própria. Número de ciclos de sono e pontuação do sono ainda não entram: o relógio não envia o número de ciclos.',
       ],
     };
   }

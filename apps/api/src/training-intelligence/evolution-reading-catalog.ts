@@ -26,8 +26,21 @@ export interface IndicatorReading {
   why: string;
   /** O que o nível da aluna indica. Indicadores sem direção (levelGoodWhen null) usam só `neutral`. */
   meaning: { good?: string; middle?: string; poor?: string; neutral?: string };
+  /** Indicador sem "bom/ruim" que tem regra de texto pela POSIÇÃO da média na escala (ex.: esforço percebido alto/médio/baixo). Posição >= 0,65 = high; <= 0,4 = low. */
+  positionMeaning?: { high: string; middle: string; low: string };
+  /** Palavras da tendência quando o indicador não tem polaridade: above = valores subiram, below = valores caíram (ex.: ritmo: "ritmo mais lento"/"ritmo mais rápido"). */
+  phrases?: { above: string; below: string };
+  /** Mudança conta como 10% do valor de referência (e não da escala): para volume, ritmo e medidas do relógio, cuja escala do registro é só um limite técnico. */
+  relativeChange?: boolean;
+  /** Série semanal: a semana em curso (incompleta) fica fora e o texto comenta a ÚLTIMA SEMANA OBSERVÁVEL contra o padrão. */
+  weekly?: { unitLabel: string };
+  /** Medido pelo relógio: usa só a fonte principal da aluna (nunca mistura fontes) e, no sono, só a sessão principal da noite. */
+  wearable?: boolean;
+  /** Frase do padrão de longo prazo (substitui "O seu caso mostra uma média de..."). */
+  habitualTemplate?: (mean: string, n: number) => string;
 }
 
+const WATCH_FOOTER = 'Esse indicador, sozinho, não diz se você está bem ou mal: cada dado é uma parte de um todo e pode ajudar mais ou atrapalhar mais conforme o número. O que mostramos é o seu padrão de longo prazo e para onde a sua tendência aponta, lidos junto com os demais dados para montar treinos mais assertivos. Não é diagnóstico.';
 const NEUTRAL_FOOTER = 'Esse indicador não é "bom" ou "ruim" por si só: o que ele mostra depende da intenção dos seus treinos e do momento da preparação, por isso é acompanhado junto com os demais.';
 
 export const READING_CATALOG: IndicatorReading[] = [
@@ -123,8 +136,14 @@ export const READING_CATALOG: IndicatorReading[] = [
   {
     variableId: 'workout.perceivedEffort', area: 'load', name: 'esforço percebido', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (esforço percebido, de 1 a 10), números mais perto de 10 significam treinos sentidos como muito difíceis; mais perto de 1, muito leves.',
-    why: 'É a sua leitura do esforço de cada treino, e junto com o tempo de treino compõe a carga interna que usamos para acompanhar a sua resposta ao treinamento.',
+    why: 'É a sua leitura do esforço de cada treino e, junto com o tempo de treino, compõe a carga interna que usamos para acompanhar a sua resposta ao treinamento. Quem está começando, por ter menor capacidade física, costuma perceber os treinos com esforço maior.',
     meaning: { neutral: NEUTRAL_FOOTER },
+    positionMeaning: {
+      high: 'Perceber os treinos quase sempre com esforço alto pode indicar boa tolerância ao esforço, mas também que a intensidade está sempre muito forte, o que pode comprometer o seu desenvolvimento no médio e no longo prazo, aumentar o risco de lesões e até levar ao abandono dos treinos.',
+      middle: 'Perceber os treinos com esforço intermediário, variando conforme a intenção de cada sessão, é esperado numa preparação que alterna treinos leves, moderados e intensos.',
+      low: 'Perceber os treinos quase sempre com esforço baixo pode indicar boa tolerância ao esforço ou treinos mais leves, o que é esperado em fases de base e de recuperação; vale ler junto com o ritmo e com a evolução dos seus treinos.',
+    },
+    relativeChange: true,
   },
   {
     variableId: 'checkin.weekDemandVsNormal', area: 'load', name: 'exigência da semana comparada ao seu normal', levelGoodWhen: null, trendGoodWhen: null,
@@ -157,14 +176,51 @@ export const READING_CATALOG: IndicatorReading[] = [
   {
     variableId: 'training.volumeCompletedTotalKm', area: 'training', name: 'volume semanal realizado', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (volume semanal realizado, em quilômetros), números maiores significam mais quilômetros percorridos na semana.',
-    why: 'O volume é a base da preparação, mas o que importa é a sua progressão ao longo das semanas, e não um número isolado.',
-    meaning: { neutral: NEUTRAL_FOOTER },
+    why: 'Em geral, correr mais quilômetros por semana tende a levar a melhores resultados, mas também pode trazer maior risco de lesões e de sobrecarga. Por isso não qualificamos o seu volume como bom ou ruim: mostramos o seu padrão e a sua tendência.',
+    meaning: {},
+    relativeChange: true,
+    weekly: { unitLabel: 'semana' },
+    phrases: { above: 'aumento do volume', below: 'redução do volume' },
+    habitualTemplate: (mean, n) => `A sua tendência de longo prazo é de cerca de ${mean} de volume por semana (${n} semanas completas desde 01/08/2026).`,
   },
   {
     variableId: 'activity.avgPaceSecondsKm', area: 'training', name: 'ritmo médio', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (ritmo médio, em minutos por quilômetro), números menores significam ritmo mais rápido; maiores, mais lento.',
-    why: 'O ritmo médio depende do tipo de treino do dia (leve, longo ou intenso), por isso só diz algo junto com a intenção de cada sessão.',
-    meaning: { neutral: NEUTRAL_FOOTER },
+    why: 'Mostramos apenas a métrica e a tendência, sem avaliar capacidade: o ritmo médio depende do tipo de treino do dia (leve, longo ou intenso). Com o passar do tempo é natural que a média fique mais rápida, mas isso acontece principalmente no longo prazo.',
+    meaning: {},
+    relativeChange: true,
+    phrases: { above: 'ritmo médio mais lento', below: 'ritmo médio mais rápido' },
+  },
+  // ------------------------------------------------------------------ Sono e recuperação medidos pelo RELÓGIO (14/11/2026: números objetivos + a nossa matemática; só tendência, sem julgar o nível)
+  {
+    variableId: 'wearable.sleepDurationMin', area: 'sleep', name: 'tempo total de sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (tempo total de sono medido pelo relógio, em horas), números maiores significam mais horas dormidas por noite.',
+    why: 'O tempo de sono é a base da recuperação entre os treinos. O relógio estima esse tempo, então usamos o seu próprio padrão como referência.',
+    meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento do tempo de sono', below: 'queda do tempo de sono' },
+  },
+  {
+    variableId: 'wearable.sleepDeepMin', area: 'sleep', name: 'sono profundo (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (sono profundo estimado pelo relógio, em horas), números maiores significam mais tempo na fase mais restauradora do sono.',
+    why: 'O sono profundo está associado à recuperação física. As fases do sono são estimativas do aparelho, não medidas clínicas, e variam entre marcas.',
+    meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento do sono profundo', below: 'queda do sono profundo' },
+  },
+  {
+    variableId: 'wearable.sleepRemMin', area: 'sleep', name: 'sono REM (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (sono REM estimado pelo relógio, em horas), números maiores significam mais tempo na fase do sono ligada à recuperação mental e ao aprendizado.',
+    why: 'O sono REM está associado à recuperação mental e emocional. As fases do sono são estimativas do aparelho, não medidas clínicas, e variam entre marcas.',
+    meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento do sono REM', below: 'queda do sono REM' },
+  },
+  {
+    variableId: 'wearable.hrvLastNightAvg', area: 'sleep', name: 'variabilidade da frequência cardíaca (HRV) da noite', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (variabilidade da frequência cardíaca, HRV, medida pelo relógio durante a noite), a unidade e o método dependem do aparelho, por isso só comparamos com o seu próprio padrão.',
+    why: 'A HRV mostra o quanto o intervalo entre os batimentos varia. Em geral, valores acima do seu normal costumam acompanhar boa recuperação, e valores abaixo podem acompanhar cansaço, estresse ou sono ruim, entre outras causas.',
+    meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento da HRV', below: 'queda da HRV' },
+  },
+  {
+    variableId: 'wearable.restingHeartRateBpm', area: 'sleep', name: 'frequência cardíaca de repouso (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (frequência cardíaca de repouso medida pelo relógio, em batimentos por minuto), números menores significam um coração batendo mais devagar em repouso.',
+    why: 'Em geral, a frequência de repouso cai com o melhor condicionamento e com boa recuperação; valores acima do seu normal podem acompanhar cansaço, estresse ou sono ruim, entre outras causas.',
+    meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento da frequência de repouso', below: 'queda da frequência de repouso' },
   },
 ];
 

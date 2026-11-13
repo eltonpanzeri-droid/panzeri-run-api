@@ -3,7 +3,7 @@ import { MathLayerService } from '../src/training-intelligence/math-layer.servic
 import { getVariableDefinition } from '../src/training-intelligence/variable-registry';
 import { AREA_READING, READING_CATALOG } from '../src/training-intelligence/evolution-reading-catalog';
 import { MIN_OBSERVATIONS, buildAreaSummary, buildIndicatorResult, levelOf, verdictOf } from '../src/training-intelligence/evolution-summary';
-import { EvolutionSummaryService } from '../src/training-intelligence/evolution-summary.service';
+import { EvolutionSummaryService, mainSourceOnly } from '../src/training-intelligence/evolution-summary.service';
 
 // Evolução por REGRA (13/11/2026): textos que refletem a escala de cada indicador, nível, tendência e síntese por área. Séries sintéticas (uma observação por noite).
 const math = new MathLayerService();
@@ -90,7 +90,7 @@ describe('leitura de um indicador (exemplo de Elton: qualidade do sono, média 2
     expect(effort.bucket).toBe('tracked');
     expect(effort.level).toBeNull();
     expect(effort.short?.verdict).toBe('above');
-    expect(effort.texts.meaning).toContain('não é "bom" ou "ruim" por si só');
+    expect(effort.texts.meaning).toContain('esforço intermediário');
   });
 
   it('só registros desde 01/08/2026 entram', () => {
@@ -143,7 +143,7 @@ describe('catálogo: coerência com o registro de variáveis e regras de redaç�
         expect(e.meaning.good && e.meaning.middle && e.meaning.poor).toBeTruthy();
         expect(e.trendGoodWhen).not.toBeNull();
       } else {
-        expect(e.meaning.neutral).toBeTruthy();
+        expect(!!(e.meaning.neutral || e.positionMeaning || e.phrases)).toBe(true);
       }
     }
   });
@@ -172,5 +172,68 @@ describe('serviço', () => {
     expect(sleep.indicators.find((i) => i.variableId === 'workout.preSleepQuality')?.bucket).toBe('attention');
     expect(out.status).toBe('rascunho_a_revisar');
     expect(out.since).toBe('2026-08-01');
+  });
+});
+
+// Regras de Elton (14/11/2026): esforço, volume, ritmo e medidas do relógio.
+describe('esforço, volume, ritmo e relógio', () => {
+  const NOW = new Date(START + 130 * DAY);
+  const weeks = (values: number[]) => values.map((value, i) => ({ value, timestamp: new Date(START + i * 7 * DAY) }));
+
+  it('esforço percebido sempre alto: texto de boa tolerância E de intensidade sempre forte (risco de lesão, abandono); iniciantes; nunca "bom/ruim"', () => {
+    const r = result('workout.perceivedEffort', repeat(8.5, 40));
+    expect(r.bucket).toBe('tracked');
+    expect(r.texts.whatItMeasures).toContain('Quem está começando');
+    expect(r.texts.meaning).toContain('boa tolerância ao esforço');
+    expect(r.texts.meaning).toContain('intensidade está sempre muito forte');
+    expect(r.texts.meaning).toContain('risco de lesões');
+    expect(r.texts.meaning).toContain('abandono');
+    expect(result('workout.perceivedEffort', repeat(5, 40)).texts.meaning).toContain('esforço intermediário');
+    expect(result('workout.perceivedEffort', repeat(2, 40)).texts.meaning).toContain('esforço baixo');
+  });
+
+  it('volume: padrão de longo prazo, última semana observável contra o padrão, tendência recente e texto sem qualificar; a semana em curso fica fora', () => {
+    const base = [...repeat(30, 14), ...repeat(40, 4)];
+    const series = [...weeks(base), { value: 3, timestamp: new Date(NOW.getTime() - 2 * DAY) }]; // semana em curso, incompleta: ignorada
+    const r = buildIndicatorResult(entry('training.volumeCompletedTotalKm'), definition('training.volumeCompletedTotalKm'), series, math, new Date(START + 18 * 7 * DAY + 2 * DAY));
+    expect(r.n).toBe(18);
+    expect(r.texts.habitual).toContain('A sua tendência de longo prazo é de cerca de');
+    expect(r.texts.habitual).toContain('A última semana observável teve 40 km, acima do seu padrão');
+    expect(r.texts.whatItMeasures).toContain('maior risco de lesões e de sobrecarga');
+    expect(r.bucket).toBe('tracked');
+    expect(r.texts.meaning).toBeNull();
+    expect(r.texts.trend ?? '').not.toMatch(/melhora|piora/);
+  });
+
+  it('ritmo: só métrica e tendência com as palavras de ritmo (mais lento/mais rápido), sem melhora/piora e com a nota de que o ganho vem no longo prazo', () => {
+    const faster = result('activity.avgPaceSecondsKm', [...repeat(400, 60), ...repeat(340, 30)]);
+    expect(faster.texts.trend).toContain('ritmo médio mais rápido');
+    expect(faster.texts.trend).not.toMatch(/melhora|piora/);
+    expect(faster.texts.whatItMeasures).toContain('principalmente no longo prazo');
+    expect(faster.texts.whatItMeasures).toContain('sem avaliar capacidade');
+    expect(faster.bucket).toBe('tracked');
+    expect(faster.texts.habitual).toMatch(/\d:\d\d\/km/);
+  });
+
+  it('relógio: sono em horas e minutos, tendência por aumento/queda, texto de "parte de um todo" e sem julgar o nível', () => {
+    const deep = result('wearable.sleepDeepMin', [...repeat(80, 60), ...repeat(50, 30)]);
+    expect(deep.bucket).toBe('tracked');
+    expect(deep.texts.habitual).toContain('1 h');
+    expect(deep.texts.trend).toContain('queda do sono profundo');
+    expect(deep.texts.meaning).toContain('parte de um todo');
+    expect(deep.texts.meaning).toContain('Não é diagnóstico');
+    expect(result('wearable.restingHeartRateBpm', repeat(52, 40)).texts.habitual).toContain('52 bpm');
+  });
+
+  it('relógio: só a fonte principal (a ativa e mais constante) e só a sessão principal da noite; sem fonte identificada usa tudo', async () => {
+    const mk = (days: number, value: number, sourceKey: string, sessionRole: 'principal' | 'additional' = 'principal') =>
+      Array.from({ length: days }, (_, i) => ({ value, timestamp: new Date(NOW.getTime() - (days - i) * DAY), context: { sourceKey, sessionRole } }));
+    const rows = [...mk(40, 400, 'garmin'), ...mk(6, 300, 'health_connect:app.x'), ...mk(40, 90, 'garmin', 'additional')];
+    const kept = mainSourceOnly(rows, NOW);
+    expect(kept.length).toBe(40);
+    expect(kept.every((r) => r.value === 400)).toBe(true);
+    const semFonte = [{ value: 1, timestamp: NOW, context: {} }];
+    expect(mainSourceOnly(semFonte, NOW)).toEqual(semFonte);
+    expect(mainSourceOnly([{ value: 1, timestamp: NOW } as never], NOW).length).toBe(1);
   });
 });

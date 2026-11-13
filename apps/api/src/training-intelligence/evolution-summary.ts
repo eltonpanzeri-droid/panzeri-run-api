@@ -42,6 +42,11 @@ export function formatValue(value: number, variableId: string, unit?: string): s
     const total = Math.round(value);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}/km`;
   }
+  if (unit === 'min') {
+    const total = Math.round(value);
+    return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;
+  }
+  if (unit === 'bpm') return `${Math.round(value)} bpm`;
   const text = String(round1(value)).replace('.', ',');
   if (unit === '%') return `${text.replace(',0', '')}%`;
   if (unit === 'km') return `${text.replace(',0', '')} km`;
@@ -55,8 +60,8 @@ export function levelOf(value: number, scale: { min: number; max: number } | und
   return goodSide >= GOOD_FRACTION ? 'good' : goodSide <= POOR_FRACTION ? 'poor' : 'middle';
 }
 
-export function verdictOf(delta: number, reference: number, scale: { min: number; max: number } | undefined, trendGoodWhen: 'up' | 'down' | null): Verdict {
-  const threshold = scale && scale.max > scale.min ? (scale.max - scale.min) * CHANGE_FRACTION : Math.abs(reference) * CHANGE_FRACTION;
+export function verdictOf(delta: number, reference: number, scale: { min: number; max: number } | undefined, trendGoodWhen: 'up' | 'down' | null, relative = false): Verdict {
+  const threshold = !relative && scale && scale.max > scale.min ? (scale.max - scale.min) * CHANGE_FRACTION : Math.abs(reference) * CHANGE_FRACTION;
   if (!(Math.abs(delta) >= threshold) || threshold === 0) return 'stable';
   if (!trendGoodWhen) return delta > 0 ? 'above' : 'below';
   return (delta > 0) === (trendGoodWhen === 'up') ? 'improved' : 'worsened';
@@ -66,13 +71,31 @@ const VERDICT_PHRASE: Record<Verdict, string> = {
   improved: 'melhora', worsened: 'piora', stable: 'estabilidade', above: 'valores acima do habitual', below: 'valores abaixo do habitual',
 };
 
-export function trendSentence(short: TrendReading | null, long: TrendReading | null): string | null {
+export function trendSentence(short: TrendReading | null, long: TrendReading | null, phrases?: { above: string; below: string }): string | null {
   if (!short && !long) return null;
+  const word = (verdict: Verdict) => (phrases && verdict === 'above' ? phrases.above : phrases && verdict === 'below' ? phrases.below : VERDICT_PHRASE[verdict]);
   if (short && long) {
-    if (short.verdict === long.verdict) return short.verdict === 'stable' ? 'A tendência é estável, tanto no curto quanto no longo prazo.' : `A tendência mostra ${VERDICT_PHRASE[short.verdict]}, tanto no curto quanto no longo prazo.`;
-    return `A tendência mostra ${VERDICT_PHRASE[short.verdict]} no curto prazo e ${VERDICT_PHRASE[long.verdict]} no longo prazo.`;
+    if (short.verdict === long.verdict) return short.verdict === 'stable' ? 'A tendência é estável, tanto no curto quanto no longo prazo.' : `A tendência mostra ${word(short.verdict)}, tanto no curto quanto no longo prazo.`;
+    return `A tendência mostra ${word(short.verdict)} no curto prazo e ${word(long.verdict)} no longo prazo.`;
   }
-  return short ? `A tendência de curto prazo mostra ${VERDICT_PHRASE[short.verdict]} (ainda não há registros suficientes para o longo prazo).` : `A tendência de longo prazo mostra ${VERDICT_PHRASE[(long as TrendReading).verdict]} (ainda não há registros suficientes para o curto prazo).`;
+  return short ? `A tendência de curto prazo mostra ${word(short.verdict)} (ainda não há registros suficientes para o longo prazo).` : `A tendência de longo prazo mostra ${word((long as TrendReading).verdict)} (ainda não há registros suficientes para o curto prazo).`;
+}
+
+// Esforço percebido e afins: o texto depende da POSIÇÃO da média na escala (alta/intermediária/baixa), sem chamar de bom ou ruim.
+export const POSITION_HIGH = 0.65;
+export const POSITION_LOW = 0.4;
+export function positionBand(value: number, scale: { min: number; max: number } | undefined): 'high' | 'middle' | 'low' | null {
+  if (!scale || scale.max <= scale.min) return null;
+  const position = (value - scale.min) / (scale.max - scale.min);
+  return position >= POSITION_HIGH ? 'high' : position <= POSITION_LOW ? 'low' : 'middle';
+}
+
+// Última semana observável contra o padrão (volume): só descreve; nunca qualifica.
+export function lastWeekSentence(last: number, baseline: number, format: (value: number) => string): string {
+  const threshold = Math.abs(baseline) * CHANGE_FRACTION;
+  const diff = last - baseline;
+  const where = Math.abs(diff) < threshold || threshold === 0 ? 'em linha com o seu padrão' : diff > 0 ? 'acima do seu padrão' : 'abaixo do seu padrão';
+  return `A última semana observável teve ${format(last)}, ${where} de ${format(baseline)} por semana.`;
 }
 
 export function bucketOf(level: Level | null, short: TrendReading | null, directional: boolean): Bucket {
@@ -86,9 +109,11 @@ export function bucketOf(level: Level | null, short: TrendReading | null, direct
   return 'steady';
 }
 
-export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService): IndicatorResult {
+export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService, now: Date = new Date()): IndicatorResult {
   const whatItMeasures = `${entry.scaleText} ${entry.why}`;
-  const recent = series.filter((p) => Number.isFinite(p.value) && p.timestamp.getTime() >= EVOLUTION_SINCE.getTime()).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  // Série semanal: a semana em curso é incompleta e fica fora (regra de Elton, 05/11/2026).
+  const cutoff = entry.weekly ? now.getTime() - 7 * 86_400_000 : Infinity;
+  const recent = series.filter((p) => Number.isFinite(p.value) && p.timestamp.getTime() >= EVOLUTION_SINCE.getTime() && p.timestamp.getTime() <= cutoff).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   if (recent.length < MIN_OBSERVATIONS) {
     return { variableId: entry.variableId, name: entry.name, status: 'insufficient', bucket: 'insufficient', level: null, mean: null, n: recent.length, short: null, long: null,
       texts: { whatItMeasures, habitual: 'Ainda não há registros suficientes para mostrar o seu padrão neste indicador.', trend: null, meaning: null } };
@@ -101,7 +126,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   const ac = buildAcuteChronic(math, recent, definition, null);
   let short: TrendReading | null = null;
   if (ac.acute.complete && ac.chronic.complete && ac.difference != null && ac.chronic.value != null) {
-    short = { delta: ac.difference, verdict: verdictOf(ac.difference, ac.chronic.value, scale, entry.trendGoodWhen) };
+    short = { delta: ac.difference, verdict: verdictOf(ac.difference, ac.chronic.value, scale, entry.trendGoodWhen, entry.relativeChange) };
   }
   let long: TrendReading | null = null;
   if (ac.chronic.complete && ac.chronic.value != null && ac.chronic.windowStart) {
@@ -109,20 +134,20 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
     const before = recent.filter((p) => p.timestamp.getTime() < start).map((p) => p.value);
     if (before.length >= MIN_BEFORE_FOR_LONG_TREND) {
       const baseline = mean(before);
-      long = { delta: ac.chronic.value - baseline, verdict: verdictOf(ac.chronic.value - baseline, baseline, scale, entry.trendGoodWhen) };
+      long = { delta: ac.chronic.value - baseline, verdict: verdictOf(ac.chronic.value - baseline, baseline, scale, entry.trendGoodWhen, entry.relativeChange) };
     }
   }
 
   const bucket = bucketOf(level, short, directional);
-  const meaning = level ? (entry.meaning[level] ?? null) : (entry.meaning.neutral ?? null);
+  const band = entry.positionMeaning ? positionBand(overall, scale) : null;
+  const meaning = level ? (entry.meaning[level] ?? null) : band && entry.positionMeaning ? entry.positionMeaning[band] : (entry.meaning.neutral ?? null);
+  const unit = scale && 'unit' in scale ? (scale as { unit?: string }).unit : undefined;
+  const meanText = formatValue(overall, entry.variableId, unit);
+  let habitual = entry.habitualTemplate ? entry.habitualTemplate(meanText, recent.length) : `O seu caso mostra uma média de ${meanText} (${recent.length} registros desde 01/08/2026).`;
+  if (entry.weekly) habitual += ` ${lastWeekSentence(recent[recent.length - 1].value, overall, (value) => formatValue(value, entry.variableId, unit))}`;
   return {
     variableId: entry.variableId, name: entry.name, status: 'ok', bucket, level, mean: overall, n: recent.length, short, long,
-    texts: {
-      whatItMeasures,
-      habitual: `O seu caso mostra uma média de ${formatValue(overall, entry.variableId, scale && 'unit' in scale ? (scale as { unit?: string }).unit : undefined)} (${recent.length} registros desde 01/08/2026).`,
-      trend: trendSentence(short, long),
-      meaning,
-    },
+    texts: { whatItMeasures, habitual, trend: trendSentence(short, long, entry.phrases), meaning },
   };
 }
 

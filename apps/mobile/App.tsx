@@ -6631,6 +6631,24 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
             </View>
           </View>
 
+          {/* Prescrito, realizado e a comparação (14/11/2026, pedido de Elton): três gráficos fixos da trajetória, sem nenhuma conta nova (mesmos dados do gráfico acima). */}
+          {(() => {
+            const periodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
+            const sliced = data.recentWeeks.slice(-periodWeeks);
+            return (
+              <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 16, gap: 10 }}>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Volume: prescrito, realizado e comparação</Text>
+                <Text style={{ fontSize: 12, color: '#64748b' }}>Prescrito</Text>
+                <KmLineChart weeks={sliced} series={['prescrito']} serverBand={undefined} />
+                <Text style={{ fontSize: 12, color: '#64748b' }}>Realizado (inclui treinos extras)</Text>
+                <KmLineChart weeks={sliced} series={['percorrido']} serverBand={kmServerBand} />
+                <Text style={{ fontSize: 12, color: '#64748b' }}>Prescrito × realizado: a sua trajetória</Text>
+                <KmLineChart weeks={sliced} series={['prescrito', 'percorrido']} serverBand={undefined} />
+                <Text style={{ fontSize: 11, color: '#94a3b8' }}>Descrição dos seus registros, semana a semana; não indica o que é certo ou errado.</Text>
+              </View>
+            );
+          })()}
+
           {/* "O que isso representa" do volume por semana (02/11/2026; texto em home/indicatorMeanings.ts) */}
           <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" /></View>
 

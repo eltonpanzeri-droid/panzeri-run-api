@@ -4296,3 +4296,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Código: `GET /me/evolution/summary` + carrossel `EvolutionReadingCards` nas áreas. Textos em `evolution-reading-catalog.ts` são RASCUNHO para Elton revisar frase por frase (e o advogado, pela regra anterior dele de seguir sem advogado, fica a critério dele).
 - Notificações (Frentes 3 e 4): decisões registradas em `PLANO_FRENTES_3_4_NOTIFICACOES.md` (seção 5): texto por regra, teto de 5/dia por necessidade, horário padrão 06–20h e seção de preferências para a aluna gerenciar número e horário. Não implementado.
 - Fica para depois (ordem de Elton): COROS, planos à Wahoo e temas de cores.
+
+## 14/11/2026 — Evolução: regras de esforço, volume, ritmo e relógio
+- Ordem de Elton implementada (rascunho a revisar): texto de esforço por posição da média, volume com última semana observável vs padrão e 3 gráficos fixos (prescrito, realizado, comparação), ritmo só métrica+tendência, e sono total/profundo/REM/HRV/FC de repouso do relógio por tendência (fonte principal). Princípio dele: cada dado é parte de um todo; mostramos padrão, tendência e o que tende a representar, sem diagnóstico. Detalhes e pendências (ciclos de sono, preferência de fonte) em PLANO_FRENTE2_EVOLUCAO_CARDS.md seção 6. API no Deploy; gráficos novos no PWA com o Deploy do app, nativos no próximo build.
