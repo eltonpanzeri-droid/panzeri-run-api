@@ -19,9 +19,9 @@ export function IndicatorMeaning({ id }: { id: string | undefined | null }) {
 
   const sections: GuideSection[] = reading
     ? [
-        { id: 'what', title: 'O que é?', defaultOpen: true, content: <Paragraphs lines={[reading.guide.whatIs]} /> },
+        { id: 'numbers', title: 'Quais são os seus números?', defaultOpen: true, content: <NumberRows rows={reading.guide.numbers} /> },
+        { id: 'what', title: 'O que é?', content: <Paragraphs lines={[reading.guide.whatIs]} /> },
         { id: 'how', title: 'Como interpretar?', content: <Paragraphs lines={[reading.guide.howToRead, ...(fixed ? [fixed] : [])]} /> },
-        { id: 'numbers', title: 'Quais são os seus números?', content: <NumberRows rows={reading.guide.numbers} /> },
         { id: 'you', title: 'Como você está?', content: <Paragraphs lines={reading.guide.howYouAre} /> },
         { id: 'limits', title: 'Limitações desse dado', content: <Paragraphs lines={reading.guide.limitations} /> },
       ]

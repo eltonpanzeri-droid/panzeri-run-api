@@ -24,7 +24,7 @@ export function GuideAccordion({ sections }: { sections: GuideSection[] }) {
               accessibilityState={{ expanded: isOpen }}
             >
               <Text style={[styles.headText, isOpen && styles.headTextOpen]}>{section.title}</Text>
-              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={22} color={isOpen ? '#FFFFFF' : HomeColors.panzeriInteraction} />
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={20} color={isOpen ? '#FFFFFF' : HomeColors.panzeriInteraction} />
             </Pressable>
             {isOpen ? <View style={styles.body}>{section.content}</View> : null}
           </View>
@@ -57,9 +57,9 @@ export function NumberRows({ rows }: { rows: NumberRow[] }) {
 const styles = StyleSheet.create({
   list: { gap: 10 },
   item: { gap: 8 },
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 54, paddingHorizontal: 16, paddingVertical: 12, borderRadius: HomeRadius.cardLarge, borderWidth: 2, borderColor: HomeColors.panzeriInteraction, backgroundColor: HomeColors.surfaceHighlight },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44, paddingHorizontal: 14, paddingVertical: 8, borderRadius: HomeRadius.cardLarge, borderWidth: 1.5, borderColor: HomeColors.panzeriInteraction, backgroundColor: HomeColors.surfaceHighlight },
   headOpen: { backgroundColor: HomeColors.panzeriPrimary, borderColor: HomeColors.panzeriPrimary },
-  headText: { flex: 1, fontSize: 17, fontWeight: '800', color: HomeColors.panzeriPrimary, paddingRight: 8 },
+  headText: { flex: 1, fontSize: 15, fontWeight: '700', color: HomeColors.panzeriPrimary, paddingRight: 8 },
   headTextOpen: { color: '#FFFFFF' },
   body: { backgroundColor: HomeColors.surface, borderRadius: HomeRadius.cardLarge, padding: HomeSpace.component, borderWidth: 1, borderColor: '#E2E8F0' },
   text: { fontSize: 16, lineHeight: 25, fontWeight: '400', color: HomeColors.textPrimary },

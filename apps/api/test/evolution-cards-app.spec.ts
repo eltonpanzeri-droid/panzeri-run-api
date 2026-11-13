@@ -15,7 +15,7 @@ describe('Card único da área', () => {
     const card = home('AreaGuideCard.tsx');
     expect(card).not.toContain('horizontal');
     expect(card).toContain('useEvolutionSummary');
-    const titles = ['O que é?', 'Como interpretar?', 'Quais são os seus números?', 'Como você está?', 'Limitações'];
+    const titles = ['Quais são os seus números?', 'O que é?', 'Como interpretar?', 'Como você está?', 'Limitações'];
     let last = -1;
     for (const title of titles) { const at = card.indexOf(`title: '${title}'`); expect(at).toBeGreaterThan(last); last = at; }
     expect(card).toContain("defaultOpen: true"); // só o primeiro começa aberto
@@ -36,8 +36,8 @@ describe('Botões grandes (acordeão)', () => {
   it('o primeiro começa aberto e os demais fechados; botões grandes e destacados; texto maior que o padrão', () => {
     const accordion = home('GuideAccordion.tsx');
     expect(accordion).toContain('section.defaultOpen');
-    expect(accordion).toContain('minHeight: 54');
-    expect(accordion).toContain('borderWidth: 2');
+    expect(accordion).toContain('minHeight: 44');
+    expect(accordion).toContain('borderWidth: 1.5');
     expect(accordion).toContain("fontSize: 16, lineHeight: 25");
     expect(accordion).toContain('accessibilityState={{ expanded: isOpen }}');
   });
@@ -47,7 +47,7 @@ describe('Botões grandes (acordeão)', () => {
 describe('Cinco blocos sob cada gráfico', () => {
   it('O que é? (aberto), Como interpretar?, Quais são os seus números?, Como você está? e Limitações desse dado, nessa ordem; sem leitura só "O que é?" e as limitações gerais', () => {
     const meaning = home('IndicatorMeaning.tsx');
-    const titles = ['O que é?', 'Como interpretar?', 'Quais são os seus números?', 'Como você está?', 'Limitações desse dado'];
+    const titles = ['Quais são os seus números?', 'O que é?', 'Como interpretar?', 'Como você está?', 'Limitações desse dado'];
     let last = -1;
     for (const title of titles) { const at = meaning.indexOf(`title: '${title}'`); expect(at).toBeGreaterThan(last); last = at; }
     expect(meaning).toContain('useIndicatorReading');
