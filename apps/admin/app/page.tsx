@@ -176,6 +176,7 @@ interface StudentDetail {
   cpf?: string | null;
   education?: string | null;
   address?: string | null;
+  addressCheck?: { complete: boolean; missing: string[] };
   goal: string;
   targetRaces?: Array<{
     id: string;
@@ -3928,7 +3929,7 @@ function StudentPanel({
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Peso</span><span className="interviewAnswerValue">{student.weightKg ? `${student.weightKg} kg` : 'Nao informado'}</span></div>
           <div className="interviewAnswerRow"><span className="interviewAnswerLabel">Escolaridade</span><span className="interviewAnswerValue">{student.education ?? 'Nao informado'}</span></div>
         </div>
-        <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}</span></div>
+        <div className="interviewAnswerRow addressRow"><span className="interviewAnswerLabel">Endereco</span><span className="interviewAnswerValue">{student.address ?? 'Nao informado'}{student.addressCheck && !student.addressCheck.complete ? <strong style={{ color: '#b54708', marginLeft: 8 }}>⚠ Endereço incompleto: falta {student.addressCheck.missing.join(', ')}</strong> : null}</span></div>
       </section>
 
       {/* 15/10/2026 (pedido de Elton): "Prova alvo" saiu do Cadastro e foi para a aba propria "Provas e objetivos". */}

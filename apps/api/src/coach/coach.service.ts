@@ -20,6 +20,7 @@ import { UpdateTrainingSessionDto } from './dto/update-training-session.dto';
 import { CreateManualSessionDto } from './dto/create-manual-session.dto';
 import { TrainingPlansService, hasSubscriptionAccess, todayInSaoPaulo } from '../training-plans/training-plans.service';
 import { MessagingService } from '../messaging/messaging.service';
+import { addressCompleteness } from '../common/address-completeness';
 import { SendStudentMessageDto } from './dto/send-student-message.dto';
 import { runnerStrengthExercises } from '../training-plans/runner-strength-library';
 import { gymExerciseLibrary } from '../training-plans/gym-exercise-library';
@@ -1791,6 +1792,8 @@ export class CoachService {
       cpf: student.cpf,
       education: student.education,
       address: student.address,
+      // 13/11/2026: o que falta do endereco (so' leitura; o painel avisa o treinador). Nunca bloqueia nada.
+      addressCheck: addressCompleteness(jsonObject(student.onboardingInterview?.answers)),
       goal: student.preferences?.mainGoal ?? 'Objetivo nao informado',
       targetRaces: student.targetRaces.map((race: any) => ({
         id: race.id,

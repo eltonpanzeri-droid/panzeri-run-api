@@ -3309,9 +3309,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
     if (question.type === 'phone') return String(value ?? '').replace(/\D/g, '').length === 11;
     // No modo manual, so exigimos cidade e estado preenchidos a mao (rua/bairro continuam
     // opcionais) — nao trava mais esperando o ViaCEP encontrar algo que pode nao existir la.
-    if (question.type === 'cep') return cepManualEntry
-      ? Boolean(answers.personal_address_city?.toString().trim()) && Boolean(answers.personal_address_state?.toString().trim())
-      : String(value ?? '').replace(/\D/g, '').length === 8 && Boolean(answers.personal_address_city);
+    // 13/11/2026 (pedido de Elton): o endereco completo e' importante. Agora rua e bairro tambem sao exigidos; quando o ViaCEP devolve o CEP sem rua/bairro (CEP geral de cidade pequena) os campos aparecem para preencher.
+    if (question.type === 'cep') {
+      const filledAddress = (key: string) => Boolean(String(answers[key] ?? '').trim());
+      return cepManualEntry
+        ? filledAddress('personal_address_city') && filledAddress('personal_address_state') && filledAddress('personal_address_street') && filledAddress('personal_address_neighborhood')
+        : String(value ?? '').replace(/\D/g, '').length === 8 && filledAddress('personal_address_city') && filledAddress('personal_address_street') && filledAddress('personal_address_neighborhood');
+    }
     return value !== undefined && value !== null && String(value).trim() !== '';
   }
 
@@ -3445,8 +3449,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
           return (
             <View>
               <Text style={styles.formHint}>Digite seu endereço manualmente:</Text>
-              <TextInput style={styles.input} value={String(answers.personal_address_street ?? '')} placeholder="Rua/Av. (opcional)" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_street: text })); void persist('personal_address_street', text, step); }} />
-              <TextInput style={styles.input} value={String(answers.personal_address_neighborhood ?? '')} placeholder="Bairro (opcional)" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_neighborhood: text })); void persist('personal_address_neighborhood', text, step); }} />
+              <TextInput style={styles.input} value={String(answers.personal_address_street ?? '')} placeholder="Rua/Av." onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_street: text })); void persist('personal_address_street', text, step); }} />
+              <TextInput style={styles.input} value={String(answers.personal_address_neighborhood ?? '')} placeholder="Bairro" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_neighborhood: text })); void persist('personal_address_neighborhood', text, step); }} />
               <TextInput style={styles.input} value={String(answers.personal_address_city ?? '')} placeholder="Cidade" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_city: text })); void persist('personal_address_city', text, step); }} />
               <TextInput style={styles.input} value={String(answers.personal_address_state ?? '')} placeholder="Estado (UF)" maxLength={2} autoCapitalize="characters" onChangeText={(text) => { const upper = text.toUpperCase(); setAnswers((current) => ({ ...current, personal_address_state: upper })); void persist('personal_address_state', upper, step); }} />
               <Pressable style={styles.decimalButton} onPress={() => { setCepManualEntry(false); setCepStatus(''); }}><Text style={styles.decimalButtonText}>Tentar buscar pelo CEP de novo</Text></Pressable>
@@ -3470,6 +3474,13 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
               }}
             />
             {cepStatus ? <Text style={styles.formHint}>{cepStatus}</Text> : null}
+            {answers.personal_address_city && (!String(answers.personal_address_street ?? '').trim() || !String(answers.personal_address_neighborhood ?? '').trim()) ? (
+              <View>
+                <Text style={styles.formHint}>Este CEP não trouxe a rua ou o bairro. Complete para seguir:</Text>
+                <TextInput style={styles.input} value={String(answers.personal_address_street ?? '')} placeholder="Rua/Av." onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_street: text })); void persist('personal_address_street', text, step); }} />
+                <TextInput style={styles.input} value={String(answers.personal_address_neighborhood ?? '')} placeholder="Bairro" onChangeText={(text) => { setAnswers((current) => ({ ...current, personal_address_neighborhood: text })); void persist('personal_address_neighborhood', text, step); }} />
+              </View>
+            ) : null}
             {/* 04/09: saida pra quem o ViaCEP nao encontra ou a busca falha — sem isso a pessoa
                 ficava travada sem conseguir avancar na entrevista, ver comentario no hasAnswer(). */}
             <Pressable style={styles.decimalButton} onPress={() => setCepManualEntry(true)}><Text style={styles.decimalButtonText}>Não encontrei meu CEP, digitar endereço manualmente</Text></Pressable>
