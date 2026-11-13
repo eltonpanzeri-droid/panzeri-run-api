@@ -34,6 +34,44 @@ const KNOWN_EVENTS = new Set([
   'first_plan_generated',
 ]);
 
+// FUNIL POR COORTE (restaurado e atualizado em 13/11/2026; a versao de setembro foi apagada pelo incidente do commit 617788a). Acompanha as MESMAS pessoas (jornada: journeyId; senao a conta;
+// senao a sessao) de uma etapa para a seguinte: cada etapa so' conta quem tambem fez TODAS as anteriores, entao a conversao de uma etapa para a outra nunca passa de 100%. So' usa eventos que o
+// Panzeri Run realmente emite hoje (cadastro curto -> pagamento -> entrevista completa -> rotina -> 1o programa).
+export const ACQUISITION_STEPS: Array<{ event: string; label: string }> = [
+  { event: 'landing_view', label: 'Viu a landing' },
+  { event: 'landing_cta_click', label: 'Clicou para entrar' },
+  { event: 'app_opened', label: 'Abriu o Panzeri Run' },
+  { event: 'signup_started', label: 'Enviou o cadastro curto' },
+  { event: 'signup_completed', label: 'Criou a conta' },
+  { event: 'payment_started', label: 'Foi para o pagamento' },
+  { event: 'payment_completed', label: 'Pagou' },
+];
+
+export const ACTIVATION_STEPS: Array<{ event: string; label: string }> = [
+  { event: 'payment_completed', label: 'Pagou' },
+  { event: 'interview_started', label: 'Iniciou a entrevista' },
+  { event: 'interview_completed', label: 'Concluiu a entrevista' },
+  { event: 'routine_configured', label: 'Configurou a rotina' },
+  { event: 'first_plan_generated', label: 'Recebeu o primeiro programa' },
+];
+
+export type CohortEvent = { event: string; questionId: string | null; journeyId: string | null; userId: string | null; sessionId: string };
+
+export function buildCohortSteps(events: CohortEvent[], steps: Array<{ event: string; label: string; questionId?: string }>) {
+  const identity = (event: CohortEvent) => event.journeyId || (event.userId ? `user:${event.userId}` : `session:${event.sessionId}`);
+  let previous: Set<string> | null = null;
+  return steps.map((step) => {
+    const reached = new Set(events
+      .filter((event) => event.event === step.event && (!step.questionId || event.questionId === step.questionId))
+      .map(identity));
+    const cohort = previous === null ? reached : new Set([...previous].filter((id) => reached.has(id)));
+    const previousCount = previous?.size ?? cohort.size;
+    const conversionFromPrevious = previousCount ? Math.round((cohort.size / previousCount) * 100) : 0;
+    previous = cohort;
+    return { ...step, journeys: cohort.size, conversionFromPrevious };
+  });
+}
+
 // Ordem do funil para exibicao no painel.
 const FUNNEL_STEPS = [
   { event: 'app_opened', label: 'Abriu o app' },
@@ -113,6 +151,10 @@ export class FunnelService {
   async getReport(days = 30) {
     const since = new Date(Date.now() - days * 86400000);
 
+    const cohortEvents = await this.prisma.funnelEvent.findMany({
+      where: { createdAt: { gte: since } },
+      select: { event: true, questionId: true, journeyId: true, userId: true, sessionId: true },
+    });
     // --- 1. Funil agregado: sessoes unicas por etapa ---
     const stepCounts = await Promise.all(
       FUNNEL_STEPS.map(async (step) => {
@@ -228,6 +270,8 @@ export class FunnelService {
       questionErrors: questionErrors.map((e) => ({ questionId: e.questionId, count: e._count.id })),
       stalledSessions: stalledDetails,
       preCadastroDropoff,
+      // 13/11/2026: o mesmo grupo de pessoas, etapa por etapa (aquisicao ate o pagamento; ativacao depois de pagar).
+      cohort: { acquisition: buildCohortSteps(cohortEvents, ACQUISITION_STEPS), activation: buildCohortSteps(cohortEvents, ACTIVATION_STEPS) },
     };
   }
 

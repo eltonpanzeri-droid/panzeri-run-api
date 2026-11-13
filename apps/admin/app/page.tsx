@@ -60,6 +60,7 @@ interface FunnelReport {
   since: string;
   preCadastroDropoff: number;
   funnel: Array<{ event: string; label: string; sessions: number }>;
+  cohort?: { acquisition: Array<{ event: string; label: string; journeys: number; conversionFromPrevious: number }>; activation: Array<{ event: string; label: string; journeys: number; conversionFromPrevious: number }> };
   questionErrors: Array<{ questionId: string | null; count: number }>;
   stalledSessions: Array<{
     sessionId: string;
@@ -2731,6 +2732,20 @@ function FunnelView({ report, loading, onRefresh, accessToken }: { report: Funne
               );
             })}
           </div>
+
+          {/* Funil por coorte (13/11/2026): as MESMAS pessoas, etapa por etapa */}
+          {report.cohort ? (
+            <div style={{ padding: '0 24px 24px' }}>
+              <h3 style={{ fontSize: 14, marginBottom: 4 }}>Funil por coorte: as mesmas pessoas, etapa por etapa</h3>
+              <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 8px' }}>Cada etapa conta só quem também fez todas as anteriores (por jornada, não por sessão). "Conversão" é a parte da etapa anterior que chegou nesta.</p>
+              {([['Da primeira visita até o pagamento', report.cohort.acquisition], ['Depois de pagar, até o primeiro programa', report.cohort.activation]] as const).map(([title, steps]) => (
+                <table key={title} className="dataTable" style={{ marginBottom: 12 }}>
+                  <thead><tr><th>{title}</th><th>Pessoas</th><th>Conversão</th></tr></thead>
+                  <tbody>{steps.map((step) => <tr key={step.event + step.label}><td>{step.label}</td><td>{step.journeys}</td><td>{step.conversionFromPrevious}%</td></tr>)}</tbody>
+                </table>
+              ))}
+            </div>
+          ) : null}
 
           {/* Erros de pergunta */}
           {report.questionErrors.length > 0 ? (

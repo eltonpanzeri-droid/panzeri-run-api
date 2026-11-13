@@ -1305,8 +1305,9 @@ export class BillingService {
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
           content: `Ola ${user.name},\n\nSeu pagamento foi confirmado! Agora abra o aplicativo — vamos te guiar por uma entrevista completa para montar seu programa personalizado.\n\nPanzeri Run`,
         });
-        // CAPI Purchase — fonte canônica de conversão; guard statusActuallyChanged já garante idempotência.
-        if (paymentId && payload.payment?.value != null) {
+        // CAPI Purchase — fonte canônica de conversão; guard statusActuallyChanged já garante idempotência. 13/11/2026: SO' na PRIMEIRA compra (sem codigo de aluna ainda, ou vindo de acesso manual):
+        // recuperacao de atraso e reativacao NAO sao venda nova e inflariam as conversoes dos anuncios.
+        if (paymentId && payload.payment?.value != null && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode)) {
           const attr = user.acquisitionAttribution as Record<string, string> | null;
           this.metaCapi.sendEvent({
             eventName: 'Purchase',
