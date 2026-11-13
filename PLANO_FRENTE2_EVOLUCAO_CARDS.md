@@ -32,3 +32,11 @@
 - **Lote 4 — limpeza:** esconder os gráficos redundantes aprovados por Elton.
 - **Lote 5 — texto/IA:** (se decidido) tom; nada muda nos dados da IA.
 - **Riscos:** saúde (dor/sono): sem diagnóstico; texto com escala errada; síntese com poucos dados (mostrar "dados insuficientes"); carrossel no Android/iOS/PWA (gesto, acessibilidade).
+
+## 5. DECISÕES DE ELTON (13/11/2026) e implementação (Lotes 1 a 3 feitos, não validados ao vivo)
+- **Seis áreas; texto por REGRA (sem IA); NENHUM gráfico removido por enquanto.** Cada indicador diz: o que a escala significa (ex.: "números mais perto de 5 = você tende a dormir bem"), por que importa, a média da aluna, a tendência de curto e de longo prazo, e o que isso indica; cada área ganha uma síntese ("nesse quesito, X dos N indicadores apresentam melhora ou padrão bom…") com o que isso significa.
+- **API:** `GET /me/evolution/summary` (`evolution-reading-catalog.ts` = textos e polaridade por indicador, rascunho a revisar por Elton; `evolution-summary.ts` = regras puras; `evolution-summary.service.ts`; `coach/me-evolution-summary.controller.ts`). Escala vem do VariableRegistry; médias e janelas da camada matemática existente (aguda 7 × crônica 28; longo prazo = crônica × tudo antes dela). Só registros desde 01/08/2026; menos de 8 registros = "dados insuficientes".
+- **Regras (rascunho):** nível pela posição na escala (>= 75% do lado bom = bom; <= 37,5% = ruim; 1–5: 4 é bom, 2,5 é ruim); mudança só conta acima de 10% da escala; indicador sem polaridade (esforço, volume, ritmo) nunca vira melhora/piora e fica fora da contagem. Bucket: nível ruim = atenção; nível bom = bom (estável se piorando); intermediário decide pela tendência de curto prazo.
+- **App:** `home/EvolutionReadingCards.tsx` (carrossel horizontal, card de resumo primeiro, próximo card cortado na borda, bolinhas) inserido nas áreas treinamento, aderência, carga, sono e bem-estar do `EvolutionHub`. Dor mantém a tela própria. PWA no Deploy; nativos no próximo build.
+- **Fora desta etapa:** indicadores medidos por relógio (sono, HRV, FC de repouso: precisam de lógica por fonte), gráficos a esconder (Elton: ainda não), texto de "tendência" com IA (não).
+- **Testes:** `evolution-summary.spec.ts` (13), `evolution-cards-app.spec.ts` (2); 20 suítes de Evolução/App verdes; `tsc` verde (API e app).

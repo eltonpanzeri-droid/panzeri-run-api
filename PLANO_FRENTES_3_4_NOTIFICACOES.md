@@ -28,3 +28,10 @@
 - **Lote 4 (API + app):** mensagens educativas por etapa/plataforma/relógio; tela de preferências no app (PWA no Deploy, nativo no build).
 - **Lote 5 (painel):** ver o que foi enviado por aluna, taxa de abertura por regra, desligar uma regra.
 - **Riscos:** excesso de mensagens (por isso o orquestrador vem antes de qualquer gatilho), dado de saúde em tela bloqueada, push do iPhone no PWA depende de instalação, texto com tom alarmista. **Ordem:** orquestrador → gatilhos → biblioteca educativa.
+
+## 5. DECISÕES DE ELTON (13/11/2026)
+- **Texto por regra** (sem IA no envio) para as mensagens personalizadas.
+- **Limite:** por NECESSIDADE, não por cota fixa; mas até **5 por dia** é aceitável (teto).
+- **Horário padrão:** 06:00 às 20:00 (fuso da aluna).
+- **IDEIA NOVA de Elton (inovadora): seção de PREFERÊNCIAS para a aluna personalizar** — o sistema cria um padrão (teto diário de mensagens, janela de horário, categorias) e a aluna pode GERENCIAR o número e o horário. Entra no Lote 1 como parte do orquestrador (padrão: teto 5/dia, 06:00–20:00; a aluna pode reduzir, mudar o horário e desligar categorias).
+- Estado: AINDA NÃO implementado (próximo da fila depois da Evolução).

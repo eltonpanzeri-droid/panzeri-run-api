@@ -11,6 +11,7 @@ import { WearableSleepSection } from './WearableSleepSection';
 import { AdherenceWeekly } from './AdherenceSection';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { BestMarksScreen } from './BestMarksScreen';
+import { EvolutionReadingCards } from './EvolutionReadingCards';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
 // que já existe (mesma leitura do servidor e mesmos textos). Indicadores novos entram nas áreas nos próximos lotes. Sem diagnóstico: o aviso do topo diz isso.
@@ -95,6 +96,7 @@ export function EvolutionHub({
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
+        <EvolutionReadingCards accessToken={accessToken} area={view} />
         {renderProgress(view)}
         {view === 'adherence' ? <AdherenceWeekly accessToken={accessToken} /> : null}
       </View>
@@ -105,7 +107,9 @@ export function EvolutionHub({
     const domain: FeelingDomain = view === 'load' ? 'effort' : 'sleep';
     return (
       <View style={styles.container}>
-        <FeelingsDetailScreen accessToken={accessToken} domain={domain} onBack={() => setView('hub')} backLabel="Evolução" />
+        <BackRow label="Evolução" onPress={() => setView('hub')} />
+        <EvolutionReadingCards accessToken={accessToken} area={view} />
+        <FeelingsDetailScreen accessToken={accessToken} domain={domain} onBack={() => setView('hub')} backLabel="Evolução" hideBack />
         {view === 'load' ? <LoadSection accessToken={accessToken} /> : null}
         {view === 'sleep' ? <WearableSleepSection accessToken={accessToken} /> : null}
         {view === 'sleep' ? (
@@ -126,6 +130,7 @@ export function EvolutionHub({
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
+        <EvolutionReadingCards accessToken={accessToken} area="wellbeing" />
         <Text style={styles.title}>Bem-estar</Text>
         <Text style={styles.subtitle}>Como você chega aos treinos e como responde a eles.</Text>
         {(['readiness', 'response', 'weekly'] as const).map((d) => (

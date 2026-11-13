@@ -4290,3 +4290,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - `PLANO_FRENTE2_EVOLUCAO_CARDS.md`: já existem seis áreas, os textos "o que mede/como interpretar" e as comparações do servidor; faltam as frases de "habitual" e "tendência" por indicador, a síntese por grupo (decisão de peso dos indicadores) e o carrossel. 4 decisões de Elton pendentes.
 - `PLANO_FRENTES_3_4_NOTIFICACOES.md`: existe sino + push + dedupe por evento/janela; falta orquestrador único (limites, horário, preferências, frescor, registro), biblioteca de mensagens e gatilhos. 5 decisões de Elton pendentes.
 - COROS (estresse/recuperação/carga/avaliação) e planos à Wahoo seguem bloqueados por dado externo (resposta real do MCP da COROS; documentação/autorização de planos da Wahoo). Temas de cores: projeto grande por lotes (~880 cores fixas em 38 arquivos).
+
+## 13/11/2026 — Evolução por regra com cards que rolam (Frente 2, Lotes 1 a 3) e decisões das notificações
+- Decisões de Elton: seis áreas, texto por regra (modelo do exemplo "qualidade do sono, média 2, estável": escala + por que importa + média + tendência curto/longo prazo + o que indica), síntese por área ("X dos N indicadores…"), nenhum gráfico removido ainda. Detalhes, regras e arquivos em `PLANO_FRENTE2_EVOLUCAO_CARDS.md` (seção 5).
+- Código: `GET /me/evolution/summary` + carrossel `EvolutionReadingCards` nas áreas. Textos em `evolution-reading-catalog.ts` são RASCUNHO para Elton revisar frase por frase (e o advogado, pela regra anterior dele de seguir sem advogado, fica a critério dele).
+- Notificações (Frentes 3 e 4): decisões registradas em `PLANO_FRENTES_3_4_NOTIFICACOES.md` (seção 5): texto por regra, teto de 5/dia por necessidade, horário padrão 06–20h e seção de preferências para a aluna gerenciar número e horário. Não implementado.
+- Fica para depois (ordem de Elton): COROS, planos à Wahoo e temas de cores.
