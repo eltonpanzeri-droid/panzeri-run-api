@@ -60,6 +60,7 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
       providerConnectionEvent: audit(),
       rawExternalActivity: { findUnique: jest.fn().mockResolvedValue(rawActivity) },
       rawActivitySample: { findMany: jest.fn().mockResolvedValue(sampleRows) },
+      activityTimeSeriesPoint: { count: jest.fn(async () => 0) },
     };
     const service = buildService(prisma);
 
@@ -102,6 +103,7 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
       providerConnectionEvent: audit(),
       rawExternalActivity: { findUnique: jest.fn().mockResolvedValue(rawActivity) },
       rawActivitySample: { findMany: jest.fn().mockResolvedValue([]) },
+      activityTimeSeriesPoint: { count: jest.fn(async () => 0) },
     };
     const service = buildService(prisma);
 

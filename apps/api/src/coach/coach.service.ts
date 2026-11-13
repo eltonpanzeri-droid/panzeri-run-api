@@ -234,7 +234,7 @@ export class CoachService {
         details: { actorId: actor.id, actorRole: actor.role, activityLogId, operation: 'read_raw_payload_and_samples' },
       },
     });
-    const [rawActivity, samples] = await Promise.all([
+    const [rawActivity, samples, timeSeries] = await Promise.all([
       this.prisma.rawExternalActivity.findUnique({
         where: { id: log.rawActivityId },
         select: {
@@ -249,11 +249,27 @@ export class CoachService {
         },
       }),
       this.listActivitySamples(activityLogId),
+      this.timeSeriesSummary(activityLogId),
     ]);
     if (!rawActivity) {
       return rawActivity;
     }
-    return { ...rawActivity, samples };
+    return { ...rawActivity, samples, timeSeries };
+  }
+
+  // Diagnostico Admin-only (13/11/2026, caso Lorena): quantos pontos da serie por segundo (ActivityTimeSeriesPoint) esta atividade tem, por medida. So' contagem do que ja' esta guardado; nada e' interpretado.
+  private async timeSeriesSummary(activityLogId: string) {
+    const where = { activityLogId };
+    const [points, heartRate, speed, cadence, power, distance, route] = await Promise.all([
+      this.prisma.activityTimeSeriesPoint.count({ where }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, heartRateBpm: { not: null } } }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, speedKmh: { not: null } } }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, cadenceSpm: { not: null } } }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, powerWatts: { not: null } } }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, distanceMeters: { not: null } } }),
+      this.prisma.activityTimeSeriesPoint.count({ where: { ...where, latitude: { not: null } } }),
+    ]);
+    return { points, heartRate, speed, cadence, power, distance, route };
   }
 
   // Diagnostico Admin-only (02/10/2026) — mesmo espirito do metodo acima, mas pra RawActivitySample

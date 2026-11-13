@@ -5535,6 +5535,7 @@ type ExternalActivitySample = {
 };
 
 type ExternalActivityRaw = {
+  timeSeries?: { points: number; heartRate: number; speed: number; cadence: number; power: number; distance: number; route: number };
   id: string;
   provider: string;
   externalId: string;
@@ -6182,6 +6183,9 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
     const samples = (raw as ExternalActivityRaw).samples;
     return (
       <div className="extRaw">
+        {(raw as ExternalActivityRaw).timeSeries ? (
+          <p className="extHint"><strong>Série por segundo guardada:</strong> {(raw as ExternalActivityRaw).timeSeries!.points === 0 ? 'NENHUM ponto (sem gráfico de ritmo/FC no Panzeri Run)' : `${(raw as ExternalActivityRaw).timeSeries!.points} pontos — FC ${(raw as ExternalActivityRaw).timeSeries!.heartRate}, velocidade/ritmo ${(raw as ExternalActivityRaw).timeSeries!.speed}, cadência ${(raw as ExternalActivityRaw).timeSeries!.cadence}, potência ${(raw as ExternalActivityRaw).timeSeries!.power}, distância ${(raw as ExternalActivityRaw).timeSeries!.distance}, percurso ${(raw as ExternalActivityRaw).timeSeries!.route}`}</p>
+        ) : null}
         <pre className="extPre">{JSON.stringify(raw, null, 2)}</pre>
         {!samples || samples.length === 0 ? (
           <p className="extHint">Nenhum RawActivitySample persistido para esta atividade.</p>

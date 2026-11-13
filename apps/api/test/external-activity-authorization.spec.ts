@@ -72,6 +72,7 @@ describe('CoachService — posse da atividade e auditoria da leitura do raw', ()
         findUnique: jest.fn(async () => { order.push('read'); return { id: 'raw-1', provider: 'polar', externalId: 'e1', payload: SECRET_PAYLOAD, payloadSchemaVersion: '1', ingestionMeta: null, sourceUpdatedAt: null, receivedAt: new Date() }; }),
       },
       rawActivitySample: { findMany: jest.fn(async () => []) },
+      activityTimeSeriesPoint: { count: jest.fn(async () => 0) },
     };
     return { prisma, order };
   }
