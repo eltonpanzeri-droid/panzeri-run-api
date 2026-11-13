@@ -61,3 +61,6 @@ Retirar as 5 perguntas rápidas (objetivo, nível, maior dificuldade, expectativ
 
 ## Registro 13/11/2026 — andamento
 - Frente 1 (Relatar problema) e Frente 5 (cadastro curto + endereço completo): IMPLEMENTADAS. Frente 2: `PLANO_FRENTE2_EVOLUCAO_CARDS.md` (4 decisões pendentes). Frentes 3 e 4: `PLANO_FRENTES_3_4_NOTIFICACOES.md` (5 decisões pendentes).
+
+## Status em 14/11/2026
+- Frente 1 (Relatar problema): código pronto. Frente 2 (Evolução): Lotes 1–3 + regras de esforço/volume/ritmo/relógio prontos (rascunho de texto a revisar). Frentes 3 e 4 (notificações): decididas, NÃO implementadas (próximo item). Frente 5 (onboarding curto): código pronto. Detalhes no PANORAMA do PRONTUARIO.md (14/11/2026) e na FILA_PROXIMO_BUILD_E_IDEIAS.md.

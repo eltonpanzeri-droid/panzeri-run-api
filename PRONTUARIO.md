@@ -4309,3 +4309,17 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Removido o link "Ver evolução" do cartão de gráfico (as seis áreas já estão logo abaixo).
 - "Treinos por modalidade" saiu do fim da Evolução do treinamento e virou cartão próprio logo após os gráficos de volume (decisão minha de posição; Elton pode mandar mudar).
 - Links "Fontes científicas e metodologia" removidos das telas de Evolução (treinamento, sono e bem-estar); o item continua no menu. Observação: eram links contextuais criados para a diretriz 1.4.1 da Apple; o menu continua dando acesso, mas vale lembrar se a Apple reclamar. Link do joelho (tela de lesão) mantido. Só app: PWA no Deploy, nativo no próximo build.
+
+## 14/11/2026 — PANORAMA: o que está acontecendo no Panzeri Run (registro consolidado de 12 a 14/11)
+**Estado do git:** tudo commitado na `main` do espelho (último: `9f2a7fe`); falta Elton fazer **Push** e **Deploy** (API primeiro, depois o app web). Nada foi enviado às lojas nesta rodada.
+
+**1. Vale só com o Deploy (servidor/painel — sem build, PWA e nativos já refletem):**
+- Comunicado em massa por e-mail (Ferramentas); correção do botão Apple Saúde cinza (Apple + Health Connect); funil por coorte e Purchase da Meta só na primeira compra; cadastro curto no servidor (CPF/telefone, marcador do funil, aviso Telegram); aviso de endereço incompleto no painel; diagnóstico das séries do Apple Saúde no painel; ritmo estimado pelo GPS (análise); **leitura da Evolução por regra** (`GET /me/evolution/summary`) com regras de esforço, volume, ritmo e relógio; **ritmo preenchido pela aluna entra na média, impossível fica fora, aviso "Você confirma esse dado?"**; Relatar problema (servidor, painel e migração `20261113120000_problem_reports`).
+**2. Vale no PWA com o Deploy do app e no nativo só no próximo build:**
+- Relatar problema (tela); cadastro curto na tela; endereço completo na entrevista; carrossel "Leitura da sua evolução" + 3 gráficos fixos de volume + cartão "Treinos por modalidade"; ritmo estimado tracejado no treino; **tela inicial** (frase da semana, cartão de hoje menor/feedback/mais de um treino, sem "Ver evolução"); links de fontes científicas removidos da Evolução (menu mantém).
+**3. Só chega à aluna no próximo build iPhone:** leitura robusta das séries do Apple Saúde (reconfere 45 dias, diagnóstico) — caso Lorena.
+**4. Aguardando validação ao vivo (nada foi visto em produção):** tudo acima; os textos da Evolução são RASCUNHO para Elton revisar.
+**5. Decidido e NÃO implementado:** notificações (orquestrador, teto 5/dia, 06–20h, preferências da aluna); número de ciclos de sono; preferência explícita de fonte nos indicadores do relógio; escolha de gráficos redundantes a remover.
+**6. Adiado por Elton:** COROS, planos à Wahoo, temas de cores.
+**7. Regras novas de Elton nesta rodada (já na memória/CLAUDE.md):** nada que funcione só para uma aluna; respostas curtas; o ritmo estimado vale para todas e é avisado à aluna e à IA; esquecer advogado; "Panzeri Run" (não "app"); programa (não plano).
+**8. Riscos para olhar depois do Deploy:** (a) links de fontes (Apple 1.4.1) — o menu continua; (b) o ritmo preenchido pode duplicar se houver atividade não vinculada; (c) o aviso de ritmo impossível ainda não conta no teto de notificações; (d) ordem do Deploy: API antes do app.
