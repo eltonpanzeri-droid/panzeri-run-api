@@ -58,3 +58,6 @@ Retirar as 5 perguntas rápidas (objetivo, nível, maior dificuldade, expectativ
 
 ## Registro
 - 11/11/2026: recebido de Elton (texto do planejamento) e registrado aqui. Nenhuma ordem de implementar até agora.
+
+## Registro 13/11/2026 — andamento
+- Frente 1 (Relatar problema) e Frente 5 (cadastro curto + endereço completo): IMPLEMENTADAS. Frente 2: `PLANO_FRENTE2_EVOLUCAO_CARDS.md` (4 decisões pendentes). Frentes 3 e 4: `PLANO_FRENTES_3_4_NOTIFICACOES.md` (5 decisões pendentes).
