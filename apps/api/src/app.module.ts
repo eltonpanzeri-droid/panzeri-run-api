@@ -21,6 +21,7 @@ import { GarminModule } from './garmin/garmin.module';
 import { BestMarksModule } from './best-marks/best-marks.module';
 import { MonthlyReportModule } from './monthly-report/monthly-report.module';
 import { BroadcastEmailModule } from './broadcast-email/broadcast-email.module';
+import { ProblemReportsModule } from './problem-reports/problem-reports.module';
 import { AppleHealthModule } from './apple-health/apple-health.module';
 import { HealthConnectModule } from './health-connect/health-connect.module';
 import { TrainingPlansModule } from './training-plans/training-plans.module';
@@ -77,6 +78,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     BestMarksModule,
     MonthlyReportModule,
     BroadcastEmailModule,
+    ProblemReportsModule,
     AppleHealthModule,
     HealthConnectModule,
     ActivityExecutionModule,

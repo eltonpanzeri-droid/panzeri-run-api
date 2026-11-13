@@ -8,6 +8,7 @@ import TrainingIntelligenceStudio from './ti/studio';
 import EvolutionHub from './evolution-hub';
 import ZeppTestPanel from './zepp-test-panel';
 import BroadcastEmail from './broadcast-email';
+import ProblemReports from './problem-reports';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import GarminMeasures from './garmin-measures';
@@ -73,7 +74,7 @@ interface FunnelReport {
   }>;
 }
 
-type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'equipment' | 'testAccounts' | 'observatory' | 'trainingIntelligence' | 'tools' | 'ai';
+type AdminView = 'dashboard' | 'students' | 'prospects' | 'exStudents' | 'weeks' | 'coupons' | 'finance' | 'notifications' | 'funnel' | 'raceCalendar' | 'equipment' | 'testAccounts' | 'observatory' | 'trainingIntelligence' | 'tools' | 'ai' | 'problemReports';
 
 // 15/10/2026: visao por papel (plano de revitalizacao). Por enquanto so organiza o menu; o conteudo das
 // telas por papel vem nas proximas fases. 'tudo' mostra todas as areas.
@@ -1037,7 +1038,7 @@ export default function AdminHome() {
     // porque nao faz mais sentido com lista e detalhe sendo dois modos separados. A view 'weeks'
     // ainda usa esse auto-carregamento (o seletor dela sempre espera alguem selecionado).
     if (view === 'students') setStudentViewMode('list');
-    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && view !== 'tools' && view !== 'ai' && !selectedStudentId && dashboard?.students[0]) {
+    if (view !== 'dashboard' && view !== 'students' && view !== 'coupons' && view !== 'finance' && view !== 'notifications' && view !== 'prospects' && view !== 'exStudents' && view !== 'trainingIntelligence' && view !== 'tools' && view !== 'ai' && view !== 'problemReports' && !selectedStudentId && dashboard?.students[0]) {
       void loadStudent(dashboard.students[0].id);
     }
   }
@@ -1444,7 +1445,7 @@ export default function AdminHome() {
             ) : null}
             <div>
               <p className="eyebrow">Painel do treinador</p>
-              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'testAccounts' ? 'Alunas de teste' : activeView === 'observatory' ? 'Observatório Panzeri Run' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : 'Financeiro'}</h1>
+              <h1>{activeView === 'dashboard' ? 'Visao geral' : activeView === 'students' ? 'Alunos' : activeView === 'prospects' ? 'Prospectos' : activeView === 'exStudents' ? 'Ex-alunos' : activeView === 'weeks' ? 'Planejamento semanal' : activeView === 'coupons' ? 'Cupons' : activeView === 'notifications' ? 'Notificacoes' : activeView === 'funnel' ? 'Funil de cadastro' : activeView === 'raceCalendar' ? 'Calendario de provas' : activeView === 'equipment' ? 'Equipamentos' : activeView === 'testAccounts' ? 'Alunas de teste' : activeView === 'observatory' ? 'Observatório Panzeri Run' : activeView === 'trainingIntelligence' ? 'Training Intelligence' : activeView === 'tools' ? 'Ferramentas' : activeView === 'ai' ? 'Programas e IA' : activeView === 'problemReports' ? 'Relatos de problema' : 'Financeiro'}</h1>
               <small className="apiVersion">API {apiVersion}</small>
             </div>
           </div>
@@ -1455,7 +1456,7 @@ export default function AdminHome() {
             <button className="iconButton" type="button" onClick={alternarTema} aria-label={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'} title={tema === 'escuro' ? 'Usar tema claro' : 'Usar tema escuro'}>
               {tema === 'escuro' ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' && activeView !== 'tools' && activeView !== 'ai' ? <label className="searchBox">
+            {activeView !== 'dashboard' && activeView !== 'notifications' && activeView !== 'trainingIntelligence' && activeView !== 'tools' && activeView !== 'ai' && activeView !== 'problemReports' ? <label className="searchBox">
               <Search size={18} />
               <input placeholder="Buscar por nome ou e-mail" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
             </label> : null}
@@ -1496,6 +1497,7 @@ export default function AdminHome() {
             { area: 'Crescimento', view: 'funnel', label: 'Funil', icon: <TrendingUp size={19} />, papeis: ['empresario', 'marketing'] },
             { area: 'IA e sistema', view: 'ai', label: 'Programas e IA', icon: <Gauge size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'IA e sistema', view: 'notifications', label: `Notificações${notifications.length ? ` (${notifications.length})` : ''}`, icon: <Bell size={19} />, papeis: ['treinador', 'coordenador'] },
+            { area: 'IA e sistema', view: 'problemReports', label: 'Relatos de problema', icon: <Bell size={19} />, papeis: ['treinador', 'coordenador'] },
             { area: 'Ferramentas', view: 'tools', label: 'Ferramentas', icon: <Wrench size={19} />, papeis: ['coordenador', 'financeiro', 'empresario'] },
           ];
           const visiveis = itens.filter((item) => papel === 'tudo' || item.papeis.includes(papel));
@@ -1773,6 +1775,8 @@ export default function AdminHome() {
         {/* 19/10/2026: pagina TEMPORARIA de teste da conexao Zepp/Amazfit (so' autenticacao; nada e' importado). Remover apos os testes. */}
         {activeView === 'tools' ? <ZeppTestPanel apiUrl={API_URL} token={token} /> : null}
         {activeView === 'tools' ? <BroadcastEmail apiUrl={API_URL} token={token} /> : null}
+
+        {activeView === 'problemReports' ? <ProblemReports apiUrl={API_URL} token={token} /> : null}
 
         {activeView === 'students' ? <section className="workArea">
           {/* 01/09: lista e detalhe viraram dois "modos" da mesma view (opcao B combinada com o

@@ -36,6 +36,7 @@ import { ActivityDetailBody, type ActivityDetail } from './src/activityDetail';
 import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/ProfilePhoto';
 import { AppUpdateBanner } from './src/appUpdate/AppUpdateBanner';
 import { EquipmentScreen } from './src/equipment/EquipmentScreen';
+import { ProblemReportScreen } from './src/problemReport/ProblemReportScreen';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
 import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
@@ -98,7 +99,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery' | 'problemReport';
 // 08/11/2026: telas em que o voltar do sistema NAO tira a pessoa (etapas obrigatorias do cadastro).
 const LOCKED_BACK_TABS: readonly Tab[] = ['interview', 'quickIntake'];
 // Telas que ja tem o proprio botao Voltar (ou sao o inicio): a barra Voltar global nao aparece nelas.
@@ -2038,6 +2039,7 @@ function AppInner() {
             {activeTab === 'painReport' && <PainReportScreen accessToken={accessToken} onBack={painReportFromFeedback ? () => { setPainReportFromFeedback(false); setActiveTab('week'); } : undefined} />}
             {activeTab === 'shoes' && <EquipmentScreen apiUrl={API_URL} accessToken={accessToken} />}
             {activeTab === 'fontes' && <ScientificSourcesScreen focusThemeIds={sourcesThemeIds} />}
+            {activeTab === 'problemReport' && <ProblemReportScreen apiUrl={API_URL} accessToken={accessToken} />}
             {activeTab === 'observations' && <ObservationsScreen accessToken={accessToken} />}
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {/* Etapa 2 (08/10/2026): 'strava' e rota antiga; abre o hub ja na tela do Strava (Privacidade ainda usa setActiveTab('strava')). */}
@@ -10837,6 +10839,8 @@ function AppMenu({ visible, activeTab, notificationsCount, onChange, onLogout, o
     // 05/10/2026: transparencia e controle de dados como parte visivel do produto (area permanente).
     { id: 'privacy', label: 'Privacidade e dados', icon: 'shield-checkmark-outline' },
     { id: 'fontes', label: 'Fontes científicas e metodologia', icon: 'book-outline' },
+    // 13/11/2026: canal direto da aluna com o treinador para relatar erro, dificuldade, dado incorreto ou sugestao (avisa no Telegram).
+    { id: 'problemReport', label: 'Relatar problema', icon: 'chatbubble-ellipses-outline' },
     { id: 'conta', label: 'Conta', icon: 'settings-outline' },
     // Ciclo menstrual: so visivel para alunas (sex=Feminino) — 11/09
     ...(isFeminino ? [{ id: 'ciclo' as Tab, label: 'Registrar ciclo menstrual', icon: 'medical-outline' as keyof typeof Ionicons.glyphMap }] : []),

@@ -33,7 +33,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'passwordResetCode', 'loginLinkToken', 'userNotification',
   'messageLog', 'aiGenerationCost', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'weeklyRoutineChange', 'weeklyRoutineState', 'operationalReference', 'physiologicalIndicator', 'physiologicalAssessment', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualAiConsent', 'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
-  'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoeEvent', 'shoePhoto', 'shoe', 'userDevice', 'userProfilePhoto', 'stravaConnection',
+  'problemReportImage', 'problemReport', 'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoeEvent', 'shoePhoto', 'shoe', 'userDevice', 'userProfilePhoto', 'stravaConnection',
   'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerConnection', 'providerOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
@@ -140,6 +140,7 @@ export class AccountDeletionService {
           case 'rawActivitySample':
           case 'activityTimeSeriesPoint': where = { activityLogId: { in: logIds } }; break;
           case 'activityHrDecoupling': where = { activityLogId: { in: logIds } }; break;
+          case 'problemReportImage': where = { report: { userId } }; break;
           case 'funnelEvent': where = journeyIds.size > 0 ? { OR: [{ userId }, { journeyId: { in: [...journeyIds] } }] } : { userId }; break;
           case 'freeTesterEmail': where = { id: { in: testerIds } }; break;
           default: where = { userId };

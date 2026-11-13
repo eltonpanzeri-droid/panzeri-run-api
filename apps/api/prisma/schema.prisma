@@ -136,6 +136,7 @@ model User {
   funnelEvents          FunnelEvent[]
   menstrualProfile      MenstrualProfile?
   menstrualAiConsent    MenstrualAiConsent?
+  problemReports        ProblemReport[]
   menstrualCycleLogs    MenstrualCycleLog[]
   menstrualDailyLogs    MenstrualDailyLog[]
   rawExternalActivities RawExternalActivity[]
@@ -2744,4 +2745,41 @@ model WorkoutFeedbackVersion {
   createdAt DateTime @default(now())
 
   @@index([userId, sessionId])
+}
+
+// "Relatar problema" (13/11/2026): a aluna descreve um problema do Panzeri Run (erro, dificuldade de uso, dados incorretos, sugestao), com ate 3 imagens e dados tecnicos do aparelho
+// (versao do app, sistema, modelo). Avisa o treinador no Telegram e fica no painel com status. Imagens JPEG pequenas no proprio banco (mesmo padrao da foto de perfil). Apagado com a conta.
+model ProblemReport {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  // 'error' | 'usability' | 'wrong_data' | 'suggestion'
+  type        String
+  message     String
+  appVersion  String?
+  platform    String?
+  osVersion   String?
+  deviceModel String?
+  // 'open' | 'in_progress' | 'resolved'
+  status      String    @default("open")
+  coachNote   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  resolvedAt  DateTime?
+  images      ProblemReportImage[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model ProblemReportImage {
+  id        String        @id @default(uuid())
+  reportId  String
+  report    ProblemReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  data      Bytes
+  mimeType  String
+  byteSize  Int
+  createdAt DateTime      @default(now())
+
+  @@index([reportId])
 }
