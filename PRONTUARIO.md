@@ -4355,3 +4355,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Servidor: `evolution-summary.ts` (`guide` em cada indicador e em cada área), `AREA_INFO` e `TREND_MEANING` no catálogo (TEXTOS RASCUNHO a revisar por Elton). Avisos longos tirados dos textos de leitura; plural corrigido na síntese.
 - Avisos soltos removidos: aviso do topo do hub, notas de cálculo dos gráficos, disclaimer da tela de Sono/Bem-estar, rodapé "Nenhum indicador é analisado sozinho".
 - Pendente de Elton: o cartão antigo "O que seus registros mostram" ainda existe (Sono/Bem-estar). API no Deploy; telas no Deploy do app (PWA) e no próximo build.
+
+### 14/11/2026 — Evolução: só botões sob os gráficos, "Quais são os seus números?" primeiro, sem "esteira" visível
+- Todo gráfico das áreas tem os 5 botões (sem leitura do servidor, texto padrão); "Quais são os seus números?" é o primeiro e abre sozinho. Botões menores (40px, fonte 14).
+- Saíram os textos soltos sob os gráficos (frases de números, dicas, avisos, "O que seus registros mostram", "O que os números de volume mostram"). Ficam legendas, mensagens de erro/vazio e a lista "Quais corridas entram" do desacoplamento.
+- Regra de Elton: a palavra "esteira" não aparece para o aluno (só em dado/feedback do aluno ou fala da IA). Removida do texto de limitações e das descrições das medalhas; a chave "esteira" nos dados e o chip do teste físico ficam.

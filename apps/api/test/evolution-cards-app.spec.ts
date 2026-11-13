@@ -36,7 +36,7 @@ describe('Botões grandes (acordeão)', () => {
   it('o primeiro começa aberto e os demais fechados; botões grandes e destacados; texto maior que o padrão', () => {
     const accordion = home('GuideAccordion.tsx');
     expect(accordion).toContain('section.defaultOpen');
-    expect(accordion).toContain('minHeight: 44');
+    expect(accordion).toContain('minHeight: 40');
     expect(accordion).toContain('borderWidth: 1.5');
     expect(accordion).toContain("fontSize: 16, lineHeight: 25");
     expect(accordion).toContain('accessibilityState={{ expanded: isOpen }}');

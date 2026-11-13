@@ -52,7 +52,6 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Carga de treino</Text>
-      <Text style={styles.subtitle}>Esforço percebido (1 a 10) × minutos de cada treino, em UA (unidade arbitrária).</Text>
 
       <VariableBlock variable={SESSION_LOAD} snapshot={snapshots[SESSION_LOAD.id]} accessToken={accessToken} />
 
@@ -72,9 +71,6 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
       {window ? (
         <View style={[styles.block, HomeBorder.card]}>
           <Text style={styles.blockTitle}>Carga recente × seu hábito</Text>
-          <Sentences items={loadWindowSentences(window)} />
-          <Text style={styles.hint}>Razão 1,0 = mesma carga do seu hábito recente; acima = semana mais carregada que o hábito; abaixo = mais leve. É uma descrição, sem faixa de risco.</Text>
-          {load?.method?.generalViewNote ? <Text style={styles.hint}>{load.method.generalViewNote}</Text> : null}
           <IndicatorMeaning id="load.acuteChronic" />
         </View>
       ) : (

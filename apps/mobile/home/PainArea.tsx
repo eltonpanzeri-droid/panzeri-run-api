@@ -193,7 +193,6 @@ export function PainArea({ accessToken, onOpenPainReport }: { accessToken: strin
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Dor</Text>
-      <Text style={styles.subtitle}>Dor relatada em cada treino e relatos feitos em "Relatar dor".</Text>
 
       {data === null ? (
         <Text style={styles.empty}>Não foi possível carregar seus registros agora. Tente novamente em instantes.</Text>
@@ -201,12 +200,6 @@ export function PainArea({ accessToken, onOpenPainReport }: { accessToken: strin
         <Text style={styles.empty}>Conforme você registra seus treinos e responde sobre dor, esta área mostra sua evolução ao longo do tempo.</Text>
       ) : (
         <>
-          <View style={styles.textCard}>
-            <Text style={styles.textCardTitle}>O que seus registros mostram</Text>
-            <Text style={styles.sentence}>{sentences.join(' ')}</Text>
-            <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>
-          </View>
-
           <View style={[styles.block, HomeBorder.card]}>
             <Text style={styles.blockTitle}>Dor em cada treino</Text>
             {modalities.length >= 2 ? (
@@ -245,7 +238,6 @@ export function PainArea({ accessToken, onOpenPainReport }: { accessToken: strin
             </Text>
           </View>
         ))}
-        <Text style={styles.hint}>É outro tipo de relato (escala de 1 a 10, com a região do corpo) e por isso aparece separado do gráfico.</Text>
         <IndicatorMeaning id="pain.reports" />
       </View>
 

@@ -24,7 +24,6 @@ export function WearableSleepSection({ accessToken }: { accessToken: string }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Sono medido pelo relógio</Text>
-      <Text style={styles.subtitle}>Mostramos aqui o que o seu relógio mede, separado do que você informa nos feedbacks dos treinos.</Text>
       {withData.length === 0 ? (
         <Text style={styles.empty}>Seu relógio ainda não enviou dados de sono ou de variabilidade da frequência cardíaca. Quando enviar, eles aparecem aqui.</Text>
       ) : withData.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}

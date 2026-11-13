@@ -115,7 +115,6 @@ function MetricCard({
   return (
     <Card title={title}>
       <Text style={styles.tag}>Modalidade: corrida</Text>
-      {snapshot.provisional ? <Text style={styles.caution}>Este dado está sendo atualizado depois de uma correção de atividade e pode mudar.</Text> : null}
       {points.length >= 2 ? (
         <DetailChart
           title=""
@@ -132,7 +131,6 @@ function MetricCard({
       ) : (
         <Text style={styles.muted}>É preciso ao menos 2 treinos com este dado para desenhar a evolução.</Text>
       )}
-      <Sentences items={sentences} />
       <IndicatorMeaning id={meaningId} />
     </Card>
   );
@@ -224,7 +222,6 @@ export function WeeklyCard({
       ) : (
         <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
       )}
-      <Sentences items={[...weeklySentences(snapshot, descriptor), ...(acuteChronicSentence(snapshot, descriptor.fmt) ? [acuteChronicSentence(snapshot, descriptor.fmt) as string] : [])]} />
       <IndicatorMeaning id={meaningId} />
     </Card>
   );

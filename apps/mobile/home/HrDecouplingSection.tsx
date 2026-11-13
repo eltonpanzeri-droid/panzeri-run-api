@@ -64,7 +64,6 @@ export function HrDecouplingSection({ accessToken }: { accessToken: string }) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Desacoplamento da frequência cardíaca</Text>
-      <Text style={styles.subtitle}>Modalidade: Corrida. Compara a frequência cardíaca da primeira e da segunda metade de corridas de ritmo estável, sempre dentro da mesma faixa de duração.</Text>
 
       <View style={styles.chips}>
         {HR_DECOUPLING_CATEGORIES.map((c) => (
@@ -75,13 +74,6 @@ export function HrDecouplingSection({ accessToken }: { accessToken: string }) {
       </View>
 
       <VariableBlock variable={variableOf(current)} snapshot={snapshot} accessToken={accessToken} />
-
-      {sentences.length > 0 ? (
-        <View style={[styles.block, HomeBorder.card]}>
-          <Text style={styles.blockTitle}>Comparação com as suas corridas anteriores</Text>
-          {sentences.map((s) => <Text key={s} style={styles.sentence}>• {s}</Text>)}
-        </View>
-      ) : null}
 
       <View style={[styles.block, HomeBorder.card]}>
         <Text style={styles.blockTitle}>Quais corridas entram</Text>
@@ -94,7 +86,6 @@ export function HrDecouplingSection({ accessToken }: { accessToken: string }) {
         ) : (
           <>
             <Text style={styles.sentence}>{eligible} de {total} {total === 1 ? 'corrida entrou' : 'corridas entraram'} neste indicador.</Text>
-            <Text style={styles.hint}>Entram corridas com pelo menos 30 minutos em movimento, velocidade estável (variação de até 10% e diferença de até 5% entre as duas metades) e registros suficientes de velocidade e frequência cardíaca nas duas metades.</Text>
             {excluded.length > 0 ? <Text style={styles.hint}>Últimas corridas que não entraram:</Text> : null}
             {excluded.map((a) => <Text key={a.activityLogId} style={styles.sentence}>• {dateText(a.startedAt)}: {a.exclusionText ?? 'não elegível'}</Text>)}
           </>

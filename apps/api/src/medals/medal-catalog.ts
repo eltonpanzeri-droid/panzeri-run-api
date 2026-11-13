@@ -150,14 +150,14 @@ const treinosConcluidosMedals: MedalDefinition[] = TREINOS_CONCLUIDOS.map((n, i)
 }));
 
 // ---------------------------------------------------------------------------------------------
-// 4. Volume semanal de corrida — km EFETIVAMENTE REALIZADOS (corrida/esteira), semana ENCERRADA.
+// 4. Volume semanal de corrida — km EFETIVAMENTE REALIZADOS (corrida), semana ENCERRADA.
 // ---------------------------------------------------------------------------------------------
 const VOLUME_SEMANAL_KM = [10, 20, 30, 40, 50, 60, 75, 100];
 const volumeSemanalMedals: MedalDefinition[] = VOLUME_SEMANAL_KM.map((n, i) => ({
   code: `volume_semanal_corrida_${km(n)}km`,
   category: 'volume_semanal',
   name: `${n}km numa semana`,
-  description: `Primeira semana encerrada com ${n}km efetivamente realizados em corrida/esteira.`,
+  description: `Primeira semana encerrada com ${n}km efetivamente realizados em corrida.`,
   grau: tierGrau(i, VOLUME_SEMANAL_KM.length),
   threshold: n,
   unit: 'km',
@@ -179,7 +179,7 @@ const sustentacaoVolumeMedals: MedalDefinition[] = SUSTENTACAO_PATAMARES.flatMap
     code: `sustentacao_volume_corrida_${km(patamar)}km_${semanas}_semanas`,
     category: 'sustentacao_volume' as const,
     name: `${patamar}km/semana por ${semanas} semanas`,
-    description: `Pelo menos ${patamar}km efetivamente realizados em corrida/esteira por ${semanas} semanas consecutivas.`,
+    description: `Pelo menos ${patamar}km efetivamente realizados em corrida por ${semanas} semanas consecutivas.`,
     grau: tierGrau(pIdx * SUSTENTACAO_SEMANAS.length + sIdx, SUSTENTACAO_PATAMARES.length * SUSTENTACAO_SEMANAS.length),
     threshold: semanas,
     unit: 'semanas',
@@ -198,7 +198,7 @@ const volumeMensalMedals: MedalDefinition[] = VOLUME_MENSAL_KM.map((n, i) => ({
   code: `volume_mensal_corrida_${km(n)}km`,
   category: 'volume_mensal',
   name: `${n}km no mês`,
-  description: `Mês-calendário completo com ${n}km efetivamente realizados em corrida/esteira.`,
+  description: `Mês-calendário completo com ${n}km efetivamente realizados em corrida.`,
   grau: tierGrau(i, VOLUME_MENSAL_KM.length),
   threshold: n,
   unit: 'km',
@@ -222,7 +222,7 @@ const distanciaUnicaMedals: MedalDefinition[] = DISTANCIA_UNICA_KM.map(({ value,
   code: `distancia_unica_corrida_${km(value)}km`,
   category: 'distancia_unica',
   name: label ?? `${value}km numa corrida`,
-  description: `Primeira sessão com ${value}km efetivamente realizados em corrida/esteira${label ? ` (${label})` : ''}.`,
+  description: `Primeira sessão com ${value}km efetivamente realizados em corrida${label ? ` (${label})` : ''}.`,
   grau: tierGrau(i, DISTANCIA_UNICA_KM.length),
   threshold: value,
   unit: 'km',
@@ -241,7 +241,7 @@ const acumuladoMedals: MedalDefinition[] = ACUMULADO_KM.map((n, i) => ({
   code: `acumulado_corrida_${km(n)}km`,
   category: 'acumulado',
   name: `${n}km acumulados`,
-  description: `${n}km efetivamente realizados em corrida/esteira, somados desde o início do acompanhamento.`,
+  description: `${n}km efetivamente realizados em corrida, somados desde o início do acompanhamento.`,
   grau: tierGrau(i, ACUMULADO_KM.length),
   threshold: n,
   unit: 'km',

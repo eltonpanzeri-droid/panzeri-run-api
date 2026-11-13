@@ -103,7 +103,6 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
             <Text style={styles.categoricalValue}>{shiftLabel(String(o.value))}</Text>
           </View>
         ))}
-        <Text style={styles.hint}>Registro por treino; sem cálculo de tendência para categorias.</Text>
         <IndicatorMeaning id={variable.id} />
       </View>
     );
@@ -122,8 +121,6 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
         {scale && snapshot.variable.dataType === 'ordinal_scale' ? ` / ${scale.max}` : ''}
         <Text style={styles.blockN}>  ·  {snapshot.evidence.n} registro{snapshot.evidence.n === 1 ? '' : 's'}</Text>
       </Text>
-      {variable.scaleHint ? <Text style={styles.hint}>{variable.scaleHint}</Text> : null}
-      {acuteChronicSentence(snapshot, (v) => fmtValue(v, variable)) ? <Text style={styles.hint}>{acuteChronicSentence(snapshot, (v) => fmtValue(v, variable))}</Text> : null}
       {points.length >= 2 ? (
         <DetailChart
           title=""
@@ -169,7 +166,6 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
         </Pressable>
       )}
       <Text style={styles.title}>{cfg.title}</Text>
-      <Text style={styles.subtitle}>{cfg.subtitle}</Text>
 
       {!snapshots ? (
         <ActivityIndicator size="small" color={HomeColors.panzeriInteraction} style={{ marginTop: HomeSpace.component }} />
@@ -177,12 +173,6 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
         <Text style={styles.empty}>Conforme você responde aos feedbacks dos treinos, esta área mostra sua evolução ao longo do tempo.</Text>
       ) : (
         <>
-          <View style={[styles.textCard]}>
-            <Text style={styles.textCardTitle}>O que seus registros mostram</Text>
-            {sentences.length > 0 ? <Text style={styles.sentence}>{sentences.join(' ')}</Text> : (
-              <Text style={styles.sentence}>Ainda não há registros suficientes para interpretar.</Text>
-            )}
-          </View>
           {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}
         </>
       )}

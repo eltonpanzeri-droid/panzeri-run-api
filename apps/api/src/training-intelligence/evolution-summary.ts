@@ -167,7 +167,7 @@ function limitationsText(entry: IndicatorReading, n: number, extra: { weekly: bo
     if (extra.provenanceNote) out.push(extra.provenanceNote);
   }
   if (entry.variableId === 'training.volumeRatioCompletedPrescribed') out.push('O realizado inclui os treinos extras; semana sem volume prescrito não entra.');
-  if (entry.variableId === 'activity.avgPaceSecondsKm' || entry.variableId.startsWith('training.volume')) out.push('Só corrida (esteira conta como corrida) entra nos quilômetros.');
+  if (entry.variableId === 'activity.avgPaceSecondsKm' || entry.variableId.startsWith('training.volume')) out.push('Só corrida entra nos quilômetros.');
   return out;
 }
 
