@@ -23,6 +23,11 @@ const GOOD = (over: Partial<Parameters<OperationalReferenceService['proposeAdjus
 });
 const NOW = new Date('2026-11-01T12:00:00Z');
 
+// 13/11/2026: estes testes dependiam do RELOGIO REAL (a data do ajuste gravado vem de new Date() e a regra "evidencia posterior ao ultimo ajuste" compara datas); depois de alguns dias passaram a falhar
+// sem que o produto tivesse mudado. O relogio agora e' congelado em NOW so' para Date (timers e filas seguem reais).
+beforeAll(() => { jest.useFakeTimers({ now: NOW, doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] }); });
+afterAll(() => { jest.useRealTimers(); });
+
 describe('1. aluno sem avaliação física', () => {
   it('nenhum agente recebe referência inventada, e o prompt diz null', async () => {
     const { ref } = setup();
@@ -206,7 +211,7 @@ describe('10. geração de treino usando a referência operacional', () => {
   it('generateWeek lê a referência, a entrega à IA, guarda a versão usada no programa e registra a proposta SÓ depois de salvar', () => {
     const tp = src('training-plans/training-plans.service.ts');
     expect(tp).toContain('const physiologicalReference = await this.referenceForAgents(userId);');
-    expect(tp).toContain('physiologicalReference,\n');
+    expect(tp).toMatch(/physiologicalReference,\r?\n/);
     expect(tp).toMatch(/physiologicalReference: referenceVersions \? \{ version/);
     const savePlan = tp.indexOf('Telegram') > 0 ? tp.indexOf('await this.applyReferenceAdjustment(userId, user.name, user.studentCode, aiDecision.physiologicalReferenceAdjustment)') : -1;
     expect(savePlan).toBeGreaterThan(tp.indexOf('await this.telegram.notifyCoach(\n        `✅ Treino da semana gerado.'));

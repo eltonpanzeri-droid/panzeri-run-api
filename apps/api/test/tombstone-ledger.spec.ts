@@ -253,8 +253,9 @@ describe('prefixos e retencao separados', () => {
     }
     // pruneOldBackups e privado: exercita-o via reflexao com um listing contendo so' o tombstone antigo.
     const svc = new Svc({ get: () => undefined } as never, {} as never);
-    const prune = (svc as unknown as { pruneOldBackups(c: unknown, k: string, s: unknown[]): Promise<number> }).pruneOldBackups.bind(svc);
-    expect(await prune(svc['createR2'](), 'novo', [])).toBe(0);
+    const prune = (svc as unknown as { pruneOldBackups(c: unknown, k: string, s: unknown[]): Promise<{ removed: number; previousSizeBytes: number | null }> }).pruneOldBackups.bind(svc);
+    // 13/11/2026: a limpeza passou a devolver { removed, previousSizeBytes } (antes, so' o numero removido).
+    expect((await prune(svc['createR2'](), 'novo', [])).removed).toBe(0);
     expect(deleted).toEqual([]);
   });
 

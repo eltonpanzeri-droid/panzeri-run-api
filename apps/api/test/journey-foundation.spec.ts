@@ -39,6 +39,8 @@ function runLanding(opts: { search: string; referrer?: string; local: Stored; se
       ? { textContent: JSON.stringify({ checkoutUrl: 'https://panzerirun.example.com/', results: [] }) }
       : fakeElement()),
     querySelectorAll: (sel: string) => (sel === '[data-checkout]' ? [link] : []),
+    // 13/11/2026: a landing nova (design de 16/09 em diante) usa querySelector (barra do topo etc.); o ambiente falso precisa ter, como o navegador.
+    querySelector: () => fakeElement(),
   };
   const sandbox: Record<string, unknown> = {
     document: doc,
@@ -52,6 +54,9 @@ function runLanding(opts: { search: string; referrer?: string; local: Stored; se
       return Promise.resolve({});
     },
     URL, URLSearchParams, JSON, Object, Math, Date, String, Number,
+    // 13/11/2026: a animacao de entrada da landing nova usa IntersectionObserver e timers; no navegador existem.
+    IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
+    setTimeout: () => 0,
     addEventListener: () => undefined,
     scrollY: 0,
     dataLayer,

@@ -8,6 +8,11 @@ import { fakeDb } from './helpers/fake-physiology-db';
 const A = 'aluno';
 const COACH = { id: 'treinador', role: 'coach' };
 const NOW = new Date('2026-10-30T12:00:00Z');
+
+// 13/11/2026: estes testes dependiam do RELOGIO REAL (a data do ajuste gravado vem de new Date() e a regra "evidencia posterior ao ultimo ajuste" compara datas); depois de alguns dias passaram a falhar
+// sem que o produto tivesse mudado. O relogio agora e' congelado em NOW so' para Date (timers e filas seguem reais).
+beforeAll(() => { jest.useFakeTimers({ now: NOW, doNotFake: ['hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] }); });
+afterAll(() => { jest.useRealTimers(); });
 const ev = (dates: string[]) => dates.map((data) => ({ data, descricao: `Treino de ${data}: ritmo acima do L2 com FC estavel e boa recuperacao` }));
 
 describe('fluxo completo: 3 km → indicadores → referência → zonas → histórico → agentes → ajuste → nova avaliação', () => {

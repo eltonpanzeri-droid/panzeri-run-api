@@ -10,7 +10,8 @@ describe('Gerador de Links Panzeri', () => {
   });
 
   it('gera UTMs com URLSearchParams e mantém histórico somente local', () => {
-    expect(LINKS_PAGE_HTML).toContain("const url=new URL(base)");
+    // 13/11/2026: o gerador ganhou o destino (landing/Play/Apple): a URL base agora vem de bases[destinoValue].
+    expect(LINKS_PAGE_HTML).toContain('const url=new URL(bases[destinoValue])');
     expect(LINKS_PAGE_HTML).toContain("url.searchParams.set('utm_source',sourceValue)");
     expect(LINKS_PAGE_HTML).toContain("localStorage.getItem(key)");
     expect(LINKS_PAGE_HTML).toContain('slice(0,10)');
