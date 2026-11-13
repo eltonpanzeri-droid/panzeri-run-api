@@ -13,6 +13,9 @@ import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 import { describeSessionShape, pacingModeLabel } from '../training-plans/agent-context-format';
 import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
 import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { isRunModality } from '../activity-execution/canonical-modality';
+import { formatPaceText, isImpossiblePace, paceFromEntry } from '../training-intelligence/pace-plausibility';
 import { doneDateLabel, painLine, prescribedDateLabel, trainingNumberLabel } from './feedback-telegram-lines';
 
 @Injectable()
@@ -29,7 +32,27 @@ export class WorkoutCompletionsService {
     // 3C.2: quando o aluno registra 'nao feito', o vinculo automatico a um evento fisico nao pode contradizer o registro dele. Opcional so'
     // para testes que constroem o servico sem ele; em producao e' sempre injetado.
     private readonly sessionExecutionLink?: SessionExecutionLinkService,
+    // 14/11/2026: aviso ao aluno para confirmar ritmo impossível. Opcional só para testes que constroem o serviço sem ele.
+    private readonly notifications?: NotificationsService,
   ) {}
+
+  // Ritmo impossível digitado à mão (ex.: 1:30/km): o valor não é alterado nem recusado; o treino fica fora da média de ritmo da Evolução e a aluna recebe um pedido de confirmação (sino + push), que abre o feedback
+  // desse treino para corrigir. Uma vez por combinação de distância e tempo (se ela corrigir e errar de novo com outros números, avisa de novo). Melhor esforço: nunca bloqueia o salvamento.
+  private async notifyImpossiblePace(userId: string, sessionId: string, modality: string, completion: { id: string; status: string; distanceKm: number | null; durationMin: number | null; avgPaceSecondsKm: number | null }): Promise<void> {
+    if (!this.notifications || !isRunModality(modality) || (completion.status !== 'done' && completion.status !== 'adjusted')) return;
+    const pace = paceFromEntry(completion.distanceKm, completion.durationMin, completion.avgPaceSecondsKm);
+    if (pace == null || !isImpossiblePace(pace)) return;
+    const km = completion.distanceKm != null ? `${String(Math.round(completion.distanceKm * 100) / 100).replace('.', ',')} km` : null;
+    const min = completion.durationMin != null ? `${Math.round(completion.durationMin)} min` : null;
+    const informed = km && min ? `Você registrou ${km} em ${min}, o que dá ${formatPaceText(pace)}` : `Você registrou um ritmo de ${formatPaceText(pace)}`;
+    await this.notifications.notifyUserIfNotRecent(userId, {
+      title: 'Você confirma esse dado?',
+      message: `${informed}, um ritmo que não costuma ser possível. Confira a distância e o tempo do treino. Enquanto isso, ele fica fora da sua média de ritmo.`,
+      type: 'info',
+      action: `training_feedback:${sessionId}`,
+      externalRef: `pace-check:${completion.id}:${completion.distanceKm}:${completion.durationMin}`,
+    }, 0);
+  }
 
   async upsert(userId: string, dto: UpsertWorkoutCompletionDto) {
     const details = (dto.details ?? {}) as Prisma.InputJsonObject;
@@ -286,6 +309,7 @@ export class WorkoutCompletionsService {
     // Passo 4 (25/09/2026): so' na CRIACAO (nunca num reenvio/edicao de feedback ja existente) de
     // uma execucao real, tenta vincular como "primeira observacao apos a lacuna" — ver
     // ContextEventsService.linkFirstObservationIfPending. Nunca bloqueia o salvamento do feedback.
+    void this.notifyImpossiblePace(userId, dto.sessionId, session.modality, completion).catch(() => undefined);
     if (!previous && (dto.status === 'done' || dto.status === 'adjusted')) {
       void this.contextEvents.linkFirstObservationIfPending(userId, completion.id, completion.completedAt).catch(() => undefined);
     }

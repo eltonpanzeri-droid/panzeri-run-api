@@ -48,3 +48,11 @@
 - **Relógio (área Sono e recuperação):** tempo total de sono, sono profundo, REM, HRV da noite e FC de repouso entram como indicadores ACOMPANHADOS (sem bom/ruim), tendência em "aumento/queda", texto "cada dado é parte de um todo... não é diagnóstico". Só a fonte principal da aluna (chooseMainSource, sem preferência explícita ainda) e só a sessão principal da noite.
 - **Ainda não:** número de ciclos de sono (o relógio não envia), pontuação do sono, sono leve/acordado. Preferência explícita de fonte (AthletePrimarySource) não é lida aqui.
 - Arquivos: evolution-reading-catalog.ts, evolution-summary.ts, evolution-summary.service.ts (mainSourceOnly), App.tsx; testes em evolution-summary.spec.ts (+5).
+
+## 7. Ritmo: relógio + preenchido, sem impossível, com aviso (14/11/2026, decisão de Elton)
+- **Regra:** relógio que entrega tudo = usa; relógio só com distância e tempo = ritmo médio é distância ÷ tempo (já era assim; não precisa de GPS); aluna sem relógio = usa o preenchido (tempo ÷ distância). O ritmo estimado por GPS continua só no gráfico de dentro do treino.
+- **Entra só na leitura da Evolução** (`getManualPaceObservations` + `EvolutionSummaryService`); a série `activity.avgPaceSecondsKm` que a IA lê NÃO mudou. Preenchido só conta se a sessão é corrida (esteira = corrida), `source='manual'` e sem atividade do relógio vinculada (evita contar duas vezes).
+- **Ritmo impossível** = fora dos limites do registro (120 a 1200 s/km, 2:00 a 20:00): fica fora da média; a frase da aluna conta "N do relógio, M preenchidos, K de fora por ritmo impossível". Recordes continuam só com ritmo medido.
+- **Aviso:** ao salvar o feedback, ritmo impossível gera "Você confirma esse dado?" (sino + push), ação abre o feedback do treino, uma vez por combinação distância/tempo. Valor nunca é alterado nem recusado.
+- Limitação conhecida: preenchido em sessão cujo ActivityLog existe mas não está vinculado não é deduplicado. Ao entrar o orquestrador de notificações (teto 5/dia), este aviso deve passar por ele.
+- Arquivos: pace-plausibility.ts, observation-reader.service.ts, evolution-summary(.service).ts, workout-completions.service/module; testes pace-provenance.spec.ts (9).

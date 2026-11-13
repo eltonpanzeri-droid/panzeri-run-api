@@ -109,7 +109,7 @@ export function bucketOf(level: Level | null, short: TrendReading | null, direct
   return 'steady';
 }
 
-export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService, now: Date = new Date()): IndicatorResult {
+export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService, now: Date = new Date(), provenanceNote: string | null = null): IndicatorResult {
   const whatItMeasures = `${entry.scaleText} ${entry.why}`;
   // Série semanal: a semana em curso é incompleta e fica fora (regra de Elton, 05/11/2026).
   const cutoff = entry.weekly ? now.getTime() - 7 * 86_400_000 : Infinity;
@@ -144,6 +144,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   const unit = scale && 'unit' in scale ? (scale as { unit?: string }).unit : undefined;
   const meanText = formatValue(overall, entry.variableId, unit);
   let habitual = entry.habitualTemplate ? entry.habitualTemplate(meanText, recent.length) : `O seu caso mostra uma média de ${meanText} (${recent.length} registros desde 01/08/2026).`;
+  if (provenanceNote) habitual += ` ${provenanceNote}`;
   if (entry.weekly) habitual += ` ${lastWeekSentence(recent[recent.length - 1].value, overall, (value) => formatValue(value, entry.variableId, unit))}`;
   return {
     variableId: entry.variableId, name: entry.name, status: 'ok', bucket, level, mean: overall, n: recent.length, short, long,

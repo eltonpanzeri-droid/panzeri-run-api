@@ -4299,3 +4299,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 
 ## 14/11/2026 — Evolução: regras de esforço, volume, ritmo e relógio
 - Ordem de Elton implementada (rascunho a revisar): texto de esforço por posição da média, volume com última semana observável vs padrão e 3 gráficos fixos (prescrito, realizado, comparação), ritmo só métrica+tendência, e sono total/profundo/REM/HRV/FC de repouso do relógio por tendência (fonte principal). Princípio dele: cada dado é parte de um todo; mostramos padrão, tendência e o que tende a representar, sem diagnóstico. Detalhes e pendências (ciclos de sono, preferência de fonte) em PLANO_FRENTE2_EVOLUCAO_CARDS.md seção 6. API no Deploy; gráficos novos no PWA com o Deploy do app, nativos no próximo build.
+
+## 14/11/2026 — Ritmo: relógio + preenchido, ritmo impossível fora da média e aviso à aluna
+- Decisão de Elton: usar o relógio quando entrega; distância e tempo quando só isso existe; o preenchido quando não há relógio; dizer à aluna como foi computado; avisar para confirmar dado impossível (ex.: 1:30/km). Só na Evolução (IA intocada). Detalhes e limitação em PLANO_FRENTE2_EVOLUCAO_CARDS.md seção 7. API no Deploy.

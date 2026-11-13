@@ -16,7 +16,7 @@ import { aiActivityWhere, aiBlockedProviders, isHealthBlockedForAi } from '../ai
 import { resolveExplicitOverride } from '../activity-execution/athlete-primary-source';
 import { sleepSessionRoles, sourceKeyOf } from './wearable-source';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
-import { canonicalModality } from '../activity-execution/canonical-modality';
+import { canonicalModality, isRunModality } from '../activity-execution/canonical-modality';
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
 import { scheduleStaleHeal } from '../activity-execution/analysis-recompute';
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -604,6 +604,29 @@ export class ObservationReaderService {
       });
     }
     return observations;
+  }
+
+  // Ritmo dos treinos PREENCHIDOS pela aluna (14/11/2026): corrida feita e informada à mão (distância e tempo), sem atividade do relógio vinculada (com vínculo a atividade já é a do relógio). Só alimenta a leitura
+  // da Evolução; NÃO entra em getObservations de activity.avgPaceSecondsKm, que continua só do relógio e é o que a IA lê. Valores impossíveis são devolvidos (o leitor da Evolução os conta e descarta).
+  async getManualPaceObservations(athleteId: string): Promise<Observation[]> {
+    const rows = await this.prisma.workoutCompletion.findMany({
+      where: { userId: athleteId, status: { in: ['done', 'adjusted'] }, source: 'manual', distanceKm: { gt: 0 }, durationMin: { gt: 0 }, session: { executionLinks: { none: { status: 'active' } } } },
+      select: { id: true, distanceKm: true, durationMin: true, session: { select: { modality: true, scheduledDate: true } } },
+    });
+    const observations: Observation[] = [];
+    for (const row of rows) {
+      if (!row.session || !isRunModality(row.session.modality) || row.distanceKm == null || row.durationMin == null) continue;
+      observations.push({
+        athleteId,
+        variableId: 'activity.avgPaceSecondsKm',
+        value: Math.round((row.durationMin * 60) / row.distanceKm),
+        timestamp: row.session.scheduledDate,
+        source: 'activity_objective',
+        instrumentVersion: 1,
+        context: { modality: 'corrida' },
+      });
+    }
+    return observations.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   }
 
   // Auditoria do desacoplamento da FC (03/11/2026): TODAS as corridas consideradas, elegiveis ou nao, com o motivo da exclusao e os dados que sustentam o calculo (painel do treinador e Evolucao da aluna).

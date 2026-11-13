@@ -9,9 +9,10 @@ import { ReporterModule } from '../reporter/reporter.module';
 import { MedalsModule } from '../medals/medals.module';
 import { ShoesModule } from '../shoes/shoes.module';
 import { ActivityExecutionModule } from '../activity-execution/activity-execution.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule, ReporterModule, MedalsModule, ShoesModule, ActivityExecutionModule],
+  imports: [PrismaModule, StudentProfileModule, BillingModule, ContextEventsModule, ReporterModule, MedalsModule, ShoesModule, ActivityExecutionModule, NotificationsModule],
   controllers: [WorkoutCompletionsController],
   providers: [WorkoutCompletionsService],
 })

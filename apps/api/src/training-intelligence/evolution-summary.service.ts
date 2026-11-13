@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ObservationReaderService } from './observation-reader.service';
 import { MathLayerService, type SeriesPoint } from './math-layer.service';
 import { getVariableDefinition } from './variable-registry';
-import { AREA_READING, READING_CATALOG, type AreaId } from './evolution-reading-catalog';
+import { AREA_READING, EVOLUTION_SINCE, READING_CATALOG, type AreaId } from './evolution-reading-catalog';
 import { chooseMainSource } from './wearable-source';
+import { isImpossiblePace, paceProvenanceSentence, type PaceProvenance } from './pace-plausibility';
 import { EVOLUTION_SUMMARY_META, buildAreaSummary, buildIndicatorResult, type AreaSummary, type IndicatorResult } from './evolution-summary';
 
 // Evolução da aluna: leitura por regra de cada indicador e síntese por área (13/11/2026). SOMENTE LEITURA, sempre com o id da aluna autenticada. Reaproveita o leitor de observações e a camada
@@ -28,16 +29,38 @@ export class EvolutionSummaryService {
       const definition = getVariableDefinition(entry.variableId);
       if (!definition) continue;
       let series: SeriesPoint[] = [];
+      let provenanceNote: string | null = null;
       try {
         const observations = await this.reader.getObservations(userId, entry.variableId);
         let usable = observations.filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value));
         if (entry.wearable) usable = mainSourceOnly(usable);
-        series = usable.map((o) => ({ value: o.value, timestamp: o.timestamp }));
+        let points = usable.map((o) => ({ value: o.value, timestamp: o.timestamp }));
+        if (entry.variableId === 'activity.avgPaceSecondsKm') {
+          // Ritmo: relógio + treinos preenchidos pela aluna (sem relógio), sem ritmo impossível; a frase diz de onde veio cada parte. Falha na leitura dos preenchidos = só o relógio.
+          let manual: SeriesPoint[] = [];
+          try {
+            manual = ((await this.reader.getManualPaceObservations?.(userId)) ?? []).filter((o): o is typeof o & { value: number } => typeof o.value === 'number').map((o) => ({ value: o.value, timestamp: o.timestamp }));
+          } catch (error) {
+            this.logger.warn(`Evolucao: leitura do ritmo preenchido falhou (${error instanceof Error ? error.message : String(error)}).`);
+          }
+          const since = EVOLUTION_SINCE.getTime();
+          const counts: PaceProvenance = { watch: 0, manual: 0, discarded: 0 };
+          const kept: SeriesPoint[] = [];
+          for (const [list, key] of [[points, 'watch'], [manual, 'manual']] as const) {
+            for (const p of list) {
+              if (p.timestamp.getTime() < since) continue;
+              if (isImpossiblePace(p.value)) counts.discarded += 1; else { counts[key] += 1; kept.push(p); }
+            }
+          }
+          points = kept;
+          provenanceNote = paceProvenanceSentence(counts);
+        }
+        series = points;
       } catch (error) {
         // um indicador que falha ao ler nao derruba a tela: entra como "dados insuficientes"
         this.logger.warn(`Evolucao: leitura de ${entry.variableId} falhou (${error instanceof Error ? error.message : String(error)}).`);
       }
-      const result = buildIndicatorResult(entry, definition, series, this.math);
+      const result = buildIndicatorResult(entry, definition, series, this.math, new Date(), provenanceNote);
       byArea.set(entry.area, [...(byArea.get(entry.area) ?? []), result]);
     }
     const areas = AREA_READING.map((area) => buildAreaSummary(area.id, byArea.get(area.id) ?? []));
