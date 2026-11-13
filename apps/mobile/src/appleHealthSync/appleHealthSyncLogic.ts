@@ -77,6 +77,14 @@ export interface SyncCounters {
   healthStored: number; healthRejected: number; healthNotSent: number; healthUnreadable: number; windowsPending: number; workoutsMaybeTruncated: number; routesDeferred: number;
 }
 
+// Series do treino lidas vazias (13/11/2026, caso Lorena): uma leitura vazia NAO pode encerrar a tentativa para sempre (antes, o treino era marcado como "ja conferido" na 1a leitura vazia e nunca mais
+// tentado). Conta as tentativas vazias por treino e so' desiste na SERIES_EMPTY_MAX-esima; o servidor segue sendo a autoridade do que ja' esta completo.
+export const SERIES_EMPTY_MAX = 3;
+export function nextEmptyAttempt(attempts: Record<string, number>, id: string, max = SERIES_EMPTY_MAX): { attempts: Record<string, number>; giveUp: boolean } {
+  const count = (attempts[id] ?? 0) + 1;
+  return { attempts: { ...attempts, [id]: count }, giveUp: count >= max };
+}
+
 export const emptyCounters = (): SyncCounters => ({ created: 0, enriched: 0, already: 0, rejected: 0, routesStored: 0, routesFailed: 0, routesTooLarge: 0, workoutsNotSent: 0, seriesStored: 0, seriesFailed: 0, healthStored: 0, healthRejected: 0, healthNotSent: 0, healthUnreadable: 0, windowsPending: 0, workoutsMaybeTruncated: 0, routesDeferred: 0 });
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;

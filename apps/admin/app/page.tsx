@@ -5541,6 +5541,7 @@ type ExternalActivitySample = {
 
 type ExternalActivityRaw = {
   timeSeries?: { points: number; heartRate: number; speed: number; cadence: number; power: number; distance: number; route: number };
+  seriesDiagnostics?: Array<{ at: string; outcome: string; counts?: Record<string, number>; detail?: string | null }>;
   id: string;
   provider: string;
   externalId: string;
@@ -6190,6 +6191,9 @@ function AtividadesExternasTab({ studentId, accessToken }: { studentId: string; 
       <div className="extRaw">
         {(raw as ExternalActivityRaw).timeSeries ? (
           <p className="extHint"><strong>Série por segundo guardada:</strong> {(raw as ExternalActivityRaw).timeSeries!.points === 0 ? 'NENHUM ponto (sem gráfico de ritmo/FC no Panzeri Run)' : `${(raw as ExternalActivityRaw).timeSeries!.points} pontos — FC ${(raw as ExternalActivityRaw).timeSeries!.heartRate}, velocidade/ritmo ${(raw as ExternalActivityRaw).timeSeries!.speed}, cadência ${(raw as ExternalActivityRaw).timeSeries!.cadence}, potência ${(raw as ExternalActivityRaw).timeSeries!.power}, distância ${(raw as ExternalActivityRaw).timeSeries!.distance}, percurso ${(raw as ExternalActivityRaw).timeSeries!.route}`}</p>
+        ) : null}
+        {(raw as ExternalActivityRaw).seriesDiagnostics?.length ? (
+          <div className="extHint"><strong>Diagnóstico do app (leitura das séries no iPhone):</strong>{(raw as ExternalActivityRaw).seriesDiagnostics!.map((item, index) => <div key={index}>{new Date(item.at).toLocaleString('pt-BR')} · {({ empty: 'o iPhone não entregou amostras', read_error: 'erro ao ler no iPhone', rejected: 'o servidor recusou', stored: 'enviado' } as Record<string, string>)[item.outcome] ?? item.outcome}{item.counts ? ` · amostras: ${Object.entries(item.counts).map(([key, value]) => `${key} ${value}`).join(', ') || 'nenhuma'}` : ''}{item.detail ? ` · ${item.detail}` : ''}</div>)}</div>
         ) : null}
         <pre className="extPre">{JSON.stringify(raw, null, 2)}</pre>
         {!samples || samples.length === 0 ? (

@@ -54,6 +54,14 @@ export class AppleHealthController {
     return this.ingestion.pendingSeries(user.sub, body);
   }
 
+  // Diagnostico da leitura de series (13/11/2026): so' contagens e motivo curto; ver recordSeriesDiagnostic.
+  @UseGuards(AuthGuard('jwt'))
+  @HttpCode(200)
+  @Post('series/diagnostic')
+  seriesDiagnostic(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    return this.ingestion.recordSeriesDiagnostic(user.sub, body);
+  }
+
   @UseGuards(AuthGuard('jwt'))
   @HttpCode(200)
   @Post('series')

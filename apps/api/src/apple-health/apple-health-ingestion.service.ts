@@ -12,7 +12,7 @@ import { ForbiddenException } from '@nestjs/common';
 import { normalizeRoutes } from '../health-connect/health-connect-route';
 import { AppleHealthConsentService, type AppleConsentAccess } from './apple-health-consent.service';
 import { APPLE_HEALTH_CHANNEL, APPLE_HEALTH_PAYLOAD_SCHEMA, APPLE_HEALTH_PROVIDER, normalizeAppleHealthWorkout, NormalizedAppleWorkout } from './apple-health-normalizer';
-import { APPLE_SERIES_LIMITS, appleSeriesBodyBytes, buildSeriesPoints, normalizeSeries } from './apple-health-series';
+import { APPLE_SERIES_LIMITS, SERIES_METRICS, appleSeriesBodyBytes, buildSeriesPoints, normalizeSeries } from './apple-health-series';
 
 export const MAX_WORKOUTS_PER_BATCH = 50;
 
@@ -215,6 +215,26 @@ export class AppleHealthIngestionService {
 
   // Series do treino ligadas ao treino JA importado (recordId = uuid do HKWorkout). As medidas de sensor (frequencia cardiaca, potencia, cadencia) exigem consentimento REGISTRADO para
   // 'activity' e 'activity_sensors', checado DENTRO da transacao que grava. Nao cria atividade, nao mexe no percurso (linhas com latitude) e refaz a serie do treino do zero (idempotente).
+  // Diagnostico da leitura de series no aparelho (13/11/2026, caso Lorena: percurso chegou, mas FC/ritmo/cadencia nao). O app conta, por medida, quantas amostras o iPhone entregou e relata aqui quando a
+  // leitura vem vazia, falha ou e' recusada; o painel mostra na ficha da atividade. So' numeros e um motivo curto: nenhum dado de saude, nenhuma localizacao. Limite de 30 registros por dia.
+  async recordSeriesDiagnostic(userId: string, body: unknown): Promise<{ recorded: boolean }> {
+    const b = (body ?? {}) as { recordId?: unknown; outcome?: unknown; counts?: unknown; detail?: unknown };
+    const recordId = typeof b.recordId === 'string' ? b.recordId.trim().toLowerCase().slice(0, 64) : '';
+    if (!recordId) throw new BadRequestException('Informe recordId.');
+    const outcome = typeof b.outcome === 'string' && ['empty', 'read_error', 'rejected', 'stored'].includes(b.outcome) ? b.outcome : null;
+    if (!outcome) throw new BadRequestException('Resultado invalido.');
+    const counts: Record<string, number> = {};
+    for (const metric of SERIES_METRICS) {
+      const value = (b.counts as Record<string, unknown> | null | undefined)?.[metric];
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) counts[metric] = Math.min(Math.round(value), 100000);
+    }
+    const detail = typeof b.detail === 'string' ? b.detail.replace(/[^\p{L}\p{N} _.:,;()/-]/gu, ' ').trim().slice(0, 120) : null;
+    const since = new Date(Date.now() - 24 * 3600 * 1000);
+    if ((await this.prisma.providerConnectionEvent.count({ where: { userId, provider: APPLE_HEALTH_PROVIDER, type: 'series_diagnostic', createdAt: { gte: since } } })) >= 30) return { recorded: false };
+    await this.prisma.providerConnectionEvent.create({ data: { userId, provider: APPLE_HEALTH_PROVIDER, type: 'series_diagnostic', details: { recordId, outcome, counts, detail } } });
+    return { recorded: true };
+  }
+
   async importSeries(userId: string, body: unknown): Promise<{ stored: number; rejected: number; items: Array<{ recordId: string; status: 'stored' | 'rejected'; reason?: string; points?: number }> }> {
     const bytes = appleSeriesBodyBytes(body);
     if (bytes > APPLE_SERIES_LIMITS.maxRequestBytes) throw new PayloadTooLargeException(`O envio de series tem ${bytes} bytes e o limite e ${APPLE_SERIES_LIMITS.maxRequestBytes}. Envie um treino por vez.`);

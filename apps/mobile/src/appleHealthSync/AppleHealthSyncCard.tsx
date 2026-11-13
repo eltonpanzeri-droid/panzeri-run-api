@@ -16,7 +16,7 @@ import {
   type AppleRunningWorkout,
 } from '../../modules/panzeri-apple-health/src';
 import {
-  HttpError, NativeReadError, classifyFailure, dayKey, dropRevoked, emptyCounters, fitRoute, markCovered, markThrough, messageFor, packRecords, packRouteBatches, parseCoverage, planSyncWindows,
+  HttpError, NativeReadError, classifyFailure, dayKey, dropRevoked, emptyCounters, fitRoute, markCovered, markThrough, messageFor, nextEmptyAttempt, packRecords, packRouteBatches, parseCoverage, planSyncWindows,
   type RouteBatchItem, type SyncCounters, type SyncOutcome, type SyncWindow,
 } from './appleHealthSyncLogic';
 import { HEALTH_GROUPS, buildWindowRecords, categoryIdsForGroups, specsForGroups } from './appleHealthRecords';
@@ -46,6 +46,16 @@ async function loadSeriesChecked(): Promise<Set<string>> {
 }
 async function saveSeriesChecked(ids: Set<string>): Promise<void> {
   try { await AsyncStorage.setItem(SERIES_CHECKED_KEY, JSON.stringify([...ids].slice(-4000))); } catch { /* sem armazenamento: so' le de novo na proxima */ }
+}
+// 13/11/2026: tentativas vazias por treino (nao desiste na 1a) e janela de reconferencia: a cada sincronizacao, os treinos dos ultimos 45 dias tambem entram na conferencia das series (o servidor so' pede
+// os que ainda faltam), porque as janelas de data so' trazem treinos NOVOS e um treino sem serie nunca era tentado de novo.
+const SERIES_EMPTY_KEY = 'pr:appleSeriesEmpty';
+const SERIES_RETRY_DAYS = 45;
+async function loadSeriesEmpty(): Promise<Record<string, number>> {
+  try { const raw = await AsyncStorage.getItem(SERIES_EMPTY_KEY); const parsed = raw ? JSON.parse(raw) : {}; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, number>) : {}; } catch { return {}; }
+}
+async function saveSeriesEmpty(map: Record<string, number>): Promise<void> {
+  try { await AsyncStorage.setItem(SERIES_EMPTY_KEY, JSON.stringify(Object.fromEntries(Object.entries(map).slice(-2000)))); } catch { /* sem armazenamento: tenta de novo na proxima */ }
 }
 const DEFAULT_ROUTE_LIMITS = { maxRoutesPerRequest: 3, maxPointsPerRoute: 1200, maxRequestBytes: 60_000 };
 
@@ -204,6 +214,14 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
   // Series do treino ao longo do tempo. Falta de autorizacao no servidor (403) NAO e' falha da sincronizacao: o grupo de medidas simplesmente nao esta liberado para guardar series.
   async function syncSeries(workouts: AppleRunningWorkout[], counters: SyncCounters): Promise<SyncOutcome | null> {
     const checked = await loadSeriesChecked();
+    let emptyAttempts = await loadSeriesEmpty();
+    let diagnosticsSent = 0;
+    // Relato (melhor esforco) ao servidor do que o iPhone entregou: so' contagens e um motivo curto; o painel mostra na ficha da atividade. Nunca derruba a sincronizacao.
+    const reportDiagnostic = async (recordId: string, outcome: 'empty' | 'read_error' | 'rejected', counts: Record<string, number>, detail?: string) => {
+      if (diagnosticsSent >= 8) return;
+      diagnosticsSent += 1;
+      try { await call('POST', '/apple-health/series/diagnostic', { recordId, outcome, counts, detail }); } catch { /* diagnostico e' opcional */ }
+    };
     const candidates = [...new Set(workouts.map((workout) => workout.uuid.toLowerCase()))].filter((id) => !checked.has(id));
     if (candidates.length === 0) return null;
     const pending: string[] = [];
@@ -223,24 +241,37 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
       let metrics;
       try {
         metrics = await readWorkoutSeries(todo[index], SERIES_SPECS, 600);
-      } catch {
+      } catch (readError) {
         counters.seriesFailed += 1;
+        await reportDiagnostic(todo[index], 'read_error', {}, readError instanceof Error ? readError.message : 'erro desconhecido');
         continue;
       }
-      if (Object.keys(metrics).length === 0) { checked.add(todo[index]); continue; } // sem dado de serie neste treino (ou sem permissao: o iOS nao diferencia)
+      if (Object.keys(metrics).length === 0) {
+        // sem dado de serie neste treino (ou sem permissao: o iOS nao diferencia). Nao encerra na 1a leitura vazia: tenta de novo nas proximas sincronizacoes ate SERIES_EMPTY_MAX.
+        const step = nextEmptyAttempt(emptyAttempts, todo[index]);
+        emptyAttempts = step.attempts;
+        if (step.giveUp) checked.add(todo[index]);
+        await reportDiagnostic(todo[index], 'empty', {}, step.giveUp ? 'tentativa final' : 'tentativa ' + step.attempts[todo[index]]);
+        continue;
+      }
       try {
         const result = await call<{ stored: number; items: Array<{ status: string; reason?: string }> }>('POST', '/apple-health/series', { series: [{ recordId: todo[index], metrics }] });
         if (result.stored > 0) { counters.seriesStored += 1; checked.add(todo[index]); }
         else if (result.items.some((item) => item.reason === 'sem_pontos_validos')) checked.add(todo[index]);
-        else counters.seriesFailed += 1;
+        else {
+          counters.seriesFailed += 1;
+          await reportDiagnostic(todo[index], 'rejected', Object.fromEntries(Object.entries(metrics).map(([key, list]) => [key, Array.isArray(list) ? list.length : 0])), result.items[0]?.reason ?? 'recusado');
+        }
       } catch (error) {
         await saveSeriesChecked(checked);
+        await saveSeriesEmpty(emptyAttempts);
         if (error instanceof HttpError && (error.status === 401 || error.status === 403)) return null;
         counters.seriesFailed += todo.length - index;
         return classifyFailure(error);
       }
     }
     await saveSeriesChecked(checked);
+    await saveSeriesEmpty(emptyAttempts);
     return null;
   }
 
@@ -287,6 +318,18 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
       }
     }
     return null;
+  }
+
+  // Treinos da sincronizacao + os dos ultimos SERIES_RETRY_DAYS dias (sem repetir). Falha ao ler os recentes nao atrapalha: segue so' com os da sincronizacao.
+  async function withRecentWorkouts(current: AppleRunningWorkout[]): Promise<AppleRunningWorkout[]> {
+    try {
+      const end = new Date();
+      const recent = await readWorkoutsInRange(new Date(end.getTime() - SERIES_RETRY_DAYS * 24 * 3600_000), end, 200);
+      const seen = new Set(current.map((workout) => workout.uuid.toLowerCase()));
+      return [...current, ...recent.filter((workout) => !seen.has(workout.uuid.toLowerCase()))];
+    } catch {
+      return current;
+    }
   }
 
   async function sync() {
@@ -340,9 +383,11 @@ export function AppleHealthSyncCard({ accessToken, apiUrl }: { accessToken: stri
             failure = classifyFailure(error);
           }
         }
-        if (failure === null && granted.has('sensors') && workouts.length > 0) {
+        // 13/11/2026: as series tambem sao reconferidas para treinos recentes que ja' estavam no servidor sem elas (janelas de data so' trazem treinos novos).
+        if (failure === null && granted.has('sensors')) {
           try {
-            failure = await syncSeries(workouts, counters);
+            const seriesWorkouts = await withRecentWorkouts(workouts);
+            if (seriesWorkouts.length > 0) failure = await syncSeries(seriesWorkouts, counters);
           } catch (error) {
             failure = classifyFailure(error);
           }

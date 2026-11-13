@@ -220,7 +220,7 @@ export class CoachService {
   async getExternalActivityRaw(studentId: string, activityLogId: string, actor: { id: string; role: string }) {
     const log = await this.prisma.activityLog.findFirst({
       where: { id: activityLogId, userId: studentId },
-      select: { rawActivityId: true, provider: true },
+      select: { rawActivityId: true, provider: true, externalId: true },
     });
     if (!log) {
       throw new NotFoundException('Atividade externa nao encontrada para este aluno.');
@@ -235,7 +235,7 @@ export class CoachService {
         details: { actorId: actor.id, actorRole: actor.role, activityLogId, operation: 'read_raw_payload_and_samples' },
       },
     });
-    const [rawActivity, samples, timeSeries] = await Promise.all([
+    const [rawActivity, samples, timeSeries, seriesDiagnostics] = await Promise.all([
       this.prisma.rawExternalActivity.findUnique({
         where: { id: log.rawActivityId },
         select: {
@@ -251,11 +251,20 @@ export class CoachService {
       }),
       this.listActivitySamples(activityLogId),
       this.timeSeriesSummary(activityLogId),
+      this.seriesDiagnosticsFor(studentId, log.provider, log.externalId),
     ]);
     if (!rawActivity) {
       return rawActivity;
     }
-    return { ...rawActivity, samples, timeSeries };
+    return { ...rawActivity, samples, timeSeries, seriesDiagnostics };
+  }
+
+  // Diagnostico enviado pelo app do iPhone sobre a leitura das series deste treino (13/11/2026). Ultimos 5, so' contagens e motivo curto.
+  private async seriesDiagnosticsFor(studentId: string, provider: string, externalId: string | null) {
+    if (provider !== 'apple_health' || !externalId) return [];
+    const rows = await this.prisma.providerConnectionEvent.findMany({ where: { userId: studentId, provider: 'apple_health', type: 'series_diagnostic' }, orderBy: { createdAt: 'desc' }, take: 60, select: { details: true, createdAt: true } });
+    const wanted = externalId.toLowerCase();
+    return rows.filter((row) => (row.details as { recordId?: string } | null)?.recordId === wanted).slice(0, 5).map((row) => ({ at: row.createdAt, ...(row.details as Record<string, unknown>) }));
   }
 
   // Diagnostico Admin-only (13/11/2026, caso Lorena): quantos pontos da serie por segundo (ActivityTimeSeriesPoint) esta atividade tem, por medida. So' contagem do que ja' esta guardado; nada e' interpretado.

@@ -68,7 +68,7 @@ describe('CoachService.getExternalActivityRaw — samples anexados ao raw existe
 
     expect(prisma.activityLog.findFirst).toHaveBeenCalledWith({
       where: { id: 'log-1', userId: 'student-1' },
-      select: { rawActivityId: true, provider: true },
+      select: { rawActivityId: true, provider: true, externalId: true },
     });
     expect(prisma.rawActivitySample.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { activityLogId: 'log-1' } }),
