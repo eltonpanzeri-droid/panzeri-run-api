@@ -64,3 +64,37 @@ export function queryFor(range: PanelRange): string {
   if (range.to) parts.push(`to=${range.to}`);
   return parts.length ? `?${parts.join('&')}` : '';
 }
+
+// Semana em curso (14/11/2026): números vêm do servidor (semanaAtual); aqui só o texto de incentivo, por regra.
+export interface CurrentWeekDto {
+  weekStart: string; weekEnd: string; diasRestantes: number;
+  treinosFeitos: number; porModalidade: Array<{ modality: string; count: number }>;
+  treinosPrescritos: number; prescritosFeitos: number; treinosFaltam: number; extrasFeitos: number;
+  kmRealizados: number; kmPrescritos: number | null; kmFaltam: number | null; kmAlemDoPrescrito: number;
+}
+
+const kmText = (value: number) => `${String(value).replace('.', ',')} km`;
+const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+export function weekCoachText(week: CurrentWeekDto, firstName: string): string {
+  const name = firstName ? `${firstName}, ` : '';
+  const days = `${week.diasRestantes} ${plural(week.diasRestantes, 'dia', 'dias')}`;
+  const extras = week.extrasFeitos > 0 ? ` Você ainda fez ${week.extrasFeitos} ${plural(week.extrasFeitos, 'treino extra', 'treinos extras')}.` : '';
+  if (week.treinosPrescritos === 0) {
+    return week.treinosFeitos > 0
+      ? `${name}esta semana não há treinos do programa, e você já fez ${week.treinosFeitos} ${plural(week.treinosFeitos, 'treino', 'treinos')} por conta própria.`
+      : `${name}esta semana não há treinos do programa.`;
+  }
+  const kmDone = week.kmRealizados > 0 ? ` e correu ${kmText(week.kmRealizados)}` : '';
+  const kmDone0 = week.kmFaltam === 0 || week.kmFaltam == null;
+  if (week.treinosFaltam === 0 && kmDone0) {
+    const over = week.kmAlemDoPrescrito > 0 ? ` e passou ${kmText(week.kmAlemDoPrescrito)} do volume prescrito` : '';
+    return `${name}semana completa! Você fez os ${week.treinosPrescritos} treinos do programa${over}.${extras}`;
+  }
+  const missingParts: string[] = [];
+  if (week.treinosFaltam > 0) missingParts.push(`${week.treinosFaltam} ${plural(week.treinosFaltam, 'treino', 'treinos')}`);
+  if (week.kmFaltam != null && week.kmFaltam > 0) missingParts.push(kmText(week.kmFaltam));
+  const missing = missingParts.join(' e ');
+  if (week.diasRestantes <= 0) return `${name}você fez ${week.prescritosFeitos} de ${week.treinosPrescritos} treinos do programa${kmDone} nesta semana.${extras}`;
+  return `${name}nesta semana você já fez ${week.prescritosFeitos} de ${week.treinosPrescritos} treinos do programa${kmDone}. Faltam ${missing} nos ${days} que restam: dá tempo de fechar a semana.${extras}`;
+}

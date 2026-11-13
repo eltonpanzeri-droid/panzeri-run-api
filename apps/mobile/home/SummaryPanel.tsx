@@ -80,7 +80,7 @@ export function SummaryPanel({ accessToken, todayIso }: { accessToken: string; t
     <View style={{ gap: HomeSpace.related }}>
       <View style={{ gap: 4 }}>
         <Text style={styles.title}>Seu resumo</Text>
-        <Text style={styles.subtitle}>Os seus números desde que você começou. Você pode escolher um período.</Text>
+        <Text style={styles.subtitle}>Os seus números desde que você começou, só com semanas completas. A semana em curso está em "Esta semana". Você pode escolher um período.</Text>
       </View>
       <View style={styles.chips}>
         {PRESETS.map((p) => (

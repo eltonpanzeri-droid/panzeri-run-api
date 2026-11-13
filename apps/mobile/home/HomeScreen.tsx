@@ -5,6 +5,7 @@ import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg
 import { Ionicons } from '@expo/vector-icons';
 import { saoPauloDateString } from '../src/weekWindow';
 import { SummaryPanel } from './SummaryPanel';
+import { ThisWeekCard } from './ThisWeekCard';
 import { PendingIdentityNotice } from './PendingIdentity';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { FeelingDomain, FEELING_DOMAINS, SnapshotLite, rangeChip, trendChip, trendSentence } from './insights';
@@ -240,6 +241,10 @@ export function HomeScreen({
 
   const firstName = userName?.split(' ')[0] ?? '';
   const weekSentence = weekSummarySentence(currentWeekVolume);
+  const extraWeekLines = [
+    trendSentence(feelings['workout.preSleepQuality'], { label: 'A qualidade do sono', fmt: (v) => String(v) }),
+    trendSentence(feelings['workout.prePhysicalFatigue'], { label: 'O cansaço físico antes do treino', fmt: (v) => String(v) }),
+  ].filter((line): line is string => !!line);
 
   return (
     <View style={styles.container}>
@@ -277,6 +282,9 @@ export function HomeScreen({
         onOpenHistory={onOpenHistory}
       />
 
+      {/* Esta semana (14/11/2026, pedido de Elton): a semana em curso fica FORA dos números gerais e ganha área própria, junto com o antigo "Seu acompanhamento". */}
+      <ThisWeekCard accessToken={accessToken} firstName={firstName} extraLines={extraWeekLines} />
+
       {/* Bloco 3 — Seu progresso */}
       <ProgressSection
         loading={evolutionLoading}
@@ -294,14 +302,6 @@ export function HomeScreen({
         <Text style={styles.sectionSubtitle}>Escolha uma área para ver seus indicadores.</Text>
       </View>
       <EvolutionAreaGrid onOpenArea={onOpenArea} />
-
-      {/* Bloco 5 — Seu acompanhamento */}
-      <AcompanhamentoSection
-        firstName={firstName}
-        currentWeekVolume={currentWeekVolume}
-        feelings={feelings}
-        loading={evolutionLoading || feelingsLoading}
-      />
 
       {/* Bloco 6 — Conquistas */}
       <ConquistasSection loading={medalsLoading} error={medalsError && !medals} medals={medals} onOpenAll={onOpenMedalsAll} />
@@ -768,54 +768,6 @@ function FeelingsSection({ loading, feelings, onOpenFeeling }: { loading: boolea
           Conte como foi seu treino. Seus feedbacks ajudam a construir sua visão de sono, prontidão, esforço e resposta aos treinos ao longo do tempo.
         </Text>
       )}
-    </View>
-  );
-}
-
-// -----------------------------------------------------------------------------------------
-// Bloco 5 — Seu acompanhamento (texto determinístico, sem chamada de IA nova)
-// -----------------------------------------------------------------------------------------
-
-function AcompanhamentoSection({
-  firstName,
-  currentWeekVolume,
-  feelings,
-  loading,
-}: {
-  firstName: string;
-  currentWeekVolume: WeeklyVolumeLite | null;
-  feelings: Record<string, VariableSnapshotLite | null>;
-  loading: boolean;
-}) {
-  if (loading) return <SkeletonBlock height={140} />;
-
-  const parts: string[] = [];
-  if (currentWeekVolume) {
-    parts.push(
-      `${firstName ? `${firstName}, nesta` : 'Nesta'} semana você realizou ${currentWeekVolume.sessoesFeitas} de ${currentWeekVolume.sessoesPrescritas} treinos planejados` +
-      (currentWeekVolume.kmPercorridos ? ` e acumulou ${formatMetric(currentWeekVolume.kmPercorridos)} km` : '') + '.',
-    );
-  }
-  const sleep = feelings['workout.preSleepQuality'];
-  const fatigue = feelings['workout.prePhysicalFatigue'];
-  // Mesmas frases das telas de detalhe (trendSentence): Home e dominios nunca se contradizem.
-  const sleepLine = trendSentence(sleep, { label: 'A qualidade do sono', fmt: (v) => String(v) });
-  if (sleepLine) parts.push(sleepLine);
-  const fatigueLine = trendSentence(fatigue, { label: 'O cansaço físico antes do treino', fmt: (v) => String(v) });
-  if (fatigueLine) parts.push(fatigueLine);
-  if (parts.length === 0) {
-    parts.push('Continue registrando seus feedbacks para que possamos acompanhar sua trajetória com você.');
-  } else {
-    parts.push('Seu treinamento continua avançando. Continue registrando seus feedbacks para que possamos acompanhar essas mudanças com você.');
-  }
-
-  return (
-    <View style={[styles.card, styles.acompanhamentoCard]}>
-      <View style={styles.acompanhamentoHeader}>
-        <Ionicons name="analytics-outline" size={18} color={HomeColors.panzeriPrimary} />
-        <Text style={styles.sectionTitle}>Seu acompanhamento</Text>
-      </View>
-      <Text style={styles.acompanhamentoText}>{parts.join(' ')}</Text>
     </View>
   );
 }

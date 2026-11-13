@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { isoToBr, maskBrDate, parseBrDate, periodLabel, presetRange, queryFor, validateCustomRange } from '../../mobile/home/summaryPanelLogic';
+import { CurrentWeekDto, isoToBr, maskBrDate, parseBrDate, periodLabel, presetRange, queryFor, validateCustomRange, weekCoachText } from '../../mobile/home/summaryPanelLogic';
 
 // Painel de resumo na tela inicial (14/11/2026, lista de Elton): período livre com datas reais, padrão "desde o início", e o painel antigo fora da Evolução do treinamento.
 const mobile = (file: string) => fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', file), 'utf8');
@@ -51,5 +51,31 @@ describe('onde o painel aparece', () => {
     expect(panel).toContain("useState<PanelPreset>('all')");
     expect(panel).toContain('Período livre');
     expect((panel.match(/desde o início/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('Esta semana (semana em curso, fora dos números gerais)', () => {
+  const week = (overrides: Partial<CurrentWeekDto> = {}): CurrentWeekDto => ({ weekStart: '2026-11-09', weekEnd: '2026-11-15', diasRestantes: 3, treinosFeitos: 7, porModalidade: [{ modality: 'corrida', count: 5 }, { modality: 'forca', count: 2 }],
+    treinosPrescritos: 8, prescritosFeitos: 7, treinosFaltam: 1, extrasFeitos: 0, kmRealizados: 22.1, kmPrescritos: 54, kmFaltam: 31.9, kmAlemDoPrescrito: 0, ...overrides });
+
+  it('texto de incentivo diz o que já fez, o que falta (treinos e km) e quantos dias restam', () => {
+    const text = weekCoachText(week(), 'Elton');
+    expect(text).toContain('Elton, nesta semana você já fez 7 de 8 treinos do programa e correu 22,1 km.');
+    expect(text).toContain('Faltam 1 treino e 31,9 km nos 3 dias que restam');
+  });
+
+  it('semana completa, passou do prescrito, extras e semana sem treino do programa', () => {
+    expect(weekCoachText(week({ treinosFaltam: 0, prescritosFeitos: 8, kmFaltam: 0, kmAlemDoPrescrito: 3.2 }), 'Elton')).toContain('semana completa! Você fez os 8 treinos do programa e passou 3,2 km do volume prescrito.');
+    expect(weekCoachText(week({ extrasFeitos: 2 }), '')).toContain('Você ainda fez 2 treinos extras.');
+    expect(weekCoachText(week({ treinosPrescritos: 0, prescritosFeitos: 0, treinosFaltam: 0, treinosFeitos: 0 }), 'Ana')).toBe('Ana, esta semana não há treinos do programa.');
+    expect(weekCoachText(week({ diasRestantes: 0 }), 'Ana')).toContain('você fez 7 de 8 treinos do programa e correu 22,1 km nesta semana.');
+  });
+
+  it('área própria na tela inicial, junto do antigo acompanhamento (que saiu do lugar antigo)', () => {
+    const home = mobile('home/HomeScreen.tsx');
+    expect(home).toContain('<ThisWeekCard');
+    expect(home).not.toContain('<AcompanhamentoSection');
+    const card = mobile('home/ThisWeekCard.tsx');
+    for (const piece of ['TREINOS FEITOS', 'KM CORRIDOS', 'FALTAM TREINOS', 'FALTAM KM', '/me/evolution/panel', 'semanaAtual']) expect(card).toContain(piece);
   });
 });
