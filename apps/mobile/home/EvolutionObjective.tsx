@@ -240,15 +240,9 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
   }, [accessToken]);
 
   if (!snapshots) return <ActivityIndicator size="small" style={{ marginVertical: 12 }} />;
-  const volumeLines = volumeSentences(weeks, todayIso, snapshots['training.volumeCompletedTotalKm']);
 
   return (
     <View style={{ gap: 16, marginBottom: 16 }}>
-      {volumeLines.length > 0 ? (
-        <Card title="O que os números de volume mostram">
-          <Sentences items={volumeLines} />
-        </Card>
-      ) : null}
       <WeeklyCard
         title="Diferença: realizado − prescrito"
         meaningId="training.volumeDiffAbsoluteKm"
