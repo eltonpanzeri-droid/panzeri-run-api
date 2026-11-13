@@ -237,3 +237,18 @@ describe('esforço, volume, ritmo e relógio', () => {
     expect(mainSourceOnly([{ value: 1, timestamp: NOW } as never], NOW).length).toBe(1);
   });
 });
+
+describe('volume prescrito, razão e extras (14/11/2026)', () => {
+  const T0 = Date.UTC(2026, 8, 10, 12);
+  const weekly = (values: number[]) => values.map((value, i) => ({ value, timestamp: new Date(T0 + i * 7 * 86_400_000) }));
+  it('razão aparece em % e o prescrito descreve o que o programa pediu, sem qualificar', () => {
+    const entryOf = (id: string) => READING_CATALOG.find((x) => x.variableId === id)!;
+    const ratio = buildIndicatorResult(entryOf('training.volumeRatioCompletedPrescribed'), getVariableDefinition('training.volumeRatioCompletedPrescribed')!, weekly([...Array.from({ length: 14 }, () => 1), ...Array.from({ length: 4 }, () => 0.8)]), new MathLayerService(), new Date(T0 + 18 * 7 * 86_400_000 + 2 * 86_400_000));
+    expect(ratio.texts.habitual).toContain('Em média, você realizou 96% do volume prescrito');
+    expect(ratio.texts.habitual).toContain('A última semana observável teve 80%');
+    expect(ratio.bucket).toBe('tracked');
+    const prescribed = buildIndicatorResult(entryOf('training.volumePrescribedKm'), getVariableDefinition('training.volumePrescribedKm')!, weekly(Array.from({ length: 12 }, () => 40)), new MathLayerService(), new Date(T0 + 130 * 86_400_000));
+    expect(prescribed.texts.habitual).toContain('O seu programa tem pedido cerca de 40 km por semana');
+    expect(prescribed.texts.whatItMeasures).toContain('não o que você fez');
+  });
+});

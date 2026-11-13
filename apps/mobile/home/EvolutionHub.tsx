@@ -12,6 +12,7 @@ import { AdherenceWeekly } from './AdherenceSection';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { BestMarksScreen } from './BestMarksScreen';
 import { EvolutionReadingCards } from './EvolutionReadingCards';
+import { EvolutionReadingContext } from './evolutionReading';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
 // que já existe (mesma leitura do servidor e mesmos textos). Indicadores novos entram nas áreas nos próximos lotes. Sem diagnóstico: o aviso do topo diz isso.
@@ -45,7 +46,16 @@ function AreaCard({ title, subtitle, icon, onPress }: { title: string; subtitle:
   );
 }
 
-export function EvolutionHub({
+// O token vai por contexto para que a frase "O seu caso" sob cada gráfico (IndicatorMeaning) leia a mesma leitura do servidor do carrossel (14/11/2026).
+export function EvolutionHub(props: React.ComponentProps<typeof EvolutionHubInner>) {
+  return (
+    <EvolutionReadingContext.Provider value={props.accessToken}>
+      <EvolutionHubInner {...props} />
+    </EvolutionReadingContext.Provider>
+  );
+}
+
+function EvolutionHubInner({
   accessToken,
   initialArea,
   renderProgress,

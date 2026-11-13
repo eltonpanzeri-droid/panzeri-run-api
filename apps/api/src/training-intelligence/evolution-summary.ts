@@ -42,6 +42,7 @@ export function formatValue(value: number, variableId: string, unit?: string): s
     const total = Math.round(value);
     return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}/km`;
   }
+  if (variableId === 'training.volumeRatioCompletedPrescribed') return `${Math.round(value * 100)}%`;
   if (unit === 'min') {
     const total = Math.round(value);
     return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;

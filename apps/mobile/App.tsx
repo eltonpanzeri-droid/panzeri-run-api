@@ -20,6 +20,8 @@ import { ZeppWatchPrompt } from './src/zepp/ZeppWatchPrompt';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
+import { IndicatorReadingText } from './home/IndicatorMeaning';
+import { volumeReadingId } from './home/evolutionReading';
 import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
@@ -6628,26 +6630,21 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
                   </Pressable>
                 );
               })}
+              <Pressable
+                onPress={() => setChartSeries(new Set(['percorrido', 'prescrito']))}
+                accessibilityRole="button"
+                accessibilityLabel="Comparar prescrito e realizado"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#0b5ea8', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}
+              >
+                <Text style={{ fontSize: 11, color: '#0b5ea8', fontWeight: '700' }}>Comparar prescrito × realizado</Text>
+              </Pressable>
+            </View>
+
+            {/* Frase da aluna para o que está marcado (14/11/2026): vem do servidor; muda com as séries escolhidas. */}
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+              <IndicatorReadingText id={volumeReadingId(chartSeries)} />
             </View>
           </View>
-
-          {/* Prescrito, realizado e a comparação (14/11/2026, pedido de Elton): três gráficos fixos da trajetória, sem nenhuma conta nova (mesmos dados do gráfico acima). */}
-          {(() => {
-            const periodWeeks = CHART_PERIODS.find((p) => p.key === chartPeriod)?.weeks ?? 13;
-            const sliced = data.recentWeeks.slice(-periodWeeks);
-            return (
-              <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 16, gap: 10 }}>
-                <Text style={{ fontSize: 14, fontWeight: '800', color: '#0f172a' }}>Volume: prescrito, realizado e comparação</Text>
-                <Text style={{ fontSize: 12, color: '#64748b' }}>Prescrito</Text>
-                <KmLineChart weeks={sliced} series={['prescrito']} serverBand={undefined} />
-                <Text style={{ fontSize: 12, color: '#64748b' }}>Realizado (inclui treinos extras)</Text>
-                <KmLineChart weeks={sliced} series={['percorrido']} serverBand={kmServerBand} />
-                <Text style={{ fontSize: 12, color: '#64748b' }}>Prescrito × realizado: a sua trajetória</Text>
-                <KmLineChart weeks={sliced} series={['prescrito', 'percorrido']} serverBand={undefined} />
-                <Text style={{ fontSize: 11, color: '#94a3b8' }}>Descrição dos seus registros, semana a semana; não indica o que é certo ou errado.</Text>
-              </View>
-            );
-          })()}
 
           {/* Treinos por modalidade (14/11/2026, pedido de Elton): bloco próprio, no mesmo estilo dos cartões de volume, logo depois deles. */}
           {data.modalityBreakdown.length > 0 ? (
@@ -6669,7 +6666,7 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
           ) : null}
 
           {/* "O que isso representa" do volume por semana (02/11/2026; texto em home/indicatorMeanings.ts) */}
-          <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" /></View>
+          <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" showReading={false} /></View>
 
           {/* Interpretação em texto + ritmo + cadência (motor longitudinal; Evolução objetiva, 04/10/2026) */}
           <EvolutionObjectiveSections accessToken={accessToken} weeks={data.recentWeeks} todayIso={saoPauloDateString(new Date())} />
