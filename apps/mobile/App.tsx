@@ -11713,7 +11713,8 @@ function ActivityDetailModal({ activityLogId, accessToken, visible, onClose }: {
     setFailed(false);
     (async () => {
       try {
-        const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/detail`, {
+        // 13/11/2026: ?pace=estimated = este app sabe mostrar o ritmo ESTIMADO pelo GPS com o aviso (apps antigos nao pedem e nao o recebem).
+        const response = await fetch(`${API_URL}/me/activity-reconciliation/${activityLogId}/detail?pace=estimated`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (cancelled) return;

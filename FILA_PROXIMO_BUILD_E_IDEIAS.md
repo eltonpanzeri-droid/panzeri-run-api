@@ -65,7 +65,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 - **(13/11/2026) APPLE SAÚDE: SÉRIES DO TREINO MAIS ROBUSTAS (caso Lorena) — código PRONTO, só chega à aluna no PRÓXIMO BUILD iPhone.** O app (a) reconfere a cada sincronização os treinos dos últimos 45 dias (antes só os da janela de data), (b) não encerra a tentativa na 1ª leitura vazia (desiste na 3ª) e (c) relata ao servidor o que o iPhone entregou (`POST /apple-health/series/diagnostic`, só contagens). Servidor e painel ("Diagnóstico do app" no payload bruto) valem no Deploy. `AppleHealthSyncCard.tsx`, `appleHealthSyncLogic.ts`, `apple-health-ingestion.service.ts`, `coach.service.ts`, `admin page.tsx`.
 
-- **(13/11/2026, Elton) RITMO ESTIMADO PELO GPS quando o relógio não entrega a série — PLANEJADO, sem código, aguarda ordem.** Regra geral (não para uma aluna), só quando falta a série medida, para gráfico e percentual dentro da faixa; avisa aluna e IA; nunca entra em recordes. Plano em `PLANO_RITMO_ESTIMADO_GPS.md` (calcular na leitura, não guardar; 5 lotes).
+- **(13/11/2026, Elton) RITMO ESTIMADO PELO GPS quando o relógio não entrega a série — IMPLEMENTADO (código pronto, não validado ao vivo). Servidor/análise vale no Deploy; o gráfico tracejado com aviso: PWA no Deploy do app e nativos só no próximo build.** Regra geral (não para uma aluna), só quando falta a série medida, para gráfico e percentual dentro da faixa; avisa aluna e IA; nunca entra em recordes. Plano em `PLANO_RITMO_ESTIMADO_GPS.md` (calcular na leitura, não guardar; 5 lotes).
 
 ## B. Ideias e decisões ainda NÃO implementadas
 

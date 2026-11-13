@@ -97,6 +97,9 @@ export interface ActivityDetail {
   splits: ActivityDetailSplit[];
   chart: ActivityDetailChartPoint[];
   chartAxis?: 'distance' | 'time';
+  // 13/11/2026: 'gps_estimated' = o relogio nao entregou o ritmo e ele foi calculado de forma indireta pelo GPS (menos preciso); paceNote traz o texto informativo.
+  paceSource?: 'measured' | 'gps_estimated' | null;
+  paceNote?: string | null;
 }
 
 const BLUE = '#1769AA';
@@ -175,12 +178,14 @@ interface DetailChartProps {
   channel?: { points: Array<{ x: number; lower: number; upper: number; mean: number }>; label: string; showMean?: boolean };
   // Rotulo da serie principal na legenda.
   seriesLabel?: string;
+  // 13/11/2026: serie ESTIMADA (ritmo calculado pelo GPS): linha tracejada e legenda avisando.
+  estimated?: boolean;
 }
 
 const HEIGHT = 190;
 const M = { left: 46, right: 10, top: 12, bottom: 24 };
 
-export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries, formatX, yDomain, secondary, band, channel, seriesLabel }: DetailChartProps) {
+export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, bands, boundaries, formatX, yDomain, secondary, band, channel, seriesLabel, estimated }: DetailChartProps) {
   const [width, setWidth] = useState(320);
   const [cursor, setCursor] = useState<number | null>(null);
 
@@ -316,7 +321,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
             <Line key={`bd-${b}`} x1={sx(b)} x2={sx(b)} y1={M.top} y2={M.top + plotH} stroke="#92400e" strokeWidth={1} strokeDasharray="4,3" />
           ))}
           {secondaryPath ? <Path d={secondaryPath} stroke="#94a3b8" strokeWidth={1.4} strokeDasharray="5,3" fill="none" /> : null}
-          <Path d={path} stroke={BLUE} strokeWidth={1.6} fill="none" />
+          <Path d={path} stroke={BLUE} strokeWidth={1.6} fill="none" strokeDasharray={estimated ? '6,3' : undefined} />
           {real.length <= 40 ? real.map((p, i) => <Circle key={i} cx={sx(p.x)} cy={sy(p.y)} r={2.5} fill={BLUE} />) : null}
           {cursorPoint ? (
             <>
@@ -329,6 +334,7 @@ export function DetailChart({ title, unit, points, xLabel, formatY, higherIsUp, 
       <Text style={{ fontSize: 11, color: '#94a3b8' }}>
         {unit}{bands && bands.length ? ' · faixa laranja = ritmo prescrito (números = blocos da lista abaixo; toque para ver o bloco)' : ''}
         {seriesLabel ? ` · linha azul: ${seriesLabel}` : ''}
+        {estimated ? ' · linha tracejada: ritmo estimado pelo GPS (menos preciso)' : ''}
         {secondary ? ` · tracejado: ${secondary.label}` : ''}
         {band ? ` · faixa cinza: ${band.label}` : ''}
         {channel && channel.points.length > 1 ? ` · faixa cinza: ${channel.label}` : ''}
@@ -490,8 +496,10 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
       ) : null}
 
       {/* 3-5. Ritmo, FC, Cadência — so' quando ha' dado */}
+      {detail.paceSource === 'gps_estimated' && detail.paceNote ? <Text style={{ fontSize: 12, color: '#92400e', lineHeight: 17 }}>{detail.paceNote}</Text> : null}
       {hasData(pacePoints) ? (
         <DetailChart
+          estimated={detail.paceSource === 'gps_estimated'}
           title="RITMO"
           unit="min/km (mais rápido no alto)"
           points={pacePoints}

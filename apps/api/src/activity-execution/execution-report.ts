@@ -1,3 +1,4 @@
+import { ESTIMATED_PACE_STUDENT_NOTE } from './run-points-loader';
 import {
   EXECUTION_ANALYSIS_VERSION, mergeTimeInBand, RunExecutionAnalysis, Scenario, SegmentRole, SessionAnalysis, StrengthExecutionAnalysis, TimeInBand,
 } from './execution-analysis';
@@ -50,6 +51,7 @@ function renderRun(run: RunExecutionAnalysis): string[] {
       const tib = run.intensity.byRole[role];
       if (tib && tib.inPct != null) lines.push(bandSentence(ROLE_LABEL[role], tib));
     }
+    if (run.paceSource === 'gps_estimated') lines.push(ESTIMATED_PACE_STUDENT_NOTE);
     if (run.coverage?.coveragePct != null && run.coverage.coveragePct < 80) lines.push(`Esses percentuais consideram os ${fmtInt(run.coverage.coveragePct)}% do tempo com dados confiáveis.`);
   }
   const structure = structureSentence(run);

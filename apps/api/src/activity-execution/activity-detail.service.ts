@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ESTIMATED_PACE_STUDENT_NOTE, loadRunPoints } from './run-points-loader';
 import { PrismaService } from '../prisma/prisma.service';
 import { ActivityTimeSeriesService, NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { buildSplits } from './activity-splits';
@@ -28,12 +29,9 @@ export class ActivityDetailService {
     @Optional() private readonly executionAnalysis?: ExecutionAnalysisService,
   ) {}
 
-  private readSeries(activityLogId: string) {
-    return this.prisma.activityTimeSeriesPoint.findMany({
-      where: { activityLogId, normalizationVersion: NORMALIZATION_VERSION },
-      orderBy: { offsetSec: 'asc' },
-      select: { offsetSec: true, distanceMeters: true, heartRateBpm: true, speedKmh: true, cadenceSpm: true },
-    });
+  // 13/11/2026: devolve o medido; so' sem distancia/ritmo medidos, e com o cliente pedindo (allowEstimate), o ritmo ESTIMADO pelo GPS (calculado na leitura, nunca gravado).
+  private readSeries(activityLogId: string, measuredTotalMeters: number | null, allowEstimate: boolean) {
+    return loadRunPoints(this.prisma, activityLogId, NORMALIZATION_VERSION, measuredTotalMeters, { allowEstimate });
   }
 
   // Causa dos graficos/parciais ausentes (Bloco 1, 04/10/2026): normalizeFromRawSamples so' era
@@ -58,7 +56,7 @@ export class ActivityDetailService {
     return job;
   }
 
-  async getDetail(userId: string, activityLogId: string) {
+  async getDetail(userId: string, activityLogId: string, options: { allowEstimatedPace?: boolean } = {}) {
     const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId } });
     if (!log) throw new NotFoundException('Atividade nao encontrada.');
 
@@ -69,13 +67,16 @@ export class ActivityDetailService {
           trainingSession: { select: { id: true, title: true, modality: true, distanceKm: true, durationMin: true, scheduledDate: true, structure: true } },
         },
       }),
-      this.readSeries(activityLogId),
+      this.readSeries(activityLogId, log.distanceMeters ?? null, options.allowEstimatedPace === true),
     ]);
-    let points = firstRead;
+    let points = firstRead.points;
+    let paceSource = firstRead.paceSource;
     let cadenceAvg = log.cadenceAvg;
     if (points.length === 0) {
       await this.rebuildSeriesFromRaw(log);
-      points = await this.readSeries(activityLogId);
+      const reloaded = await this.readSeries(activityLogId, log.distanceMeters ?? null, options.allowEstimatedPace === true);
+      points = reloaded.points;
+      paceSource = reloaded.paceSource;
       // cadenceAvg e' derivado da serie: acabou de ser (re)calculado, o log lido acima esta' defasado.
       if (points.length > 0) {
         cadenceAvg = (await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId }, select: { cadenceAvg: true } }))?.cadenceAvg ?? cadenceAvg;
@@ -165,6 +166,9 @@ export class ActivityDetailService {
       splits,
       chart: chartSeries.points,
       chartAxis: chartSeries.xAxis,
+      // 13/11/2026: de onde veio o ritmo do grafico/parciais ('gps_estimated' = estimado pelo GPS, com aviso; null = nao ha' serie de ritmo).
+      paceSource,
+      paceNote: paceSource === 'gps_estimated' ? ESTIMATED_PACE_STUDENT_NOTE : null,
     };
   }
 }

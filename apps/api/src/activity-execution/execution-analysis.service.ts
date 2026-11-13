@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { ESTIMATED_PACE_AI_NOTE, loadRunPoints, type PaceSource, type RunPoint } from './run-points-loader';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -102,11 +103,14 @@ export class ExecutionAnalysisService implements OnModuleInit {
     const seriesStats = kind === 'run' && seriesWhere
       ? await this.prisma.activityTimeSeriesPoint.aggregate({ where: seriesWhere, _count: { _all: true }, _min: { offsetSec: true }, _max: { offsetSec: true, distanceMeters: true } })
       : null;
+    // 13/11/2026: sem distancia MEDIDA na serie mas com percurso (GPS), a analise usa o ritmo ESTIMADO (calculado na leitura, nunca gravado) e fica marcada como tal.
+    const estimateMode = seriesStats != null && seriesStats._count._all > 0 && seriesStats._max.distanceMeters == null;
     const completion = session.completion;
     const fingerprint = this.fingerprint({
       v: EXECUTION_ANALYSIS_VERSION, r: ANALYSIS_REVISION,
       a: activity ? [activity.id, activity.distanceMeters, activity.durationSec, activity.avgHeartRateBpm, activity.cadenceAvg, activity.caloriesKcal] : null,
       p: seriesStats ? [seriesStats._count._all, seriesStats._min.offsetSec, seriesStats._max.offsetSec, seriesStats._max.distanceMeters] : null,
+      e: estimateMode ? 1 : 0,
       c: completion ? [completion.status, completion.distanceKm, completion.durationMin, completion.perceivedEffort, completion.avgHeartRate] : null,
       s: [session.distanceKm, session.durationMin, this.fingerprint(session.structure)],
     });
@@ -115,9 +119,13 @@ export class ExecutionAnalysisService implements OnModuleInit {
       return { analysis: existing.indicators as unknown as SessionAnalysis, activityLogId: existing.activityLogId, provider: existing.provider, kind };
     }
 
-    const points = kind === 'run' && seriesWhere && (seriesStats?._count._all ?? 0) > 0
-      ? await this.prisma.activityTimeSeriesPoint.findMany({ where: seriesWhere, orderBy: { offsetSec: 'asc' }, select: { offsetSec: true, distanceMeters: true, heartRateBpm: true, cadenceSpm: true } })
-      : [];
+    let points: RunPoint[] = [];
+    let paceSource: PaceSource | null = null;
+    if (kind === 'run' && activity && seriesWhere && (seriesStats?._count._all ?? 0) > 0) {
+      const loaded = await loadRunPoints(this.prisma, activity.id, NORMALIZATION_VERSION, activity.distanceMeters ?? null, { allowEstimate: true });
+      points = loaded.points;
+      paceSource = loaded.paceSource;
+    }
     let analysis: SessionAnalysis;
     if (completion?.status === 'missed') analysis = this.notDone(session, 'marcada_como_nao_feita');
     else if (!completion && !activity) analysis = this.notDone(session, 'sem_registro');
@@ -133,6 +141,10 @@ export class ExecutionAnalysisService implements OnModuleInit {
         completion: completion ? { status: completion.status, durationMin: completion.durationMin, avgHeartRate: completion.avgHeartRate, perceivedEffort: completion.perceivedEffort, details: completion.details } : null,
         activity: activity ? { durationSec: activity.durationSec, avgHeartRateBpm: activity.avgHeartRateBpm, caloriesKcal: activity.caloriesKcal } : null,
       });
+    }
+
+    if (paceSource === 'gps_estimated' && analysis.kind === 'run' && analysis.dataLevel === 'series') {
+      analysis = { ...analysis, paceSource: 'gps_estimated', limitations: [...analysis.limitations, ESTIMATED_PACE_AI_NOTE] };
     }
 
     const status = analysis.kind === 'not_done' ? 'not_done' : analysis.kind === 'run' ? (analysis.dataLevel === 'series' ? 'analyzed' : analysis.dataLevel === 'summary_only' ? 'summary_only' : analysis.dataLevel === 'manual_only' ? 'manual_only' : 'no_data') : (analysis.dataLevel === 'none' ? 'no_data' : analysis.dataLevel === 'manual_only' ? 'manual_only' : 'analyzed');

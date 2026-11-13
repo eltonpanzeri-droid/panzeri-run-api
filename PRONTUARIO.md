@@ -4272,3 +4272,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ## 13/11/2026 — Ritmo estimado pelo GPS: decisão e plano (nada implementado)
 - Elton reconsiderou depois da explicação (série medida × ritmo estimado pelo GPS): **aprovou como regra GERAL**, só quando o relógio não entrega a série; serve ao gráfico e ao texto/percentual de quanto ficou dentro da faixa prescrita (**percentual, decisão dele**); aviso à aluna e à IA de que é estimado e menos preciso; NUNCA para recordes pessoais. Texto informativo rascunhado em `PLANO_RITMO_ESTIMADO_GPS.md` (aprovação do texto final pendente).
 - Plano: calcular na leitura (nada gravado na coluna de velocidade) para os recordes e demais consumidores continuarem lendo só o medido; 5 lotes; opt-in do cliente para apps antigos não verem estimado sem aviso.
+
+## 13/11/2026 — Ritmo estimado pelo GPS IMPLEMENTADO (ordem de Elton: "pode fazer")
+- Regra geral (não para uma aluna): quando o relógio não entrega distância/ritmo ao longo do treino e o percurso GPS existe, o gráfico de ritmo, as parciais e o PERCENTUAL dentro da faixa usam o ritmo estimado, com aviso (texto aprovado) à aluna e à IA; nunca entra em recordes. Detalhes e arquivos em `PLANO_RITMO_ESTIMADO_GPS.md`.
+- Para a Lorena e quem estiver na mesma situação: a análise (percentual e texto) já vale no Deploy da API; o gráfico estimado aparece no PWA após o Deploy do app e nos nativos com o próximo build.
+- Testes: 15 novos; `tsc` verde (API e app). `ios-store-compliance` e `garmin-activity` falharam uma vez sob carga (rodando as 58 suítes juntas) e passaram sozinhas: testes que sobem o Nest estouram o tempo quando o computador está cheio.
+- NÃO feito/riscos: não validado ao vivo; painel do treinador não mostra o gráfico estimado (o relatório em texto mostra o aviso); distância estimada só serve para posicionar os blocos e é calibrada pelo total medido (recusa se o GPS discordar mais de 25%).

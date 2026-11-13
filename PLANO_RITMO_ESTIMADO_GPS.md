@@ -1,6 +1,6 @@
 # Ritmo estimado pelo GPS — plano (13/11/2026)
 
-> **Estado: PLANEJADO. NENHUM CÓDIGO. Aguarda ordem de Elton.** Decisões dele: (1) vale para TODAS as alunas (regra geral, nunca para uma aluna); (2) só aparece quando o relógio NÃO entregou a série de ritmo; (3) serve para o gráfico de ritmo e para o texto/percentual de quanto ficou dentro da faixa prescrita; (4) avisar a aluna (gráfico/texto) e a IA de que é estimado e menos preciso; (5) **o resultado da faixa continua em PERCENTUAL** (decisão dele); (6) NUNCA conta para recordes pessoais.
+> **Estado: IMPLEMENTADO em 13/11/2026 (Lotes 1 a 5), commitado, NÃO validado ao vivo.** (Plano original abaixo; ver a seção "Implementação" no fim.) Decisões dele: (1) vale para TODAS as alunas (regra geral, nunca para uma aluna); (2) só aparece quando o relógio NÃO entregou a série de ritmo; (3) serve para o gráfico de ritmo e para o texto/percentual de quanto ficou dentro da faixa prescrita; (4) avisar a aluna (gráfico/texto) e a IA de que é estimado e menos preciso; (5) **o resultado da faixa continua em PERCENTUAL** (decisão dele); (6) NUNCA conta para recordes pessoais.
 
 ## Texto informativo (rascunho para Elton aprovar)
 > **Ritmo estimado.** O seu relógio não entregou o ritmo ao longo do treino, então nós o calculamos de forma indireta, pelo percurso de GPS. Esse cálculo pode apresentar mais erros do que a medição do relógio. Por isso ele aparece só como referência no gráfico e na análise da faixa, e **não é usado para contabilizar recordes pessoais**.
@@ -27,3 +27,9 @@ O ritmo estimado NÃO é gravado na coluna de velocidade. Ele é calculado em me
 - Ruído do GPS perto dos limites da faixa pode mover o percentual (aceito por Elton: segue percentual, com o aviso de menor precisão).
 - Não ajuda treino sem GPS (esteira, ambiente fechado) nem FC/cadência/potência.
 - Provedores com série própria (Polar, Garmin, COROS, Zepp, Wahoo) não são afetados.
+
+## Implementação (13/11/2026)
+- Lote 1: `apps/api/src/activity-execution/gps-estimated-pace.ts` (função pura; calibra a distância com o total medido quando concorda em até 25%, senão recusa; salto > 12 m/s não soma; lacuna > 15 s não interpola; janela de ±5 s; mínimo 20 pontos e 60 s). OBS: o ritmo estimado vem junto de uma DISTÂNCIA ACUMULADA estimada (a análise por bloco usa a distância para achar onde começa cada bloco), calibrada com a distância medida do resumo.
+- Lotes 2-4: `run-points-loader.ts` (medido sempre vence; estimado só sem distância/ritmo medidos e com percurso), `activity-detail.service.ts` (gráfico/parciais só para quem pede `?pace=estimated`), `execution-analysis.service.ts` (a análise usa o estimado, grava `paceSource` e o aviso da IA em `limitations`; impressão digital inclui o modo estimado), `execution-report.ts` (texto da aluna). Nada é gravado em ActivityTimeSeriesPoint; recordes e desacoplamento da FC não importam o estimador (teste de guarda).
+- Lote 5: `apps/mobile/src/activityDetail.tsx` (linha tracejada, legenda e texto) e `App.tsx` (pede `?pace=estimated`). PWA no Deploy do app; nativos só no próximo build; app antigo não vê gráfico estimado (mas vê o percentual e o aviso no texto do relatório).
+- Testes: `gps-estimated-pace.spec.ts` (6), `estimated-pace-integration.spec.ts` (9); 57 suítes de detalhe/análise/App verdes.

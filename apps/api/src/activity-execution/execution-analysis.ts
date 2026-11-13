@@ -188,6 +188,8 @@ export interface RunSignature {
 
 export interface RunExecutionAnalysis {
   kind: 'run';
+  // 13/11/2026: 'gps_estimated' quando o relogio nao entregou a serie de ritmo e a analise usou o ritmo ESTIMADO pelo GPS (menos preciso; nunca para recordes).
+  paceSource?: 'measured' | 'gps_estimated';
   // Etapa 2.2: assinatura do estimulo executado (null sem serie ou com pouco tempo em movimento).
   signature?: RunSignature | null;
   version: number;

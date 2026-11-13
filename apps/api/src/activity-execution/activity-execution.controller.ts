@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards, Query } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { SessionExecutionLinkService } from './session-execution-link.service';
@@ -36,8 +36,8 @@ export class ActivityExecutionController {
   // "Ver treino completo" (03/10/2026): detalhe canonico da execucao — resumo, Prescrito x Realizado,
   // parciais por km e serie amostrada pra grafico. Somente leitura, sempre com checagem de posse.
   @Get(':activityLogId/detail')
-  detail(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
-    return this.activityDetailService.getDetail(user.sub, activityLogId);
+  detail(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Query('pace') pace?: string) {
+    return this.activityDetailService.getDetail(user.sub, activityLogId, { allowEstimatedPace: pace === 'estimated' });
   }
 
   @Post(':linkId/confirm')
