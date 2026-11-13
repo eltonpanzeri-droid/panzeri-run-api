@@ -4334,3 +4334,6 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Corrigido: todo indicador sem "bom/ruim" (esforço, volume, volume prescrito, realizado ÷ prescrito, extras, ritmo, sono/REM/profundo do relógio, HRV, FC de repouso) ganhou "O que isso indica" por tendência (`TREND_MEANING` no catálogo; texto RASCUNHO a revisar). Nota de procedência do ritmo virou "Base: N do relógio e M preenchidos por você." no fim. Notas de cálculo dos gráficos ficam ocultas quando a aluna já tem a leitura.
 - **Bug achado:** séries semanais (volume etc.) NUNCA mostravam tendência (janelas de 28 registros = 28 semanas). Agora usam 3 semanas × 8 semanas (as mesmas do gráfico) e o longo prazo contra as semanas anteriores (>= 4). O ritmo semanal usa a leitura do ritmo médio.
 - Pendente de Elton: mover "Treinos por modalidade" para outro lugar (ele pediu, aguardando a mensagem dele com o local).
+
+## 14/11/2026 — "Treinos por modalidade" removido da tela (ordem de Elton)
+- O cartão saiu da Evolução do treinamento ("some com isso"). Os dados (`modalityBreakdown`) continuam na API; só a tela deixou de mostrar. Se Elton quiser de volta, escolher o local antes. Só app: PWA no Deploy do app; nativos no próximo build.
