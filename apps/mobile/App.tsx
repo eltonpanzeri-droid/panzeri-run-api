@@ -37,6 +37,7 @@ import { Avatar, ProfilePhotoCard, useProfilePhoto } from './src/profilePhoto/Pr
 import { AppUpdateBanner } from './src/appUpdate/AppUpdateBanner';
 import { EquipmentScreen } from './src/equipment/EquipmentScreen';
 import { ProblemReportScreen } from './src/problemReport/ProblemReportScreen';
+import { formatCpfInput, formatPhoneInput, onlyDigits, shortSignupProblem } from './src/signup/shortSignup';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
 import { disableBackgroundSync } from './src/healthConnect/backgroundTask';
@@ -1207,6 +1208,28 @@ const weekInterviewDays = [
   ['friday', 'Sexta-feira'], ['saturday', 'Sabado'], ['sunday', 'Domingo'],
 ];
 
+// 13/11/2026 (Frente 5, decisao de Elton): estas duas perguntas, antes nas 5 perguntas rapidas pre-pagamento, passam a fazer parte da ENTREVISTA COMPLETA (pos-pagamento). Mesmas chaves e textos;
+// o fluxo antigo (aplicativos ja publicados) continua usando as mesmas definicoes em quickIntakeQuestions.
+const QUICK_BARRIER_QUESTION: InterviewQuestion = { key: 'quick_main_barrier', module: 'Dificuldades', prompt: 'O que mais pode dificultar sua evolução na corrida hoje? Pode marcar mais de uma.', type: 'multi', ackIntro: 'Entendi. Isso significa que', options: [
+    ackOption('Falta de tempo', 'falta_tempo', undefined, 'o treino precisa se encaixar na sua rotina real, nao o contrario'),
+    ackOption('Dificuldade para manter constância', 'constancia', undefined, 'o planejamento precisa ser algo que voce consiga sustentar semana apos semana'),
+    ackOption('Medo de me machucar', 'medo_lesao', undefined, 'controlar a progressao dos treinos vai ser especialmente importante'),
+    ackOption('Não sei como treinar', 'nao_sei_treinar', undefined, 'voce nao vai precisar decidir sozinho o que fazer a cada dia'),
+    ackOption('Já tentei antes e não consegui manter', 'ja_tentei', undefined, 'vamos ajustar o processo, isso nao e questao de esforco'),
+    ackOption('Tenho dificuldade para conciliar corrida e musculação', 'conciliar_musculacao', undefined, 'vamos equilibrar as duas coisas de um jeito que caiba na sua rotina'),
+  ] };
+
+const QUICK_EXPECTATIONS_QUESTION: InterviewQuestion = { key: 'quick_expectations', module: 'Expectativa', prompt: 'Pra terminar, o que você mais espera da gente durante sua preparação? Pode escolher mais de uma.', type: 'multi', ackIntro: 'Combinado. Isso significa que', options: [
+    ackOption('Que me ajudem a manter o foco e não abandonar o processo', 'foco', undefined, 'o processo vai te ajudar a manter o foco, nao so entregar treino solto'),
+    ackOption('Que saibam me desafiar quando eu puder ir além', 'desafio', undefined, 'os treinos vao te desafiar quando fizer sentido'),
+    ackOption('Que percebam quando for melhor diminuir o ritmo', 'diminuir_ritmo', undefined, 'vamos saber reconhecer a hora certa de segurar o ritmo'),
+    ackOption('Que me deem segurança de que estou treinando no caminho certo', 'seguranca', undefined, 'voce vai ter clareza de que esta no caminho certo'),
+    ackOption('Que me ajudem a ajustar o caminho quando algo não sair como planejado', 'ajustar_caminho', undefined, 'o plano se ajusta quando algo sair diferente do esperado'),
+    ackOption('Que entendam minha rotina e não esperem que minha vida gire em torno dos treinos', 'entender_rotina', undefined, 'o treino se encaixa na sua vida, nao o contrario'),
+    ackOption('Que me ajudem a entender melhor o que esta acontecendo com meu treinamento', 'entender_treinamento', undefined, 'voce vai entender o porque de cada decisao do seu treinamento'),
+    ackOption('Que estejam atentos a minha evolução, não só me entreguem uma sequência de treinos', 'atentos_evolucao', undefined, 'vamos acompanhar sua evolucao de perto, nao so empilhar treinos'),
+  ] };
+
 const interviewQuestions: InterviewQuestion[] = [
   { key: 'welcome_intro', module: 'Boas-vindas', type: 'notice', prompt: 'Olá! Que alegria ter você na comunidade Panzeri Run.\n\nPara começar sua jornada, precisamos te conhecer de verdade. Esse questionário e um dos momentos mais importantes daqui pra frente, e nele que entendemos seus objetivos, sua rotina real, suas dificuldades e o que você já e capaz de fazer hoje.\n\nQuanto mais precisa for sua resposta, mais personalizado é seguro vai ser o seu treino. Estamos lidando com a sua saúde, e queremos acertar isso com você desde o primeiro passo.' },
   // 18/08: condition adicionada pra pular essa pergunta quando ja foi respondida nas 5 perguntas
@@ -1219,6 +1242,8 @@ const interviewQuestions: InterviewQuestion[] = [
     option('Completar 42 km'), option('Melhorar meu tempo nos 42 km'), option('Correr ultramaratona'),
   ] },
   { key: 'ultra_distance_km', module: 'Objetivo', prompt: 'Qual a distância da ultramaratona, em quilômetros?', type: 'wheel_number', wheelDigits: 3, wheelMin: 43, wheelMax: 999, wheelUnit: 'km', help: 'Escolha a distância da prova ou do desafio que você quer correr. Pode ser acima de 100 km.', condition: (a) => a.objective === 'Correr ultramaratona' },
+  { ...QUICK_BARRIER_QUESTION, condition: (a) => a.quick_main_barrier === undefined },
+  { ...QUICK_EXPECTATIONS_QUESTION, condition: (a) => a.quick_expectations === undefined },
   { key: 'running_experience', module: 'Experiencia com corrida', prompt: 'Qual opção melhor descreve sua experiência com corrida?', type: 'single', help: 'Preste atenção no tempo verbal: "corria" = você parou; "corro" = você ainda esta correndo hoje.', options: [
     option('Nunca tentei correr.'), option('Já tentei correr, mas nunca consegui manter uma rotina.', 'Ja tentei correr, mas nunca consegui manter uma rotina.'),
     option('Corria regularmente, mas parei há mais de 2 anos.', 'Corria regularmente, mas parei ha mais de 2 anos.'), option('Corria regularmente, mas parei entre 1 e 2 anos atras.'),
@@ -1384,24 +1409,8 @@ const quickIntakeQuestions: InterviewQuestion[] = [
   ] },
   { key: 'quick_target_race_name', module: 'Prova alvo', prompt: 'Qual o nome da prova? (opcional)', type: 'text', optional: true, condition: (a) => a.quick_has_target_race === 'sim' },
   { key: 'quick_target_race_date', module: 'Prova alvo', prompt: 'Qual a data da prova?', type: 'date', optional: true, ack: 'Anotado. Agora ja temos um prazo concreto pra organizar sua preparacao.', condition: (a) => a.quick_has_target_race === 'sim' },
-  { key: 'quick_main_barrier', module: 'Dificuldades', prompt: 'O que mais pode dificultar sua evolução na corrida hoje? Pode marcar mais de uma.', type: 'multi', ackIntro: 'Entendi. Isso significa que', options: [
-    ackOption('Falta de tempo', 'falta_tempo', undefined, 'o treino precisa se encaixar na sua rotina real, nao o contrario'),
-    ackOption('Dificuldade para manter constância', 'constancia', undefined, 'o planejamento precisa ser algo que voce consiga sustentar semana apos semana'),
-    ackOption('Medo de me machucar', 'medo_lesao', undefined, 'controlar a progressao dos treinos vai ser especialmente importante'),
-    ackOption('Não sei como treinar', 'nao_sei_treinar', undefined, 'voce nao vai precisar decidir sozinho o que fazer a cada dia'),
-    ackOption('Já tentei antes e não consegui manter', 'ja_tentei', undefined, 'vamos ajustar o processo, isso nao e questao de esforco'),
-    ackOption('Tenho dificuldade para conciliar corrida e musculação', 'conciliar_musculacao', undefined, 'vamos equilibrar as duas coisas de um jeito que caiba na sua rotina'),
-  ] },
-  { key: 'quick_expectations', module: 'Expectativa', prompt: 'Pra terminar, o que você mais espera da gente durante sua preparação? Pode escolher mais de uma.', type: 'multi', ackIntro: 'Combinado. Isso significa que', options: [
-    ackOption('Que me ajudem a manter o foco e não abandonar o processo', 'foco', undefined, 'o processo vai te ajudar a manter o foco, nao so entregar treino solto'),
-    ackOption('Que saibam me desafiar quando eu puder ir além', 'desafio', undefined, 'os treinos vao te desafiar quando fizer sentido'),
-    ackOption('Que percebam quando for melhor diminuir o ritmo', 'diminuir_ritmo', undefined, 'vamos saber reconhecer a hora certa de segurar o ritmo'),
-    ackOption('Que me deem segurança de que estou treinando no caminho certo', 'seguranca', undefined, 'voce vai ter clareza de que esta no caminho certo'),
-    ackOption('Que me ajudem a ajustar o caminho quando algo não sair como planejado', 'ajustar_caminho', undefined, 'o plano se ajusta quando algo sair diferente do esperado'),
-    ackOption('Que entendam minha rotina e não esperem que minha vida gire em torno dos treinos', 'entender_rotina', undefined, 'o treino se encaixa na sua vida, nao o contrario'),
-    ackOption('Que me ajudem a entender melhor o que esta acontecendo com meu treinamento', 'entender_treinamento', undefined, 'voce vai entender o porque de cada decisao do seu treinamento'),
-    ackOption('Que estejam atentos a minha evolução, não só me entreguem uma sequência de treinos', 'atentos_evolucao', undefined, 'vamos acompanhar sua evolucao de perto, nao so empilhar treinos'),
-  ] },
+  QUICK_BARRIER_QUESTION,
+  QUICK_EXPECTATIONS_QUESTION,
 ];
 
 // Frase natural pra embutir o objetivo (literal em portugues, o mesmo texto usado como
@@ -2323,6 +2332,9 @@ function Login({
   const [mode, setMode] = useState<AuthMode>(initialAuthMode);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  // 13/11/2026: cadastro curto (nome, e-mail, telefone, CPF) e a aluna ja vai para o pagamento.
+  const [phone, setPhone] = useState('');
+  const [cpf, setCpf] = useState('');
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [status, setStatus] = useState('');
@@ -2418,6 +2430,11 @@ function Login({
       return;
     }
 
+    if (mode === 'register') {
+      const problem = shortSignupProblem({ name, phone, cpf });
+      if (problem) { setStatus(problem); return; }
+    }
+
     if (mode === 'register' && password !== passwordConfirm) {
       setStatus('A confirmação de senha precisa ser igual a senha.');
       return;
@@ -2496,6 +2513,8 @@ function Login({
           name: name.trim(),
           email: cleanEmail,
           password,
+          cpf: onlyDigits(cpf),
+          phone: onlyDigits(phone),
           acceptedTerms,
           acceptedExerciseResponsibility,
           ...(attribution ? { attribution } : {}),
@@ -2575,6 +2594,12 @@ function Login({
 
       {mode === 'register' && (
         <TextInput style={styles.input} placeholder="Nome completo" value={name} onChangeText={setName} />
+      )}
+      {mode === 'register' && (
+        <>
+          <TextInput style={styles.input} placeholder="WhatsApp com DDD" value={phone} onChangeText={(value) => setPhone(formatPhoneInput(value))} keyboardType="phone-pad" autoComplete="tel" textContentType="telephoneNumber" maxLength={15} />
+          <TextInput style={styles.input} placeholder="CPF" value={cpf} onChangeText={(value) => setCpf(formatCpfInput(value))} keyboardType="number-pad" maxLength={14} />
+        </>
       )}
       <TextInput
         style={styles.input}

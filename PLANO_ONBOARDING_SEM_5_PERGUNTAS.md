@@ -34,3 +34,13 @@ Obrigatórias para concluir (`MeService.completeQuickIntake`): `objective`, `qui
 - **Lote 3 (painel/relatórios):** ajustar gráfico do funil, nutrição de prospectos e "temperatura".
 - **Rollback:** reativar o roteamento antigo (código das 5 perguntas fica no arquivo, desligado); dados nunca apagados.
 - **Testes:** fluxo completo executado (cadastro → pagamento → entrevista) com banco falso; regressão do funil; compatibilidade do nativo antigo (`completeQuickIntake` ainda funciona). Histórico de bug de "tela de pagamento falso-positivo": checar a regra de pagamento em cada lote.
+
+## 5. DECISÕES DE ELTON (13/11/2026) e o que foi feito
+1. **Fluxo:** cadastro curto (nome, e-mail, telefone, CPF) e a aluna já vai para o PAGAMENTO, com o mínimo de atrito; depois de pagar, recebe o passo para completar o cadastro e fazer a entrevista.
+2. **Marcador do funil:** o cadastro concluído (e não "abriu a página": isso já existe como "acessaram" nas sessões).
+3. **Ordem:** cadastro curto → pagamento → completar cadastro + entrevista.
+4. **Telegram:** "Aluno fez o cadastro, aguardando pagamento".
+5. Exclusões e realocações da tabela confirmadas (relação atual com a corrida e prova alvo saem; barreira e expectativa vão para a entrevista completa; objetivo já é da entrevista).
+- **FEITO (Lotes 1 e 2, código pronto, commitado, não validado ao vivo):** servidor (`RegisterDto` com `cpf`/`phone` opcionais; `AuthService.register` valida CPF pelos dígitos verificadores e telefone BR, recusa CPF repetido com mensagem clara, grava CPF/telefone e CRIA a entrevista na mesma gravação com `personal_name/phone/cpf` e `quickIntakeCompletedAt` = marco do cadastro inicial; Telegram sem CPF). Como o marco é o mesmo campo que o funil, o painel, os e-mails de recuperação e o roteamento já leem, NADA no resto do servidor mudou e os aplicativos antigos pulam sozinhos as 5 perguntas quando a conta vem do cadastro novo. App: campos WhatsApp e CPF com máscara e validação; barreira e expectativa agora na entrevista completa; fluxo antigo preservado. Painel: textos do funil ("Fizeram o cadastro (aguardando pagamento)").
+- **ORDEM DE DEPLOY:** API ANTES do app/PWA (o servidor antigo recusa os campos novos). Nativos só no próximo build.
+- **Pendente (decisão/ação):** resumo personalizado antes do pagamento (`buildQuickIntakeSummary`) deixa de aparecer no fluxo novo (só havia sentido com as 5 respostas); comparação da tela de pagamento sem as respostas; checar no PWA real: cadastro → pagamento → "completar cadastro" (entrevista pula nome/telefone/CPF).

@@ -16,6 +16,8 @@ import { Logger as NestLogger } from '@nestjs/common';
 import { isIosAppOrigin } from './client-origin';
 import { EmailService } from '../messaging/email.service';
 import { ResetPasswordWithCodeDto } from './dto/reset-password-code.dto';
+import { TelegramService, formatStudentCode } from '../billing/telegram.service';
+import { isValidCpf, normalizeBrPhone, onlyDigits } from '../common/short-signup';
 
 const RESET_CODE_TTL_MS = 15 * 60 * 1000;
 const RESET_CODE_MAX_ATTEMPTS = 5;
@@ -36,6 +38,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly metaCapi: MetaCapiService,
     @Optional() private readonly emailService?: EmailService,
+    @Optional() private readonly telegram?: TelegramService,
   ) {}
 
   async register(dto: RegisterDto, clientIp?: string, userAgent?: string, clientPlatform?: string | string[]) {
@@ -53,14 +56,36 @@ export class AuthService {
       throw new BadRequestException('E-mail ja cadastrado.');
     }
 
+    // 13/11/2026 — cadastro curto: telefone + CPF juntos (ou nenhum dos dois, fluxo antigo dos aplicativos ja publicados).
+    const hasShort = dto.cpf !== undefined || dto.phone !== undefined;
+    let shortCpf: string | null = null;
+    let shortPhone: string | null = null;
+    if (hasShort) {
+      if (!isValidCpf(dto.cpf)) throw new BadRequestException('CPF invalido. Confira os 11 numeros.');
+      shortPhone = normalizeBrPhone(dto.phone);
+      if (!shortPhone) throw new BadRequestException('Telefone invalido. Informe o WhatsApp com DDD.');
+      shortCpf = onlyDigits(dto.cpf);
+      if (await this.prisma.user.findFirst({ where: { cpf: shortCpf }, select: { id: true } })) {
+        throw new BadRequestException('Este CPF ja esta cadastrado. Entre na sua conta ou use "Esqueci minha senha".');
+      }
+    }
+    const trimmedName = dto.name.trim();
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
     let user;
     try {
       user = await this.prisma.user.create({
         data: {
           email,
-          name: dto.name.trim(),
+          name: trimmedName,
           passwordHash,
+          // Cadastro curto: grava CPF/telefone e ja cria a entrevista com essas respostas e o marco de "cadastro inicial concluido" (mesmo campo que o funil, o painel e o roteamento ja leem:
+          // quickIntakeCompletedAt). A aluna segue direto para o pagamento; a entrevista completa pula o que ja foi respondido aqui. Tudo na mesma gravacao (atomico).
+          ...(shortCpf && shortPhone ? {
+            cpf: shortCpf,
+            phone: shortPhone,
+            onboardingInterview: { create: { answers: { personal_name: trimmedName, personal_phone: shortPhone, personal_cpf: shortCpf }, currentStep: 0, quickIntakeCompletedAt: new Date() } },
+          } : {}),
           acceptedTermsAt: new Date(),
           acceptedPrivacyAt: new Date(),
           // Versao dos documentos exibidos no momento do aceite (usuarios antigos ficam com null).
@@ -77,9 +102,16 @@ export class AuthService {
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = Array.isArray(error.meta?.target) ? (error.meta?.target as string[]).join(',') : String(error.meta?.target ?? '');
+        if (target.includes('cpf')) throw new BadRequestException('Este CPF ja esta cadastrado. Entre na sua conta ou use "Esqueci minha senha".');
         throw new BadRequestException('E-mail ja cadastrado.');
       }
       throw error;
+    }
+
+    // Aviso ao treinador (melhor esforco): so' no cadastro curto; o fluxo antigo avisa ao concluir as 5 perguntas.
+    if (shortCpf && this.telegram) {
+      void this.telegram.notifyCoach(`📝 Aluno fez o cadastro, aguardando pagamento\n\nAluno: ${trimmedName} (Cod. ${formatStudentCode(null)})\nE-mail: ${email}`).catch(() => undefined);
     }
 
     const registrationEventId = `reg_${user.id}`;

@@ -32,6 +32,17 @@ export class RegisterDto {
   @MinLength(2)
   name!: string;
 
+  // 13/11/2026: cadastro curto (nome, e-mail, telefone e CPF) antes do pagamento. Opcionais: os aplicativos ja publicados nao enviam e seguem o fluxo antigo.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  cpf?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(25)
+  phone?: string;
+
   @IsBoolean()
   acceptedTerms!: boolean;
 

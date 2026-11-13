@@ -1966,7 +1966,7 @@ export default function AdminHome() {
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '4px 0 10px', alignItems: 'center' }} role="tablist" aria-label="Filtrar prospectos por situação">
                 <strong style={{ fontSize: 13, marginRight: 4 }}>Ver nomes por situação:</strong>
-                {([['todos', 'Todos'], ['signup', 'Só cadastraram'], ['interview', 'Responderam as perguntas iniciais'], ['checkout', 'Cobrança gerada e não pagou']] as Array<[ProspectStageFilter, string]>).map(([key, label]) => {
+                {([['todos', 'Todos'], ['signup', 'Só cadastraram'], ['interview', 'Fizeram o cadastro (aguardando pagamento)'], ['checkout', 'Cobrança gerada e não pagou']] as Array<[ProspectStageFilter, string]>).map(([key, label]) => {
                   const count = key === 'todos' ? (prospects?.prospects.length ?? 0) : (prospects?.prospects ?? []).filter((p) => p.stage === key).length;
                   return (
                     <button key={key} type="button" role="tab" aria-selected={prospectStage === key} className="secondaryButton"
@@ -2254,7 +2254,7 @@ function trailingMean(values: number[], size: number): Array<number | null> {
 const PROSPECT_CHARTS: Array<{ series: keyof ProspectsSeriesResponse['series']; title: string; description: string; color: string }> = [
   { series: 'signups', title: 'Geral: novos cadastros por dia', description: 'Contas criadas por dia. Todo cadastro entra como prospecto; quem paga vira aluna e sai desta visão.', color: '#2f6fed' },
   { series: 'accessed', title: 'Só acessaram o app', description: 'Sessões que abriram o app e não terminaram em cadastro. São sessões, não pessoas.', color: '#8b5cf6' },
-  { series: 'interview', title: 'Responderam as perguntas iniciais', description: 'Entrevista rápida concluída, por dia.', color: '#0d9488' },
+  { series: 'interview', title: 'Fizeram o cadastro e aguardam o pagamento', description: 'Cadastro curto concluído (nome, e-mail, telefone e CPF), por dia. Quem usa uma versão antiga do aplicativo entra aqui ao terminar as 5 perguntas.', color: '#0d9488' },
   { series: 'checkout', title: 'Cobrança gerada e não paga', description: 'Cobranças criadas por dia para quem segue pendente e nunca pagou. Quem pagou já virou aluna.', color: '#d97706' },
 ];
 

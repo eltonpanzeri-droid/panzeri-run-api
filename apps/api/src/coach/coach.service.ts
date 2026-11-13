@@ -1662,7 +1662,7 @@ export class CoachService {
 
     const STAGES = [
       { key: 'signup', label: 'Criou a conta' },
-      { key: 'interview', label: 'Fez a entrevista rápida' },
+      { key: 'interview', label: 'Fez o cadastro (aguardando pagamento)' },
       { key: 'checkout', label: 'Recebeu a cobrança' },
       { key: 'paid', label: 'Pagou' },
     ] as const;
