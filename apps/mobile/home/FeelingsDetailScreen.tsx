@@ -182,7 +182,6 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
             {sentences.length > 0 ? <Text style={styles.sentence}>{sentences.join(' ')}</Text> : (
               <Text style={styles.sentence}>Ainda não há registros suficientes para interpretar.</Text>
             )}
-            <Text style={styles.disclaimer}>Descrição dos seus próprios registros, sem diagnóstico e sem relação de causa.</Text>
           </View>
           {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}
         </>

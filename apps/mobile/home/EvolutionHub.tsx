@@ -11,7 +11,7 @@ import { WearableSleepSection } from './WearableSleepSection';
 import { AdherenceWeekly } from './AdherenceSection';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { BestMarksScreen } from './BestMarksScreen';
-import { EvolutionReadingCards } from './EvolutionReadingCards';
+import { AreaGuideCard } from './AreaGuideCard';
 import { EvolutionReadingContext } from './evolutionReading';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
@@ -84,10 +84,6 @@ function EvolutionHubInner({
         <Text style={styles.kicker}>EVOLUÇÃO</Text>
         <Text style={styles.title}>Sua evolução</Text>
         <Text style={styles.subtitle}>Entenda como seu corpo e seu treinamento vêm respondendo ao longo do tempo.</Text>
-        <View style={styles.notice}>
-          <Text style={styles.noticeTitle}>Como interpretar seus resultados</Text>
-          <Text style={styles.noticeText}>{TOP_NOTICE}</Text>
-        </View>
         <EvolutionAreaGrid onOpenArea={setView} />
         <AreaCard title="Melhores marcas" subtitle="Seus melhores tempos por distância, de 1 km à ultra" icon="trophy-outline" onPress={() => setView('marks')} />
       </View>
@@ -106,7 +102,7 @@ function EvolutionHubInner({
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
-        <EvolutionReadingCards accessToken={accessToken} area={view} />
+        <AreaGuideCard accessToken={accessToken} area={view} />
         {renderProgress(view)}
         {view === 'adherence' ? <AdherenceWeekly accessToken={accessToken} /> : null}
       </View>
@@ -118,7 +114,7 @@ function EvolutionHubInner({
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
-        <EvolutionReadingCards accessToken={accessToken} area={view} />
+        <AreaGuideCard accessToken={accessToken} area={view} />
         <FeelingsDetailScreen accessToken={accessToken} domain={domain} onBack={() => setView('hub')} backLabel="Evolução" hideBack />
         {view === 'load' ? <LoadSection accessToken={accessToken} /> : null}
         {view === 'sleep' ? <WearableSleepSection accessToken={accessToken} /> : null}
@@ -140,7 +136,7 @@ function EvolutionHubInner({
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
-        <EvolutionReadingCards accessToken={accessToken} area="wellbeing" />
+        <AreaGuideCard accessToken={accessToken} area="wellbeing" />
         <Text style={styles.title}>Bem-estar</Text>
         <Text style={styles.subtitle}>Como você chega aos treinos e como responde a eles.</Text>
         {(['readiness', 'response', 'weekly'] as const).map((d) => (

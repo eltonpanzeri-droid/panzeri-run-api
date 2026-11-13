@@ -5,51 +5,68 @@ import { fetchJsonAuth } from '../../mobile/home/homeApi';
 import { findIndicator, loadEvolutionSummary, volumeReadingId } from '../../mobile/home/evolutionReading';
 import * as path from 'path';
 
-// Cards da Evolução (13/11/2026): o app apenas apresenta o texto do servidor, em carrossel horizontal, e NENHUM gráfico existente é removido (decisão de Elton).
+// Evolução (14/11/2026, desenho de Elton): cada GRANDE ÁREA tem UM card com cinco botões (sem rolagem lateral) e cada GRÁFICO tem os cinco blocos embaixo; o app só apresenta o texto do servidor.
 const home = (file: string) => fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', 'home', file), 'utf8');
+const app = () => fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
 
-describe('Evolução em cards', () => {
-  it('o carrossel le a sintese do servidor, e horizontal com o proximo card aparecendo e bolinhas de posicao', () => {
-    const cards = home('EvolutionReadingCards.tsx');
-    expect(home('evolutionReading.ts')).toContain("'/me/evolution/summary'");
-    expect(cards).toContain('useEvolutionSummary');
-    expect(cards).toContain('horizontal');
-    expect(cards).toContain('snapToInterval={IS_WEB ? undefined : step}');
-    expect(cards).toContain('scrollSnapType');
-    expect(cards).toContain('scrollSnapAlign');
-    expect(cards).toContain('PEEK');
-    expect(cards).toContain('Leitura da sua evolução');
-    // compacto: padrão e tendência sempre visíveis; texto longo só sob demanda ("Ver explicação")
-    for (const piece of ['Ver explicação', 'O que mede', 'O que isso indica', 'Nenhum indicador é analisado sozinho']) expect(cards).toContain(piece);
-    expect(cards).toContain('openCards');
-    // sem leitura (erro/sem dado) nada aparece e as telas de sempre continuam
-    expect(cards).toContain('if (!data) return null;');
+describe('Card único da área', () => {
+  it('sem rolagem lateral: o carrossel antigo foi removido e o card tem os cinco botões na ordem do desenho', () => {
+    expect(fs.existsSync(path.join(__dirname, '..', '..', 'mobile', 'home', 'EvolutionReadingCards.tsx'))).toBe(false);
+    const card = home('AreaGuideCard.tsx');
+    expect(card).not.toContain('horizontal');
+    expect(card).toContain('useEvolutionSummary');
+    const titles = ['O que é?', 'Como interpretar?', 'Quais são os seus números?', 'Como você está?', 'Limitações'];
+    let last = -1;
+    for (const title of titles) { const at = card.indexOf(`title: '${title}'`); expect(at).toBeGreaterThan(last); last = at; }
+    expect(card).toContain("defaultOpen: true"); // só o primeiro começa aberto
+    expect((card.match(/defaultOpen/g) ?? []).length).toBe(1);
+    expect(card).toContain('if (!data) return null;');
   });
 
-  it('esta nas cinco areas com leitura e NENHUM grafico/secao existente foi removido do hub', () => {
+  it('está nas áreas com leitura e NENHUM gráfico/seção existente foi removido do hub; o aviso solto do topo saiu', () => {
     const hub = home('EvolutionHub.tsx');
-    expect((hub.match(/<EvolutionReadingCards/g) ?? []).length).toBe(3); // treino/aderencia, carga/sono, bem-estar
+    expect((hub.match(/<AreaGuideCard/g) ?? []).length).toBe(3); // treino/aderência, carga/sono, bem-estar
     for (const kept of ['renderProgress(view)', '<AdherenceWeekly', '<LoadSection', '<WearableSleepSection', '<FeelingsDetailScreen', '<PainArea', 'Dados do seu relógio']) expect(hub).toContain(kept);
+    expect(hub).not.toContain('TOP_NOTICE}');
     expect(hub).toContain('hideBack');
-    expect(home('FeelingsDetailScreen.tsx')).toContain('hideBack = false');
   });
 });
 
-describe('Explicação sob cada gráfico (14/11/2026)', () => {
-  it('a explicação geral começa RECOLHIDA e a frase da aluna fica sempre visível, vinda do servidor', () => {
+describe('Botões grandes (acordeão)', () => {
+  it('o primeiro começa aberto e os demais fechados; botões grandes e destacados; texto maior que o padrão', () => {
+    const accordion = home('GuideAccordion.tsx');
+    expect(accordion).toContain('section.defaultOpen');
+    expect(accordion).toContain('minHeight: 54');
+    expect(accordion).toContain('borderWidth: 2');
+    expect(accordion).toContain("fontSize: 16, lineHeight: 25");
+    expect(accordion).toContain('accessibilityState={{ expanded: isOpen }}');
+  });
+});
+
+
+describe('Cinco blocos sob cada gráfico', () => {
+  it('O que é? (aberto), Como interpretar?, Quais são os seus números?, Como você está? e Limitações desse dado, nessa ordem; sem leitura só "O que é?" e as limitações gerais', () => {
     const meaning = home('IndicatorMeaning.tsx');
-    expect(meaning).toContain('useState(false)');
-    expect(meaning).not.toContain('useState(true)');
-    expect(meaning).toContain('O seu caso');
+    const titles = ['O que é?', 'Como interpretar?', 'Quais são os seus números?', 'Como você está?', 'Limitações desse dado'];
+    let last = -1;
+    for (const title of titles) { const at = meaning.indexOf(`title: '${title}'`); expect(at).toBeGreaterThan(last); last = at; }
     expect(meaning).toContain('useIndicatorReading');
+    expect(meaning).toContain('GENERIC_LIMITATIONS');
+    expect((meaning.match(/defaultOpen: true/g) ?? []).length).toBe(2); // um por modo (com e sem leitura)
   });
 
-  it('o card de gráficos duplicado foi removido e o gráfico interativo ganhou "Comparar" e a frase conforme o que está marcado', () => {
-    const app = fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
-    expect(app).not.toContain('Volume: prescrito, realizado e comparação');
-    expect(app).toContain('Comparar prescrito × realizado');
-    expect(app).toContain('volumeReadingId(chartSeries)');
-    expect(app).toContain("label: 'Total prescrito'");
+  it('os avisos soltos saíram das telas de Evolução (só as Limitações os têm)', () => {
+    expect(home('FeelingsDetailScreen.tsx')).not.toContain('Descrição dos seus próprios registros, sem diagnóstico');
+    expect(home('EvolutionObjective.tsx')).not.toContain('{caution ?');
+    expect(home('IndicatorMeaning.tsx')).not.toContain('MEANING_FOOTER');
+  });
+
+  it('o gráfico interativo de volume ganhou "Comparar" e os cinco blocos seguem o que está marcado; o card duplicado não existe', () => {
+    const source = app();
+    expect(source).not.toContain('Volume: prescrito, realizado e comparação');
+    expect(source).toContain('Comparar prescrito × realizado');
+    expect(source).toContain("<IndicatorMeaning id={volumeReadingId(chartSeries) ?? 'training.volume'} />");
+    expect(source).toContain("label: 'Total prescrito'");
   });
 
   it('o hub fornece o token por contexto a todas as áreas', () => {

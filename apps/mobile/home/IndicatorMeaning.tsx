@@ -1,57 +1,33 @@
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Text } from '../src/PtText';
-import { HomeColors, HomeRadius, HomeSpace, HomeTypography } from './homeTheme';
-import { MEANING_FOOTER, MEANING_TITLE, meaningOf } from './indicatorMeanings';
+import React from 'react';
+import { meaningOf } from './indicatorMeanings';
 import { useIndicatorReading } from './evolutionReading';
+import { GuideAccordion, GuideSection, NumberRows, Paragraphs } from './GuideAccordion';
 
-// Sob cada gráfico (14/11/2026, pedido de Elton): (1) "O seu caso" = a leitura DESTA aluna para ESTE gráfico (padrão, tendência e o que indica), curta e sempre visível, vinda do servidor; (2) "O que isso
-// representa" = explicação geral, longa, RECOLHIDA por padrão para não empurrar o resto da tela. Fora do EvolutionHub (sem leitura) só aparece a explicação geral. Sem texto para o id, não mostra nada.
-export function IndicatorReadingText({ id }: { id: string | undefined | null }) {
+// Sob CADA gráfico (14/11/2026, desenho de Elton): cinco botões grandes que abrem e fecham — "O que é?" (aberto), "Como interpretar?", "Quais são os seus números?" (média, tendência de longo prazo,
+// tendência de curto prazo e último registro), "Como você está?" (explicação detalhada deste indicador) e "Limitações desse dado" (o ÚNICO lugar com os avisos). O conteúdo vem do servidor
+// (GET /me/evolution/summary, por regra). Gráfico sem leitura do servidor (ex.: dor, cadência) mostra só "O que é?" (texto fixo) e as limitações gerais. Sem nenhum texto, não mostra nada.
+const GENERIC_LIMITATIONS = [
+  'Isto não é diagnóstico e não substitui a avaliação de um médico.',
+  'Um dado sozinho não define o seu estado: aqui olhamos tendências, sempre junto com os demais dados.',
+  'Ainda não calculamos a leitura detalhada deste dado; mostramos o gráfico e a explicação geral.',
+];
+
+export function IndicatorMeaning({ id }: { id: string | undefined | null }) {
   const reading = useIndicatorReading(id);
-  if (!reading) return null;
-  const pattern = `${reading.texts.habitual}${reading.texts.trend ? ` ${reading.texts.trend}` : ''}`;
-  return (
-    <View style={styles.personal}>
-      <Text style={styles.personalLabel}>O seu caso</Text>
-      <Text style={styles.personalText}>{pattern}</Text>
-      {reading.texts.meaning ? <Text style={styles.personalText}>{reading.texts.meaning}</Text> : null}
-    </View>
-  );
-}
+  const fixed = meaningOf(id);
+  if (!reading && !fixed) return null;
 
-export function IndicatorMeaning({ id, showReading = true }: { id: string | undefined | null; showReading?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const text = meaningOf(id);
-  return (
-    <View style={{ gap: HomeSpace.related }}>
-      {showReading ? <IndicatorReadingText id={id} /> : null}
-      {text ? (
-        <View style={styles.box}>
-          <Pressable onPress={() => setOpen((v) => !v)} style={styles.head} accessibilityRole="button" accessibilityLabel={`${MEANING_TITLE}: ${open ? 'recolher' : 'expandir'}`}>
-            <Text style={styles.title}>{MEANING_TITLE}</Text>
-            <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color={HomeColors.textTertiary} />
-          </Pressable>
-          {open ? (
-            <>
-              <Text style={styles.text}>{text}</Text>
-              <Text style={styles.footer}>{MEANING_FOOTER}</Text>
-            </>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
-  );
+  const sections: GuideSection[] = reading
+    ? [
+        { id: 'what', title: 'O que é?', defaultOpen: true, content: <Paragraphs lines={[reading.guide.whatIs]} /> },
+        { id: 'how', title: 'Como interpretar?', content: <Paragraphs lines={[reading.guide.howToRead, ...(fixed ? [fixed] : [])]} /> },
+        { id: 'numbers', title: 'Quais são os seus números?', content: <NumberRows rows={reading.guide.numbers} /> },
+        { id: 'you', title: 'Como você está?', content: <Paragraphs lines={reading.guide.howYouAre} /> },
+        { id: 'limits', title: 'Limitações desse dado', content: <Paragraphs lines={reading.guide.limitations} /> },
+      ]
+    : [
+        { id: 'what', title: 'O que é?', defaultOpen: true, content: <Paragraphs lines={[fixed as string]} /> },
+        { id: 'limits', title: 'Limitações desse dado', content: <Paragraphs lines={GENERIC_LIMITATIONS} /> },
+      ];
+  return <GuideAccordion sections={sections} />;
 }
-
-const styles = StyleSheet.create({
-  box: { backgroundColor: HomeColors.surfaceHighlight, borderRadius: HomeRadius.small, padding: HomeSpace.related, gap: 6 },
-  head: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { ...HomeTypography.label, color: HomeColors.panzeriPrimary },
-  text: { ...HomeTypography.body, color: HomeColors.textPrimary, lineHeight: 21 },
-  footer: { ...HomeTypography.tertiary, color: HomeColors.textTertiary },
-  personal: { gap: 4, paddingHorizontal: 2 },
-  personalLabel: { ...HomeTypography.label, color: HomeColors.textSecondary },
-  personalText: { ...HomeTypography.body, color: HomeColors.textPrimary, lineHeight: 20 },
-});

@@ -113,7 +113,7 @@ describe('síntese da área (exemplo de Elton: "6 dos 10 indicadores…")', () =
     ];
     const summary = buildAreaSummary('sleep', indicators);
     expect(summary.counts).toMatchObject({ good: 2, steady: 1, attention: 1, evaluated: 4 });
-    expect(summary.text).toBe('Nesse quesito (sono e recuperação), dos 4 indicadores avaliados, 2 apresentam melhora ou padrão bom; 1 está em nível intermediário ou estável; 1 apresentam piora ou padrão que merece atenção.');
+    expect(summary.text).toBe('Nesse quesito (sono e recuperação), dos 4 indicadores avaliados, 2 apresentam melhora ou padrão bom; 1 está em nível intermediário ou estável; 1 apresenta piora ou padrão que merece atenção.');
     expect(summary.meaning).toBe(AREA_READING.find((a) => a.id === 'sleep')!.meaning.mixed);
     const favorable = buildAreaSummary('sleep', [ok('workout.preSleepQuality', repeat(4.6, 60)), ok('workout.sleepInterruption', repeat(1.2, 60))]);
     expect(favorable.meaning).toBe(AREA_READING.find((a) => a.id === 'sleep')!.meaning.favorable);
@@ -227,8 +227,11 @@ describe('esforço, volume, ritmo e relógio', () => {
     expect(deep.bucket).toBe('tracked');
     expect(deep.texts.habitual).toContain('1 h');
     expect(deep.texts.trend).toContain('queda do sono profundo');
-    expect(deep.texts.meaning).toContain('parte de um todo');
-    expect(deep.texts.meaning).toContain('Não é diagnóstico');
+    expect(deep.texts.meaning).toContain('menos sono profundo');
+    // os avisos ("parte de um todo", "não é diagnóstico") moram SÓ nas limitações
+    expect(deep.texts.meaning).not.toContain('diagnóstico');
+    expect(deep.guide.limitations.join(' ')).toContain('parte de um todo');
+    expect(deep.guide.limitations.join(' ')).toContain('não é diagnóstico');
     expect(result('wearable.restingHeartRateBpm', repeat(52, 40)).texts.habitual).toContain('52 bpm');
   });
 
@@ -257,5 +260,69 @@ describe('volume prescrito, razão e extras (14/11/2026)', () => {
     const prescribed = buildIndicatorResult(entryOf('training.volumePrescribedKm'), getVariableDefinition('training.volumePrescribedKm')!, weekly(Array.from({ length: 12 }, () => 40)), new MathLayerService(), new Date(T0 + 130 * 86_400_000));
     expect(prescribed.texts.habitual).toContain('O seu programa tem pedido cerca de 40 km por semana');
     expect(prescribed.texts.whatItMeasures).toContain('não o que você fez');
+  });
+});
+
+describe('blocos do desenho de Elton: indicador e área (14/11/2026)', () => {
+  it('indicador: o que é, como interpretar, números (média, longo prazo, curto prazo, último registro), como você está e limitações', () => {
+    const r = result('workout.preSleepQuality', [...repeat(2, 50), ...repeat(4, 16)]);
+    const g = r.guide;
+    expect(g.whatIs).toContain('números mais perto de 5 significam que você tende a dormir bem');
+    expect(g.howToRead).toContain('quanto mais perto de 5, melhor');
+    expect(g.howToRead).toContain('a partir de 4 é um bom nível e até 2,5 pede atenção');
+    expect(g.numbers.map((row) => row.label)).toEqual(['Sua média', 'Tendência de longo prazo', 'Tendência de curto prazo', 'Seu último registro']);
+    expect(g.numbers[0].note).toContain('média aritmética');
+    expect(g.numbers[1].note).toContain('média móvel longa');
+    expect(g.numbers[2].note).toContain('média móvel curta');
+    expect(g.numbers[3].value).toBe('4');
+    expect(g.numbers[3].note?.endsWith('/2026')).toBe(true);
+    const how = g.howYouAre.join(' ');
+    expect(how).toContain('qualidade do sono'.replace('q', 'Q'));
+    expect(how).toContain('Para onde você está indo');
+    expect(how).toContain('O seu último registro foi 4');
+    expect(how).toContain('ajustar os seus treinos');
+  });
+
+  it('as ponderações ficam SÓ nas limitações: não é diagnóstico, um dado sozinho, só desde 01/08, autorrelato; relógio = estimativa; poucos registros', () => {
+    const limits = result('workout.preSleepQuality', repeat(3, 12)).guide.limitations.join(' ');
+    expect(limits).toContain('não é diagnóstico e não substitui a avaliação de um médico');
+    expect(limits).toContain('Um dado sozinho não define o seu estado');
+    expect(limits).toContain('Só entram registros desde 01/08/2026');
+    expect(limits).toContain('informado por você');
+    expect(limits).toContain('Ainda são poucos registros (12)');
+    expect(result('wearable.sleepDeepMin', repeat(80, 30)).guide.limitations.join(' ')).toContain('estimativa do relógio');
+    const insufficient = result('workout.preSleepQuality', repeat(3, 3));
+    expect(insufficient.guide.howYouAre[0]).toContain('Ainda não temos registros suficientes');
+    expect(insufficient.guide.limitations.join(' ')).toContain('3 de 8 necessários');
+    // os textos "de leitura" não carregam mais os avisos (eles moram nas limitações)
+    const reading = result('workout.preSleepQuality', repeat(3, 60));
+    expect(reading.guide.howYouAre.join(' ')).not.toContain('diagnóstico');
+    expect(reading.texts.habitual).not.toContain('diagnóstico');
+  });
+
+  it('semanal: números por semanas (3 contra 8) e a semana em curso fica fora', () => {
+    const T0 = Date.UTC(2026, 8, 10, 12);
+    const weekly = Array.from({ length: 14 }, (_, i) => ({ value: 30 + i, timestamp: new Date(T0 + i * 7 * 86_400_000) }));
+    const r = buildIndicatorResult(READING_CATALOG.find((x) => x.variableId === 'training.volumeCompletedTotalKm')!, getVariableDefinition('training.volumeCompletedTotalKm')!, weekly, new MathLayerService(), new Date(T0 + 14 * 7 * 86_400_000 + 2 * 86_400_000));
+    expect(r.guide.numbers[1].note).toContain('8 semanas');
+    expect(r.guide.numbers[2].note).toContain('3 semanas');
+    expect(r.guide.limitations.join(' ')).toContain('A semana em curso fica fora');
+  });
+
+  it('área: o que é (com as escalas), como interpretar, números por indicador, análise detalhada cruzada e limitações', async () => {
+    const reader = { getObservations: jest.fn(async (_u: string, v: string) => (v.startsWith('workout.pre') || v.startsWith('workout.sleep') ? nights(repeat(2, 60)) : [])), getManualPaceObservations: jest.fn(async () => []) };
+    const out = await new EvolutionSummaryService(reader as never, math).forStudent('u1');
+    const sleep = out.areas.find((a) => a.id === 'sleep')!;
+    const g = sleep.guide;
+    expect(g.whatIs[0]).toContain('Sono e recuperação reúne');
+    expect(g.whatIs.some((line) => line.includes('números mais perto de 5 significam que você tende a dormir bem'))).toBe(true);
+    expect(g.howToRead.length).toBeGreaterThan(40);
+    expect(g.numbers.length).toBe(sleep.indicators.length);
+    expect(g.numbers[0].value).toContain('média');
+    const how = g.howYouAre.join(' ');
+    expect(how).toContain('Lendo em conjunto'); // mais de um sinal na mesma direção
+    expect(how).toContain('cruzamos os seus dados');
+    expect(g.limitations.join(' ')).toContain('não é diagnóstico');
+    expect(how).not.toContain('não é diagnóstico');
   });
 });

@@ -2,3 +2,4 @@
 
 1. **Sumir com o gráfico "Treinos por modalidade"** da Evolução. (Já removido do código no commit `1c3480d`; falta Push e Deploy do app web para sumir no Panzeri Run.)
 2. **Painel de números só na tela inicial, com período livre; padrão "desde o início"** (lista de 7 itens: semanas desde que entrou*, treinos feitos, treinos por modalidade com seletor, km percorridos, semana com mais km*, recorde de semanas ativas*, média de km; * = sem período). **FEITO** (commit abaixo); cartões antigos saíram da Evolução do treinamento.
+3. **Evolução: card único por área (sem rolagem lateral) com 5 botões e os mesmos 5 blocos sob cada gráfico; avisos só em "Limitações"; semana em curso fora dos números gerais com área "Esta semana".** FEITO (ver PRONTUARIO 14/11/2026). Observação: o cartão antigo "O que seus registros mostram" (tela de Sono e Bem-estar) continua existindo e agora repete parte do "Como você está?"; decidir se sai.

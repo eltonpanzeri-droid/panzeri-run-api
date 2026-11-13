@@ -5,11 +5,15 @@ import { fetchJsonAuth } from './homeApi';
 // resposta do servidor (uma chamada, guardada por um minuto). Nenhuma conta ou texto é feito aqui. O token vem do contexto que o EvolutionHub fornece; fora dele (telas antigas) nada é buscado.
 export type ReadingAreaId = 'training' | 'load' | 'sleep' | 'wellbeing' | 'adherence';
 
+export interface GuideRowDto { label: string; value: string; note?: string }
+export interface IndicatorGuideDto { whatIs: string; howToRead: string; numbers: GuideRowDto[]; howYouAre: string[]; limitations: string[] }
+export interface AreaGuideDto { whatIs: string[]; howToRead: string; numbers: GuideRowDto[]; howYouAre: string[]; limitations: string[] }
 export interface IndicatorDto {
   variableId: string; name: string; status: 'ok' | 'insufficient'; bucket: 'good' | 'steady' | 'attention' | 'tracked' | 'insufficient';
   texts: { whatItMeasures: string; habitual: string; trend: string | null; meaning: string | null };
+  guide: IndicatorGuideDto;
 }
-export interface AreaDto { id: ReadingAreaId; title: string; text: string; meaning: string | null; counts: { evaluated: number }; indicators: IndicatorDto[] }
+export interface AreaDto { id: ReadingAreaId; title: string; text: string; meaning: string | null; counts: { evaluated: number }; indicators: IndicatorDto[]; guide: AreaGuideDto }
 export interface SummaryDto { areas: AreaDto[] }
 
 export const EvolutionReadingContext = createContext<string | null>(null);

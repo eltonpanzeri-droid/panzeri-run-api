@@ -20,7 +20,6 @@ import { ZeppWatchPrompt } from './src/zepp/ZeppWatchPrompt';
 import { StoreSubscriptionPaywall, type StorePlanView } from './src/subscription/StoreSubscriptionPaywall';
 import { HealthConnectCard } from './src/healthConnect/HealthConnectCard';
 import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/ScientificSourcesScreen';
-import { IndicatorReadingText } from './home/IndicatorMeaning';
 import { volumeReadingId } from './home/evolutionReading';
 import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
@@ -6587,14 +6586,12 @@ function Progress({ accessToken, focus }: { accessToken: string; focus?: Progres
               </Pressable>
             </View>
 
-            {/* Frase da aluna para o que está marcado (14/11/2026): vem do servidor; muda com as séries escolhidas. */}
-            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
-              <IndicatorReadingText id={volumeReadingId(chartSeries)} />
+            {/* Os cinco blocos (14/11/2026): seguem o que está marcado no gráfico (realizado, prescrito, os dois ou extras). */}
+            <View style={{ marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f1f5f9' }}>
+              <IndicatorMeaning id={volumeReadingId(chartSeries) ?? 'training.volume'} />
             </View>
           </View>
 
-          {/* "O que isso representa" do volume por semana (02/11/2026; texto em home/indicatorMeanings.ts) */}
-          <View style={{ marginBottom: 16 }}><IndicatorMeaning id="training.volume" showReading={false} /></View>
 
           {/* Interpretação em texto + ritmo + cadência (motor longitudinal; Evolução objetiva, 04/10/2026) */}
           <EvolutionObjectiveSections accessToken={accessToken} weeks={data.recentWeeks} todayIso={saoPauloDateString(new Date())} />

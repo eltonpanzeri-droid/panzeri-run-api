@@ -133,7 +133,6 @@ function MetricCard({
         <Text style={styles.muted}>É preciso ao menos 2 treinos com este dado para desenhar a evolução.</Text>
       )}
       <Sentences items={sentences} />
-      {caution && !hasReading ? <Text style={styles.caution}>{caution}</Text> : null}
       <IndicatorMeaning id={meaningId} />
     </Card>
   );
@@ -226,7 +225,6 @@ export function WeeklyCard({
         <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
       )}
       <Sentences items={[...weeklySentences(snapshot, descriptor), ...(acuteChronicSentence(snapshot, descriptor.fmt) ? [acuteChronicSentence(snapshot, descriptor.fmt) as string] : [])]} />
-      {caution && !hasReading ? <Text style={styles.caution}>{caution}</Text> : null}
       <IndicatorMeaning id={meaningId} />
     </Card>
   );
@@ -249,7 +247,6 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
       {volumeLines.length > 0 ? (
         <Card title="O que os números de volume mostram">
           <Sentences items={volumeLines} />
-          <Text style={styles.caution}>Descrição dos seus próprios registros; não indica o que é certo ou errado.</Text>
         </Card>
       ) : null}
       <WeeklyCard

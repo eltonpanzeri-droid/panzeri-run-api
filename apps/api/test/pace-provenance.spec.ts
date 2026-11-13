@@ -58,9 +58,12 @@ describe('Evolução: ritmo com relógio + preenchido, sem impossível', () => {
     const out = await new EvolutionSummaryService(reader as never, new MathLayerService()).forStudent('u1');
     const pace = out.areas.find((a) => a.id === 'training')!.indicators.find((i) => i.variableId === 'activity.avgPaceSecondsKm')!;
     expect(pace.n).toBe(35);
-    expect(pace.texts.habitual).toContain('30 treinos do relógio');
-    expect(pace.texts.habitual).toContain('5 preenchidos por você');
-    expect(pace.texts.habitual).toContain('2 treinos ficaram de fora por ritmo impossível');
+    // a nota de procedência vive nas LIMITAÇÕES (os avisos ficam só lá)
+    const limits = pace.guide.limitations.join(' ');
+    expect(limits).toContain('30 treinos do relógio');
+    expect(limits).toContain('5 preenchidos por você');
+    expect(limits).toContain('2 treinos ficaram de fora por ritmo impossível');
+    expect(pace.texts.habitual).not.toContain('Base:');
     expect(pace.mean).toBeGreaterThan(390); // 1:30/km fora: a média não despenca
     expect(watch).toHaveLength(30);
     expect(reader.getObservations).not.toHaveBeenCalledWith('u1', 'activity.avgPaceSecondsKm', expect.anything());
@@ -72,7 +75,7 @@ describe('Evolução: ritmo com relógio + preenchido, sem impossível', () => {
     const out = await new EvolutionSummaryService(reader as never, new MathLayerService()).forStudent('u1');
     const pace = out.areas.find((a) => a.id === 'training')!.indicators.find((i) => i.variableId === 'activity.avgPaceSecondsKm')!;
     expect(pace.status).toBe('ok');
-    expect(pace.texts.habitual).toContain('12 treinos do relógio');
+    expect(pace.guide.limitations.join(' ')).toContain('12 treinos do relógio');
   });
 });
 

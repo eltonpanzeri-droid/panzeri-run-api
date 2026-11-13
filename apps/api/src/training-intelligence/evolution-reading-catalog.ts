@@ -321,6 +321,30 @@ const TREND_MEANING: Record<string, { above: string; below: string; stable: stri
 };
 for (const entry of READING_CATALOG) entry.trendMeaning = TREND_MEANING[entry.variableId];
 
+// Texto fixo de cada GRANDE ÁREA (14/11/2026, desenho de Elton: "O que é?" e "Como interpretar?"). Rascunho a revisar.
+export const AREA_INFO: Record<AreaId, { whatIs: string; howToRead: string }> = {
+  training: {
+    whatIs: 'Aqui você acompanha a evolução do seu treinamento: quantos quilômetros você corre por semana, quanto o seu programa pediu, quanto do prescrito você realizou e como está o seu ritmo médio.',
+    howToRead: 'Volume e ritmo não são bons nem ruins por si só: o que importa é a direção. Veja se o seu volume vem subindo, estável ou caindo, e se o seu ritmo médio vem ficando mais rápido ou mais lento ao longo das semanas. Lembre que o ritmo médio muda devagar, principalmente no longo prazo.',
+  },
+  load: {
+    whatIs: 'Resposta à carga mostra como o seu corpo reage ao treino: o cansaço com que você chega aos treinos, o que cada treino te deixa, o esforço que você percebe e o quanto as suas semanas parecem exigentes.',
+    howToRead: 'O cansaço antes do treino é melhor quanto menor. O esforço percebido, o cansaço depois do treino e a exigência da semana dependem do que foi prescrito: olhe a direção e o conjunto, e não um número só.',
+  },
+  sleep: {
+    whatIs: 'Sono e recuperação reúne como você dorme, do seu ponto de vista (qualidade, interrupções e dificuldade para pegar no sono), e o que o seu relógio mede (tempo de sono, sono profundo, REM, variabilidade da frequência cardíaca e frequência de repouso).',
+    howToRead: 'Nos itens que você informa, a escala mostra qual lado é melhor. Nos itens do relógio, o que importa é o seu padrão e a direção da tendência: cada pessoa tem o seu normal, e mudanças em relação a ele são o que contam.',
+  },
+  wellbeing: {
+    whatIs: 'Bem-estar reúne o que você sente no dia a dia e que pesa na sua recuperação e na sua constância: cansaço mental, estresse e vontade de treinar.',
+    howToRead: 'Em cansaço mental e estresse, números menores são melhores; em vontade de treinar, números maiores são melhores. Compare a sua média com a escala e veja para onde a tendência aponta.',
+  },
+  adherence: {
+    whatIs: 'Aderência mostra a sua constância nos treinos e o quanto você tem seguido o ritmo prescrito quando corre.',
+    howToRead: 'Quanto mais perto de 100%, mais você tem feito do que foi proposto. Veja se a sua constância está estável ou mudando, e lembre que ficar fora da faixa de ritmo nem sempre é falha: terreno, calor e cansaço influenciam.',
+  },
+};
+
 export interface AreaReading {
   id: AreaId;
   title: string;
