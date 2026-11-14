@@ -95,7 +95,7 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
   const [result, setResult] = useState<Result | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState('');
-  const [filter, setFilter] = useState<'all' | Kind>('browser_probable');
+  const [filter, setFilter] = useState<'all' | Kind>('all');
   const [situation, setSituation] = useState<Situation>('current');
   const [search, setSearch] = useState('');
   const [pays, setPays] = useState<'all' | PaysVia | 'duplicate'>('all');
@@ -139,26 +139,22 @@ export default function StudentAccess({ accessToken, apiUrl }: { accessToken: st
       <NativeInviteCard accessToken={accessToken} apiUrl={apiUrl} />
       {result ? (
         <>
-          <div className="eqChips" role="group" aria-label="Filtrar por situação da assinatura">
-            {SITUATIONS.map((item) => (
-              <button key={item.key} type="button" className={`eqChip${situation === item.key ? ' on' : ''}`} aria-pressed={situation === item.key} onClick={() => setSituation(item.key)}>
-                {item.label} ({(result?.rows ?? []).filter((row) => inSituation(row, item.key)).length})
-              </button>
-            ))}
-          </div>
-          <div className="eqChips" role="group" aria-label="Filtrar por forma de pagamento">
-            {PAYS_FILTERS.map((item) => (
-              <button key={item.key} type="button" className={`eqChip${pays === item.key ? ' on' : ''}`} aria-pressed={pays === item.key} onClick={() => setPays(item.key)}>
-                {item.label} ({scoped.filter((row) => (item.key === 'all' ? true : item.key === 'duplicate' ? row.asaasLeftover != null : row.paysVia === item.key)).length})
-              </button>
-            ))}
-          </div>
-          <div className="eqChips" role="group" aria-label="Filtrar por forma de acesso">
-            {FILTERS.map((item) => (
-              <button key={item.key} type="button" className={`eqChip${filter === item.key ? ' on' : ''}`} aria-pressed={filter === item.key} onClick={() => setFilter(item.key)}>
-                {item.label} ({countOf(item.key)})
-              </button>
-            ))}
+          <div className="eqChips" style={{ alignItems: 'flex-end', gap: 12 }}>
+            <label className="eqFine">Situação
+              <select value={situation} onChange={(e) => setSituation(e.target.value as Situation)} style={{ display: 'block' }}>
+                {SITUATIONS.map((item) => <option key={item.key} value={item.key}>{item.label} ({(result?.rows ?? []).filter((row) => inSituation(row, item.key)).length})</option>)}
+              </select>
+            </label>
+            <label className="eqFine">Paga por
+              <select value={pays} onChange={(e) => setPays(e.target.value as typeof pays)} style={{ display: 'block' }}>
+                {PAYS_FILTERS.map((item) => <option key={item.key} value={item.key}>{item.label} ({scoped.filter((row) => (item.key === 'all' ? true : item.key === 'duplicate' ? row.asaasLeftover != null : row.paysVia === item.key)).length})</option>)}
+              </select>
+            </label>
+            <label className="eqFine">Acesso
+              <select value={filter} onChange={(e) => setFilter(e.target.value as 'all' | Kind)} style={{ display: 'block' }}>
+                {FILTERS.map((item) => <option key={item.key} value={item.key}>{item.label} ({countOf(item.key)})</option>)}
+              </select>
+            </label>
           </div>
           <div className="eqChips">
             <input type="search" placeholder="Buscar por nome ou código" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Buscar aluna" />
