@@ -1,6 +1,7 @@
 import { MathLayerService, type SeriesPoint } from './math-layer.service';
 import { buildAcuteChronic } from './acute-chronic';
 import type { VariableDefinition } from './variable-registry';
+import { GUIDE_TEXT_OVERRIDES, TRAINING_AREA_TEXTS } from './evolution-guide-texts';
 import { AREA_INFO, AREA_READING, EVOLUTION_READING_STATUS, EVOLUTION_READING_VERSION, EVOLUTION_SINCE, READING_CATALOG, type AreaId, type IndicatorReading } from './evolution-reading-catalog';
 
 // Leitura da Evolução da aluna por REGRA (13/11/2026, decisão de Elton: sem IA). Funções puras e testáveis; o serviço só busca as séries. Toda média e janela aqui vem da camada matemática existente
@@ -29,7 +30,7 @@ export interface TrendReading { verdict: Verdict; delta: number }
 
 // Os blocos do desenho de Elton (14/11/2026): "O que é?", "Como interpretar?", "Quais são os seus números?", "Como você está?" e "Limitações desse dado". Tudo por regra, sem IA.
 export interface GuideRow { label: string; value: string; note?: string }
-export interface IndicatorGuide { whatIs: string; howToRead: string; numbers: GuideRow[]; howYouAre: string[]; limitations: string[] }
+export interface IndicatorGuide { whatIs: string; howToRead: string; numbers: GuideRow[]; numbersNote?: string; howYouAre: string[]; limitations: string[] }
 export interface IndicatorResult {
   variableId: string;
   name: string;
@@ -40,6 +41,9 @@ export interface IndicatorResult {
   n: number;
   short: TrendReading | null;
   long: TrendReading | null;
+  /** Nível da média móvel curta e da longa (só indicadores com lado melhor); alimenta a leitura da área. */
+  shortLevel: Level | null;
+  longLevel: Level | null;
   texts: { whatItMeasures: string; habitual: string; trend: string | null; meaning: string | null };
   guide: IndicatorGuide;
 }
@@ -58,6 +62,7 @@ export function formatValue(value: number, variableId: string, unit?: string): s
     return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, '0')} min`;
   }
   if (unit === 'bpm') return `${Math.round(value)} bpm`;
+  if (unit === 'spm') return `${Math.round(value)} spm`;
   const text = String(round1(value)).replace('.', ',');
   if (unit === '%') return `${text.replace(',0', '')}%`;
   if (unit === 'km') return `${text.replace(',0', '')} km`;
@@ -171,6 +176,48 @@ function limitationsText(entry: IndicatorReading, n: number, extra: { weekly: bo
   return out;
 }
 
+// Limitações: o texto escrito por Elton (quando existe) no lugar do padrão; sobram só os avisos que dependem dos números da aluna (poucos registros, ritmo estimado).
+function limitationsFor(entry: IndicatorReading, n: number, extra: { weekly: boolean; insufficient: boolean; provenanceNote: string | null }): string[] {
+  const override = GUIDE_TEXT_OVERRIDES[entry.variableId];
+  if (!override) return limitationsText(entry, n, extra);
+  const out = [...override.limitations];
+  if (extra.insufficient) out.push(`Ainda não há registros suficientes (${n} de ${MIN_OBSERVATIONS} necessários) para esta leitura: ela ganha força conforme você registra.`);
+  else if (n < 20) out.push(`Ainda são poucos registros (${n}): a leitura vai ficando mais firme com o tempo.`);
+  if (extra.provenanceNote) out.push(extra.provenanceNote);
+  return out;
+}
+
+// "Como você está?" no molde de Elton (15/11/2026): média, padrão de longo prazo, padrão de curto prazo, tendência de mudança e a última sessão contra as duas tendências. Só descreve; nunca qualifica.
+function relativeTo(value: number, base: number): 'dentro' | 'acima' | 'abaixo' {
+  const threshold = Math.abs(base) * CHANGE_FRACTION;
+  return Math.abs(value - base) < threshold || threshold === 0 ? 'dentro' : value > base ? 'acima' : 'abaixo';
+}
+export function standardHowYouAre(input: { meanText: string; weekly: boolean; chronic: number | null; acute: number | null; last: number; fmt: (v: number) => string; short: TrendReading | null; phrases?: { above: string; below: string } }): string {
+  const { meanText, weekly, chronic, acute, last, fmt, short, phrases } = input;
+  const parts = [`${weekly ? 'Sua média semanal' : 'Sua média'} é ${meanText}.`];
+  parts.push(chronic != null ? `Seu padrão de longo prazo está em ${fmt(chronic)}.` : 'Ainda não há registros suficientes para o seu padrão de longo prazo.');
+  parts.push(acute != null ? `Seu padrão de curto prazo está em ${fmt(acute)}.` : 'Ainda não há registros suficientes para o seu padrão de curto prazo.');
+  const window = weekly ? 'semanas' : 'sessões';
+  if (short) {
+    if (short.verdict === 'stable') parts.push(`Não estamos observando tendência de mudança nas últimas ${window}.`);
+    else if (short.verdict === 'above' || short.verdict === 'below') parts.push(`Estamos observando tendência de ${(short.verdict === 'above' ? phrases?.above : phrases?.below) ?? (short.verdict === 'above' ? 'valores mais altos' : 'valores mais baixos')} nas últimas ${window}.`);
+    else parts.push(`Estamos observando tendência de ${short.verdict === 'improved' ? 'melhora' : 'piora'} nas últimas ${window}.`);
+  }
+  if (chronic != null && acute != null) {
+    const s = relativeTo(last, acute);
+    const l = relativeTo(last, chronic);
+    const what = weekly ? 'semana' : 'sessão';
+    parts.push(s === l ? `Sua última ${what} registrada esteve ${s} das suas tendências de curto e de longo prazo.` : `Sua última ${what} registrada esteve ${s} da sua tendência de curto prazo, mas ${l} da de longo prazo.`);
+  }
+  return parts.join(' ');
+}
+export function prescribedHowYouAre(input: { meanText: string; chronic: number | null; acute: number | null; fmt: (v: number) => string; verdict: Verdict | undefined }): string {
+  const { meanText, chronic, acute, fmt, verdict } = input;
+  const trend = verdict === 'above' ? 'alta' : verdict === 'below' ? 'baixa' : 'estabilidade';
+  const clauses = [chronic != null ? `no longo prazo prescrevemos ${fmt(chronic)}` : null, acute != null ? `no curto prazo ${fmt(acute)}` : null].filter((c): c is string => !!c);
+  return `A média de volume semanal prescrito é ${meanText}${clauses.length ? `, ${clauses.join(', ')}` : ''} e a tendência está de ${trend}.`;
+}
+
 function weeklyWindows(math: MathLayerService, recent: SeriesPoint[]) {
   const acute = math.movingAverage(recent, { kind: 'observation_count', size: WEEKLY_ACUTE_SIZE });
   const chronic = math.movingAverage(recent, { kind: 'observation_count', size: WEEKLY_CHRONIC_SIZE });
@@ -185,16 +232,18 @@ function weeklyWindows(math: MathLayerService, recent: SeriesPoint[]) {
 
 export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<VariableDefinition, 'variableId' | 'scale' | 'expectedFrequency'>, series: SeriesPoint[], math: MathLayerService, now: Date = new Date(), provenanceNote: string | null = null): IndicatorResult {
   const whatItMeasures = `${entry.scaleText} ${entry.why}`;
+  const override = GUIDE_TEXT_OVERRIDES[entry.variableId];
   // Série semanal: a semana em curso é incompleta e fica fora (regra de Elton, 05/11/2026).
   const cutoff = entry.weekly ? now.getTime() - 7 * 86_400_000 : Infinity;
   const recent = series.filter((p) => Number.isFinite(p.value) && p.timestamp.getTime() >= EVOLUTION_SINCE.getTime() && p.timestamp.getTime() <= cutoff).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   if (recent.length < MIN_OBSERVATIONS) {
     const lastPoint = recent[recent.length - 1];
-    return { variableId: entry.variableId, name: entry.name, status: 'insufficient', bucket: 'insufficient', level: null, mean: null, n: recent.length, short: null, long: null,
+    return { variableId: entry.variableId, name: entry.name, status: 'insufficient', bucket: 'insufficient', level: null, mean: null, n: recent.length, short: null, long: null, shortLevel: null, longLevel: null,
       texts: { whatItMeasures, habitual: 'Ainda não há registros suficientes para mostrar o seu padrão neste indicador.', trend: null, meaning: null },
       guide: {
-        whatIs: whatItMeasures,
-        howToRead: howToReadText(entry, definition.scale, !!entry.weekly),
+        whatIs: override ? override.whatIs.join('\n\n') : whatItMeasures,
+        howToRead: override ? override.howToRead.join('\n\n') : howToReadText(entry, definition.scale, !!entry.weekly),
+        ...(entry.weekly ? { numbersNote: 'A semana atual não entra na conta.' } : {}),
         numbers: [
           { label: 'Sua média', value: '—', note: `${recent.length} ${entry.weekly ? 'semanas completas' : 'registros'} desde 01/08/2026` },
           { label: 'Tendência de longo prazo', value: '—', note: 'média móvel longa: ainda sem registros suficientes' },
@@ -202,7 +251,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
           { label: 'Seu último registro', value: lastPoint ? formatValue(lastPoint.value, entry.variableId, definition.scale && 'unit' in definition.scale ? (definition.scale as { unit?: string }).unit : undefined) : '—', note: lastPoint ? dateBr(lastPoint.timestamp) : undefined },
         ],
         howYouAre: [`Ainda não temos registros suficientes de ${entry.name} para dizer como você está (são necessários pelo menos ${MIN_OBSERVATIONS}). Continue registrando: assim que houver o bastante, esta leitura aparece aqui.`],
-        limitations: limitationsText(entry, recent.length, { weekly: !!entry.weekly, insufficient: true, provenanceNote }),
+        limitations: limitationsFor(entry, recent.length, { weekly: !!entry.weekly, insufficient: true, provenanceNote }),
       } };
   }
   const overall = mean(recent.map((p) => p.value));
@@ -269,16 +318,27 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
     : `Para onde você está indo: ainda não há registros suficientes para comparar o curto e o longo prazo.${trendText ? ` ${trendText}` : ''}`;
   const lastVsMean = compareWord(lastPoint.value, overall);
   const lastLine = `O seu último registro foi ${fmt(lastPoint.value)} (${dateBr(lastPoint.timestamp)}), ${lastVsMean === 'praticamente igual' ? 'em linha com a sua média' : `${lastVsMean} da sua média`}.`;
-  const howYouAre = [where, going, ...(meaning ? [meaning] : []), lastLine, 'Esse é um dos dados que cruzamos com os demais para ajustar os seus treinos.'];
+  const howYouAreDefault = [where, going, ...(meaning ? [meaning] : []), lastLine, 'Esse é um dos dados que cruzamos com os demais para ajustar os seus treinos.'];
+  const howYouAre = !override ? howYouAreDefault
+    : override.howYouAre === 'prescribed'
+      ? [prescribedHowYouAre({ meanText, chronic: chronicOk ? (ac.chronic.value as number) : null, acute: acuteOk ? (ac.acute.value as number) : null, fmt, verdict: trendVerdict })]
+      : [standardHowYouAre({ meanText, weekly: !!entry.weekly, chronic: chronicOk ? (ac.chronic.value as number) : null, acute: acuteOk ? (ac.acute.value as number) : null, last: lastPoint.value, fmt, short, phrases: entry.phrases })];
 
   return {
     variableId: entry.variableId, name: entry.name, status: 'ok', bucket, level, mean: overall, n: recent.length, short, long,
+    shortLevel: acuteOk ? levelOf(ac.acute.value as number, scale, entry.levelGoodWhen) : null,
+    longLevel: chronicOk ? levelOf(ac.chronic.value as number, scale, entry.levelGoodWhen) : null,
     texts: { whatItMeasures, habitual, trend: trendText, meaning },
-    guide: { whatIs: whatItMeasures, howToRead: howToReadText(entry, scale, !!entry.weekly), numbers, howYouAre, limitations: limitationsText(entry, recent.length, { weekly: !!entry.weekly, insufficient: false, provenanceNote }) },
+    guide: {
+      whatIs: override ? override.whatIs.join('\n\n') : whatItMeasures,
+      howToRead: override ? override.howToRead.join('\n\n') : howToReadText(entry, scale, !!entry.weekly),
+      numbers, ...(entry.weekly ? { numbersNote: 'A semana atual não entra na conta.' } : {}), howYouAre,
+      limitations: limitationsFor(entry, recent.length, { weekly: !!entry.weekly, insufficient: false, provenanceNote }),
+    },
   };
 }
 
-export interface AreaGuide { whatIs: string[]; howToRead: string; numbers: GuideRow[]; howYouAre: string[]; limitations: string[] }
+export interface AreaGuide { whatIs: string[]; howToRead: string; numbers: GuideRow[]; numbersNote?: string; howYouAre: string[]; limitations: string[] }
 
 export interface AreaSummary {
   id: AreaId;
@@ -346,7 +406,57 @@ function buildAreaGuide(id: AreaId, indicators: IndicatorResult[], text: string,
     ...(indicators.some((indicator) => READING_CATALOG.find((entry) => entry.variableId === indicator.variableId)?.wearable) ? ['Os dados do relógio são estimativas do aparelho, não medidas clínicas, e muda de uma marca para outra.'] : []),
     ...(indicators.some((indicator) => SELF_REPORTED_PREFIXES.some((prefix) => indicator.variableId.startsWith(prefix))) ? ['Boa parte dos dados desta área é informada por você, então reflete a sua percepção no momento do registro.'] : []),
   ];
+  if (id === 'training') return buildTrainingAreaGuide(indicators, numbers, missing);
   return { whatIs, howToRead: info.howToRead, numbers, howYouAre, limitations };
+}
+
+const countWord = (n: number) => `${n} ${n === 1 ? 'indicador' : 'indicadores'}`;
+const verbOf = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+// Evolução do treinamento no molde de Elton (15/11/2026): quantos indicadores principais, como estão o longo e o curto prazo e quantos sugerem mudança. Só conta; não qualifica o volume nem o ritmo.
+export function trainingHowYouAre(indicators: IndicatorResult[]): string[] {
+  const ok = indicators.filter((indicator) => indicator.status === 'ok');
+  if (ok.length === 0) return ['Ainda não há registros suficientes para avaliar este quesito. Conforme você registra os treinos, esta leitura aparece aqui.'];
+  const out: string[] = [];
+  const missing = indicators.length - ok.length;
+  out.push(`Nesse quesito, observamos ${indicators.length} indicadores principais${missing > 0 ? `; ${ok.length} já têm registros suficientes para esta leitura` : ''}.`);
+  const directional = ok.filter((indicator) => indicator.bucket !== 'tracked');
+  const levelLine = (label: string, levels: Array<Level | null>) => {
+    const known = levels.filter((level): level is Level => level !== null);
+    if (known.length === 0) return null;
+    const good = known.filter((l) => l === 'good').length;
+    const middle = known.filter((l) => l === 'middle').length;
+    const poor = known.filter((l) => l === 'poor').length;
+    return `${label}, ${countWord(good)} ${good === 1 ? 'está mais próximo' : 'estão mais próximos'} de uma classificação boa, ${countWord(middle)} ${middle === 1 ? 'apresenta' : 'apresentam'} comportamento neutro e ${countWord(poor)} ${poor === 1 ? 'apresenta' : 'apresentam'} um comportamento mais negativo.`;
+  };
+  const longLine = levelLine('No longo prazo', directional.map((indicator) => indicator.longLevel));
+  const shortLine = levelLine('No curto prazo', directional.map((indicator) => indicator.shortLevel));
+  if (longLine) out.push(longLine);
+  if (shortLine) out.push(shortLine);
+  const withShort = ok.filter((indicator) => indicator.short);
+  if (withShort.length > 0) {
+    const verdicts = withShort.map((indicator) => (indicator.short as TrendReading).verdict);
+    const count = (v: Verdict) => verdicts.filter((x) => x === v).length;
+    const bits: string[] = [];
+    if (count('worsened') > 0) bits.push(`${countWord(count('worsened'))} ${verbOf(count('worsened'), 'sugere', 'sugerem')} tendência de mudança para pior`);
+    if (count('improved') > 0) bits.push(`${countWord(count('improved'))} ${verbOf(count('improved'), 'sugere', 'sugerem')} tendência de mudança para melhor`);
+    if (count('above') > 0) bits.push(`${countWord(count('above'))} ${verbOf(count('above'), 'mostra', 'mostram')} tendência de aumento`);
+    if (count('below') > 0) bits.push(`${countWord(count('below'))} ${verbOf(count('below'), 'mostra', 'mostram')} tendência de redução`);
+    bits.push(`${countWord(count('stable'))} ${verbOf(count('stable'), 'mostra', 'mostram')} tendência de manutenção`);
+    out.push(`Olhando a tendência de curto prazo de ${withShort.length} ${withShort.length === 1 ? 'indicador' : 'indicadores'}: ${bits.join('; ')}.`);
+  }
+  return out;
+}
+
+function buildTrainingAreaGuide(indicators: IndicatorResult[], numbers: GuideRow[], missing: string[]): AreaGuide {
+  return {
+    whatIs: [TRAINING_AREA_TEXTS.whatIs],
+    howToRead: TRAINING_AREA_TEXTS.howToRead,
+    numbers,
+    numbersNote: TRAINING_AREA_TEXTS.numbersNote,
+    howYouAre: trainingHowYouAre(indicators),
+    limitations: [TRAINING_AREA_TEXTS.limitation, ...(missing.length > 0 ? [`Alguns indicadores ainda não têm registros suficientes: ${joinNames(missing)}.`] : [])],
+  };
 }
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);

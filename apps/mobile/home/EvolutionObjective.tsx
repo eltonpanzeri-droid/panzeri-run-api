@@ -241,16 +241,6 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
   return (
     <View style={{ gap: 16, marginBottom: 16 }}>
       <WeeklyCard
-        title="Diferença: realizado − prescrito"
-        meaningId="training.volumeDiffAbsoluteKm"
-        snapshot={snapshots['training.volumeDiffAbsoluteKm']}
-        descriptor={DIFF}
-        unit="km por semana (0 = igual ao prescrito)"
-        formatY={(v) => String(Math.round(v * 10) / 10).replace('.', ',')}
-        emptyText="Ainda não há semanas com volume prescrito e realizado para comparar."
-        caution="Cada ponto é uma semana completa, de segunda a domingo. Descrição dos seus registros; não indica o que é certo ou errado."
-      />
-      <WeeklyCard
         title="Razão: realizado ÷ prescrito"
         meaningId="training.volumeRatioCompletedPrescribed"
         snapshot={snapshots['training.volumeRatioCompletedPrescribed']}
@@ -270,17 +260,6 @@ export function EvolutionObjectiveSections({ accessToken, weeks, todayIso }: { a
         formatY={(v) => String(Math.round(v))}
         higherIsUp
         emptyText="Ainda não há corridas com cadência fornecida pelo seu dispositivo."
-      />
-      <WeeklyCard
-        title="Ritmo médio por semana"
-        meaningId="activity.weeklyAvgPaceSecondsKm"
-        snapshot={snapshots['activity.weeklyAvgPaceSecondsKm']}
-        descriptor={WEEKLY_PACE}
-        unit="min/km (mais rápido no alto)"
-        formatY={(v) => formatPaceSeconds(v).replace('/km', '')}
-        higherIsUp={false}
-        emptyText="Ainda não há semanas completas com corridas de distância e duração registradas pelo relógio."
-        caution="Tempo total ÷ distância total das corridas da semana: uma corrida longa pesa mais que um tiro curto. Mistura treinos leves, longões e intervalados; semana sem corrida registrada fica sem ponto. Descrição dos seus registros; não é uma nota."
       />
       <MetricCard
         title="Ritmo ao longo do tempo"

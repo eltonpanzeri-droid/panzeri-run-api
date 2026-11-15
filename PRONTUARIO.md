@@ -4364,3 +4364,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ### 14/11/2026 — Lista "Como as alunas acessam" ganhou "Paga por" (loja × Asaas × cortesia)
 - Caso Thalita: paga pela loja, mas tinha assinatura antiga no Asaas cobrando em paralelo (e-mail "não registramos o pagamento"). Nada foi alterado na aluna; Elton cancela no Asaas.
 - Nova coluna e filtros (somente leitura): "Paga pela loja", "Paga pelo Asaas", "Cortesia/manual" e "Loja + Asaas gravado (conferir)". O id do Asaas fica gravado mesmo após cancelar: é alerta para conferir, não prova de cobrança ativa. Apple × Google não é gravado por aluna.
+
+### 15/11/2026 — Textos de Elton na Evolução do treinamento (rascunho dele a revisar)
+- Servidor: `evolution-guide-texts.ts` (textos da área e de 6 indicadores: volume realizado, volume prescrito, razão realizado÷prescrito, cadência, ritmo médio por treino, tempo dentro da faixa), moldes do "Como você está?" em `evolution-summary.ts`, cadência e tempo na faixa entram no catálogo da área.
+- App: nota "A semana atual não entra na conta" nos números; saíram da tela da aluna os gráficos "Diferença: realizado − prescrito" e "Ritmo médio por semana" (continua para o treinador e a IA). Aparece no PWA após Deploy; entra no próximo build nativo (ver FILA_PROXIMO_BUILD_E_IDEIAS.md).
+- Pendente: outras áreas com os textos antigos; "esteira" no texto de Limitações do tempo na faixa (palavra escrita por Elton) a confirmar.

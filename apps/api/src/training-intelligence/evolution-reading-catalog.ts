@@ -217,6 +217,20 @@ export const READING_CATALOG: IndicatorReading[] = [
     relativeChange: true,
     phrases: { above: 'ritmo médio mais lento', below: 'ritmo médio mais rápido' },
   },
+  {
+    variableId: 'activity.cadenceAvg', area: 'training', name: 'cadência', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (cadência, em passos por minuto), números maiores significam mais passos por minuto.',
+    why: 'Mostramos apenas a métrica e a tendência: não existe uma cadência certa, ela varia com as características físicas, o ritmo e o terreno.',
+    meaning: {}, relativeChange: true,
+    phrases: { above: 'aumento da cadência', below: 'redução da cadência' },
+  },
+  {
+    variableId: 'execution.timeInBandPct', area: 'training', name: 'tempo dentro da faixa de ritmo prescrita', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (tempo dentro da faixa de ritmo prescrita, em %), 100% significa que todo o tempo observável do treino ficou dentro da faixa prescrita.',
+    why: 'Mostra como você seguiu a prescrição durante o treino, e não só no ritmo médio.',
+    meaning: {}, relativeChange: true,
+    phrases: { above: 'mais tempo dentro da faixa', below: 'menos tempo dentro da faixa' },
+  },
   // ------------------------------------------------------------------ Sono e recuperação medidos pelo RELÓGIO (14/11/2026: números objetivos + a nossa matemática; só tendência, sem julgar o nível)
   {
     variableId: 'wearable.sleepDurationMin', area: 'sleep', name: 'tempo total de sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,

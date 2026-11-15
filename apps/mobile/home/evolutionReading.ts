@@ -6,8 +6,8 @@ import { fetchJsonAuth } from './homeApi';
 export type ReadingAreaId = 'training' | 'load' | 'sleep' | 'wellbeing' | 'adherence';
 
 export interface GuideRowDto { label: string; value: string; note?: string }
-export interface IndicatorGuideDto { whatIs: string; howToRead: string; numbers: GuideRowDto[]; howYouAre: string[]; limitations: string[] }
-export interface AreaGuideDto { whatIs: string[]; howToRead: string; numbers: GuideRowDto[]; howYouAre: string[]; limitations: string[] }
+export interface IndicatorGuideDto { whatIs: string; howToRead: string; numbers: GuideRowDto[]; numbersNote?: string; howYouAre: string[]; limitations: string[] }
+export interface AreaGuideDto { whatIs: string[]; howToRead: string; numbers: GuideRowDto[]; numbersNote?: string; howYouAre: string[]; limitations: string[] }
 export interface IndicatorDto {
   variableId: string; name: string; status: 'ok' | 'insufficient'; bucket: 'good' | 'steady' | 'attention' | 'tracked' | 'insufficient';
   texts: { whatItMeasures: string; habitual: string; trend: string | null; meaning: string | null };

@@ -35,12 +35,13 @@ export function GuideAccordion({ sections }: { sections: GuideSection[] }) {
 }
 
 export function Paragraphs({ lines }: { lines: string[] }) {
-  return <View style={{ gap: 10 }}>{lines.map((line, index) => <Text key={`${index}-${line.slice(0, 12)}`} style={styles.text}>{line}</Text>)}</View>;
+  const parts = lines.flatMap((line) => line.split('\n\n'));
+  return <View style={{ gap: 10 }}>{parts.map((line, index) => <Text key={`${index}-${line.slice(0, 12)}`} style={styles.text}>{line}</Text>)}</View>;
 }
 
 export interface NumberRow { label: string; value: string; note?: string }
 
-export function NumberRows({ rows }: { rows: NumberRow[] }) {
+export function NumberRows({ rows, note }: { rows: NumberRow[]; note?: string }) {
   return (
     <View style={{ gap: 12 }}>
       {rows.map((row) => (
@@ -50,6 +51,7 @@ export function NumberRows({ rows }: { rows: NumberRow[] }) {
           {row.note ? <Text style={styles.numberNote}>{row.note}</Text> : null}
         </View>
       ))}
+      {note ? <Text style={styles.numberNote}>{note}</Text> : null}
     </View>
   );
 }

@@ -20,7 +20,7 @@ export function AreaGuideCard({ accessToken, area }: { accessToken: string; area
       <Text style={styles.heading}>{data.title}</Text>
       <GuideAccordion
         sections={[
-          { id: 'numbers', title: 'Quais são os seus números?', defaultOpen: true, content: <NumberRows rows={data.guide.numbers} /> },
+          { id: 'numbers', title: 'Quais são os seus números?', defaultOpen: true, content: <NumberRows rows={data.guide.numbers} note={data.guide.numbersNote} /> },
           { id: 'what', title: 'O que é?', content: <Paragraphs lines={data.guide.whatIs} /> },
           { id: 'how', title: 'Como interpretar?', content: <Paragraphs lines={[data.guide.howToRead]} /> },
           { id: 'you', title: 'Como você está?', content: <Paragraphs lines={data.guide.howYouAre} /> },

@@ -306,7 +306,7 @@ describe('blocos do desenho de Elton: indicador e área (14/11/2026)', () => {
     const r = buildIndicatorResult(READING_CATALOG.find((x) => x.variableId === 'training.volumeCompletedTotalKm')!, getVariableDefinition('training.volumeCompletedTotalKm')!, weekly, new MathLayerService(), new Date(T0 + 14 * 7 * 86_400_000 + 2 * 86_400_000));
     expect(r.guide.numbers[1].note).toContain('8 semanas');
     expect(r.guide.numbers[2].note).toContain('3 semanas');
-    expect(r.guide.limitations.join(' ')).toContain('A semana em curso fica fora');
+    expect(r.guide.limitations.join(' ')).toContain('a semana em curso fica fora');
   });
 
   it('área: o que é (com as escalas), como interpretar, números por indicador, análise detalhada cruzada e limitações', async () => {
@@ -324,5 +324,53 @@ describe('blocos do desenho de Elton: indicador e área (14/11/2026)', () => {
     expect(how).toContain('cruzamos os seus dados');
     expect(g.limitations.join(' ')).toContain('não é diagnóstico');
     expect(how).not.toContain('não é diagnóstico');
+  });
+});
+
+// 15/11/2026 — textos de Elton para a Evolução do treinamento (molde do "Como você está?", contagem da área e textos próprios por indicador).
+import { standardHowYouAre, prescribedHowYouAre, trainingHowYouAre, type IndicatorResult } from '../src/training-intelligence/evolution-summary';
+import { GUIDE_TEXT_OVERRIDES, TRAINING_AREA_TEXTS } from '../src/training-intelligence/evolution-guide-texts';
+
+describe('textos de Elton (15/11/2026)', () => {
+  const km = (v: number) => `${String(v).replace('.', ',')} km`;
+  it('molde padrão: média, longo, curto, tendência e última contra as duas tendências', () => {
+    const text = standardHowYouAre({ meanText: '40 km', weekly: true, chronic: 40, acute: 41, last: 42, fmt: km, short: { verdict: 'stable', delta: 3 } });
+    expect(text).toContain('Sua média semanal é 40 km.');
+    expect(text).toContain('Seu padrão de longo prazo está em 40 km.');
+    expect(text).toContain('Seu padrão de curto prazo está em 41 km.');
+    expect(text).toContain('Não estamos observando tendência de mudança nas últimas semanas.');
+    expect(text).toContain('Sua última semana registrada esteve dentro das suas tendências de curto e de longo prazo.');
+  });
+  it('última semana dentro do curto prazo mas acima do longo: usa "mas"', () => {
+    const text = standardHowYouAre({ meanText: '40 km', weekly: true, chronic: 30, acute: 41, last: 42, fmt: km, short: { verdict: 'stable', delta: 0 } });
+    expect(text).toContain('esteve dentro da sua tendência de curto prazo, mas acima da de longo prazo.');
+  });
+  it('sem registros para o longo prazo: diz isso e não inventa a comparação', () => {
+    const text = standardHowYouAre({ meanText: '5:20/km', weekly: false, chronic: null, acute: 320, last: 300, fmt: (v) => String(v), short: null });
+    expect(text).toContain('Ainda não há registros suficientes para o seu padrão de longo prazo.');
+    expect(text).not.toContain('Sua última');
+  });
+  it('tendência de aumento usa a palavra do indicador', () => {
+    const text = standardHowYouAre({ meanText: '40 km', weekly: true, chronic: 30, acute: 41, last: 42, fmt: km, short: { verdict: 'above', delta: 11 }, phrases: { above: 'aumento do volume', below: 'redução do volume' } });
+    expect(text).toContain('Estamos observando tendência de aumento do volume nas últimas semanas.');
+  });
+  it('volume prescrito: média, longo, curto e tendência de alta, baixa ou estabilidade', () => {
+    expect(prescribedHowYouAre({ meanText: '45 km', chronic: 44, acute: 50, fmt: km, verdict: 'above' })).toBe('A média de volume semanal prescrito é 45 km, no longo prazo prescrevemos 44 km, no curto prazo 50 km e a tendência está de alta.');
+    expect(prescribedHowYouAre({ meanText: '45 km', chronic: null, acute: null, fmt: km, verdict: undefined })).toBe('A média de volume semanal prescrito é 45 km e a tendência está de estabilidade.');
+  });
+  it('contagem da área: indicadores principais e tendência de curto prazo (aumento, redução, manutenção)', () => {
+    const ind = (short: IndicatorResult['short'], status: IndicatorResult['status'] = 'ok'): IndicatorResult => ({ variableId: 'x', name: 'x', status, bucket: 'tracked', level: null, mean: 1, n: 10, short, long: null, shortLevel: null, longLevel: null, texts: { whatItMeasures: '', habitual: '', trend: null, meaning: null }, guide: { whatIs: '', howToRead: '', numbers: [], howYouAre: [], limitations: [] } });
+    const lines = trainingHowYouAre([ind({ verdict: 'above', delta: 1 }), ind({ verdict: 'stable', delta: 0 }), ind({ verdict: 'stable', delta: 0 }), ind(null, 'insufficient')]);
+    expect(lines[0]).toBe('Nesse quesito, observamos 4 indicadores principais; 3 já têm registros suficientes para esta leitura.');
+    expect(lines[1]).toBe('Olhando a tendência de curto prazo de 3 indicadores: 1 indicador mostra tendência de aumento; 2 indicadores mostram tendência de manutenção.');
+    expect(trainingHowYouAre([ind(null, 'insufficient')])[0]).toContain('Ainda não há registros suficientes');
+  });
+  it('textos próprios cobrem os seis indicadores e a nota da semana atual da área', () => {
+    for (const id of ['training.volumeCompletedTotalKm', 'training.volumePrescribedKm', 'training.volumeRatioCompletedPrescribed', 'activity.cadenceAvg', 'activity.avgPaceSecondsKm', 'execution.timeInBandPct']) {
+      expect(GUIDE_TEXT_OVERRIDES[id].whatIs.length).toBeGreaterThan(0);
+      expect(GUIDE_TEXT_OVERRIDES[id].limitations.length).toBeGreaterThan(0);
+    }
+    expect(GUIDE_TEXT_OVERRIDES['training.volumePrescribedKm'].whatIs.join(' ')).toContain('Como estipulamos a prescrição');
+    expect(TRAINING_AREA_TEXTS.numbersNote).toBe('A semana atual não entra na conta.');
   });
 });
