@@ -24,10 +24,14 @@ export const INDICATOR_MEANINGS: Record<string, string> = {
     'Mostra o quanto o seu sono foi interrompido durante a noite (1 = nada ou quase nada, 5 = extremamente). Um sono fragmentado costuma ser menos reparador, mesmo quando o total de horas parece suficiente. Acordar de vez em quando é comum; o que observamos é se isso se repete.',
   'workout.sleepDifficulty':
     'Mostra a dificuldade que você teve para pegar no sono (1 = nenhuma, 5 = extrema). Ela pode vir de estresse, excesso de estímulos à noite, treino tarde ou ansiedade. Quando se repete, costuma acompanhar uma qualidade de sono pior, e por isso é um sinal que acompanhamos junto com os demais.',
-  'workout.bedtimeShiftDirection':
+  'workout.bedtimeShiftScore':
     'Compara o horário em que você foi dormir com o seu horário habitual. Horários muito irregulares atrapalham o ritmo do relógio biológico e podem piorar a qualidade do sono. Uma mudança pontual (viagem, evento) é normal; o que observamos é se ela se repete.',
-  'workout.wakeTimeShiftDirection':
+  'workout.wakeTimeShiftScore':
     'Compara o horário em que você acordou com o seu horário habitual. Acordar em horários muito diferentes de um dia para o outro bagunça o ritmo do relógio biológico. Uma mudança pontual é normal; o que observamos é se ela se repete.',
+  'wearable.bedtimeDeviationMin':
+    'Mostra, pelo relógio, quantos minutos mais cedo ou mais tarde que o seu padrão você foi dormir. Horários muito irregulares atrapalham o ritmo do relógio biológico e podem piorar a qualidade do sono. Compare com o seu relato: a nossa percepção nem sempre é igual ao que o relógio registra.',
+  'wearable.wakeDeviationMin':
+    'Mostra, pelo relógio, quantos minutos mais cedo ou mais tarde que o seu padrão você acordou. Acordar em horários muito diferentes de um dia para o outro bagunça o ritmo do relógio biológico. Compare com o seu relato.',
 
   // ---------------------------------------------------------------- Sono (o que o relógio mede)
   'wearable.sleepDurationMin':
