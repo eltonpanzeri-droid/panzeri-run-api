@@ -4369,3 +4369,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Servidor: `evolution-guide-texts.ts` (textos da área e de 6 indicadores: volume realizado, volume prescrito, razão realizado÷prescrito, cadência, ritmo médio por treino, tempo dentro da faixa), moldes do "Como você está?" em `evolution-summary.ts`, cadência e tempo na faixa entram no catálogo da área.
 - App: nota "A semana atual não entra na conta" nos números; saíram da tela da aluna os gráficos "Diferença: realizado − prescrito" e "Ritmo médio por semana" (continua para o treinador e a IA). Aparece no PWA após Deploy; entra no próximo build nativo (ver FILA_PROXIMO_BUILD_E_IDEIAS.md).
 - Pendente: outras áreas com os textos antigos; "esteira" no texto de Limitações do tempo na faixa (palavra escrita por Elton) a confirmar.
+
+### 15/11/2026 — Ajustes pedidos por Elton após revisar
+- "Volume extra semanal" saiu dos números e da contagem do card da área Evolução do treinamento (a leitura continua sob o gráfico de volume quando só "Extras" está marcado).
+- Sob cada gráfico, os cinco botões começam todos recolhidos (o card da área segue com "Quais são os seus números?" aberto). PWA após Deploy; nativo no próximo build.

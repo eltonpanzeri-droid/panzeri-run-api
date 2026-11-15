@@ -353,8 +353,10 @@ export interface AreaSummary {
 const joinNames = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`);
 
 // Card da ÁREA (14/11/2026, desenho de Elton): "O que é?", "Como interpretar?", "Quais são os seus números?", "Como você está?" (análise detalhada e CRUZADA dos indicadores) e "Limitações".
-function buildAreaGuide(id: AreaId, indicators: IndicatorResult[], text: string, meaning: string | null, counts: AreaSummary['counts']): AreaGuide {
+function buildAreaGuide(id: AreaId, allIndicators: IndicatorResult[], text: string, meaning: string | null, counts: AreaSummary['counts']): AreaGuide {
   const info = AREA_INFO[id];
+  // indicadores marcados como fora do card da área (ex.: volume extra) não entram nos números nem na contagem
+  const indicators = allIndicators.filter((indicator) => !READING_CATALOG.find((entry) => entry.variableId === indicator.variableId)?.hiddenFromAreaGuide);
   const catalog = (variableId: string) => READING_CATALOG.find((entry) => entry.variableId === variableId);
   const whatIs = [info.whatIs, ...indicators.map((indicator) => catalog(indicator.variableId)?.scaleText).filter((line): line is string => !!line)];
 

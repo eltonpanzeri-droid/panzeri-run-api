@@ -52,7 +52,7 @@ describe('Cinco blocos sob cada gráfico', () => {
     for (const title of titles) { const at = meaning.indexOf(`title: '${title}'`); expect(at).toBeGreaterThan(last); last = at; }
     expect(meaning).toContain('useIndicatorReading');
     expect(meaning).toContain('GENERIC_LIMITATIONS');
-    expect((meaning.match(/defaultOpen: true/g) ?? []).length).toBe(2); // um por modo (com e sem leitura)
+    expect(meaning).not.toContain('defaultOpen'); // sob os gráficos todos os botões começam recolhidos (ordem de Elton, 15/11/2026)
   });
 
   it('os avisos soltos saíram das telas de Evolução (só as Limitações os têm)', () => {

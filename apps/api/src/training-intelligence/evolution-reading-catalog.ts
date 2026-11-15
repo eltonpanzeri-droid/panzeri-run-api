@@ -34,6 +34,8 @@ export interface IndicatorReading {
   relativeChange?: boolean;
   /** Série semanal: a semana em curso (incompleta) fica fora e o texto comenta a ÚLTIMA SEMANA OBSERVÁVEL contra o padrão. */
   weekly?: { unitLabel: string };
+  /** Não aparece nos números nem na contagem do card da ÁREA (a leitura continua disponível sob o gráfico). Ordem de Elton, 15/11/2026: volume extra semanal fora da área. */
+  hiddenFromAreaGuide?: boolean;
   /** Medido pelo relógio: usa só a fonte principal da aluna (nunca mistura fontes) e, no sono, só a sessão principal da noite. */
   wearable?: boolean;
   /** O que a TENDÊNCIA da aluna representa (voz de professor), para indicadores sem "bom/ruim": above = valores subindo, below = caindo, stable = sem mudança relevante. */
@@ -202,7 +204,7 @@ export const READING_CATALOG: IndicatorReading[] = [
     habitualTemplate: (mean, n) => `Em média, você realizou ${mean} do volume prescrito (${n} semanas completas desde 01/08/2026).`,
   },
   {
-    variableId: 'training.volumeExtraKm', area: 'training', name: 'volume extra semanal', levelGoodWhen: null, trendGoodWhen: null,
+    variableId: 'training.volumeExtraKm', area: 'training', hiddenFromAreaGuide: true, name: 'volume extra semanal', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (volume extra semanal, em quilômetros), números maiores significam mais quilômetros feitos por iniciativa sua, além do prescrito.',
     why: 'Mostra o quanto você correu além do que o programa pediu. Não qualificamos: mostramos o padrão e a tendência.',
     meaning: {}, relativeChange: true, weekly: { unitLabel: 'semana' },
