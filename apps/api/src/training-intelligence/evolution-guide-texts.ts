@@ -309,3 +309,34 @@ Object.assign(GUIDE_TEXT_OVERRIDES, {
     },
   },
 } satisfies Record<string, GuideTextOverride>);
+
+Object.assign(GUIDE_TEXT_OVERRIDES, {
+  'pain.perWorkout': {
+    whatIs: ['Mostra a dor que você relatou em cada treino, numa escala de 0 a 3: 0 é sem dor, 1 é dor leve, 2 é moderada e 3 é forte. Todo treino registrado conta: se você marcou que não sentiu dor, vale 0; e treino registrado sem feedback também vale 0, porque não houve relato de dor.'],
+    howToRead: [
+      'Dor é um dos sinais mais importantes que acompanhamos. Treinos sem dor em sequência indicam que o corpo está tolerando a carga. Dor que aparece, se repete, aumenta ou surge mais cedo no treino costuma estar ligada a uma carga acima do que o corpo suporta naquele momento, a pior desempenho e a maior risco de lesão.',
+      'Olhamos o seu padrão de longo prazo, o de curto prazo e se a dor está aumentando.',
+    ],
+    limitations: ['O treino registrado sem feedback entra como zero porque não houve relato, mas pode haver dor que não foi informada.', 'A dor é a sua percepção, e a escala tem poucos níveis (sem dor, leve, moderada e forte).', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'A dor vem aparecendo mais nos seus treinos. Se continua, aumenta o risco de lesão e pede que olhemos a carga e o que está doendo.',
+      below: 'A dor vem diminuindo ao longo dos treinos, sinal de que o corpo está se adaptando ou se recuperando.',
+      stable: 'A dor vem num padrão parecido ao de sempre, sem mudança relevante.',
+    },
+  },
+  'pain.reports': {
+    whatIs: ['São os relatos que você fez em "Relatar dor", com a região do corpo, a intensidade de 1 a 10 e se a dor está piorando, estável ou melhorando.'],
+    howToRead: [
+      'Dor que persiste, piora ou atrapalha o dia a dia é um sinal importante, e é por isso que pedimos o relato com detalhes. Quanto mais alta e mais frequente a intensidade, maior a chance de a dor estar limitando o seu desempenho e aumentando o risco de lesão.',
+      'Este gráfico é separado da dor por treino porque é outro tipo de relato.',
+    ],
+    limitations: ['Só aparecem os relatos que você fez em "Relatar dor"; dor que não foi relatada não entra.', 'A intensidade é a sua percepção.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'A intensidade dos seus relatos de dor vem aumentando. Se continua, aumenta o risco de lesão e pede que olhemos a carga e a região que dói.',
+      below: 'A intensidade dos seus relatos de dor vem diminuindo, sinal de recuperação.',
+      stable: 'A intensidade dos seus relatos de dor vem num patamar parecido ao de sempre.',
+    },
+  },
+} satisfies Record<string, GuideTextOverride>);

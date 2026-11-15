@@ -135,7 +135,7 @@ describe('síntese da área (exemplo de Elton: "6 dos 10 indicadores…")', () =
 
 describe('catálogo: coerência com o registro de variáveis e regras de redação', () => {
   it('todo indicador existe no VariableRegistry; os com polaridade têm escala e as três leituras; os sem têm a leitura neutra', () => {
-    for (const e of READING_CATALOG.filter((candidate) => candidate.variableId !== 'training.volumeIncreasePct')) {
+    for (const e of READING_CATALOG.filter((candidate) => !candidate.virtual && candidate.variableId !== 'training.volumeIncreasePct')) {
       const def = getVariableDefinition(e.variableId);
       expect(def).toBeDefined();
       if (e.levelGoodWhen) {

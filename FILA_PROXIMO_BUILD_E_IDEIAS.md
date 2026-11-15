@@ -155,3 +155,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - **Bem-estar e rotina** (nome novo): uma tela só, com prontidão pré-treino (inclui cansaço físico), check-in da semana e, do relógio, passos, calorias ativas e distância. **Resposta pós-treino** foi para a Resposta à carga. Passos e calorias saíram de "Minha recuperação".
 - Textos novos em evolution-guide-texts.ts (rascunho meu, a revisar por Elton).
 - Pendente: cruzar relato × relógio na mesma noite (frase "você relatou X, o relógio mostrou Y"); outros dados do relógio (SpO₂, temperatura da pele, composição corporal, nutrição) só quando o consentimento correspondente for pedido.
+
+## 15/11/2026 — Leituras que faltavam e dor com zero
+- Entram no próximo build nativo (no PWA após o Deploy): leitura dos 8 indicadores que diziam "sem registros suficientes" por engano e os cinco botões da área Dor (dor por treino 0 a 3; zero para treino sem dor ou sem feedback; relatos avulsos).

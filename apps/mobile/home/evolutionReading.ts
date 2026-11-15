@@ -63,7 +63,8 @@ function loadModalityReading(token: string, variableId: string, modality: string
   const key = `${token}|${variableId}|${modality}`;
   const hit = modalityCache.get(key);
   if (hit) return hit;
-  const promise = fetchJsonAuth<IndicatorDto>(`/me/evolution/indicator?variableId=${encodeURIComponent(variableId)}&modality=${encodeURIComponent(modality)}`, token).then((r) => { if (!r) modalityCache.delete(key); return r; });
+  const path = variableId.startsWith('pain.') ? `/me/pain-reports/reading?variableId=${encodeURIComponent(variableId)}` : `/me/evolution/indicator?variableId=${encodeURIComponent(variableId)}&modality=${encodeURIComponent(modality)}`;
+  const promise = fetchJsonAuth<IndicatorDto>(path, token).then((r) => { if (!r) modalityCache.delete(key); return r; });
   modalityCache.set(key, promise);
   setTimeout(() => modalityCache.delete(key), TTL_MS);
   return promise;
@@ -75,14 +76,17 @@ export function useIndicatorReadingState(id: string | null | undefined, modality
   const summary = useEvolutionSummary(token);
   const variableId = id ? (MEANING_TO_VARIABLE[id] ?? id) : null;
   const [fetched, setFetched] = useState<{ key: string; reading: IndicatorDto | null } | null>(null);
-  const key = token && variableId && modality ? `${variableId}|${modality}` : null;
+  // A dor (pain.*) tem leitura própria, sem modalidade (todo treino registrado sem relato vale zero).
+  const isPain = !!variableId && variableId.startsWith('pain.');
+  const remoteModality = isPain ? 'dor' : modality;
+  const key = token && variableId && remoteModality ? `${variableId}|${remoteModality}` : null;
   useEffect(() => {
-    if (!key || !token || !variableId || !modality) return undefined;
+    if (!key || !token || !variableId || !remoteModality) return undefined;
     let alive = true;
-    loadModalityReading(token, variableId, modality).then((reading) => { if (alive) setFetched({ key, reading }); });
+    loadModalityReading(token, variableId, remoteModality).then((reading) => { if (alive) setFetched({ key, reading }); });
     return () => { alive = false; };
-  }, [key, token, variableId, modality]);
-  if (!modality) return { reading: findIndicator(summary, id), loading: false };
+  }, [key, token, variableId, remoteModality]);
+  if (!remoteModality) return { reading: findIndicator(summary, id), loading: false };
   if (fetched && fetched.key === key) return { reading: fetched.reading, loading: false };
   return { reading: null, loading: true };
 }

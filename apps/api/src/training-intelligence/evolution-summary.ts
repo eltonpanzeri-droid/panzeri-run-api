@@ -63,6 +63,8 @@ export function formatValue(value: number, variableId: string, unit?: string): s
   }
   if (unit === 'bpm') return `${Math.round(value)} bpm`;
   if (unit === 'spm') return `${Math.round(value)} spm`;
+  if (unit === 'horas') return `${String(round1(value)).replace('.', ',').replace(',0', '')} h`;
+  if (unit === 'pontos') return `${Math.round(value)} pontos`;
   const text = String(round1(value)).replace('.', ',');
   if (unit === '%') return `${text.replace(',0', '')}%`;
   if (unit === 'km') return `${text.replace(',0', '')} km`;

@@ -36,6 +36,8 @@ export interface IndicatorReading {
   relativeChange?: boolean;
   /** Série semanal: a semana em curso (incompleta) fica fora e o texto comenta a ÚLTIMA SEMANA OBSERVÁVEL contra o padrão. */
   weekly?: { unitLabel: string };
+  /** Lido por endpoint próprio (ex.: dor), fora do resumo geral das áreas. */
+  virtual?: boolean;
   /** Não aparece nos números nem na contagem do card da ÁREA (a leitura continua disponível sob o gráfico). Ordem de Elton, 15/11/2026: volume extra semanal fora da área. */
   hiddenFromAreaGuide?: boolean;
   /** Medido pelo relógio: usa só a fonte principal da aluna (nunca mistura fontes) e, no sono, só a sessão principal da noite. */
@@ -152,6 +154,32 @@ export const READING_CATALOG: IndicatorReading[] = [
     relativeChange: true,
   },
   {
+    variableId: 'workout.postMentalFatigue', area: 'load', name: 'cansaço mental provocado pelo treino', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (cansaço mental provocado pelo treino, de 1 a 5), números mais perto de 5 significam que o treino te cansou muito mentalmente; mais perto de 1, muito pouco.',
+    why: 'Mostra o quanto o treino exige da sua cabeça, além do corpo.',
+    meaning: {}, phrases: { above: 'mais cansaço mental provocado pelos treinos', below: 'menos cansaço mental provocado pelos treinos' },
+  },
+  {
+    variableId: 'workout.emotionalExperienceDuring', area: 'load', name: 'experiência emocional durante o treino', levelGoodWhen: 'high', trendGoodWhen: 'up',
+    scaleText: 'Nesse quesito (experiência emocional durante o treino, de 1 a 5), números mais perto de 5 significam que você se sentiu muito bem durante o treino; mais perto de 1, muito mal.',
+    why: 'Treinar com prazer sustenta a constância; treinos vividos como ruins, repetidamente, podem afastar você da rotina.',
+    meaning: {
+      good: 'Por esse parâmetro, você tem vivido os treinos de forma positiva, o que favorece a constância.',
+      middle: 'Por esse parâmetro, a sua experiência durante os treinos é mista: há treinos bons e treinos mais difíceis emocionalmente.',
+      poor: 'Por esse parâmetro, você tem se sentido mal durante os treinos, o que costuma vir junto com menos vontade de treinar e pior desempenho e merece atenção.',
+    },
+  },
+  {
+    variableId: 'workout.mentalStateChangePrePost', area: 'load', name: 'mudança do estado mental com o treino', levelGoodWhen: 'high', trendGoodWhen: 'up',
+    scaleText: 'Nesse quesito (mudança do estado mental antes × depois do treino, de 1 a 5), 3 significa que você terminou como começou; mais perto de 5, que o treino te deixou muito melhor; mais perto de 1, muito pior.',
+    why: 'Mostra se o treino está te fazendo bem do ponto de vista mental.',
+    meaning: {
+      good: 'Por esse parâmetro, o treino tem te deixado melhor do que você chegou, o que favorece a constância.',
+      middle: 'Por esse parâmetro, o treino tem mudado pouco o seu estado mental.',
+      poor: 'Por esse parâmetro, você tem saído dos treinos pior do que chegou, o que costuma acompanhar sobrecarga e merece atenção.',
+    },
+  },
+  {
     variableId: 'workout.sessionInternalLoad', area: 'load', name: 'carga de cada treino', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (carga de cada treino, esforço percebido × minutos, em UA), números maiores significam treinos que pesaram mais.',
     why: 'Mostra o peso de cada sessão específica.',
@@ -230,6 +258,65 @@ export const READING_CATALOG: IndicatorReading[] = [
     scaleText: 'Nesse quesito (horário de acordar em relação ao seu padrão, medido pelo relógio, em minutos), números positivos significam que você acordou mais cedo que o seu padrão e negativos, mais tarde.',
     why: 'Mostra, com precisão, a regularidade do seu horário de acordar.',
     meaning: {}, phrases: { above: 'acordar mais cedo', below: 'acordar mais tarde' },
+  },
+  {
+    variableId: 'checkin.bodyResponseVsNormal', area: 'wellbeing', name: 'resposta do corpo comparada ao seu normal', levelGoodWhen: 'high', trendGoodWhen: 'up',
+    scaleText: 'Nesse quesito (resposta do corpo comparada ao seu normal, de 1 a 5), 3 significa dentro do normal; mais perto de 5, muito melhor que o normal; mais perto de 1, muito pior.',
+    why: 'É a sua leitura da semana sobre como o corpo respondeu aos treinos.',
+    meaning: {
+      good: 'Por esse parâmetro, o seu corpo vem respondendo melhor que o seu normal, sinal de boa adaptação.',
+      middle: 'Por esse parâmetro, o seu corpo vem respondendo dentro do seu normal.',
+      poor: 'Por esse parâmetro, o seu corpo vem respondendo pior que o seu normal, o que costuma acompanhar sobrecarga ou recuperação insuficiente e merece atenção.',
+    },
+  },
+  {
+    variableId: 'checkin.postWeekMotivation', area: 'wellbeing', name: 'vontade de continuar treinando', levelGoodWhen: 'high', trendGoodWhen: 'up',
+    scaleText: 'Nesse quesito (vontade de continuar treinando no fim da semana, de 1 a 5), números mais perto de 5 significam muita vontade; mais perto de 1, pouca.',
+    why: 'A vontade de seguir treinando sustenta a constância e costuma cair quando a carga ou a rotina pesam demais.',
+    meaning: {
+      good: 'Por esse parâmetro, você termina as semanas com vontade de continuar, o que sustenta a constância.',
+      middle: 'Por esse parâmetro, a sua vontade de continuar ao fim da semana está num nível intermediário.',
+      poor: 'Por esse parâmetro, você tem terminado as semanas com pouca vontade de continuar, o que pode acompanhar cansaço, sobrecarga ou mudanças na rotina e merece atenção.',
+    },
+  },
+  {
+    variableId: 'workout.sleepDurationHoursEstimate', area: 'sleep', name: 'duração estimada do sono', levelGoodWhen: null, trendGoodWhen: null, relativeChange: true,
+    scaleText: 'Nesse quesito (duração estimada do sono, em horas), números maiores significam noites mais longas.',
+    why: 'É a sua estimativa de quanto você dormiu; o relógio, quando existe, mede com mais precisão.',
+    meaning: {}, phrases: { above: 'noites mais longas', below: 'noites mais curtas' },
+  },
+  {
+    variableId: 'wearable.sleepLightMin', area: 'sleep', name: 'sono leve (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (sono leve, estimado pelo relógio), números maiores significam mais tempo em sono leve na noite.',
+    why: 'Faz parte da arquitetura do sono; as fases são estimativas do relógio.',
+    meaning: {}, phrases: { above: 'mais sono leve', below: 'menos sono leve' },
+  },
+  {
+    variableId: 'wearable.sleepScore', area: 'sleep', name: 'pontuação do sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (pontuação do sono calculada pelo fabricante do relógio, de 0 a 100), números maiores significam uma pontuação maior na escala daquela marca.',
+    why: 'É a pontuação do fabricante, não uma medida do Panzeri Run; cada marca calcula a sua.',
+    meaning: {}, phrases: { above: 'pontuação do sono mais alta', below: 'pontuação do sono mais baixa' },
+  },
+  // ------------------------------------------------------------------ Dor (leitura por endpoint próprio; 0 = sem dor, treino sem feedback também vale 0)
+  {
+    variableId: 'pain.perWorkout', area: 'load', virtual: true, name: 'dor por treino', levelGoodWhen: 'low', trendGoodWhen: 'down',
+    scaleText: 'Nesse quesito (dor por treino, de 0 a 3), 0 significa sem dor, 1 dor leve, 2 dor moderada e 3 dor forte.',
+    why: 'Dor é um dos sinais mais importantes que acompanhamos: dor que se repete ou aumenta pesa nas nossas decisões.',
+    meaning: {
+      good: 'Por esse parâmetro, você tem treinado sem dor ou com dor mínima, o que indica boa tolerância à carga.',
+      middle: 'Por esse parâmetro, você tem relatado dor leve ou moderada em alguns treinos: vale acompanhar se ela se repete.',
+      poor: 'Por esse parâmetro, a dor tem aparecido com frequência ou forte nos seus treinos, o que costuma estar ligado a pior desempenho e a maior risco de lesão e merece atenção.',
+    },
+  },
+  {
+    variableId: 'pain.reports', area: 'load', virtual: true, name: 'relatos de dor', levelGoodWhen: 'low', trendGoodWhen: 'down',
+    scaleText: 'Nesse quesito (intensidade dos relatos de dor, de 1 a 10), números maiores significam dor mais intensa.',
+    why: 'Mostra a intensidade da dor que você relatou em "Relatar dor".',
+    meaning: {
+      good: 'Por esse parâmetro, os seus relatos de dor são de intensidade baixa.',
+      middle: 'Por esse parâmetro, os seus relatos de dor são de intensidade moderada.',
+      poor: 'Por esse parâmetro, os seus relatos de dor são de intensidade alta, o que pede atenção.',
+    },
   },
   // ------------------------------------------------------------------ Aderência
   {

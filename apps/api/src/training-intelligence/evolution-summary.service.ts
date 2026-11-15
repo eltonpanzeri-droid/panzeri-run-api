@@ -118,6 +118,7 @@ export class EvolutionSummaryService {
   async forStudent(userId: string): Promise<{ version: string; status: string; since: string; areas: AreaSummary[]; notes: string[] }> {
     const byArea = new Map<AreaId, IndicatorResult[]>();
     for (const entry of READING_CATALOG) {
+      if (entry.virtual) continue; // lidos por endpoint próprio (ex.: dor)
       const out = await this.resultFor(userId, entry, null);
       if (!out) continue;
       byArea.set(entry.area, [...(byArea.get(entry.area) ?? []), out.result]);
