@@ -9,6 +9,9 @@ import { InfoTip } from '../InfoTip';
 type Point = { date: string; value: number };
 type Indicator = { id: string; label: string; unit: string; why: string; source: string; note: string | null; days: number; lastDate: string; last: number; avg7: number | null; avg30: number; points: Point[] };
 type Unavailable = { id: string; label: string; reason: string };
+// Passos e calorias ativas do dia saíram daqui (15/11/2026, ordem de Elton): agora estão em Evolução > Bem-estar e rotina.
+const MOVED_TO_EVOLUTION: ReadonlySet<string> = new Set(['steps', 'activeKcal']);
+
 type Summary = { periodDays: number; indicators: Indicator[]; empty: boolean; unavailable?: Unavailable[] };
 
 const fmtDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -63,12 +66,12 @@ export function RecoveryScreen({ accessToken, apiUrl, onBack, onOpenIntegrations
       {state === 'ready' && data?.empty ? (
         <View style={styles.box}>
           <Text style={styles.boxTitle}>Ainda não há dados de recuperação</Text>
-          <Text style={styles.hint}>Para ver aqui o seu sono, a variabilidade da frequência cardíaca, a frequência cardíaca de repouso, os passos e outros indicadores, conecte o Health Connect (Android) ou o app Saúde (iPhone) em Dispositivos e integrações, escolha o que compartilhar e sincronize. Só aparece o que o seu relógio ou aplicativo realmente registrou.</Text>
+          <Text style={styles.hint}>Para ver aqui o seu sono, a variabilidade da frequência cardíaca, a frequência cardíaca de repouso e outros indicadores, conecte o Health Connect (Android) ou o app Saúde (iPhone) em Dispositivos e integrações, escolha o que compartilhar e sincronize. Só aparece o que o seu relógio ou aplicativo realmente registrou.</Text>
           {onOpenIntegrations ? <Pressable style={styles.button} onPress={onOpenIntegrations} accessibilityRole="button"><Text style={styles.buttonText}>Abrir Dispositivos e integrações</Text></Pressable> : null}
         </View>
       ) : null}
 
-      {state === 'ready' ? data?.indicators.map((indicator) => (
+      {state === 'ready' ? data?.indicators.filter((indicator) => !MOVED_TO_EVOLUTION.has(indicator.id)).map((indicator) => (
         <View key={indicator.id} style={styles.card}>
           <Text style={styles.label}>{indicator.label}</Text>
           <Text style={styles.value}>{fmtValue(indicator, indicator.last)}</Text>
@@ -85,7 +88,7 @@ export function RecoveryScreen({ accessToken, apiUrl, onBack, onOpenIntegrations
       {state === 'ready' && data?.unavailable && data.unavailable.length > 0 ? (
         <View style={styles.box}>
           <Text style={styles.boxTitle}>Dados que não chegaram</Text>
-          {data.unavailable.map((item) => (
+          {data.unavailable.filter((item) => !MOVED_TO_EVOLUTION.has(item.id)).map((item) => (
             <View key={item.id} style={{ gap: 2 }}>
               <Text style={styles.label}>{item.label}</Text>
               <Text style={styles.hint}>{item.reason}</Text>

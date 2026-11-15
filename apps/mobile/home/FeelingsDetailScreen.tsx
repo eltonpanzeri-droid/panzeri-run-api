@@ -23,12 +23,12 @@ function fmtValue(v: number, variable: DomainVariable) {
   return `${String(rounded).replace('.', ',')}${variable.unit ? ` ${variable.unit}` : ''}`;
 }
 
-export function VariableBlock({ variable, snapshot: allSnapshot, accessToken, defaultModality }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string; /** Modalidade que abre selecionada, quando a variável tem dado nela (Resposta à carga: corrida). */ defaultModality?: string }) {
+export function VariableBlock({ variable, snapshot: allSnapshot, accessToken, allowModality = true, defaultModality }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string; /** false = sem seletor de modalidade (sono, bem-estar e rotina: o dado é da noite/do dia, não do treino). */ allowModality?: boolean; /** Modalidade que abre selecionada, quando a variável tem dado nela (Resposta à carga: corrida). */ defaultModality?: string }) {
   // 02/11/2026: seletor de modalidade DENTRO do grafico (padrao: todas). So' aparece quando a variavel tem dado em 2+ modalidades; a escolha busca a MESMA leitura
   // do servidor filtrada pela modalidade (nenhuma conta no app).
   // Variaveis de relogio (sono, HRV...) nao sao comparaveis entre fontes: com mais de uma fonte com dado, a aluna escolhe qual ver (a principal vem por padrao); fontes nunca se misturam.
   const [picked, setPicked] = useState<string | null | undefined>(undefined);
-  const modalities = allSnapshot?.availableModalities ?? [];
+  const modalities = allowModality ? allSnapshot?.availableModalities ?? [] : [];
   const modality = picked !== undefined ? picked : (defaultModality && modalities.includes(defaultModality) ? defaultModality : null);
   const setModality = (m: string | null) => setPicked(m);
   const [source, setSource] = useState<string | null>(null);
@@ -140,7 +140,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken, de
   );
 }
 
-export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 'Início', hideBack = false }: { accessToken: string; domain: FeelingDomain; onBack: () => void; backLabel?: string; hideBack?: boolean }) {
+export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 'Início', hideBack = false, hideTitle = false }: { accessToken: string; domain: FeelingDomain; onBack: () => void; backLabel?: string; hideBack?: boolean; hideTitle?: boolean }) {
   const cfg = FEELING_DOMAINS[domain];
   const [snapshots, setSnapshots] = useState<Record<string, SnapshotLite | null> | null>(null);
 
@@ -162,7 +162,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
           <Text style={styles.backText}>{backLabel}</Text>
         </Pressable>
       )}
-      <Text style={styles.title}>{cfg.title}</Text>
+      {hideTitle ? null : <Text style={styles.title}>{cfg.title}</Text>}
 
       {!snapshots ? (
         <ActivityIndicator size="small" color={HomeColors.panzeriInteraction} style={{ marginTop: HomeSpace.component }} />
@@ -170,7 +170,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
         <Text style={styles.empty}>Conforme você responde aos feedbacks dos treinos, esta área mostra sua evolução ao longo do tempo.</Text>
       ) : (
         <>
-          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} defaultModality={domain === 'effort' ? 'corrida' : undefined} />)}
+          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} allowModality={domain === 'effort' || domain === 'response'} defaultModality={domain === 'effort' ? 'corrida' : undefined} />)}
         </>
       )}
     </View>

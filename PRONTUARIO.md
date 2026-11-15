@@ -4379,3 +4379,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Seletor em destaque com cor por modalidade; corrida como padrão; novos indicadores (carga por treino, carga semanal, relação de volume, aumento semanal do volume realizado); desacoplamento fora da tela da aluna; textos da área em `evolution-guide-texts.ts`; sem aviso de diagnóstico nas Limitações de nenhuma área.
 - Revoga, por ordem de Elton, a decisão de 2026 de não colorir o gráfico de volume por variação % (agora verde/amarelo/vermelho; faixas a revisar).
 - Pendente: validar na tela do PWA; entra no próximo build nativo (ver FILA_PROXIMO_BUILD_E_IDEIAS.md).
+
+### 15/11/2026 — Sono (horários), Bem-estar e rotina
+- **Conferido:** o relato de sono é gravado por NOITE (NightlySleepLog), não por treino; duas sessões no mesmo dia não duplicam a noite. O seletor de modalidade aparecia por causa de registros antigos com modalidade; agora sono e bem-estar não têm seletor.
+- Novas variáveis: workout.bedtimeShiftScore / wakeTimeShiftScore (relato −3..+3, derivada da coluna categórica que a IA continua lendo), wearable.bedtimeDeviationMin / wakeDeviationMin (minutos, padrão = mediana das 14 noites anteriores da mesma fonte, mínimo 5) e wearable.dailyDistanceKm. Cálculo puro em training-intelligence/sleep-clock.ts.
+- Área "Bem-estar" virou "Bem-estar e rotina": cansaço físico antes do treino passou da carga para cá; passos, calorias e distância entram; resposta pós-treino vai para a Resposta à carga.

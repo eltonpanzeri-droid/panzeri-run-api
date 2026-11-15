@@ -12,7 +12,7 @@ export const EVOLUTION_AREAS: Array<{ id: EvolutionAreaId; title: string; subtit
   { id: 'training', title: 'Evolução do treinamento', subtitle: 'Volume, ritmo e execução', icon: 'stats-chart-outline' },
   { id: 'load', title: 'Resposta à carga', subtitle: 'Esforço e resposta cardiovascular', icon: 'pulse-outline' },
   { id: 'sleep', title: 'Sono e recuperação', subtitle: 'Sono e variabilidade cardíaca', icon: 'moon-outline' },
-  { id: 'wellbeing', title: 'Bem-estar', subtitle: 'Fadiga, estresse e motivação', icon: 'heart-outline' },
+  { id: 'wellbeing', title: 'Bem-estar e rotina', subtitle: 'Fadiga, estresse, motivação e movimento do dia', icon: 'heart-outline' },
   { id: 'pain', title: 'Dor', subtitle: 'Ocorrências e evolução', icon: 'shield-outline' },
   { id: 'adherence', title: 'Aderência', subtitle: 'Consistência e participação', icon: 'checkbox-outline' },
 ];

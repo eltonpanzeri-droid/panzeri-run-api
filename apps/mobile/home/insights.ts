@@ -364,6 +364,11 @@ export interface DomainVariable {
   format?: (v: number) => string;
 }
 
+// Horário de dormir/acordar (15/11/2026): relato em escala de -3 a +3 (positivo = mais cedo) e desvio do relógio em minutos (positivo = mais cedo).
+const shiftScoreText = (v: number) => { const r = String(Math.round(v * 10) / 10).replace('.', ','); return v > 0 ? `+${r}` : r; };
+const shiftMinutesText = (v: number) => `${v > 0 ? '+' : ''}${Math.round(v)} min`;
+const thousands = (v: number) => String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
 export const FEELING_DOMAINS: Record<FeelingDomain, { title: string; subtitle: string; primary: string; variables: DomainVariable[] }> = {
   sleep: {
     title: 'Sono',
@@ -374,8 +379,8 @@ export const FEELING_DOMAINS: Record<FeelingDomain, { title: string; subtitle: s
       { id: 'workout.sleepDurationHoursEstimate', label: 'Duração estimada do sono', unit: 'h' },
       { id: 'workout.sleepInterruption', label: 'Interrupções do sono', scaleHint: '1 = nada ou quase nada · 5 = extremamente' },
       { id: 'workout.sleepDifficulty', label: 'Dificuldade para pegar no sono', scaleHint: '1 = nenhuma · 5 = extrema' },
-      { id: 'workout.bedtimeShiftDirection', label: 'Horário de dormir vs. habitual', categorical: true },
-      { id: 'workout.wakeTimeShiftDirection', label: 'Horário de acordar vs. habitual', categorical: true },
+      { id: 'workout.bedtimeShiftScore', label: 'Horário de dormir (seu relato)', axisLabel: 'mais cedo (+) · mais tarde (−)', scaleHint: '0 = seu horário habitual · +3 = mais de 1 hora mais cedo · −3 = mais de 1 hora mais tarde', format: shiftScoreText },
+      { id: 'workout.wakeTimeShiftScore', label: 'Horário de acordar (seu relato)', axisLabel: 'mais cedo (+) · mais tarde (−)', scaleHint: '0 = seu horário habitual · +3 = mais de 1 hora mais cedo · −3 = mais de 1 hora mais tarde', format: shiftScoreText },
     ],
   },
   readiness: {
@@ -427,7 +432,16 @@ export const WEARABLE_SLEEP_VARIABLES: DomainVariable[] = [
   { id: 'wearable.sleepLightMin', label: 'Sono leve (estimativa do relógio)', axisLabel: 'horas de sono leve', format: minutesAsHours },
   { id: 'wearable.sleepRemMin', label: 'Sono REM (estimativa do relógio)', axisLabel: 'horas de sono REM', format: minutesAsHours },
   { id: 'wearable.sleepScore', label: 'Pontuação do sono (calculada pelo relógio)', unit: 'pontos', axisLabel: 'pontos (0 a 100)', scaleHint: 'Cada marca calcula a pontuação do seu jeito; compare só com o seu próprio histórico, na mesma fonte.' },
+  { id: 'wearable.bedtimeDeviationMin', label: 'Horário de dormir (relógio)', axisLabel: 'minutos: mais cedo (+) · mais tarde (−)', format: shiftMinutesText },
+  { id: 'wearable.wakeDeviationMin', label: 'Horário de acordar (relógio)', axisLabel: 'minutos: mais cedo (+) · mais tarde (−)', format: shiftMinutesText },
   { id: 'wearable.hrvLastNightAvg', label: 'Variabilidade da frequência cardíaca (HRV) da noite', axisLabel: 'HRV da noite (unidade da sua fonte)', scaleHint: 'A unidade e o método da HRV dependem do aparelho; compare só com o seu próprio histórico, na mesma fonte.' },
+];
+
+// Rotina do dia pelo relógio (15/11/2026): passos, calorias ativas e distância, na área Bem-estar e rotina.
+export const WEARABLE_ROUTINE_VARIABLES: DomainVariable[] = [
+  { id: 'wearable.dailySteps', label: 'Passos do dia (relógio)', axisLabel: 'passos por dia', format: (v) => `${thousands(v)} passos` },
+  { id: 'wearable.dailyActiveKcal', label: 'Calorias ativas do dia (estimativa do relógio)', axisLabel: 'kcal por dia', format: (v) => `${thousands(v)} kcal` },
+  { id: 'wearable.dailyDistanceKm', label: 'Distância do dia (relógio)', axisLabel: 'km por dia', format: (v) => `${String(Math.round(v * 10) / 10).replace('.', ',')} km` },
 ];
 
 const SHIFT_LABELS: Record<string, string> = {

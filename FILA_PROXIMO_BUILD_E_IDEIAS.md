@@ -146,3 +146,12 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Textos da área e dos indicadores de carga: `evolution-guide-texts.ts` (rascunho meu no estilo da Evolução do treinamento; "Como você está?" diz sem medo que piora se liga a pior desempenho e mais risco; limitações sem aviso de diagnóstico).
 - Em todas as áreas: sumiu das Limitações o aviso "não é diagnóstico / não substitui avaliação de médico" (ordem de Elton).
 - Pendente: Elton quer saber por que a relação de volume usa 28 ÷ 42 dias; está explicado no texto, e a alternativa seria 7 ÷ 28 (decisão dele, mexe também na leitura da IA).
+
+## 15/11/2026 — Sono e Bem-estar e rotina (ordem de Elton)
+
+**Para o PRÓXIMO BUILD (nativo):** já aparece no PWA após o Deploy; no nativo entra no próximo build.
+- **Horário de dormir e de acordar:** dois gráficos de cada. Relato da aluna em escala de −3 a +3 (positivo = mais cedo, 0 = habitual, teto em "mais de 1 hora") e, para quem tem relógio, o desvio em minutos do padrão dela (mediana das últimas 14 noites da mesma fonte, mínimo 5). Cada um com 5 botões. Não se misturam: a aluna pode perceber que dorme diferente do que acha.
+- **Sem seletor de modalidade** no sono e no bem-estar (só na carga).
+- **Bem-estar e rotina** (nome novo): uma tela só, com prontidão pré-treino (inclui cansaço físico), check-in da semana e, do relógio, passos, calorias ativas e distância. **Resposta pós-treino** foi para a Resposta à carga. Passos e calorias saíram de "Minha recuperação".
+- Textos novos em evolution-guide-texts.ts (rascunho meu, a revisar por Elton).
+- Pendente: cruzar relato × relógio na mesma noite (frase "você relatou X, o relógio mostrou Y"); outros dados do relógio (SpO₂, temperatura da pele, composição corporal, nutrição) só quando o consentimento correspondente for pedido.

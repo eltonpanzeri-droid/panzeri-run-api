@@ -187,3 +187,125 @@ Object.assign(GUIDE_TEXT_OVERRIDES, {
     },
   },
 } satisfies Record<string, GuideTextOverride>);
+
+// Bem-estar e rotina (15/11/2026): rascunho meu no estilo da Evolução do treinamento, a revisar por Elton.
+export const WELLBEING_AREA_TEXTS = {
+  whatIs: 'Aqui reunimos o que você sente no dia a dia e como é a sua rotina: o cansaço físico e mental com que você chega aos treinos, o estresse, a vontade de treinar, o seu check-in da semana e o que o seu relógio mostra do seu movimento diário (passos, calorias e distância). Nenhum desses dados é usado isoladamente.',
+  howToRead: 'Em cansaço físico, cansaço mental e estresse, números menores são melhores; em vontade de treinar e no check-in da semana, números maiores indicam mais disposição. Passos, calorias e distância não são bons nem ruins: mostram o quanto você se movimenta fora dos treinos, e isso pesa na sua carga total do dia. Quando o cansaço e o estresse sobem e a vontade cai de forma contínua, o corpo e a mente têm menos capacidade de absorver os treinos, o que costuma vir junto com pior desempenho e maior risco de lesão. Observamos o padrão de longo prazo, o de curto prazo e como o último registro se comportou em relação a eles.',
+  limitation: 'Boa parte destes dados é informada por você e reflete a sua percepção no momento do registro, e os dados do relógio são estimativas do aparelho, que variam de uma marca para outra. A precisão da nossa análise depende da precisão dessas informações. Cada aluno tem o seu contexto de vida, trabalho e família, e isso interfere no bem-estar e na rotina. Estes indicadores não são os únicos que olhamos: sempre os lemos junto com os demais.',
+};
+
+const SHIFT_LIMITS_SELF = [
+  'É um relato seu em faixas (até 30 minutos, de 30 a 60 minutos e mais de 1 hora): o teto da escala é "mais de 1 hora", então ela não distingue 1h30 de 3 horas. Se você tem relógio, o gráfico do relógio mostra o horário com precisão.',
+  'O horário habitual é o que você considera habitual; se ele muda aos poucos, o gráfico continua perto de zero.',
+  CONTEXT_LIMIT,
+  NOT_ONLY,
+];
+const SHIFT_LIMITS_WATCH = [
+  'O relógio marca o início do sono quando detecta que você adormeceu, que pode ser depois de deitar, e o fim quando detecta que você acordou.',
+  'O seu padrão é a mediana das suas últimas noites no mesmo relógio e só existe a partir de 5 noites; fontes diferentes nunca se misturam.',
+  'É uma estimativa do relógio e varia de uma marca para outra.',
+  CONTEXT_LIMIT,
+  NOT_ONLY,
+];
+
+Object.assign(GUIDE_TEXT_OVERRIDES, {
+  'workout.bedtimeShiftScore': {
+    whatIs: ['Mostra a que horas você foi dormir em relação ao seu horário habitual, pelo que você relata no feedback dos treinos. A linha em zero é o seu habitual: acima de zero você dormiu mais cedo; abaixo, mais tarde. O valor 3 (ou −3) é mais de 1 hora antes (ou depois) do habitual e é o limite da escala.'],
+    howToRead: [
+      'Não existe horário certo: o que importa é a regularidade. Dormir sempre perto do mesmo horário ajuda o corpo a recuperar. Variações grandes e frequentes, principalmente para mais tarde, costumam reduzir o sono e a recuperação e, com isso, piorar o desempenho e aumentar o risco de lesão.',
+      'Este gráfico é a sua percepção. Se o seu relógio mede o sono, compare com o gráfico do relógio: às vezes o que sentimos não é o que acontece de verdade.',
+    ],
+    limitations: SHIFT_LIMITS_SELF,
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Você vem relatando dormir mais cedo que o habitual. Isso costuma favorecer a recuperação, desde que seja uma mudança sustentada e não uma noite isolada.',
+      below: 'Você vem relatando dormir mais tarde que o habitual. Quando isso se repete, o sono encurta e a recuperação piora, o que se liga a pior desempenho e a maior risco de lesão.',
+      stable: 'Você vem relatando dormir perto do seu horário habitual, o que favorece a regularidade do sono.',
+    },
+  },
+  'workout.wakeTimeShiftScore': {
+    whatIs: ['Mostra a que horas você acordou em relação ao seu horário habitual, pelo que você relata no feedback dos treinos. A linha em zero é o seu habitual: acima de zero você acordou mais cedo; abaixo, mais tarde. O valor 3 (ou −3) é mais de 1 hora antes (ou depois) do habitual e é o limite da escala.'],
+    howToRead: [
+      'Não existe horário certo: o que importa é a regularidade. Acordar sempre perto do mesmo horário ajuda o corpo a manter o ritmo de sono. Acordar bem mais cedo que o habitual, repetidamente, pode significar sono encurtado; acordar bem mais tarde pode refletir noites mais longas ou desorganizadas.',
+      'Este gráfico é a sua percepção. Se o seu relógio mede o sono, compare com o gráfico do relógio.',
+    ],
+    limitations: SHIFT_LIMITS_SELF,
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Você vem relatando acordar mais cedo que o habitual. Se o horário de dormir não acompanhou, o sono encurta, o que se liga a pior recuperação e a maior risco de lesão.',
+      below: 'Você vem relatando acordar mais tarde que o habitual. Vale olhar junto com o horário de dormir para entender se são noites mais longas ou uma rotina mudando.',
+      stable: 'Você vem relatando acordar perto do seu horário habitual, o que favorece a regularidade do sono.',
+    },
+  },
+  'wearable.bedtimeDeviationMin': {
+    whatIs: ['Mostra a que horas o seu relógio registrou que você adormeceu, comparado ao seu padrão (a mediana das suas últimas noites). Zero é o seu padrão; acima de zero você dormiu mais cedo; abaixo, mais tarde, em minutos.'],
+    howToRead: [
+      'Aqui vemos a regularidade do horário de dormir com precisão. Não existe horário certo, e sim um padrão que o seu corpo reconhece. Noites muito fora do padrão, principalmente para mais tarde e de forma repetida, reduzem o tempo de sono e a recuperação, o que se liga a pior desempenho e a maior risco de lesão.',
+      'Compare com o gráfico do seu relato: às vezes a nossa percepção do horário é diferente do que o relógio registra.',
+    ],
+    limitations: SHIFT_LIMITS_WATCH,
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'O relógio mostra que você vem dormindo mais cedo que o seu padrão. Se for sustentado, tende a ajudar a recuperação; se for pontual, é só uma variação.',
+      below: 'O relógio mostra que você vem dormindo mais tarde que o seu padrão. Repetido, isso encurta o sono e prejudica a recuperação, e se liga a pior desempenho e a maior risco de lesão.',
+      stable: 'O relógio mostra que você vem dormindo perto do seu padrão, o que indica uma rotina de sono regular.',
+    },
+  },
+  'wearable.wakeDeviationMin': {
+    whatIs: ['Mostra a que horas o seu relógio registrou que você acordou, comparado ao seu padrão (a mediana das suas últimas noites). Zero é o seu padrão; acima de zero você acordou mais cedo; abaixo, mais tarde, em minutos.'],
+    howToRead: [
+      'Aqui vemos a regularidade do horário de acordar com precisão. Um horário estável ajuda o corpo a manter o ritmo de sono. Acordar bem mais cedo que o padrão, repetidamente, costuma significar sono encurtado.',
+      'Compare com o gráfico do seu relato: às vezes a nossa percepção do horário é diferente do que o relógio registra.',
+    ],
+    limitations: SHIFT_LIMITS_WATCH,
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'O relógio mostra que você vem acordando mais cedo que o seu padrão. Se o horário de dormir não acompanhou, o sono encurta e a recuperação piora.',
+      below: 'O relógio mostra que você vem acordando mais tarde que o seu padrão. Vale olhar junto com o horário de dormir.',
+      stable: 'O relógio mostra que você vem acordando perto do seu padrão, o que indica uma rotina de sono regular.',
+    },
+  },
+  'wearable.dailySteps': {
+    whatIs: ['Mostra quantos passos o seu relógio registrou por dia, somando os treinos e o movimento do dia a dia.'],
+    howToRead: [
+      'Não existe número certo de passos: ele reflete a sua rotina de trabalho, deslocamentos e treinos. O que importa é o seu padrão e se ele está mudando.',
+      'Muito movimento fora dos treinos soma carga no seu corpo, principalmente em dias de treino pesado, e pode atrapalhar a recuperação. Dias com muito pouco movimento podem indicar descanso ou uma rotina muito parada.',
+    ],
+    limitations: ['É uma medida do relógio e varia de uma marca para outra; usamos só a fonte principal do seu relógio. Não distingue treino de movimento do dia a dia, e dia sem uso do relógio fica sem dado.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Você vem se movimentando mais no dia a dia. Se isso soma com treinos mais pesados, vale cuidar do descanso, porque a carga total do dia está maior.',
+      below: 'Você vem se movimentando menos no dia a dia. Pode ser descanso ou mudança de rotina; vale olhar junto com o seu cansaço e o seu humor.',
+      stable: 'O seu movimento diário vem constante, o que facilita para o corpo se adaptar à carga dos treinos.',
+    },
+  },
+  'wearable.dailyActiveKcal': {
+    whatIs: ['Mostra as calorias ativas que o seu relógio estimou por dia, ou seja, o gasto de energia fora do repouso, somando treino e rotina.'],
+    howToRead: [
+      'Não existe número certo de calorias ativas: ele depende do seu corpo, dos treinos e da sua rotina. O que importa é o seu padrão e a direção da mudança.',
+      'Dias com gasto muito acima do seu padrão, repetidos, somam carga e pedem mais recuperação; gasto abaixo costuma indicar descanso ou rotina mais parada.',
+    ],
+    limitations: ['É uma estimativa do fabricante do relógio, não uma medida direta do gasto de energia, e varia de uma marca para outra; usamos só a fonte principal do seu relógio.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Você vem gastando mais energia por dia. Se isso se mantém junto com treinos pesados, a recuperação precisa acompanhar.',
+      below: 'Você vem gastando menos energia por dia, o que pode ser descanso ou rotina mais parada.',
+      stable: 'O seu gasto diário de energia vem constante, o que facilita a adaptação ao treino.',
+    },
+  },
+  'wearable.dailyDistanceKm': {
+    whatIs: ['Mostra a distância que o seu relógio registrou por dia, somando treinos e deslocamentos do dia a dia.'],
+    howToRead: [
+      'Não existe distância certa por dia: ela reflete os seus treinos e a sua rotina. O que importa é o seu padrão e se ele está mudando.',
+      'Distâncias muito acima do seu padrão, em sequência, somam carga e pedem mais recuperação; distâncias abaixo costumam indicar descanso.',
+    ],
+    limitations: ['É uma medida do relógio e varia de uma marca para outra; usamos só a fonte principal do seu relógio. Soma treino e movimento do dia a dia, e dia sem uso do relógio fica sem dado.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Você vem percorrendo mais distância por dia. Se isso se mantém junto com treinos pesados, a recuperação precisa acompanhar.',
+      below: 'Você vem percorrendo menos distância por dia, o que pode ser descanso ou mudança de rotina.',
+      stable: 'A sua distância diária vem constante, o que facilita a adaptação ao treino.',
+    },
+  },
+} satisfies Record<string, GuideTextOverride>);

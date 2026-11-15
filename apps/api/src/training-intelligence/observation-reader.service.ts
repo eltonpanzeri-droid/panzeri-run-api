@@ -15,6 +15,7 @@
 import { aiActivityWhere, aiBlockedProviders, isHealthBlockedForAi } from '../ai-governance/ai-scope';
 import { resolveExplicitOverride } from '../activity-execution/athlete-primary-source';
 import { sleepSessionRoles, sourceKeyOf } from './wearable-source';
+import { shiftScoreOf, sleepClockDeviations } from './sleep-clock';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality, isRunModality } from '../activity-execution/canonical-modality';
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
@@ -274,7 +275,8 @@ export class ObservationReaderService {
       });
       for (const night of nights) {
         const raw = (night as unknown as Record<string, unknown>)[definition.relatedTable.field];
-        const value = toObservationValue(definition, raw);
+        // Relato de horario de dormir/acordar em escala -3..+3 (derivado da mesma coluna categorica; 15/11/2026).
+        const value = definition.variableId === 'workout.bedtimeShiftScore' || definition.variableId === 'workout.wakeTimeShiftScore' ? shiftScoreOf(raw) : toObservationValue(definition, raw);
         if (value === undefined) continue;
         observations.push({
           athleteId,
@@ -510,7 +512,12 @@ export class ObservationReaderService {
   private async readWearableHealthVariable(athleteId: string, definition: VariableDefinition): Promise<Observation[]> {
     const SEC_TO_MIN = 1 / 60;
     type Spec = { table: 'sleep' | 'daily' | 'hrv'; category: string; pick: (row: any) => number | null | undefined };
+    // Horario de dormir/acordar: desvio do padrao da propria aluna, calculado depois que as noites sao lidas (ver sleep-clock.ts).
+    let clock = new Map<string, { bedtimeMin: number | null; wakeMin: number | null }>();
     const specs: Record<string, Spec> = {
+      'wearable.bedtimeDeviationMin': { table: 'sleep', category: 'sleep', pick: (r) => clock.get(r.id)?.bedtimeMin ?? null },
+      'wearable.wakeDeviationMin': { table: 'sleep', category: 'sleep', pick: (r) => clock.get(r.id)?.wakeMin ?? null },
+      'wearable.dailyDistanceKm': { table: 'daily', category: 'daily_activity', pick: (r) => (r.distanceMeters != null ? r.distanceMeters / 1000 : null) },
       'wearable.sleepDurationMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.durationSec != null ? r.durationSec * SEC_TO_MIN : null) },
       'wearable.sleepDeepMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.deepSleepSec != null ? r.deepSleepSec * SEC_TO_MIN : null) },
       'wearable.sleepLightMin': { table: 'sleep', category: 'sleep', pick: (r) => (r.lightSleepSec != null ? r.lightSleepSec * SEC_TO_MIN : null) },
@@ -536,6 +543,9 @@ export class ObservationReaderService {
     const roles = spec.table === 'sleep'
       ? sleepSessionRoles(allowedRows.map((row) => ({ id: row.id, sourceKey: sourceKeyOf(row.provider, row.providerSummaryId), calendarDate: row.calendarDate, durationSec: row.durationSec ?? null, startTimeSec: row.startTimeSec })))
       : null;
+    if (definition.variableId === 'wearable.bedtimeDeviationMin' || definition.variableId === 'wearable.wakeDeviationMin') {
+      clock = sleepClockDeviations(allowedRows.map((row) => ({ id: row.id, sourceKey: sourceKeyOf(row.provider, row.providerSummaryId), role: roles?.get(row.id), startTimeSec: row.startTimeSec, startOffsetSec: row.startOffsetSec ?? 0, endTimeSec: row.endTimeSec ?? null })));
+    }
     const observations: Observation[] = [];
     for (const row of allowedRows) {
       const value = spec.pick(row);

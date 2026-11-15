@@ -1,7 +1,7 @@
 import { MathLayerService, type SeriesPoint } from './math-layer.service';
 import { buildAcuteChronic } from './acute-chronic';
 import type { VariableDefinition } from './variable-registry';
-import { GUIDE_TEXT_OVERRIDES, LOAD_AREA_TEXTS, TRAINING_AREA_TEXTS } from './evolution-guide-texts';
+import { GUIDE_TEXT_OVERRIDES, LOAD_AREA_TEXTS, TRAINING_AREA_TEXTS, WELLBEING_AREA_TEXTS } from './evolution-guide-texts';
 import { AREA_INFO, AREA_READING, EVOLUTION_READING_STATUS, EVOLUTION_READING_VERSION, EVOLUTION_SINCE, READING_CATALOG, type AreaId, type IndicatorReading } from './evolution-reading-catalog';
 
 // Leitura da Evolução da aluna por REGRA (13/11/2026, decisão de Elton: sem IA). Funções puras e testáveis; o serviço só busca as séries. Toda média e janela aqui vem da camada matemática existente
@@ -409,6 +409,10 @@ function buildAreaGuide(id: AreaId, allIndicators: IndicatorResult[], text: stri
   ];
   if (id === 'training') return buildCustomAreaGuide(TRAINING_AREA_TEXTS, null, indicators, numbers, missing);
   if (id === 'load') return buildCustomAreaGuide(LOAD_AREA_TEXTS, LOAD_AREA_TEXTS, indicators, numbers, missing);
+  // Bem-estar e rotina: textos de Elton/rascunho; a análise cruzada ("Como você está?") segue a de sempre.
+  if (id === 'wellbeing') {
+    return { whatIs: [WELLBEING_AREA_TEXTS.whatIs], howToRead: WELLBEING_AREA_TEXTS.howToRead, numbers, howYouAre, limitations: [WELLBEING_AREA_TEXTS.limitation, ...(missing.length > 0 ? [`Alguns indicadores ainda não têm registros suficientes: ${joinNames(missing)}.`] : [])] };
+  }
   return { whatIs, howToRead: info.howToRead, numbers, howYouAre, limitations };
 }
 

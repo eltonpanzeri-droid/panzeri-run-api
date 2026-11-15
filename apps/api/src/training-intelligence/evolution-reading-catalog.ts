@@ -124,7 +124,7 @@ export const READING_CATALOG: IndicatorReading[] = [
   },
   // ------------------------------------------------------------------ Resposta à carga
   {
-    variableId: 'workout.prePhysicalFatigue', area: 'load', name: 'cansaço físico antes do treino', levelGoodWhen: 'low', trendGoodWhen: 'down',
+    variableId: 'workout.prePhysicalFatigue', area: 'wellbeing', name: 'cansaço físico antes do treino', levelGoodWhen: 'low', trendGoodWhen: 'down',
     scaleText: 'Nesse quesito (cansaço físico antes do treino, de 1 a 5), números mais perto de 1 significam que você chega aos treinos com o corpo descansado; mais perto de 5, com muito cansaço.',
     why: 'Chegar com cansaço aos treinos, de forma repetida, costuma indicar recuperação insuficiente entre as sessões e pode aumentar o risco de lesões.',
     meaning: {
@@ -186,6 +186,50 @@ export const READING_CATALOG: IndicatorReading[] = [
     scaleText: 'Nesse quesito (exigência da semana comparada ao seu normal, de 1 a 5), números mais perto de 5 significam semanas sentidas como bem mais exigentes que o normal.',
     why: 'Ajuda a perceber semanas mais pesadas que o habitual, que merecem mais cuidado com o descanso.',
     meaning: { neutral: NEUTRAL_FOOTER },
+  },
+  // ------------------------------------------------------------------ Bem-estar e rotina: movimento do dia pelo relógio (15/11/2026)
+  {
+    variableId: 'wearable.dailySteps', area: 'wellbeing', name: 'passos do dia', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (passos por dia, medidos pelo seu relógio), números maiores significam mais movimento no dia.',
+    why: 'Mostra o quanto você se movimenta fora dos treinos, o que também pesa na sua carga total do dia.',
+    meaning: {}, phrases: { above: 'mais passos por dia', below: 'menos passos por dia' },
+  },
+  {
+    variableId: 'wearable.dailyActiveKcal', area: 'wellbeing', name: 'calorias ativas do dia', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (calorias ativas por dia, estimadas pelo seu relógio), números maiores significam mais gasto de energia fora do repouso.',
+    why: 'Ajuda a enxergar a carga total que o seu corpo recebe no dia, somando treino e rotina.',
+    meaning: {}, phrases: { above: 'mais calorias ativas por dia', below: 'menos calorias ativas por dia' },
+  },
+  {
+    variableId: 'wearable.dailyDistanceKm', area: 'wellbeing', name: 'distância do dia', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    scaleText: 'Nesse quesito (distância por dia, medida pelo seu relógio), números maiores significam que você se deslocou mais no dia.',
+    why: 'Soma treino e deslocamentos do dia a dia e mostra o seu nível de movimento.',
+    meaning: {}, phrases: { above: 'mais distância por dia', below: 'menos distância por dia' },
+  },
+  // ------------------------------------------------------------------ Sono: horário de dormir e de acordar (relato e relógio; 15/11/2026)
+  {
+    variableId: 'workout.bedtimeShiftScore', area: 'sleep', name: 'horário de dormir (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (horário de dormir em relação ao seu habitual, de −3 a +3), números positivos significam que você foi dormir mais cedo e negativos, mais tarde; 3 é mais de 1 hora antes do habitual.',
+    why: 'Mostra a regularidade do seu horário de dormir, do ponto de vista de quem relata.',
+    meaning: {}, phrases: { above: 'dormir mais cedo', below: 'dormir mais tarde' },
+  },
+  {
+    variableId: 'workout.wakeTimeShiftScore', area: 'sleep', name: 'horário de acordar (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (horário de acordar em relação ao seu habitual, de −3 a +3), números positivos significam que você acordou mais cedo e negativos, mais tarde; 3 é mais de 1 hora antes do habitual.',
+    why: 'Mostra a regularidade do seu horário de acordar, do ponto de vista de quem relata.',
+    meaning: {}, phrases: { above: 'acordar mais cedo', below: 'acordar mais tarde' },
+  },
+  {
+    variableId: 'wearable.bedtimeDeviationMin', area: 'sleep', name: 'horário de dormir (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
+    scaleText: 'Nesse quesito (horário de dormir em relação ao seu padrão, medido pelo relógio, em minutos), números positivos significam que você dormiu mais cedo que o seu padrão e negativos, mais tarde.',
+    why: 'Mostra, com precisão, a regularidade do seu horário de dormir.',
+    meaning: {}, phrases: { above: 'dormir mais cedo', below: 'dormir mais tarde' },
+  },
+  {
+    variableId: 'wearable.wakeDeviationMin', area: 'sleep', name: 'horário de acordar (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
+    scaleText: 'Nesse quesito (horário de acordar em relação ao seu padrão, medido pelo relógio, em minutos), números positivos significam que você acordou mais cedo que o seu padrão e negativos, mais tarde.',
+    why: 'Mostra, com precisão, a regularidade do seu horário de acordar.',
+    meaning: {}, phrases: { above: 'acordar mais cedo', below: 'acordar mais tarde' },
   },
   // ------------------------------------------------------------------ Aderência
   {
@@ -410,7 +454,7 @@ export const AREA_READING: AreaReading[] = [
     },
   },
   {
-    id: 'wellbeing', title: 'Bem-estar',
+    id: 'wellbeing', title: 'Bem-estar e rotina',
     meaning: {
       favorable: 'Isso indica que a sua disposição e o seu equilíbrio emocional estão favorecendo o treino e a constância.',
       mixed: 'Isso indica que o seu bem-estar tem altos e baixos: vale acompanhar de perto para que a rotina não pese na recuperação.',

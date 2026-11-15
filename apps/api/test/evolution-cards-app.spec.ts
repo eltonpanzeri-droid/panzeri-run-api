@@ -131,3 +131,31 @@ describe('Resposta à carga: modalidade e aumento semanal', () => {
     expect(chart).toContain('#DC2626'); // vermelho
   });
 });
+
+// Sono e Bem-estar e rotina (15/11/2026): sem seletor de modalidade, uma tela só de bem-estar, resposta pós-treino na carga, passos e calorias fora de "Minha recuperação".
+describe('Sono e Bem-estar e rotina', () => {
+  it('sono e bem-estar não têm seletor de modalidade; só a carga (esforço e resposta pós-treino) tem', () => {
+    const feelings = home('FeelingsDetailScreen.tsx');
+    expect(feelings).toContain("allowModality={domain === 'effort' || domain === 'response'}");
+    expect(feelings).toContain('const modalities = allowModality ?');
+    expect(home('WearableSleepSection.tsx')).toContain('allowModality={false}');
+    expect(home('WearableRoutineSection.tsx')).toContain('allowModality={false}');
+  });
+
+  it('Bem-estar e rotina é uma tela só (prontidão, check-in da semana e rotina do relógio) e a resposta pós-treino foi para a carga', () => {
+    const hub = home('EvolutionHub.tsx');
+    expect(hub).not.toContain("'readiness' | 'response' | 'weekly'");
+    const wellbeing = hub.slice(hub.indexOf("if (view === 'wellbeing')"), hub.indexOf("// 'pain'"));
+    for (const part of ['domain="readiness"', 'domain="weekly"', '<WearableRoutineSection']) expect(wellbeing).toContain(part);
+    expect(wellbeing).not.toContain('domain="response"');
+    expect(hub).toContain('domain="response" onBack={() => setView(\'hub\')} hideBack hideTitle');
+    expect(home('EvolutionAreaGrid.tsx')).toContain("title: 'Bem-estar e rotina'");
+  });
+
+  it('horário de dormir/acordar: relato (-3..+3) e relógio (minutos) no sono; passos, calorias e distância na rotina; saem de Minha recuperação', () => {
+    const insights = fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', 'home', 'insights.ts'), 'utf8');
+    for (const id of ['workout.bedtimeShiftScore', 'workout.wakeTimeShiftScore', 'wearable.bedtimeDeviationMin', 'wearable.wakeDeviationMin', 'wearable.dailySteps', 'wearable.dailyActiveKcal', 'wearable.dailyDistanceKm']) expect(insights).toContain(id);
+    const recovery = fs.readFileSync(path.join(__dirname, '..', '..', 'mobile', 'src', 'recovery', 'RecoveryScreen.tsx'), 'utf8');
+    expect(recovery).toContain("new Set(['steps', 'activeKcal'])");
+  });
+});

@@ -1195,6 +1195,13 @@ wearable('wearable.dailySteps', 'training_load', 'per_day', 'passos do dia infor
 wearable('wearable.dailyActiveKcal', 'training_load', 'per_day', 'calorias ativas do dia informadas pelo relogio (kcal)', { min: 0, max: 50000, unit: 'kcal' }, 'activeKilocalories',
   'WearableDailySummary.activeKilocalories (evento DIARIO da Zepp). Estimativa do FABRICANTE do relogio, nao medicao direta de gasto energetico.');
 
+// 15/11/2026 (pedido de Elton): horario de dormir e de acordar pelo RELOGIO (desvio do padrao da propria aluna, em minutos; positivo = mais cedo) e distancia do dia.
+const CLOCK_NOTE = 'WearableSleepSummary (inicio e fim do sono informados pelo relogio). Desvio em minutos em relacao ao padrao da PROPRIA aluna (mediana das ate 14 noites anteriores da mesma fonte, minimo de 5); positivo = mais cedo, negativo = mais tarde. Nunca mistura fontes; sem padrao ainda = sem observacao.';
+wearable('wearable.bedtimeDeviationMin', 'sleep', 'per_night', 'horario de dormir informado pelo relogio, em relacao ao seu padrao (minutos; positivo = mais cedo)', { min: -180, max: 180, unit: 'min' }, 'startTimeSec', CLOCK_NOTE);
+wearable('wearable.wakeDeviationMin', 'sleep', 'per_night', 'horario de acordar informado pelo relogio, em relacao ao seu padrao (minutos; positivo = mais cedo)', { min: -180, max: 180, unit: 'min' }, 'endTimeSec', CLOCK_NOTE);
+wearable('wearable.dailyDistanceKm', 'training_load', 'per_day', 'distancia do dia informada pelo relogio (km)', { min: 0, max: 500, unit: 'km' }, 'distanceMeters',
+  'WearableDailySummary.distanceMeters / 1000 (evento DIARIO). Soma do dia, inclui treinos e movimento cotidiano.');
+
 // Natureza de cada indicador do relogio (nao e' inferencia nossa sobre o dado: e' o tipo de informacao que o proprio aparelho produz).
 const WEARABLE_KINDS: Record<string, EvidenceKind> = {
   'wearable.sleepDurationMin': 'device_estimate',
@@ -1206,6 +1213,9 @@ const WEARABLE_KINDS: Record<string, EvidenceKind> = {
   'wearable.sleepScore': 'manufacturer_score',
   'wearable.hrvLastNightAvg': 'device_measurement',
   'wearable.restingHeartRateBpm': 'device_measurement',
+  'wearable.bedtimeDeviationMin': 'device_estimate',
+  'wearable.wakeDeviationMin': 'device_estimate',
+  'wearable.dailyDistanceKm': 'device_measurement',
   'wearable.dailySteps': 'device_measurement',
   'wearable.dailyActiveKcal': 'device_estimate',
 };
@@ -1267,3 +1277,18 @@ export function getVariabilityStrategy(definition: VariableDefinition): Variabil
 export function listVariableIds(): string[] {
   return Object.keys(VARIABLE_REGISTRY);
 }
+
+// 15/11/2026 (pedido de Elton): o RELATO de horario de dormir e de acordar em escala de -3 a +3 (positivo = mais cedo, 0 = habitual; teto em "mais de 1 hora"). Derivada da MESMA coluna categorica
+// (que a IA continua lendo): nao a substitui. Ordinal com degraus desiguais; ver SHIFT_SCORE em sleep-clock.ts.
+VARIABLE_REGISTRY['workout.bedtimeShiftScore'] = {
+  variableId: 'workout.bedtimeShiftScore', domain: 'sleep', dataType: 'ordinal_scale', constructLabel: 'horario de dormir em relacao ao habitual (positivo = mais cedo)', scale: { min: -3, max: 3 },
+  direction: 'not_directional', source: 'student_feedback_shared_record', expectedFrequency: 'per_night', allowedMathStrategy: 'ordinal_or_continuous_stats', missingPolicy: 'never_impute',
+  relatedTable: { table: 'nightly_sleep_log', field: 'bedtimeShiftDirection' }, versions: [], versionComparability: 'not_comparable_across_versions', excludeExtraSessions: false,
+  notes: 'Escala ordinal derivada das 7 faixas (+3 = mais de 1h mais cedo ... -3 = mais de 1h mais tarde). Degraus desiguais e teto em mais de 1 hora: a media e aproximada.',
+};
+VARIABLE_REGISTRY['workout.wakeTimeShiftScore'] = {
+  variableId: 'workout.wakeTimeShiftScore', domain: 'sleep', dataType: 'ordinal_scale', constructLabel: 'horario de acordar em relacao ao habitual (positivo = mais cedo)', scale: { min: -3, max: 3 },
+  direction: 'not_directional', source: 'student_feedback_shared_record', expectedFrequency: 'per_night', allowedMathStrategy: 'ordinal_or_continuous_stats', missingPolicy: 'never_impute',
+  relatedTable: { table: 'nightly_sleep_log', field: 'wakeTimeShiftDirection' }, versions: [], versionComparability: 'not_comparable_across_versions', excludeExtraSessions: false,
+  notes: 'Escala ordinal derivada das 7 faixas (+3 = mais de 1h mais cedo ... -3 = mais de 1h mais tarde). Degraus desiguais e teto em mais de 1 hora: a media e aproximada.',
+};

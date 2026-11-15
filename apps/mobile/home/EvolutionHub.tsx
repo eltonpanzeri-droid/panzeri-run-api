@@ -12,6 +12,7 @@ import { AdherenceWeekly } from './AdherenceSection';
 import { EvolutionAreaGrid, EvolutionAreaId } from './EvolutionAreaGrid';
 import { BestMarksScreen } from './BestMarksScreen';
 import { AreaGuideCard } from './AreaGuideCard';
+import { WearableRoutineSection } from './WearableRoutineSection';
 import { EvolutionReadingContext } from './evolutionReading';
 
 // Esqueleto da nova "Evolução" (02/11/2026, ordem de Elton): seis áreas em vez de uma página longa. Neste lote NADA é calculado aqui: cada área só abre o conteúdo
@@ -19,7 +20,7 @@ import { EvolutionReadingContext } from './evolutionReading';
 
 export type ProgressFocus = 'training' | 'adherence';
 
-type View_ = 'hub' | 'marks' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'readiness' | 'response' | 'weekly' | 'pain' | 'adherence';
+type View_ = 'hub' | 'marks' | 'training' | 'load' | 'sleep' | 'wellbeing' | 'pain' | 'adherence';
 
 // Texto do topo: melhorado a partir da proposta de Elton. Passa pela revisão do advogado junto com os demais textos de saúde.
 const TOP_NOTICE = 'Os indicadores desta área descrevem padrões e mudanças nos seus próprios registros. Eles não são diagnóstico médico. O Panzeri Run analisa vários indicadores em conjunto para individualizar seus treinos e orientar sua evolução.';
@@ -117,6 +118,7 @@ function EvolutionHubInner({
         <AreaGuideCard accessToken={accessToken} area={view} />
         <FeelingsDetailScreen accessToken={accessToken} domain={domain} onBack={() => setView('hub')} backLabel="Evolução" hideBack />
         {view === 'load' ? <LoadSection accessToken={accessToken} /> : null}
+        {view === 'load' ? <FeelingsDetailScreen accessToken={accessToken} domain="response" onBack={() => setView('hub')} hideBack hideTitle /> : null}
         {view === 'sleep' ? <WearableSleepSection accessToken={accessToken} /> : null}
         {view === 'sleep' ? (
           <Pressable onPress={onOpenRecovery} style={[styles.card, HomeBorder.card]}>
@@ -132,24 +134,17 @@ function EvolutionHubInner({
     );
   }
 
+  // Bem-estar e rotina (15/11/2026, ordem de Elton): uma tela só, sem subcategorias — prontidão pré-treino (inclui o cansaço físico), check-in da semana e o movimento do dia pelo relógio. A
+  // resposta pós-treino foi para a Resposta à carga.
   if (view === 'wellbeing') {
     return (
       <View style={styles.container}>
         <BackRow label="Evolução" onPress={() => setView('hub')} />
         <AreaGuideCard accessToken={accessToken} area="wellbeing" />
-        <Text style={styles.title}>Bem-estar</Text>
-        <Text style={styles.subtitle}>Como você chega aos treinos e como responde a eles.</Text>
-        {(['readiness', 'response', 'weekly'] as const).map((d) => (
-          <AreaCard key={d} title={FEELING_DOMAINS[d].title} subtitle={FEELING_DOMAINS[d].subtitle} icon={d === 'readiness' ? 'battery-half-outline' : d === 'response' ? 'happy-outline' : 'calendar-outline'} onPress={() => setView(d)} />
-        ))}
-      </View>
-    );
-  }
-
-  if (view === 'readiness' || view === 'response' || view === 'weekly') {
-    return (
-      <View style={styles.container}>
-        <FeelingsDetailScreen accessToken={accessToken} domain={view} onBack={() => setView('wellbeing')} backLabel="Bem-estar" />
+        <Text style={styles.title}>Bem-estar e rotina</Text>
+        <FeelingsDetailScreen accessToken={accessToken} domain="readiness" onBack={() => setView('hub')} hideBack hideTitle />
+        <FeelingsDetailScreen accessToken={accessToken} domain="weekly" onBack={() => setView('hub')} hideBack hideTitle />
+        <WearableRoutineSection accessToken={accessToken} />
       </View>
     );
   }
