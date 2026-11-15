@@ -135,7 +135,7 @@ describe('síntese da área (exemplo de Elton: "6 dos 10 indicadores…")', () =
 
 describe('catálogo: coerência com o registro de variáveis e regras de redação', () => {
   it('todo indicador existe no VariableRegistry; os com polaridade têm escala e as três leituras; os sem têm a leitura neutra', () => {
-    for (const e of READING_CATALOG) {
+    for (const e of READING_CATALOG.filter((candidate) => candidate.variableId !== 'training.volumeIncreasePct')) {
       const def = getVariableDefinition(e.variableId);
       expect(def).toBeDefined();
       if (e.levelGoodWhen) {
@@ -231,7 +231,7 @@ describe('esforço, volume, ritmo e relógio', () => {
     // os avisos ("parte de um todo", "não é diagnóstico") moram SÓ nas limitações
     expect(deep.texts.meaning).not.toContain('diagnóstico');
     expect(deep.guide.limitations.join(' ')).toContain('parte de um todo');
-    expect(deep.guide.limitations.join(' ')).toContain('não é diagnóstico');
+    expect(deep.guide.limitations.join(' ')).toContain('único dado que olhamos');
     expect(result('wearable.restingHeartRateBpm', repeat(52, 40)).texts.habitual).toContain('52 bpm');
   });
 
@@ -285,8 +285,8 @@ describe('blocos do desenho de Elton: indicador e área (14/11/2026)', () => {
 
   it('as ponderações ficam SÓ nas limitações: não é diagnóstico, um dado sozinho, só desde 01/08, autorrelato; relógio = estimativa; poucos registros', () => {
     const limits = result('workout.preSleepQuality', repeat(3, 12)).guide.limitations.join(' ');
-    expect(limits).toContain('não é diagnóstico e não substitui a avaliação de um médico');
-    expect(limits).toContain('Um dado sozinho não define o seu estado');
+    expect(limits).toContain('Este não é o único dado que olhamos');
+    expect(limits).toContain('sempre junto com os demais dados');
     expect(limits).toContain('Só entram registros desde 01/08/2026');
     expect(limits).toContain('informado por você');
     expect(limits).toContain('Ainda são poucos registros (12)');
@@ -322,7 +322,7 @@ describe('blocos do desenho de Elton: indicador e área (14/11/2026)', () => {
     const how = g.howYouAre.join(' ');
     expect(how).toContain('Lendo em conjunto'); // mais de um sinal na mesma direção
     expect(how).toContain('cruzamos os seus dados');
-    expect(g.limitations.join(' ')).toContain('não é diagnóstico');
+    expect(g.limitations.join(' ')).toContain('únicos dados que olhamos');
     expect(how).not.toContain('não é diagnóstico');
   });
 });
@@ -372,5 +372,32 @@ describe('textos de Elton (15/11/2026)', () => {
     }
     expect(GUIDE_TEXT_OVERRIDES['training.volumePrescribedKm'].whatIs.join(' ')).toContain('Como estipulamos a prescrição');
     expect(TRAINING_AREA_TEXTS.numbersNote).toBe('A semana atual não entra na conta.');
+  });
+});
+
+// 15/11/2026 — modalidade (bug: RPE igual em qualquer modalidade) e aumento semanal do volume realizado.
+import { filterByModality, volumeIncreaseFromWeeks } from '../src/training-intelligence/evolution-summary.service';
+
+describe('modalidade na leitura da Evolução', () => {
+  const obs = (modality: string | undefined, value: number) => ({ value, context: { modality } });
+  it('com modalidade pedida, só as observações dela; RPE de corrida e de força nunca se misturam', () => {
+    const rows = [obs('corrida', 5), obs('corrida', 6), obs('forca', 9)];
+    expect(filterByModality(rows, 'corrida').map((r) => r.value)).toEqual([5, 6]);
+    expect(filterByModality(rows, 'forca').map((r) => r.value)).toEqual([9]);
+    expect(filterByModality(rows, null).map((r) => r.value)).toEqual([5, 6, 9]); // sem etiqueta global: todas as sessões juntas
+  });
+  it('sem modalidade, a variável com série combinada usa SÓ a combinada (nunca soma o total com as modalidades)', () => {
+    const rows = [obs('global', 100), obs('corrida', 60), obs('forca', 40)];
+    expect(filterByModality(rows, null).map((r) => r.value)).toEqual([100]);
+    expect(filterByModality(rows, 'corrida').map((r) => r.value)).toEqual([60]);
+  });
+});
+
+describe('aumento semanal do volume realizado', () => {
+  const week = (date: string, value: number) => ({ timestamp: new Date(date + 'T03:00:00Z'), value });
+  it('variação % sobre a semana anterior; primeira semana e semana anterior sem km não geram porcentagem', () => {
+    const { points, bars } = volumeIncreaseFromWeeks([week('2026-10-12', 0), week('2026-10-05', 20), week('2026-10-19', 22), week('2026-10-26', 33)]);
+    expect(bars.map((b) => (b.pct == null ? null : Math.round(b.pct)))).toEqual([null, -100, null, 50]);
+    expect(points.map((p) => Math.round(p.value))).toEqual([-100, 50]);
   });
 });

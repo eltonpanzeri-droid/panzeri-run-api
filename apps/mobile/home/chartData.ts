@@ -44,6 +44,17 @@ export function referenceChannelPoints(snapshot: SnapshotLite | null | undefined
 
 const MODALITY_NAMES: Record<string, string> = { corrida: 'Corrida', forca: 'Força', fortalecimento_corredores: 'Fortalecimento' };
 
+// Cor de cada modalidade (15/11/2026, pedido de Elton): a aluna vê que o texto muda com a modalidade. null = todas juntas.
+const MODALITY_TINTS: Record<string, string> = { corrida: '#1769AA', forca: '#7C3AED', fortalecimento_corredores: '#0F766E' };
+const EXTRA_TINTS = ['#C2410C', '#BE185D', '#4D7C0F', '#0E7490'];
+export function modalityTint(modality: string | null): string {
+  if (!modality) return '#0B2A4A';
+  if (MODALITY_TINTS[modality]) return MODALITY_TINTS[modality];
+  let hash = 0;
+  for (const ch of modality) hash = (hash * 31 + ch.charCodeAt(0)) % 997;
+  return EXTRA_TINTS[hash % EXTRA_TINTS.length];
+}
+
 export function modalityName(modality: string): string {
   return MODALITY_NAMES[modality] ?? modality.charAt(0).toUpperCase() + modality.slice(1).replace(/_/g, ' ');
 }

@@ -7,6 +7,8 @@ export interface GuideTextOverride {
   limitations: string[];
   /** Molde do "Como você está?": 'standard' (média, longo, curto, tendência, último) ou 'prescribed' (como o programa prescreve o volume). */
   howYouAre: 'standard' | 'prescribed';
+  /** O que a mudança de tendência pode representar (voz de professor, sem medo de dizer que piora se liga a pior desempenho e mais risco). */
+  interpretation?: { above: string; below: string; stable: string };
 }
 
 export const TRAINING_AREA_TEXTS = {
@@ -95,3 +97,93 @@ export const GUIDE_TEXT_OVERRIDES: Record<string, GuideTextOverride> = {
     howYouAre: 'standard',
   },
 };
+
+// Área "Resposta à carga" (15/11/2026): rascunho meu no estilo da Evolução do treinamento, a revisar por Elton.
+export const LOAD_AREA_TEXTS = {
+  whatIs: 'Aqui mostramos como o seu corpo responde à carga dos treinos: o esforço que você percebe, a carga de cada treino, a carga acumulada nas semanas, a relação entre o volume recente e o seu hábito e o tamanho dos aumentos semanais de quilômetros. Alguns gráficos podem ser vistos com todas as modalidades juntas ou com cada modalidade separada, e os números e os textos de cada gráfico acompanham a modalidade que você escolher. Nenhum desses dados é usado isoladamente.',
+  howToRead: 'Carga é o quanto de trabalho o treino pede e o quanto isso custa ao seu corpo. Observamos o padrão de longo prazo, o de curto prazo e como o último treino ou a última semana se comportou em relação a eles. Quando a carga e o esforço sobem de forma gradual e o seu corpo acompanha, é sinal de adaptação. Quando a carga sobe rápido demais, ou o esforço fica alto demais para o que foi pedido, aumenta a chance de fadiga acumulada, queda de desempenho e lesão. Por isso olhamos sempre o conjunto, e não um número só.',
+  numbersNote: 'A semana atual não entra na conta.',
+  limitation: 'Estes dados vêm dos relatos dos alunos (como o esforço percebido) e do que os dispositivos integrados nos entregam, e a precisão da nossa análise depende da precisão dessas informações. Cada aluno tem o seu contexto de vida, trabalho, sono e estresse, e isso interfere em como executa e responde a cada treino. Esses indicadores não são os únicos que olhamos: sempre os lemos junto com os demais.',
+  closingWorse: 'Quando indicadores de carga e de esforço pioram ao mesmo tempo e se mantêm assim, costuma haver relação com pior desempenho nos treinos e maior risco de fadiga e de lesão. É o momento de olhar com atenção o descanso, o sono e o ajuste da carga, sempre considerando o seu contexto.',
+  closingOk: 'Neste momento, os indicadores de carga que observamos não mostram sinais combinados de sobrecarga. Seguimos acompanhando, porque a resposta do corpo muda com o contexto de cada semana.',
+};
+
+const MODALITY_NOTE = 'Você pode ver todas as modalidades juntas ou cada uma separada, porque o esforço e a carga de uma corrida e de um treino de força não são comparáveis. Os números e os textos acompanham a modalidade escolhida.';
+const CONTEXT_LIMIT = 'Cada aluno tem o seu contexto, e isso interfere em como executa e responde a cada treino.';
+const NOT_ONLY = 'Este não é o único dado que olhamos: ele é lido junto com os demais indicadores.';
+
+Object.assign(GUIDE_TEXT_OVERRIDES, {
+  'workout.perceivedEffort': {
+    whatIs: ['RPE (esforço percebido) é a nota de 1 a 10 que você dá para o esforço de cada treino, no feedback. 1 é muito leve e 10 é o máximo que você consegue.'],
+    howToRead: [
+      'Cada treino tem uma intenção: treinos leves devem ser sentidos como leves, e treinos intensos como intensos. O esforço que você percebe mostra se a carga prescrita está chegando ao seu corpo do jeito que planejamos.',
+      'Quando treinos que deveriam ser leves passam a ser sentidos como difíceis, ou o esforço médio sobe semana após semana sem que a prescrição tenha aumentado, o corpo está pagando um preço maior pelo mesmo treino. Isso costuma estar ligado a fadiga acumulada, pior desempenho nos treinos seguintes e maior risco de lesão. Quando o esforço cai para o mesmo treino, normalmente é sinal de adaptação.',
+      MODALITY_NOTE,
+    ],
+    limitations: ['O RPE é a sua percepção, e ela muda com sono, estresse, calor, alimentação e humor; duas pessoas sentem o mesmo treino de formas diferentes.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Esforço percebido em alta significa que os mesmos treinos estão custando mais ao seu corpo. Se isso se mantém, aumenta a chance de fadiga acumulada, queda de desempenho e lesão, e é um sinal para olharmos a carga e o seu descanso.',
+      below: 'Esforço percebido em queda indica que o corpo está lidando melhor com os treinos. Se a prescrição não ficou mais leve, costuma ser sinal de adaptação e de espaço para evoluir com segurança.',
+      stable: 'Esforço percebido estável indica que a carga está sendo absorvida de forma constante, sem sinal de sobrecarga crescente nem de folga grande.',
+    },
+  },
+  'workout.sessionInternalLoad': {
+    whatIs: ['A carga de cada treino é o esforço que você percebeu multiplicado pelos minutos de treino, em UA (unidade arbitrária). Ela mostra o peso de cada sessão específica.'],
+    howToRead: [
+      'Um treino longo e leve e um treino curto e intenso podem ter cargas parecidas: o que importa é o conjunto. Olhamos como a carga das suas sessões se comporta no longo prazo, no curto prazo e como a última sessão ficou em relação a elas.',
+      'Sessões com carga muito acima do seu padrão exigem mais recuperação, e quando vários treinos seguidos ficam muito acima, o risco de fadiga e de lesão aumenta. Sessões abaixo do padrão costumam indicar recuperação ou fase de base.',
+      MODALITY_NOTE,
+    ],
+    limitations: ['A carga depende do esforço que você informa e do tempo registrado do treino.', 'Em "Todas" somamos esforços de modalidades diferentes; use os botões para ver cada modalidade separada.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Carga por treino em alta indica que as suas sessões estão pesando mais. Mantida por muito tempo sem descanso, essa tendência está ligada a fadiga acumulada, pior desempenho e maior risco de lesão.',
+      below: 'Carga por treino em queda indica sessões mais leves ou mais curtas. Pode ser recuperação planejada ou fase de base; se não foi planejado, vale olharmos o que está limitando os treinos.',
+      stable: 'Carga por treino estável indica que as sessões vêm pesando de forma parecida, o que facilita a adaptação.',
+    },
+  },
+  'workout.weeklyInternalLoad': {
+    whatIs: ['A carga acumulada por semana soma a carga (esforço × minutos) de todos os treinos da semana. Ela mostra a tendência semanal do que o seu corpo recebeu.'],
+    howToRead: [
+      'Aqui olhamos a semana como um todo. O corpo se adapta quando a carga semanal sobe aos poucos e alterna semanas mais pesadas com semanas mais leves. Semanas muito mais pesadas que o seu padrão, uma atrás da outra, são as que mais se associam a fadiga acumulada, queda de desempenho e lesão.',
+      'Comparamos o seu padrão de longo prazo, o de curto prazo e como a última semana fechada ficou em relação a eles.',
+      MODALITY_NOTE,
+    ],
+    limitations: ['Semana sem nenhum treino com esforço e duração registrados fica sem ponto (não é contada como zero) e a semana em curso fica fora até terminar.', 'Em "Todas" somamos esforços de modalidades diferentes; use os botões para ver cada modalidade separada.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Carga semanal em alta significa que o seu corpo está recebendo mais trabalho do que o seu padrão. Se a alta continua sem semanas de descarga, cresce o risco de fadiga acumulada e de lesão.',
+      below: 'Carga semanal em queda indica semanas mais leves que o seu padrão. É esperado em semanas de descarga; se foi sem planejamento, vale entender o motivo.',
+      stable: 'Carga semanal estável indica que o seu corpo está recebendo um volume de trabalho constante, o que favorece a adaptação.',
+    },
+  },
+  'training.acwr': {
+    whatIs: ['Compara o volume em quilômetros dos últimos 28 dias com o dos últimos 42 dias. Em outras palavras: o quanto você correu nas últimas 4 semanas em relação ao seu hábito das últimas 6 semanas.'],
+    howToRead: [
+      'Perto de 1,0, o volume recente é parecido com o seu hábito. Acima de 1,0, você correu mais do que está acostumada; abaixo de 1,0, menos. Usamos janelas longas porque o volume é registrado por semana, e elas evitam que uma única semana forte ou fraca distorça a leitura.',
+      'Subidas rápidas e acentuadas costumam aumentar o risco de fadiga e de lesão, porque o corpo não teve tempo de se adaptar. Quedas grandes mostram recuperação ou perda do ritmo de treino. O que importa é a direção e a velocidade da mudança.',
+    ],
+    limitations: ['É a relação do volume em km (28 ÷ 42 dias), e não a da carga de esforço mostrada em outro gráfico.', 'Só corrida entra nos quilômetros e a semana em curso fica fora até terminar.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'A relação em alta indica que o seu volume recente está maior que o seu hábito. Quanto mais rápida a subida, maior o risco de sobrecarga; subidas graduais são as que o corpo costuma absorver melhor.',
+      below: 'A relação em queda indica que o volume recente está menor que o seu hábito. Pode ser descarga planejada ou um período de menos treinos.',
+      stable: 'A relação estável indica que o volume recente acompanha o seu hábito, sem mudança brusca de carga.',
+    },
+  },
+  'training.volumeIncreasePct': {
+    whatIs: ['Mostra, semana a semana, quanto o seu volume realizado de corrida aumentou ou diminuiu em relação à semana anterior, em %. As cores indicam o tamanho do aumento: verde para aumentos mais seguros e vermelho para aumentos maiores.'],
+    howToRead: [
+      'Aumentos graduais permitem que músculos, tendões e ossos se adaptem. Saltos grandes de uma semana para a outra estão entre os fatores mais associados a lesões por sobrecarga, e por isso o vermelho pede atenção. Reduções costumam ser semanas de descarga.',
+      'Olhamos o seu padrão de variação, se os aumentos estão ficando maiores e como a última semana fechada se comportou.',
+    ],
+    limitations: ['Só entra corrida realizada, em semanas fechadas. A porcentagem é calculada sobre a semana anterior: depois de uma semana muito curta, um volume normal aparece como um grande aumento, e isso pode ser só retomada.', 'As faixas de cor são uma referência geral e não conhecem o seu contexto.', CONTEXT_LIMIT, NOT_ONLY],
+    howYouAre: 'standard',
+    interpretation: {
+      above: 'Os aumentos semanais estão ficando maiores. Saltos grandes e repetidos de volume são o cenário em que o risco de lesão e de fadiga mais cresce, e pedem atenção.',
+      below: 'Os aumentos semanais estão ficando menores ou virando reduções, o que dá ao corpo tempo para absorver o trabalho e costuma reduzir o risco.',
+      stable: 'Os aumentos semanais vêm num ritmo parecido, sem mudança brusca na forma como o volume cresce.',
+    },
+  },
+} satisfies Record<string, GuideTextOverride>);

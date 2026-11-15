@@ -4373,3 +4373,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ### 15/11/2026 — Ajustes pedidos por Elton após revisar
 - "Volume extra semanal" saiu dos números e da contagem do card da área Evolução do treinamento (a leitura continua sob o gráfico de volume quando só "Extras" está marcado).
 - Sob cada gráfico, os cinco botões começam todos recolhidos (o card da área segue com "Quais são os seus números?" aberto). PWA após Deploy; nativo no próximo build.
+
+### 15/11/2026 — Resposta à carga: modalidade separada de verdade, aumento semanal, textos novos
+- **Bug real (relato de Elton):** trocar a modalidade mudava o gráfico, mas os números e textos sob ele continuavam os da leitura geral (RPE "igual"). Causa: `IndicatorMeaning` lia sempre o resumo geral. Correção: `EvolutionSummaryService.forIndicator(userId, variableId, modality)` + `GET /me/evolution/indicator`; `filterByModality` usa a mesma regra do gráfico. Efeito colateral corrigido: o resumo geral da carga semanal misturava a série `global` com as das modalidades.
+- Seletor em destaque com cor por modalidade; corrida como padrão; novos indicadores (carga por treino, carga semanal, relação de volume, aumento semanal do volume realizado); desacoplamento fora da tela da aluna; textos da área em `evolution-guide-texts.ts`; sem aviso de diagnóstico nas Limitações de nenhuma área.
+- Revoga, por ordem de Elton, a decisão de 2026 de não colorir o gráfico de volume por variação % (agora verde/amarelo/vermelho; faixas a revisar).
+- Pendente: validar na tela do PWA; entra no próximo build nativo (ver FILA_PROXIMO_BUILD_E_IDEIAS.md).

@@ -8,7 +8,7 @@ import { HomeColors, HomeRadius, HomeSpace } from './homeTheme';
 // Aberto = botão cheio (azul escuro, texto branco); fechado = contorno azul. Textos maiores que o padrão do Panzeri Run, de propósito. Só apresenta: todo o conteúdo vem do servidor.
 export interface GuideSection { id: string; title: string; defaultOpen?: boolean; content: React.ReactNode }
 
-export function GuideAccordion({ sections }: { sections: GuideSection[] }) {
+export function GuideAccordion({ sections, accent }: { sections: GuideSection[]; accent?: string }) {
   const [open, setOpen] = useState<Record<string, boolean>>(() => Object.fromEntries(sections.filter((section) => section.defaultOpen).map((section) => [section.id, true])));
   return (
     <View style={styles.list}>
@@ -18,13 +18,13 @@ export function GuideAccordion({ sections }: { sections: GuideSection[] }) {
           <View key={section.id} style={styles.item}>
             <Pressable
               onPress={() => setOpen((current) => ({ ...current, [section.id]: !current[section.id] }))}
-              style={[styles.head, isOpen && styles.headOpen]}
+              style={[styles.head, isOpen && styles.headOpen, accent ? { borderColor: accent } : null, accent && isOpen ? { backgroundColor: accent } : null]}
               accessibilityRole="button"
               accessibilityLabel={`${section.title}: ${isOpen ? 'recolher' : 'expandir'}`}
               accessibilityState={{ expanded: isOpen }}
             >
-              <Text style={[styles.headText, isOpen && styles.headTextOpen]}>{section.title}</Text>
-              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={20} color={isOpen ? '#FFFFFF' : HomeColors.panzeriInteraction} />
+              <Text style={[styles.headText, isOpen && styles.headTextOpen, accent && !isOpen ? { color: accent } : null]}>{section.title}</Text>
+              <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={20} color={isOpen ? '#FFFFFF' : (accent ?? HomeColors.panzeriInteraction)} />
             </Pressable>
             {isOpen ? <View style={styles.body}>{section.content}</View> : null}
           </View>

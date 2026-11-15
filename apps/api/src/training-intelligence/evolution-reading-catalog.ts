@@ -7,6 +7,8 @@
 export const EVOLUTION_READING_STATUS = 'rascunho_a_revisar' as const;
 export const EVOLUTION_READING_VERSION = '2026-11-13';
 // Só semanas/registros desde esta data entram (regra de Elton, 05/11/2026).
+/** Indicador calculado só para a tela (não é variável do registro): aumento semanal do volume REALIZADO, em %. */
+export const VOLUME_INCREASE_ID = 'training.volumeIncreasePct';
 export const EVOLUTION_SINCE = new Date('2026-08-01T00:00:00-03:00');
 
 export type AreaId = 'training' | 'load' | 'sleep' | 'wellbeing' | 'adherence';
@@ -148,6 +150,36 @@ export const READING_CATALOG: IndicatorReading[] = [
       low: 'Perceber os treinos quase sempre com esforço baixo pode indicar boa tolerância ao esforço ou treinos mais leves, o que é esperado em fases de base e de recuperação; vale ler junto com o ritmo e com a evolução dos seus treinos.',
     },
     relativeChange: true,
+  },
+  {
+    variableId: 'workout.sessionInternalLoad', area: 'load', name: 'carga de cada treino', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (carga de cada treino, esforço percebido × minutos, em UA), números maiores significam treinos que pesaram mais.',
+    why: 'Mostra o peso de cada sessão específica.',
+    meaning: {}, relativeChange: true,
+    phrases: { above: 'aumento da carga por treino', below: 'redução da carga por treino' },
+  },
+  {
+    variableId: 'workout.weeklyInternalLoad', area: 'load', name: 'carga acumulada por semana', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (carga acumulada por semana, em UA), números maiores significam semanas que pesaram mais.',
+    why: 'Mostra a tendência semanal do que o seu corpo recebeu.',
+    meaning: {}, relativeChange: true, weekly: { unitLabel: 'semana' },
+    phrases: { above: 'aumento da carga semanal', below: 'redução da carga semanal' },
+    habitualTemplate: (mean, n) => `A sua carga costuma ficar em torno de ${mean} por semana (${n} semanas completas desde 01/08/2026).`,
+  },
+  {
+    variableId: 'training.acwr', area: 'load', name: 'relação entre o volume recente e o seu hábito', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (relação entre o volume dos últimos 28 dias e o dos últimos 42 dias), 1,0 significa volume recente igual ao seu hábito; acima, mais volume que o hábito; abaixo, menos.',
+    why: 'Mostra se você está correndo mais ou menos do que está acostumada.',
+    meaning: {}, relativeChange: true, weekly: { unitLabel: 'semana' },
+    phrases: { above: 'volume recente acima do hábito', below: 'volume recente abaixo do hábito' },
+  },
+  {
+    variableId: VOLUME_INCREASE_ID, area: 'load', name: 'aumento semanal do volume', levelGoodWhen: null, trendGoodWhen: null,
+    scaleText: 'Nesse quesito (aumento semanal do volume realizado, em %), números positivos significam que você correu mais que na semana anterior; negativos, menos.',
+    why: 'Mostra o tamanho dos saltos de volume de uma semana para a outra.',
+    meaning: {}, relativeChange: false, weekly: { unitLabel: 'semana' },
+    phrases: { above: 'aumentos maiores de volume', below: 'aumentos menores ou reduções de volume' },
+    habitualTemplate: (mean, n) => `Em média, o seu volume variou ${mean} de uma semana para a outra (${n} variações semanais desde 01/08/2026).`,
   },
   {
     variableId: 'checkin.weekDemandVsNormal', area: 'load', name: 'exigência da semana comparada ao seu normal', levelGoodWhen: null, trendGoodWhen: null,

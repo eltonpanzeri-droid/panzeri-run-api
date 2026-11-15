@@ -57,10 +57,38 @@ export function findIndicator(summary: SummaryDto | null | undefined, id: string
   return null;
 }
 
-export function useIndicatorReading(id: string | null | undefined): IndicatorDto | null {
+// Leitura de UM indicador numa modalidade (GET /me/evolution/indicator): os cinco blocos sob o gráfico acompanham a modalidade escolhida (15/11/2026, bug do RPE igual em qualquer modalidade).
+const modalityCache = new Map<string, Promise<IndicatorDto | null>>();
+function loadModalityReading(token: string, variableId: string, modality: string): Promise<IndicatorDto | null> {
+  const key = `${token}|${variableId}|${modality}`;
+  const hit = modalityCache.get(key);
+  if (hit) return hit;
+  const promise = fetchJsonAuth<IndicatorDto>(`/me/evolution/indicator?variableId=${encodeURIComponent(variableId)}&modality=${encodeURIComponent(modality)}`, token).then((r) => { if (!r) modalityCache.delete(key); return r; });
+  modalityCache.set(key, promise);
+  setTimeout(() => modalityCache.delete(key), TTL_MS);
+  return promise;
+}
+
+/** reading: leitura (da modalidade, quando pedida); loading: a modalidade ainda está sendo buscada. */
+export function useIndicatorReadingState(id: string | null | undefined, modality?: string | null): { reading: IndicatorDto | null; loading: boolean } {
   const token = useContext(EvolutionReadingContext);
   const summary = useEvolutionSummary(token);
-  return findIndicator(summary, id);
+  const variableId = id ? (MEANING_TO_VARIABLE[id] ?? id) : null;
+  const [fetched, setFetched] = useState<{ key: string; reading: IndicatorDto | null } | null>(null);
+  const key = token && variableId && modality ? `${variableId}|${modality}` : null;
+  useEffect(() => {
+    if (!key || !token || !variableId || !modality) return undefined;
+    let alive = true;
+    loadModalityReading(token, variableId, modality).then((reading) => { if (alive) setFetched({ key, reading }); });
+    return () => { alive = false; };
+  }, [key, token, variableId, modality]);
+  if (!modality) return { reading: findIndicator(summary, id), loading: false };
+  if (fetched && fetched.key === key) return { reading: fetched.reading, loading: false };
+  return { reading: null, loading: true };
+}
+
+export function useIndicatorReading(id: string | null | undefined, modality?: string | null): IndicatorDto | null {
+  return useIndicatorReadingState(id, modality).reading;
 }
 
 /** Qual indicador de volume comenta o gráfico, conforme as séries marcadas (realizado/prescrito/extras). */

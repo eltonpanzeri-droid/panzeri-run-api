@@ -7,7 +7,7 @@ import { DomainVariable, LoadWindowLite, SnapshotLite, WeeklyDescriptor, loadWin
 import { VariableBlock } from './FeelingsDetailScreen';
 import { WeeklyCard } from './EvolutionObjective';
 import { IndicatorMeaning } from './IndicatorMeaning';
-import { HrDecouplingSection } from './HrDecouplingSection';
+import { VolumeIncreaseChart } from './VolumeIncreaseChart';
 
 // "Resposta a carga" da Evolucao (02/11/2026, lotes 5 e 6): carga interna percebida (esforco x minutos) e relacoes aguda x cronica. Tudo vem do servidor: a carga por treino e a SEMANAL
 // (faixa e media movel da camada longitudinal, com seletor de modalidade) e, para a janela de 7 e 28 dias, a mesma conta do painel do treinador (GET /me/training-load).
@@ -53,7 +53,7 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
     <View style={styles.container}>
       <Text style={styles.title}>Carga de treino</Text>
 
-      <VariableBlock variable={SESSION_LOAD} snapshot={snapshots[SESSION_LOAD.id]} accessToken={accessToken} />
+      <VariableBlock variable={SESSION_LOAD} snapshot={snapshots[SESSION_LOAD.id]} accessToken={accessToken} defaultModality="corrida" />
 
       <WeeklyCard
         title="Carga acumulada por semana"
@@ -61,6 +61,7 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
         snapshot={snapshots[WEEKLY_LOAD_ID]}
         variableId={WEEKLY_LOAD_ID}
         accessToken={accessToken}
+        defaultModality="corrida"
         descriptor={WEEKLY_LOAD}
         unit="UA por semana"
         formatY={(v) => String(Math.round(v))}
@@ -88,11 +89,12 @@ export function LoadSection({ accessToken }: { accessToken: string }) {
         caution="Razão de volume em km (média de 28 dias ÷ média de 42 dias); não é a razão da carga de esforço acima. Descrição dos seus registros; não indica risco."
       />
 
+      <VolumeIncreaseChart accessToken={accessToken} />
+
       <VariableBlock variable={HEART_RATE} snapshot={snapshots[HEART_RATE.id]} accessToken={accessToken} />
 
       <VariableBlock variable={WEEK_DEMAND} snapshot={snapshots[WEEK_DEMAND.id]} accessToken={accessToken} />
 
-      <HrDecouplingSection accessToken={accessToken} />
     </View>
   );
 }

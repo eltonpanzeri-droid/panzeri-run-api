@@ -18,6 +18,7 @@ import {
 } from './insights';
 import { dayFromIso, formatDayLabel, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 import { IndicatorMeaning } from './IndicatorMeaning';
+import { ModalityPicker } from './ModalityPicker';
 import { useIndicatorReading } from './evolutionReading';
 
 // Secoes da tela "Evolucao objetiva do treinamento" (04/10/2026) que se somam ao volume
@@ -150,6 +151,7 @@ export function WeeklyCard({
   variableId,
   accessToken,
   higherIsUp = true,
+  defaultModality,
 }: {
   title: string;
   snapshot: SnapshotLite | null | undefined;
@@ -164,9 +166,14 @@ export function WeeklyCard({
   accessToken?: string;
   /** Ritmo: o mais rapido (menor s/km) fica no alto. So' representacao. */
   higherIsUp?: boolean;
+  /** Modalidade que abre selecionada, quando o gráfico tem dado nela (Resposta à carga: corrida). */
+  defaultModality?: string;
 }) {
   const hasReading = useIndicatorReading(meaningId) != null;
-  const [modality, setModality] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const modalities = variableId && accessToken ? allSnapshot?.availableModalities ?? [] : [];
+  const modality = picked !== undefined ? picked : (defaultModality && modalities.includes(defaultModality) ? defaultModality : null);
+  const setModality = (m: string | null) => setPicked(m);
   const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
   useEffect(() => {
     if (!modality || !variableId || !accessToken) { setFiltered(undefined); return undefined; }
@@ -175,16 +182,9 @@ export function WeeklyCard({
     fetchSnapshot(variableId, accessToken, { reference: true, modality }).then((s) => { if (alive) setFiltered(s); });
     return () => { alive = false; };
   }, [modality, variableId, accessToken]);
-  const modalities = variableId && accessToken ? allSnapshot?.availableModalities ?? [] : [];
   const snapshot = modality ? filtered : allSnapshot;
   const chips = modalities.length >= 2 ? (
-    <View style={styles.chips}>
-      {[null, ...modalities].map((m) => (
-        <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
-          <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
-        </Pressable>
-      ))}
-    </View>
+    <ModalityPicker modalities={modalities} selected={modality} onSelect={setModality} />
   ) : null;
   const points = useMemo(() => completeWeekPoints(snapshot).map((p) => ({ x: dayFromIso(p.timestamp), y: p.value })), [snapshot]);
   const mm = useMemo(() => {
@@ -222,7 +222,7 @@ export function WeeklyCard({
       ) : (
         <Text style={styles.muted}>É preciso ao menos 2 semanas completas com este dado para desenhar a evolução.</Text>
       )}
-      <IndicatorMeaning id={meaningId} />
+      <IndicatorMeaning id={meaningId} modality={modality} />
     </Card>
   );
 }

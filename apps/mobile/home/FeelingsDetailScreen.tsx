@@ -7,6 +7,7 @@ import { HomeBorder, HomeColors, HomeRadius, HomeSpace, HomeTypography } from '.
 import { fetchSnapshot, fetchSnapshots } from './homeApi';
 import { FEELING_DOMAINS, FeelingDomain, SnapshotLite, DomainVariable, acuteChronicSentence, domainSentences, shiftLabel } from './insights';
 import { IndicatorMeaning } from './IndicatorMeaning';
+import { ModalityPicker } from './ModalityPicker';
 import { formatDayLabel, formatDayLong, modalityName, movingAveragePoints, observationPoints, referenceChannelPoints } from './chartData';
 
 // Telas de detalhe de "Como voce esta" (04/10/2026): Sono, Prontidao pre-treino, Percepcao de
@@ -22,11 +23,14 @@ function fmtValue(v: number, variable: DomainVariable) {
   return `${String(rounded).replace('.', ',')}${variable.unit ? ` ${variable.unit}` : ''}`;
 }
 
-export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string }) {
+export function VariableBlock({ variable, snapshot: allSnapshot, accessToken, defaultModality }: { variable: DomainVariable; snapshot: SnapshotLite | null | undefined; accessToken: string; /** Modalidade que abre selecionada, quando a variável tem dado nela (Resposta à carga: corrida). */ defaultModality?: string }) {
   // 02/11/2026: seletor de modalidade DENTRO do grafico (padrao: todas). So' aparece quando a variavel tem dado em 2+ modalidades; a escolha busca a MESMA leitura
   // do servidor filtrada pela modalidade (nenhuma conta no app).
   // Variaveis de relogio (sono, HRV...) nao sao comparaveis entre fontes: com mais de uma fonte com dado, a aluna escolhe qual ver (a principal vem por padrao); fontes nunca se misturam.
-  const [modality, setModality] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const modalities = allSnapshot?.availableModalities ?? [];
+  const modality = picked !== undefined ? picked : (defaultModality && modalities.includes(defaultModality) ? defaultModality : null);
+  const setModality = (m: string | null) => setPicked(m);
   const [source, setSource] = useState<string | null>(null);
   const [filtered, setFiltered] = useState<SnapshotLite | null | undefined>(undefined);
   const filterActive = modality != null || source != null;
@@ -37,7 +41,6 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
     fetchSnapshot(variable.id, accessToken, { reference: true, modality, source }).then((s) => { if (alive) setFiltered(s); });
     return () => { alive = false; };
   }, [modality, source, filterActive, variable.id, accessToken]);
-  const modalities = allSnapshot?.availableModalities ?? [];
   const sources = allSnapshot?.availableSources ?? [];
   const snapshot = filterActive ? filtered : allSnapshot;
   const points = useMemo(() => (snapshot && !variable.categorical ? observationPoints(snapshot) : []), [snapshot, variable]);
@@ -48,13 +51,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
   const chips = (modalities.length >= 2 && !variable.categorical) || sources.length >= 2 ? (
     <View style={{ gap: 6 }}>
       {modalities.length >= 2 && !variable.categorical ? (
-        <View style={styles.chips}>
-          {[null, ...modalities].map((m) => (
-            <Pressable key={m ?? 'todas'} onPress={() => setModality(m)} style={[styles.chip, modality === m && styles.chipActive]}>
-              <Text style={[styles.chipText, modality === m && styles.chipTextActive]}>{m ? modalityName(m) : 'Todas'}</Text>
-            </Pressable>
-          ))}
-        </View>
+        <ModalityPicker modalities={modalities} selected={modality} onSelect={setModality} />
       ) : null}
       {sources.length >= 2 ? (
         <View style={styles.chips}>
@@ -138,7 +135,7 @@ export function VariableBlock({ variable, snapshot: allSnapshot, accessToken }: 
       ) : (
         <Text style={styles.empty}>É preciso ao menos 2 registros para desenhar a evolução.</Text>
       )}
-      <IndicatorMeaning id={variable.id} />
+      <IndicatorMeaning id={variable.id} modality={modality} />
     </View>
   );
 }
@@ -173,7 +170,7 @@ export function FeelingsDetailScreen({ accessToken, domain, onBack, backLabel = 
         <Text style={styles.empty}>Conforme você responde aos feedbacks dos treinos, esta área mostra sua evolução ao longo do tempo.</Text>
       ) : (
         <>
-          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} />)}
+          {cfg.variables.map((v) => <VariableBlock key={v.id} variable={v} snapshot={snapshots[v.id]} accessToken={accessToken} defaultModality={domain === 'effort' ? 'corrida' : undefined} />)}
         </>
       )}
     </View>

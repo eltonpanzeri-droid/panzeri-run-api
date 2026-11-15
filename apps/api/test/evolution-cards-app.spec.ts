@@ -100,3 +100,34 @@ describe('Cinco blocos sob cada gráfico', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2); // erro nao fica guardado
   });
 });
+
+// Resposta à carga (15/11/2026): modalidade em destaque, corrida como padrão, blocos por modalidade, gráfico de aumento semanal e sem desacoplamento.
+describe('Resposta à carga: modalidade e aumento semanal', () => {
+  it('o seletor de modalidade tem destaque e cor; corrida abre selecionada; os blocos recebem a modalidade escolhida', () => {
+    const picker = home('ModalityPicker.tsx');
+    expect(picker).toContain('Escolha a modalidade');
+    expect(picker).toContain('Você está vendo');
+    expect(picker).toContain('modalityTint');
+    for (const file of ['FeelingsDetailScreen.tsx', 'EvolutionObjective.tsx']) {
+      const source = home(file);
+      expect(source).toContain('<ModalityPicker');
+      expect(source).toContain('defaultModality');
+      expect(source).toContain('modality={modality}');
+    }
+    expect(home('LoadSection.tsx')).toContain('defaultModality="corrida"');
+    expect(home('FeelingsDetailScreen.tsx')).toContain("domain === 'effort' ? 'corrida' : undefined");
+    expect(home('IndicatorMeaning.tsx')).toContain('useIndicatorReadingState(id, modality)');
+    expect(home('evolutionReading.ts')).toContain('/me/evolution/indicator?variableId=');
+  });
+
+  it('gráfico de aumento semanal do volume realizado entra na área; desacoplamento fora da tela da aluna', () => {
+    const load = home('LoadSection.tsx');
+    expect(load).toContain('<VolumeIncreaseChart accessToken={accessToken} />');
+    expect(load).not.toContain('<HrDecouplingSection');
+    const chart = home('VolumeIncreaseChart.tsx');
+    expect(chart).toContain('/me/evolution/volume-increase');
+    expect(chart).toContain('<IndicatorMeaning id="training.volumeIncreasePct" />');
+    expect(chart).toContain('#16A34A'); // verde
+    expect(chart).toContain('#DC2626'); // vermelho
+  });
+});

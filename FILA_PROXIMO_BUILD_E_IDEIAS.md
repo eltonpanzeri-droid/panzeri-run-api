@@ -135,3 +135,14 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Gráficos fora do painel da aluna: "Diferença: realizado − prescrito" (fica só a razão) e "Ritmo médio por semana" (continua para o painel do treinador e para a IA).
 - Pendente: o texto de "Limitações" do tempo dentro da faixa traz a palavra "esteira" (escrita por Elton); confirmar se fica.
 - Pendente: as outras áreas (carga, sono, bem-estar, aderência) seguem com os textos antigos até Elton mandar os novos.
+
+## 15/11/2026 — Resposta à carga (ordem de Elton)
+
+**Para o PRÓXIMO BUILD (nativo):** tudo abaixo já aparece no PWA após o Deploy; no nativo entra no próximo build.
+- **Bug do RPE igual em qualquer modalidade:** o gráfico mudava, mas os números e os textos sob ele vinham sempre da leitura geral. Agora `GET /me/evolution/indicator?variableId=&modality=` devolve a leitura SÓ da modalidade e os cinco botões acompanham a escolha. Corrigido também o total das séries "combinadas" (carga semanal, aderência): sem modalidade usa só a série marcada `global`.
+- Seletor de modalidade em destaque (`ModalityPicker`): título "Escolha a modalidade", cor por modalidade e faixa "Você está vendo: X". Corrida abre selecionada nos gráficos da área.
+- Novos indicadores no card da área e com cinco botões: carga de cada treino, carga acumulada por semana, relação do volume (28 ÷ 42 dias) e **aumento semanal do volume realizado** (gráfico de barras verde/amarelo/vermelho: até +10% verde, +10% a +20% amarelo, acima de +20% vermelho — faixas em `evolution-summary.service.ts`, a revisar por Elton).
+- Desacoplamento da FC saiu da tela da aluna (Elton vai reavaliar os critérios; componente e API continuam).
+- Textos da área e dos indicadores de carga: `evolution-guide-texts.ts` (rascunho meu no estilo da Evolução do treinamento; "Como você está?" diz sem medo que piora se liga a pior desempenho e mais risco; limitações sem aviso de diagnóstico).
+- Em todas as áreas: sumiu das Limitações o aviso "não é diagnóstico / não substitui avaliação de médico" (ordem de Elton).
+- Pendente: Elton quer saber por que a relação de volume usa 28 ÷ 42 dias; está explicado no texto, e a alternativa seria 7 ÷ 28 (decisão dele, mexe também na leitura da IA).

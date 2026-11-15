@@ -25,10 +25,9 @@ describe('Evolucao da aluna — faixas e textos', () => {
     expect(HR_DECOUPLING_MEANING.length).toBeLessThanOrEqual(750);
   });
 
-  it('a secao fica na area "Resposta a carga" e a modalidade e fixa (sem seletor de modalidade)', () => {
-    expect(read('..', 'mobile', 'home', 'LoadSection.tsx')).toContain('<HrDecouplingSection accessToken={accessToken} />');
+  it('15/11/2026: o desacoplamento SAIU da tela da aluna (Elton vai reavaliar os critérios); o componente fica no código, sem seletor de modalidade', () => {
+    expect(read('..', 'mobile', 'home', 'LoadSection.tsx')).not.toContain('<HrDecouplingSection');
     const section = read('..', 'mobile', 'home', 'HrDecouplingSection.tsx');
-    expect(section).toContain('Modalidade: Corrida');
     expect(section).toContain('/me/hr-decoupling/audit');
     expect(section).not.toContain('availableModalities');
   });
