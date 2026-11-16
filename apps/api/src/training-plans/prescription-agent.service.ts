@@ -317,6 +317,11 @@ export interface PaceEvidence {
 // de rotina para o treinador (em vez de "weekday 1, 2, 3..."), tanto nos logs quanto no Telegram.
 const WEEKDAY_PT_FULL = ['domingo', 'segunda-feira', 'terca-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sabado'];
 
+// Preferencia de divisao da musculacao (16/11/2026, Elton): a aluna escolhe, por dia de musculacao, os grupos que quer treinar. E' um PEDIDO dela, nao uma regra de calculo: voce decide
+// exercicios, series e carga. Sem preferencia (campo null ou dia ausente) voce divide livremente, como sempre.
+const SPLIT_PREFERENCE_INSTRUCTION = '- PREFERENCIA DE DIVISAO DA MUSCULACAO (campo preferenciaDeDivisaoDaMusculacaoPorDia): quando nao for null, cada item traz um weekday de musculacao e os grupos musculares que a PROPRIA aluna pediu para treinar NAQUELE dia (opcao = nome que ela viu; gruposDoCatalogo = valores do campo "group" do catalogoExerciciosMusculacao para filtrar). Monte aquele dia com exercicios desses grupos, usando mais de um grupo quando ela marcou mais de um. Dias de musculacao ausentes da lista nao tem preferencia: divida-os livremente, equilibrando os grupos que ela nao pediu em outros dias. E um pedido da aluna, nao um calculo: voce decide exercicios, series e carga. Se uma diretriz do treinador, dor/sinalDeSeguranca ou limitacao informada pela aluna conflitar com o pedido, priorize a seguranca e a diretriz, e explique em notes de forma curta. Se for null, nao ha preferencia: decida livremente.';
+const SPLIT_PREFERENCE_INSTRUCTION_SINGLE_DAY = '- PREFERENCIA DE DIVISAO (campo preferenciaDeDivisaoDaAlunaParaEsteDia): quando nao for null, sao os grupos musculares que a PROPRIA aluna pediu para este dia (opcao = nome que ela viu; gruposDoCatalogo = valores do campo "group" do catalogoExerciciosMusculacao para filtrar). Monte o dia com exercicios desses grupos; e um pedido dela, nao um calculo. Se uma diretriz do treinador, dor/sinalDeSeguranca ou limitacao conflitar, priorize a seguranca e a diretriz. Se for null, decida livremente.';
+
 @Injectable()
 export class PrescriptionAgentService {
   private readonly logger = new Logger(PrescriptionAgentService.name);
@@ -1001,6 +1006,7 @@ export class PrescriptionAgentService {
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
       '- exerciseIds normalmente vem de catalogoExerciciosMusculacao (modality "forca") ou catalogoExerciciosFortalecimentoCorredores (modality "fortalecimento_corredores") — prefira sempre o catalogo, que ja tem video/descricao prontos pro aluno. Só cite um exercicio fora do catalogo se uma diretriz especifica do treinador pedir aquele exercicio por nome; nesse caso ele aparece pro aluno so como texto, sem video. Escolha entre 3 e 10 exercicios conforme o tempo disponivel do dia.',
+      SPLIT_PREFERENCE_INSTRUCTION,
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno pedir um FOCO especifico para um dia de forca (ex: "segunda e dia de perna" ou uma lista de exercicios), aplique literalmente usando o campo "group"/"focus" do catalogo pra filtrar, ou os exercicios citados pelo nome. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Nivel dos exercicios (campo "level"): prefira "base" para alunos iniciantes ou com sinalDeSeguranca ativo; "intermediate"/"advanced" para alunos com mais experiencia. Julgamento seu.',
       '- sets, reps, restSeconds e intensity sao decisao sua por sessao: valores tipicos giram em torno de 3 series de 8 a 12 repeticoes com 60 a 90s de descanso para musculacao, series mais curtas/tempo com descanso menor para core/fortalecimento — ajuste conforme duracao do dia, nivel do aluno e sinal de seguranca.',
@@ -1149,6 +1155,8 @@ export class PrescriptionAgentService {
         dataDeCadaDiaDaSemanaSendoGerada: input.weekDates ?? null,
         diasDisponiveisParaCorrida: runSlots,
         diasDisponiveisParaForca: strengthSlots,
+        // Preferencia da PROPRIA aluna de grupos musculares por dia de musculacao (16/11/2026); null = sem preferencia, voce decide livremente. Ver instrucao PREFERENCIA DE DIVISAO no prompt de sistema.
+        preferenciaDeDivisaoDaMusculacaoPorDia: input.strengthSplitPreference ?? null,
         catalogoExerciciosMusculacao: strengthSlots.some((slot) => slot.modality === 'forca')
           ? gymExerciseLibrary.map((exercise) => ({ id: exercise.id, name: exercise.name, group: exercise.group, level: exercise.level }))
           : [],
@@ -1238,6 +1246,7 @@ export class PrescriptionAgentService {
       '- observacoesRegistradasPeloProprioAluno sao anotacoes informais do proprio aluno, nao uma ordem — considere quando fizer sentido, sem sacrificar seguranca.',
       '- INFORMACOES DO ALUNO POR TEXTO (equipamento da academia, aparelhos que nao existem, limitacoes fisicas sao RESTRICOES REAIS para a escolha dos exercicios): relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       '- exerciseIds normalmente vem do catalogo informado (catalogoExerciciosMusculacao para modality "forca", catalogoExerciciosFortalecimentoCorredores para "fortalecimento_corredores"), que ja tem video/descricao prontos. So cite um exercicio fora do catalogo se uma diretriz especifica pedir aquele exercicio por nome (aparece pro aluno so como texto, sem video). Escolha entre 3 e 10 exercicios conforme a duracao do dia.',
+      SPLIT_PREFERENCE_INSTRUCTION_SINGLE_DAY,
       '- Se houver diretriz de foco muscular para este dia especifico (ex: "so perna hoje") ou lista explicita de exercicios, aplique literalmente usando o campo "group"/"focus" do catalogo para filtrar. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Prefira exercicios de nivel "base" para alunos iniciantes ou com sinalDeSeguranca ativo.',
       '- NAO invente fatos/numeros sobre o historico do aluno em notes (uma distancia/peso/repeticao que ele "ja fez antes", um sintoma "recorrente") a nao ser que venha literalmente de um campo do JSON recebido — sem dado real, fale de forma generica.',
@@ -1268,6 +1277,7 @@ export class PrescriptionAgentService {
         sinalDeSeguranca: (input.painTier ?? 'normal') !== 'normal',
         motivoDoSinalDeSeguranca: input.painReason ?? null,
         diaDeForcaParaRegenerar: slot,
+        preferenciaDeDivisaoDaAlunaParaEsteDia: input.strengthSplitPreference?.find((entry) => entry.weekday === slot.weekday)?.grupos ?? null,
         catalogoExerciciosMusculacao: slot.modality === 'forca'
           ? gymExerciseLibrary.map((exercise) => ({ id: exercise.id, name: exercise.name, group: exercise.group, level: exercise.level }))
           : [],

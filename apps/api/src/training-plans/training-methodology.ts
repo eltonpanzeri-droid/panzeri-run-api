@@ -141,6 +141,8 @@ export interface MethodologyInput {
   availability: MethodologyAvailability[];
   history: MethodologyHistoryWeek[];
   studentDirectives?: string[];
+  // Preferencia da aluna de grupos musculares por dia de musculacao (16/11/2026). Null/ausente = sem preferencia, a IA decide livremente. So' dias de forca da rotina atual.
+  strengthSplitPreference?: Array<{ weekday: number; grupos: Array<{ opcao: string; gruposDoCatalogo: string[] }> }> | null;
   activeObservations?: string[];
   // Resumo condensado do prontuario do aluno (StudentProfileService.refreshProfile), gerado por
   // um agente pequeno e barato que le o log de eventos do aluno. Complementa (nao substitui) os

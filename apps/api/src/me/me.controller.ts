@@ -8,6 +8,8 @@ import { UpdatePreferencesDto } from './dto/update-preferences.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { MeService } from './me.service';
 import { RoutineService } from './routine.service';
+import { StrengthSplitService } from './strength-split.service';
+import { SaveStrengthSplitDto } from './dto/strength-split.dto';
 import { isRoutineAnswerKey } from '../training-plans/training-methodology';
 import { ProfilePhotoService } from '../profile-photo/profile-photo.service';
 import { TrainingIntelligenceQueryService } from '../training-intelligence/training-intelligence-query.service';
@@ -29,7 +31,22 @@ export class MeController {
     private readonly routine?: RoutineService,
     // Autorizacoes do Health Connect (31/10/2026): separa "grupo nao autorizado" de "o aparelho nao enviou" em Minha recuperacao. Opcional so' para testes antigos.
     @Optional() private readonly healthConsent?: HealthConnectConsentService,
+    // Preferencia de divisao da musculacao (16/11/2026). Opcional so' para testes antigos que constroem o controlador por posicao.
+    @Optional() private readonly strengthSplit?: StrengthSplitService,
   ) {}
+
+  // Preferencia de divisao da musculacao por dia (16/11/2026): o app pergunta depois de salvar a rotina (e antes de gerar a semana, quando ainda nao respondida para a rotina atual).
+  @Get('strength-split')
+  strengthSplitStatus(@CurrentUser() user: CurrentUserPayload) {
+    if (!this.strengthSplit) throw new Error('StrengthSplitService nao disponivel.');
+    return this.strengthSplit.status(user.sub);
+  }
+
+  @Put('strength-split')
+  saveStrengthSplit(@CurrentUser() user: CurrentUserPayload, @Body() dto: SaveStrengthSplitDto) {
+    if (!this.strengthSplit) throw new Error('StrengthSplitService nao disponivel.');
+    return this.strengthSplit.save(user.sub, dto);
+  }
 
   // "Minha recuperação" (30/10/2026): o aluno vê os próprios dados de recuperação e saúde que autorizou compartilhar, de onde vêm e por que são usados. SOMENTE os dele (id sempre do token).
   @Get('recovery-summary')

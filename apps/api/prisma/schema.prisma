@@ -441,6 +441,8 @@ model WeeklyRoutineState {
   revision     Int      @default(0)
   configuredAt DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  // Preferencia de divisao da musculacao por dia (16/11/2026): { answeredRevision, answeredAt, hasPreference, days }. So' vale para a revisao da rotina em que foi respondida (ver common/strength-split.ts).
+  strengthSplit Json?
 }
 
 // Historico append-only das alteracoes da rotina (antes/depois minimizados: so' dias, modalidades e minutos; nenhum texto livre, nome ou conversa). Responde "quem

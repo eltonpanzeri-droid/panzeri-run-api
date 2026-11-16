@@ -2,6 +2,7 @@ import { BadRequestException, HttpException, Injectable, InternalServerErrorExce
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { parseStrengthSplitRecord, strengthSplitForPrompt } from '../common/strength-split';
 import { readRoutineState, ROUTINE_ALL_REST_CODE, ROUTINE_REQUIRED_CODE } from '../common/routine-state';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
@@ -1186,6 +1187,10 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     const athleteStateContext = athleteStateContextBase
       ? { ...athleteStateContextBase, menstrualCycle: menstrualCycleContext ?? undefined, ...(healthIndicatorsContext ? { indicadoresDeSaudeAutorizados: healthIndicatorsContext } : {}) }
       : null;
+    // Preferencia de divisao da musculacao (16/11/2026): so' vale a resposta da revisao de rotina desta geracao e so' para dias que ainda sao de musculacao. Leitura nunca bloqueia a geracao.
+    const strengthSplitPreference = await this.prisma.weeklyRoutineState.findUnique({ where: { userId }, select: { strengthSplit: true } })
+      .then((state) => strengthSplitForPrompt(parseStrengthSplitRecord(state?.strengthSplit), routineAtStart.revision, availability.filter((day) => day.modalities.includes('forca')).map((day) => day.weekday)))
+      .catch((error) => { this.logger.warn(`Preferencia de divisao da musculacao indisponivel para ${userId}: ${describeError(error)}`); return null; });
     const methodologyInput: MethodologyInput = {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
       physiologicalReference,
@@ -1199,6 +1204,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       })),
       history: methodologyHistory,
       studentDirectives: activeDirectives.map(formatDirectiveForAgent),
+      strengthSplitPreference: strengthSplitPreference,
       activeObservations: activeObservations.map(formatObservationForAgent),
       studentProfileSummary: informationContext.studentProfileSummary,
       studentReports: informationContext.studentReports,
@@ -2326,12 +2332,20 @@ export class TrainingPlansService implements OnApplicationBootstrap {
 
     let prescription;
     if (isStrength) {
+      // Preferencia de divisao da musculacao (16/11/2026): mesma regra da semana inteira (so' a resposta da rotina atual; leitura nunca bloqueia).
+      const routineForSplit = await readRoutineState(this.prisma, userId).catch(() => null);
+      const strengthSplitPreference = routineForSplit
+        ? await this.prisma.weeklyRoutineState.findUnique({ where: { userId }, select: { strengthSplit: true } })
+          .then((state) => strengthSplitForPrompt(parseStrengthSplitRecord(state?.strengthSplit), routineForSplit.revision, routineForSplit.activeDays.filter((day) => day.modalities.includes('forca')).map((day) => day.weekday)))
+          .catch(() => null)
+        : null;
       const methodologyInput: MethodologyInput = {
         goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
         experience: user.preferences?.experienceLevel ?? '',
         answers,
         availability: [],
         history: [],
+        strengthSplitPreference,
         studentDirectives: activeDirectives.map(formatDirectiveForAgent),
         activeObservations: activeObservations.map(formatObservationForAgent),
         studentProfileSummary: dayInformationContext.studentProfileSummary,
