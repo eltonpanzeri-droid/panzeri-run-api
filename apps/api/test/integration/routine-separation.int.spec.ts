@@ -39,7 +39,7 @@ describe('separacao definitiva entre entrevista e rotina (PostgreSQL real)', () 
   const prisma: PrismaClient = createTestPrisma();
   const userIds: string[] = [];
   const generateFirstWeekIfNeeded = jest.fn(async () => undefined);
-  const trainingPlansStub = { generateFirstWeekIfNeeded, generateWeek: jest.fn(async () => { throw new Error('generateWeek NAO pode ser chamado aqui'); }) };
+  const trainingPlansStub = { generateFirstWeekIfNeeded, isGenerationInProgress: jest.fn(async () => false), generateWeek: jest.fn(async () => { throw new Error('generateWeek NAO pode ser chamado aqui'); }) };
   const telegram = { notifyCoach: jest.fn(async () => undefined) };
   const studentProfile = { recordEvent: jest.fn(async () => undefined) };
   const relator = { analyze: jest.fn(async () => null) };

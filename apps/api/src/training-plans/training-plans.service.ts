@@ -1,8 +1,8 @@
-import { BadRequestException, Injectable, InternalServerErrorException, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, Logger, NotFoundException, OnApplicationBootstrap, Optional } from '@nestjs/common';
 import { requestZeppWorkoutSync } from '../zepp/zepp-workout-trigger';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertRoutineUnchanged, readRoutineState, ROUTINE_ALL_REST_CODE, ROUTINE_REQUIRED_CODE } from '../common/routine-state';
+import { readRoutineState, ROUTINE_ALL_REST_CODE, ROUTINE_REQUIRED_CODE } from '../common/routine-state';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality } from '../activity-execution/canonical-modality';
@@ -113,7 +113,7 @@ const AI_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 // Auditoria Astra (29/09/2026), item 02 — acima do teto real de uma geracao (TASK_TIMEOUT_MS em
 // ai-queue.service.ts, 10min) com folga, pra nunca reclamar uma trava de uma geracao ainda em
 // andamento de verdade.
-const GENERATION_LOCK_STALE_AFTER_MS = 15 * 60 * 1000;
+export const GENERATION_LOCK_STALE_AFTER_MS = 15 * 60 * 1000;
 const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 // Domingo a partir dessa hora (Sao Paulo): a semana seguinte fica "liberada" pro botao
 // "Gerar treino da semana" (generateCurrentWeekOnDemand) poder gerar a semana seguinte em vez
@@ -236,6 +236,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
   }
 
   private readonly recentAiFailures = new Map<string, number>();
+  // Erros que o treinador JA recebeu por Telegram (falha da IA): generateWeek() nao avisa de novo.
+  private readonly alertedFailures = new WeakSet<object>();
   private readonly recentPainAlerts = new Map<string, number>();
   // Trava contra disparo duplo do botao "Gerar treino da semana" (toque duplo, ou o app tentando
   // de novo apos uma conexao instavel) — guarda a Promise em andamento por aluna; uma segunda
@@ -760,13 +762,42 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     options?: { referenceDate?: Date; planStatus?: string; archiveCurrentActive?: boolean; allowToday?: boolean; generateFrom?: string | null },
   ) {
     await this.acquireGenerationLock(userId);
+    const startedAt = Date.now();
+    this.logger.log(`Geracao de semana INICIADA para ${userId}.`);
     try {
       const generated = await this.withAiScope(userId, () => this.generateWeekLocked(userId, options));
       requestZeppWorkoutSync(userId, 'plan_generated'); // depois de gravar; disparo-e-esquece (so' age para quem autorizou o envio ao relogio)
+      this.logger.log(`Geracao de semana CONCLUIDA para ${userId} em ${Math.round((Date.now() - startedAt) / 1000)}s.`);
       return generated;
+    } catch (error) {
+      await this.reportGenerationFailure(userId, error, Date.now() - startedAt);
+      throw error;
     } finally {
       await this.prisma.trainingPlanGenerationLock.delete({ where: { userId } }).catch(() => undefined);
     }
+  }
+
+  // (16/11/2026, caso Roberta) Toda falha de geracao fica no log com o erro real e, quando o treinador ainda nao foi avisado (a falha da IA ja avisa por conta propria), ele recebe o motivo
+  // por Telegram. Recusas de regra de negocio (HTTP 4xx: sem acesso, sem rotina...) so' vao para o log. Nunca lanca: registrar nao pode esconder o erro original.
+  private async reportGenerationFailure(userId: string, error: unknown, elapsedMs: number): Promise<void> {
+    try {
+      const reason = describeError(error);
+      this.logger.error(`Geracao de semana FALHOU para ${userId} apos ${Math.round(elapsedMs / 1000)}s: ${reason}`, error instanceof Error ? error.stack : undefined);
+      if (typeof error === 'object' && error !== null && this.alertedFailures.has(error)) return;
+      if (error instanceof HttpException && error.getStatus() < 500) return;
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+      await this.telegram.notifyCoach(
+        `⚠️ A geração do treino falhou depois de começar.\nAluno: ${user?.name ?? userId} (Cod. ${formatStudentCode(user?.studentCode ?? null)})\nO programa NAO foi atualizado.\nMotivo: ${reason}\nTempo até a falha: ${Math.round(elapsedMs / 1000)}s.`,
+      ).catch(() => null);
+    } catch (reportError) {
+      this.logger.warn(`Nao consegui registrar a falha de geracao de ${userId}: ${describeError(reportError)}`);
+    }
+  }
+
+  // A aluna esta com uma geracao em andamento? (trava no banco, ignorando trava presa de processo morto.) Usado para recusar troca de rotina no meio da geracao.
+  async isGenerationInProgress(userId: string): Promise<boolean> {
+    const lock = await this.prisma.trainingPlanGenerationLock.findUnique({ where: { userId } });
+    return Boolean(lock && Date.now() - lock.startedAt.getTime() <= GENERATION_LOCK_STALE_AFTER_MS);
   }
 
   // Trava presa havia mais tempo que o teto real de uma geracao (ver TASK_TIMEOUT_MS em
@@ -1284,7 +1315,9 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       await this.telegram.notifyCoach(
         `⚠️ Falha ao gerar treino com IA para um aluno.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO programa NAO foi atualizado.\nMotivo: ${failureReason}\nGere novamente pelo painel depois da pausa. Novas tentativas automaticas para este aluno ficam pausadas por alguns minutos para nao gastar chamadas de IA repetidas.`,
       );
-      throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+      const aiFailureError = new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
+      this.alertedFailures.add(aiFailureError);
+      throw aiFailureError;
     }
     this.recentAiFailures.delete(userId);
     // Limpa a marca de falha permanente assim que uma geracao tiver sucesso (qualquer gatilho:
@@ -1587,9 +1620,9 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     // Chamadas de rede (Telegram/notificacoes) NUNCA entram aqui dentro — regra do projeto — foram
     // movidas pra depois da transacao commitar (ver bloco logo abaixo).
     const plan = await this.prisma.$transaction(async (tx) => {
-      // (26/10/2026) A geracao leva minutos: antes de publicar, a MESMA trava das gravacoes de rotina e uma releitura da revisao garantem que o programa nao e' publicado sobre
-      // uma rotina que mudou no meio. Se mudou, nada e' publicado (a aluna/o treinador geram de novo com a rotina atual).
-      await assertRoutineUnchanged(tx, userId, routineAtStart);
+      // (16/11/2026, ordem de Elton) A geracao NUNCA e' descartada por mudanca de rotina: uma chamada de IA concluida sempre e' publicada. Vale a rotina que existia quando a aluna pediu o
+      // treino (routineAtStart, gravada em inputSnapshot.routineRevision); trocar a rotina durante a geracao e' recusado em RoutineService (generation_in_progress). Se mesmo assim a
+      // rotina diferir depois, routineAlignment() marca o programa como desatualizado e oferece refazer.
       if (archiveCurrentActive) {
         await tx.trainingPlan.updateMany({
           where: { userId, status: 'active' },

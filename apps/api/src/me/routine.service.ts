@@ -86,6 +86,14 @@ export class RoutineService {
       | { kind: 'conflict'; revision: number; availability: RoutineWriteResult['availability'] }
       | { kind: 'done'; status: RoutineWriteStatus; revision: number; changed: boolean; availability: RoutineWriteResult['availability'] };
 
+    // (16/11/2026, caso Roberta) Rotina nao muda enquanto o programa da semana esta sendo gerado: a geracao usa a rotina de quando a aluna pediu o treino e nunca e' descartada. O treinador e a
+    // mesclagem de contas nao sao bloqueados. A aluna pode mudar a rotina quantas vezes quiser DEPOIS; vale a ultima registrada na hora do proximo pedido.
+    if (input.source === 'student' || input.source === 'legacy_app') {
+      if (await this.trainingPlans.isGenerationInProgress(userId)) {
+        this.logger.warn(`Troca de rotina RECUSADA para ${userId} (origem ${input.source}): ha geracao de treino em andamento.`);
+        throw new ConflictException({ code: 'generation_in_progress', message: 'Seu treino da semana está sendo montado agora. Quando ele ficar pronto, você poderá mudar a rotina de novo.' });
+      }
+    }
     const outcome: Outcome = await this.prisma.$transaction(async (tx) => {
       // Uma gravacao por aluno por vez (inclusive a primeira, quando ainda nao existe nenhuma linha para travar).
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${userId}`}))::text AS locked`;
