@@ -184,7 +184,7 @@ function IntegrationCard({ item, meta }: { item: Integration; meta: (typeof PROV
   );
 }
 
-export default function StudentIntegrations({ studentId, accessToken, apiUrl }: { studentId: string; accessToken: string; apiUrl: string }) {
+export default function StudentIntegrations({ studentId, accessToken, apiUrl, extraCards }: { studentId: string; accessToken: string; apiUrl: string; extraCards?: React.ReactNode }) {
   const [data, setData] = useState<Result | null>(null);
   const [error, setError] = useState(false);
 
@@ -222,6 +222,7 @@ export default function StudentIntegrations({ studentId, accessToken, apiUrl }: 
 
       <div className="integrationsGrid">
         {items.map(({ meta, item }) => <IntegrationCard key={meta.id} item={item} meta={meta} />)}
+        {extraCards}
       </div>
 
       <p className="integrationsFooter">Atualizado em {when(data.generatedAt)} · <button type="button" onClick={() => void load()}>Atualizar</button></p>
