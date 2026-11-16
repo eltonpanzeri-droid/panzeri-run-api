@@ -10,6 +10,7 @@ import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constan
 import type { AvailabilityDayDto } from './dto/update-availability.dto';
 import { isRoutineAnswerKey } from '../training-plans/training-methodology';
 import { isLegacyRoutineCompatEnabled, LEGACY_STAGE_KEY, legacyDraftToDays, legacyStageIsFresh } from './routine-legacy-compat';
+import { normalizeStrengthSplitAnswer, type StrengthSplitAnswer } from '../common/strength-split';
 import { minimizedRoutine, NormalizedRoutineDay, routineSignature, validateFullRoutineWeek, validateRoutinePatch } from './routine.rules';
 
 // Comando UNICO de gravacao da ROTINA (26/10/2026). Aluno, treinador e mesclagem de contas gravam WeeklyAvailability SOMENTE por aqui; entrevista, anamnese, relatos,
@@ -29,6 +30,8 @@ export interface RoutineWriteInput {
   skipFirstGeneration?: boolean;
   // true = so' grava se NINGUEM tem rotina ainda (verificado dentro da trava). Usado pela compatibilidade com apps antigos: nunca altera rotina existente.
   onlyIfUnconfigured?: boolean;
+  // Preferencia de divisao da musculacao respondida junto com a rotina (16/11/2026): gravada na MESMA transacao, valendo para a revisao resultante (a resposta anterior deixa de valer sozinha).
+  strengthSplit?: StrengthSplitAnswer | null;
 }
 
 export interface RoutineWriteResult {
@@ -113,7 +116,18 @@ export class RoutineService {
       }));
       const next = compute(currentNormalized);
       const changed = !configuredBefore || routineSignature(rows) !== routineSignature(next);
-      if (!changed) return { kind: 'done', status: 'unchanged', revision: revisionBefore, changed: false, availability: rows };
+      // Resposta da divisao da musculacao enviada com a rotina: normalizada contra os dias de musculacao da rotina RESULTANTE e gravada na revisao resultante (recusa 400 desfaz tudo).
+      const storeSplit = async (resultingRevision: number) => {
+        if (!input.strengthSplit) return;
+        const strengthDays = next.filter((day) => !day.noTraining && day.modalities.includes('forca')).map((day) => day.weekday);
+        if (strengthDays.length === 0) return;
+        const record = normalizeStrengthSplitAnswer(input.strengthSplit, strengthDays, resultingRevision);
+        await tx.weeklyRoutineState.upsert({ where: { userId }, create: { userId, revision: resultingRevision, strengthSplit: record as unknown as Prisma.InputJsonValue }, update: { strengthSplit: record as unknown as Prisma.InputJsonValue } });
+      };
+      if (!changed) {
+        await storeSplit(revisionBefore);
+        return { kind: 'done', status: 'unchanged', revision: revisionBefore, changed: false, availability: rows };
+      }
 
       const revision = revisionBefore + 1;
       await tx.weeklyAvailability.deleteMany({ where: { userId } });
@@ -126,6 +140,7 @@ export class RoutineService {
         });
       }
       await tx.weeklyRoutineState.upsert({ where: { userId }, create: { userId, revision }, update: { revision } });
+      await storeSplit(revision);
       await tx.weeklyRoutineChange.create({
         data: {
           userId, revision, source: input.source, actorId: input.actorId ?? null,

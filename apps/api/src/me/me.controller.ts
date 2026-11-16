@@ -135,7 +135,7 @@ export class MeController {
   // (26/10/2026) Unico caminho do aluno para gravar a rotina: substituicao INTEGRAL da semana (os 7 dias), com revisao esperada. 409 = a rotina mudou; recarregue.
   @Put('availability')
   async updateAvailability(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateAvailabilityDto) {
-    const result = await this.routineService().replaceWeek(user.sub, dto.availability, { expectedRevision: dto.expectedRevision, source: 'student', actorId: user.sub, observation: dto.observation });
+    const result = await this.routineService().replaceWeek(user.sub, dto.availability, { expectedRevision: dto.expectedRevision, source: 'student', actorId: user.sub, observation: dto.observation, strengthSplit: dto.strengthSplit ?? null });
     return result;
   }
 

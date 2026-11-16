@@ -4741,8 +4741,50 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     ]);
   }
 
+  // Divisao da musculacao pendente (16/11/2026): antes de gerar, quem tem musculacao na rotina atual e ainda nao respondeu para ela responde agora. Falha de rede nunca trava a geracao.
+  const [splitGate, setSplitGate] = useState<{ strengthDays: Array<{ weekday: number; label: string }>; value: StrengthSplitValue; revision: number; skipFeedbackReminder: boolean } | null>(null);
+  const [splitSaving, setSplitSaving] = useState(false);
+  const [splitError, setSplitError] = useState('');
+  const splitCheckedRef = useRef(false);
+
+  async function confirmSplitGate() {
+    if (!splitGate) return;
+    const payload = strengthSplitPayload(splitGate.value, splitGate.strengthDays.map((entry) => entry.weekday));
+    if (!payload) { setSplitError('Responda se você tem preferência de divisão.'); return; }
+    setSplitSaving(true);
+    setSplitError('');
+    try {
+      const response = await fetch(`${API_URL}/me/strength-split`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: splitGate.revision, ...payload }),
+      });
+      if (!response.ok) { setSplitError(response.status === 409 ? 'Sua rotina mudou. Feche e toque em "Gerar treino da semana" de novo.' : `Não consegui salvar agora: ${await readApiError(response)}`); setSplitSaving(false); return; }
+    } catch {
+      setSplitError('Não consegui conectar agora. Verifique a internet e tente de novo.');
+      setSplitSaving(false);
+      return;
+    }
+    const skip = splitGate.skipFeedbackReminder;
+    setSplitSaving(false);
+    setSplitGate(null);
+    splitCheckedRef.current = true;
+    void runGenerateCurrentWeekFlow(skip);
+  }
+
   async function runGenerateCurrentWeekFlow(skipFeedbackReminder: boolean) {
     setIsLoading(true);
+    if (!splitCheckedRef.current) {
+      const splitStatus = await loadStrengthSplitStatus(accessToken);
+      if (splitStatus?.applies && splitStatus.pending) {
+        const labels: Record<number, string> = { 0: 'Domingo', 1: 'Segunda-feira', 2: 'Terça-feira', 3: 'Quarta-feira', 4: 'Quinta-feira', 5: 'Sexta-feira', 6: 'Sábado' };
+        setIsLoading(false);
+        setSplitError('');
+        setSplitGate({ strengthDays: splitStatus.strengthDays.map((weekday) => ({ weekday, label: labels[weekday] ?? String(weekday) })), value: initialStrengthSplit(splitStatus), revision: splitStatus.revision, skipFeedbackReminder });
+        return;
+      }
+    }
+    splitCheckedRef.current = false;
     try {
       const response = await fetch(`${API_URL}/training-plans/weekly-checkin/status`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -5589,6 +5631,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           onChangeRoutine={() => { setRoutineGate(null); onOpenRoutine?.(); }}
           onCancel={() => setRoutineGate(null)}
         />
+        <StrengthSplitGateModal gate={splitGate} saving={splitSaving} error={splitError} onChange={(value) => setSplitGate((current) => (current ? { ...current, value } : current))} onConfirm={() => { void confirmSplitGate(); }} onCancel={() => setSplitGate(null)} />
       </View>
     );
   }
@@ -5666,6 +5709,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           onChangeRoutine={() => { setRoutineGate(null); onOpenRoutine?.(); }}
           onCancel={() => setRoutineGate(null)}
         />
+        <StrengthSplitGateModal gate={splitGate} saving={splitSaving} error={splitError} onChange={(value) => setSplitGate((current) => (current ? { ...current, value } : current))} onConfirm={() => { void confirmSplitGate(); }} onCancel={() => setSplitGate(null)} />
       </View>
     );
   }
@@ -7303,6 +7347,100 @@ function emptyRoutineDays(): RoutineDay[] {
   return defaultRoutineDays.map((day) => ({ ...day, modalities: ['Sem treinos'], minutesByModality: {}, extras: undefined }));
 }
 
+// Preferencia de divisao da musculacao por dia (16/11/2026, ideia de Elton). Sem preferencia = a IA decide; com preferencia = a aluna marca os grupos de cada dia de musculacao. Fortalecimento para corredores fica de fora.
+const STRENGTH_SPLIT_OPTIONS: Array<{ id: string; label: string }> = [
+  { id: 'membros_inferiores', label: 'Membros inferiores' }, { id: 'costas', label: 'Costas' }, { id: 'peito', label: 'Peito' }, { id: 'ombro', label: 'Ombro' },
+  { id: 'biceps', label: 'Bíceps' }, { id: 'triceps', label: 'Tríceps' }, { id: 'abdomen', label: 'Abdômen' },
+];
+interface StrengthSplitValue { hasPreference: boolean | null; days: Record<string, string[]> }
+interface StrengthSplitStatus { revision: number; applies: boolean; pending: boolean; strengthDays: number[]; current: { hasPreference: boolean; days: Record<string, string[]> } | null; previous: { hasPreference: boolean; days: Record<string, string[]> } | null }
+
+async function loadStrengthSplitStatus(accessToken: string): Promise<StrengthSplitStatus | null> {
+  try {
+    const response = await fetch(`${API_URL}/me/strength-split`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!response.ok) return null;
+    const data = (await response.json()) as Partial<StrengthSplitStatus>;
+    if (typeof data.revision !== 'number' || typeof data.applies !== 'boolean' || typeof data.pending !== 'boolean' || !Array.isArray(data.strengthDays)) return null;
+    return data as StrengthSplitStatus;
+  } catch {
+    return null;
+  }
+}
+
+// Valor inicial da tela: resposta da rotina atual (vale como esta) ou, se a rotina mudou, so' as marcacoes antigas como ponto de partida — a pergunta 1 volta em branco para ela confirmar de novo.
+function initialStrengthSplit(status: StrengthSplitStatus | null): StrengthSplitValue {
+  if (status?.current) return { hasPreference: status.current.hasPreference, days: status.current.days };
+  if (status?.previous?.hasPreference) return { hasPreference: null, days: status.previous.days };
+  return { hasPreference: null, days: {} };
+}
+
+// Corpo enviado ao servidor; null quando nao ha musculacao nos dias ou a pergunta 1 ainda nao foi respondida.
+function strengthSplitPayload(value: StrengthSplitValue, strengthWeekdays: number[]) {
+  if (strengthWeekdays.length === 0 || value.hasPreference === null) return null;
+  if (!value.hasPreference) return { hasPreference: false };
+  const days: Record<string, string[]> = {};
+  for (const weekday of strengthWeekdays) days[String(weekday)] = value.days[String(weekday)] ?? [];
+  return { hasPreference: true, days };
+}
+
+function StrengthSplitForm({ strengthDays, value, onChange }: { strengthDays: Array<{ weekday: number; label: string }>; value: StrengthSplitValue; onChange: (next: StrengthSplitValue) => void }) {
+  const choiceStyle = (selected: boolean) => ({ borderWidth: 1.5, borderColor: selected ? PRColors.ocean : PRColors.stone, backgroundColor: selected ? PRColors.ocean : '#FFFFFF', borderRadius: 18, paddingVertical: 8, paddingHorizontal: 14, marginRight: 8, marginBottom: 8 });
+  const choiceText = (selected: boolean) => ({ color: selected ? '#FFFFFF' : PRColors.ocean, fontSize: 14, fontWeight: '600' as const });
+  const toggle = (weekday: number, group: string) => {
+    const key = String(weekday);
+    const current = value.days[key] ?? [];
+    onChange({ ...value, days: { ...value.days, [key]: current.includes(group) ? current.filter((item) => item !== group) : [...current, group] } });
+  };
+  return (
+    <View style={{ borderWidth: 1, borderColor: PRColors.stone, borderRadius: 8, backgroundColor: '#FAFAF8', padding: 12, marginTop: 12 }}>
+      <Text style={styles.formSectionTitle}>Divisão da musculação</Text>
+      <Text style={[styles.inputLabel, { marginTop: 6 }]}>Você tem preferência de distribuição dos treinos por grupo muscular?</Text>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 8 }}>
+        <Pressable style={choiceStyle(value.hasPreference === false)} onPress={() => onChange({ ...value, hasPreference: false })} accessibilityRole="button"><Text style={choiceText(value.hasPreference === false)}>Não, sem preferência</Text></Pressable>
+        <Pressable style={choiceStyle(value.hasPreference === true)} onPress={() => onChange({ ...value, hasPreference: true })} accessibilityRole="button"><Text style={choiceText(value.hasPreference === true)}>Sim, tenho</Text></Pressable>
+      </View>
+      {value.hasPreference === false ? <Text style={styles.copyTight}>Tudo bem: a divisão dos grupos musculares fica por conta da nossa IA.</Text> : null}
+      {value.hasPreference === true ? (
+        <>
+          <Text style={[styles.copyTight, { marginBottom: 8 }]}>Marque o que você prefere treinar em cada dia de musculação. Pode marcar mais de um grupo. Dia sem nada marcado fica sem preferência.</Text>
+          {strengthDays.map((entry) => (
+            <View key={entry.weekday} style={{ marginBottom: 6 }}>
+              <Text style={styles.inputLabel}>{entry.label}</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 6 }}>
+                {STRENGTH_SPLIT_OPTIONS.map((option) => {
+                  const selected = (value.days[String(entry.weekday)] ?? []).includes(option.id);
+                  return <Pressable key={option.id} style={choiceStyle(selected)} onPress={() => toggle(entry.weekday, option.id)} accessibilityRole="button" accessibilityState={{ selected }}><Text style={choiceText(selected)}>{option.label}</Text></Pressable>;
+                })}
+              </View>
+            </View>
+          ))}
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+// Antes de gerar a semana: so' aparece para quem tem musculacao na rotina atual e ainda nao respondeu para ela (ex.: rotina cadastrada antes desta pergunta existir).
+function StrengthSplitGateModal({ gate, saving, error, onChange, onConfirm, onCancel }: { gate: { strengthDays: Array<{ weekday: number; label: string }>; value: StrengthSplitValue } | null; saving: boolean; error: string; onChange: (value: StrengthSplitValue) => void; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <Modal visible={gate !== null} transparent animationType="fade" onRequestClose={onCancel}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 16 }}>
+        <View style={{ backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, maxHeight: '90%' }}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.titleSmall}>Antes de montar a sua semana</Text>
+            {gate ? <StrengthSplitForm strengthDays={gate.strengthDays} value={gate.value} onChange={onChange} /> : null}
+            {error ? <Text style={[styles.statusMessage, { color: '#b42318' }]}>{error}</Text> : null}
+            <Pressable style={[styles.primaryButton, (saving || gate?.value.hasPreference == null) && styles.disabledButton, { marginTop: 12 }]} disabled={saving || gate?.value.hasPreference == null} onPress={onConfirm}>
+              <Text style={styles.primaryButtonText}>{saving ? 'Salvando...' : 'Continuar e gerar o treino'}</Text>
+            </Pressable>
+            <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={onCancel}><Text style={styles.secondaryButtonText}>Cancelar</Text></Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // (26/10/2026) FORMULARIO UNICO DA ROTINA: usado no primeiro cadastro (depois da entrevista) e na edicao pelo menu. Le a rotina direto da API, confere a revisao ao salvar
 // (409 = alterada em outra tela/pelo treinador), mostra de volta o que foi efetivamente gravado e nunca confirma sucesso quando a gravacao nao foi confirmada.
 function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack, onGoToWeek }: { accessToken: string; firstTime: boolean; onSaved: (wasFirstTime: boolean) => void; onBack: () => void; onGoToWeek?: () => void }) {
@@ -7316,6 +7454,13 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack, onGoToWeek
   const [status, setStatus] = React.useState('');
   const [statusOk, setStatusOk] = React.useState(false);
   const [observation, setObservation] = React.useState('');
+  // Preferencia de divisao da musculacao (16/11/2026): respondida aqui, junto com a rotina, e gravada na mesma transacao.
+  const [split, setSplit] = React.useState<StrengthSplitValue>({ hasPreference: null, days: {} });
+  React.useEffect(() => {
+    let cancelled = false;
+    void loadStrengthSplitStatus(accessToken).then((status) => { if (!cancelled && status) setSplit(initialStrengthSplit(status)); });
+    return () => { cancelled = true; };
+  }, [accessToken]);
   // (01/11/2026) Dica de longão só para quem tem prova alvo ativa de 21 km ou mais. Se a consulta falhar, a dica simplesmente não aparece (é só orientação, nunca bloqueia a rotina).
   const [hasLongRaceTarget, setHasLongRaceTarget] = React.useState(false);
   React.useEffect(() => {
@@ -7342,11 +7487,21 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack, onGoToWeek
     return () => { cancelled = true; };
   }, [accessToken, attempt]);
 
+  const strengthSplitDays = (days ?? [])
+    .filter((day) => !day.modalities.includes('Sem treinos') && day.modalities.some((modality) => normalizeModality(modality) === 'forca'))
+    .map((day) => ({ weekday: day.weekday, label: day.label }));
+
   async function save() {
     if (!days) return;
+    // Quem tem musculacao na rotina responde a pergunta da divisao antes de salvar (Nao = sem preferencia).
+    if (strengthSplitDays.length > 0 && split.hasPreference === null) {
+      setStatus('Responda se você tem preferência de divisão dos grupos musculares na musculação (abaixo, em "Divisão da musculação"). Se não tiver, toque em "Não, sem preferência".');
+      setStatusOk(false);
+      return;
+    }
     setSaving(true);
     setStatus('');
-    const result = await saveRoutineAvailability(accessToken, days, observation, revision);
+    const result = await saveRoutineAvailability(accessToken, days, observation, revision, strengthSplitPayload(split, strengthSplitDays.map((entry) => entry.weekday)));
     if (result.snapshot) { setRevision(result.snapshot.revision); setDays(routineFromSavedAvailability(result.snapshot.availability)); }
     setStatus(result.message);
     setStatusOk(result.ok);
@@ -7402,6 +7557,7 @@ function RoutineEditScreen({ accessToken, firstTime, onSaved, onBack, onGoToWeek
         ) : null}
       </View>
       <RoutineEditor routineDays={days} onChange={setDays} />
+      {strengthSplitDays.length > 0 ? <StrengthSplitForm strengthDays={strengthSplitDays} value={split} onChange={setSplit} /> : null}
       {allRest ? <Text style={[styles.formHint, { marginTop: 8 }]}>Todos os dias estão como "Sem treinos": isso é uma pausa. Nenhum programa é gerado até você incluir dias de treino.</Text> : null}
       <Text style={[styles.inputLabel, { marginTop: 12 }]}>Quer contar algo sobre a sua rotina? (opcional)</Text>
       <TextInput style={styles.input} value={observation} onChangeText={setObservation} multiline numberOfLines={3} maxLength={2000} placeholder="Ex.: trabalho em turnos, treino musculação em outra academia" />
@@ -13858,13 +14014,13 @@ function routineSignatureOf(days: Array<{ weekday: number; noTraining: boolean; 
 
 // Grava a semana INTEIRA com a revisao carregada. So' devolve ok:true quando o servidor confirmou (saved/unchanged) E a rotina gravada corresponde ao que foi enviado;
 // em qualquer outro caso devolve a rotina que esta de fato gravada (snapshot) para a tela mostrar.
-async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[], observation: string, expectedRevision: number): Promise<{ ok: boolean; saved: boolean; message: string; snapshot?: RoutineSnapshot }> {
+async function saveRoutineAvailability(accessToken: string, routineDays: RoutineDay[], observation: string, expectedRevision: number, strengthSplit: { hasPreference: boolean; days?: Record<string, string[]> } | null = null): Promise<{ ok: boolean; saved: boolean; message: string; snapshot?: RoutineSnapshot }> {
   const sent = routineToAvailability(routineDays);
   try {
     const response = await fetch(`${API_URL}/me/availability`, {
       method: 'PUT',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ availability: sent, expectedRevision, ...(observation.trim() ? { observation: observation.trim() } : {}) }),
+      body: JSON.stringify({ availability: sent, expectedRevision, ...(observation.trim() ? { observation: observation.trim() } : {}), ...(strengthSplit ? { strengthSplit } : {}) }),
     });
     if (response.status === 409) {
       const body = (await response.json().catch(() => null)) as { revision?: number; availability?: SavedAvailabilityDay[] } | null;

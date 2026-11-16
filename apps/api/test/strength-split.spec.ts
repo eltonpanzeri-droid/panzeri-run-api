@@ -142,6 +142,84 @@ describe('ligacoes estaticas', () => {
   it('a gravacao da rotina nao apaga a resposta (so a revisao muda, e a resposta antiga deixa de valer sozinha)', () => {
     const routine = read('src', 'me', 'routine.service.ts');
     expect(routine).toContain('update: { revision }');
-    expect(routine).not.toContain('strengthSplit');
+    // a atualizacao da revisao nunca limpa a resposta; so a resposta enviada junto (storeSplit) a reescreve
+    expect(routine).toContain('storeSplit(revision)');
+  });
+});
+
+describe('resposta enviada junto com a rotina (mesma transacao)', () => {
+  const { RoutineService } = jest.requireActual('../src/me/routine.service') as typeof import('../src/me/routine.service');
+  const day = (weekday: number, modalities: string[]) => ({ weekday, noTraining: modalities.length === 0, modalities, availableMin: modalities.length ? 45 : 0, modalityDurations: Object.fromEntries(modalities.map((m) => [m, 45])) });
+  const week = (strength: number[]) => Array.from({ length: 7 }, (_, weekday) => day(weekday, strength.includes(weekday) ? ['forca'] : weekday === 1 ? ['corrida'] : []));
+
+  function build(existing: ReturnType<typeof week> | null, revision: number) {
+    const state = { revision, strengthSplit: null as unknown };
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ locked: '' }]),
+      weeklyRoutineState: { findUnique: jest.fn(async () => (existing ? state : null)), upsert: jest.fn().mockResolvedValue({}) },
+      weeklyAvailability: { findMany: jest.fn(async () => existing ?? []), deleteMany: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({}) },
+      weeklyRoutineChange: { create: jest.fn().mockResolvedValue({}) },
+      user: { update: jest.fn().mockResolvedValue({}), findUnique: jest.fn().mockResolvedValue(null) },
+      trainingPlan: { findFirst: jest.fn().mockResolvedValue({ id: 'p' }) },
+      onboardingInterview: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    const prisma = { ...tx, $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
+    const routine = new RoutineService(prisma as never, { isGenerationInProgress: jest.fn().mockResolvedValue(false), generateFirstWeekIfNeeded: jest.fn() } as never, { recordEvent: jest.fn() } as never, { notifyCoach: jest.fn() } as never, { } as never);
+    return { routine, tx };
+  }
+  const splitCalls = (tx: ReturnType<typeof build>['tx']) => tx.weeklyRoutineState.upsert.mock.calls.map((c) => c[0]).filter((c) => c.update.strengthSplit);
+
+  it('rotina mudou: a resposta e gravada na revisao NOVA, junto com a rotina', async () => {
+    const { routine, tx } = build(week([2, 4]), 3);
+    await routine.replaceWeek('u1', week([2, 4, 6]) as never, { source: 'student', expectedRevision: 3, strengthSplit: { hasPreference: true, days: { '2': ['peito'], '6': ['costas', 'biceps'] } } });
+    const [call] = splitCalls(tx);
+    expect(call.update.strengthSplit).toMatchObject({ answeredRevision: 4, hasPreference: true, days: { '2': ['peito'], '4': [], '6': ['costas', 'biceps'] } });
+  });
+
+  it('rotina igual mas a aluna mudou a preferencia: grava na revisao atual, sem nova revisao', async () => {
+    const { routine, tx } = build(week([2, 4]), 3);
+    const result = await routine.replaceWeek('u1', week([2, 4]) as never, { source: 'student', expectedRevision: 3, strengthSplit: { hasPreference: true, days: { '4': ['membros_inferiores'] } } });
+    expect(result.status).toBe('unchanged');
+    expect(splitCalls(tx)[0].update.strengthSplit).toMatchObject({ answeredRevision: 3, hasPreference: true });
+  });
+
+  it('dia de musculacao que nao existe na rotina enviada: 400 e nada e gravado como resposta', async () => {
+    const { routine, tx } = build(week([2, 4]), 3);
+    await expect(routine.replaceWeek('u1', week([2, 4]) as never, { source: 'student', expectedRevision: 3, strengthSplit: { hasPreference: true, days: { '5': ['peito'] } } })).rejects.toBeInstanceOf(BadRequestException);
+    expect(splitCalls(tx)).toHaveLength(0);
+  });
+
+  it('rotina sem musculacao ou envio sem resposta: nenhuma resposta e gravada', async () => {
+    const a = build(week([2]), 3);
+    await a.routine.replaceWeek('u1', week([]) as never, { source: 'student', expectedRevision: 3, strengthSplit: { hasPreference: true, days: { '2': ['peito'] } } });
+    expect(splitCalls(a.tx)).toHaveLength(0);
+    const b = build(week([2]), 3);
+    await b.routine.replaceWeek('u1', week([2, 4]) as never, { source: 'student', expectedRevision: 3 });
+    expect(splitCalls(b.tx)).toHaveLength(0);
+  });
+});
+
+describe('telas do app (estatico)', () => {
+  const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
+  it('as sete opcoes pedidas por Elton, na ordem, e a pergunta 1 com "Nao, sem preferencia"', () => {
+    const block = app.slice(app.indexOf('const STRENGTH_SPLIT_OPTIONS'), app.indexOf('interface StrengthSplitValue'));
+    for (const label of ['Membros inferiores', 'Costas', 'Peito', 'Ombro', 'Bíceps', 'Tríceps', 'Abdômen']) expect(block).toContain(label);
+    expect(app).toContain('Você tem preferência de distribuição dos treinos por grupo muscular?');
+    expect(app).toContain('Não, sem preferência');
+  });
+  it('a rotina envia a resposta junto e recusa salvar sem a pergunta 1 respondida quando ha musculacao', () => {
+    expect(app).toContain('strengthSplitPayload(split, strengthSplitDays.map');
+    expect(app).toContain('...(strengthSplit ? { strengthSplit } : {})');
+    expect(app).toContain("strengthSplitDays.length > 0 && split.hasPreference === null");
+  });
+  it('fortalecimento para corredores nao conta como dia de musculacao', () => {
+    expect(app).toContain("normalizeModality(modality) === 'forca'");
+  });
+  it('antes de gerar a semana, quem ainda nao respondeu para a rotina atual responde (modal nos dois ramos da tela)', () => {
+    expect(app).toContain('splitStatus?.applies && splitStatus.pending');
+    expect((app.match(/<StrengthSplitGateModal /g) ?? []).length).toBe(2);
+  });
+  it('o aviso de troca de rotina durante a geracao aparece com a mensagem do servidor', () => {
+    expect(app).toContain('Nao consegui salvar a rotina: ${apiMessage}');
   });
 });

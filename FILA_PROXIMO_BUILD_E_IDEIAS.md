@@ -158,3 +158,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## 15/11/2026 — Leituras que faltavam e dor com zero
 - Entram no próximo build nativo (no PWA após o Deploy): leitura dos 8 indicadores que diziam "sem registros suficientes" por engano e os cinco botões da área Dor (dor por treino 0 a 3; zero para treino sem dor ou sem feedback; relatos avulsos).
+
+## 16/11/2026 — Divisão da musculação por dia (exige build nativo)
+- A pergunta "preferência de distribuição por grupo muscular" (na tela da rotina e antes de gerar a semana) é código do app: **PWA recebe no Deploy do app web; Android/iPhone nativo só no próximo build.** Quem está em build antigo não é perguntado e fica com a IA livre (o servidor não bloqueia).
+- Ideia não feita: mostrar a preferência da aluna no painel do treinador (aba Rotina).

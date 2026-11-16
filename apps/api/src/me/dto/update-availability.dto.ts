@@ -26,6 +26,11 @@ export class UpdateAvailabilityDto {
   @Type(() => AvailabilityDayDto)
   availability!: AvailabilityDayDto[];
 
+  // (16/11/2026) Preferencia de divisao da musculacao respondida JUNTO com a rotina e gravada na mesma transacao (ver common/strength-split.ts). Opcional: app antigo nao envia.
+  @IsOptional()
+  @IsObject()
+  strengthSplit?: { hasPreference: boolean; days?: Record<string, unknown> | null };
+
   // (10/2026) Observacao livre do aluno ao editar a rotina (ex.: "faco musculacao em outra academia"). Nao altera a rotina: segue ao fluxo geral de relatos
   // (Relator -> Prontuario), uma vez por texto.
   @IsOptional()

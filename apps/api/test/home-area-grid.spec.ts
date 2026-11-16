@@ -7,7 +7,7 @@ const mobile = (f: string) => readFileSync(join(__dirname, '..', '..', 'mobile',
 describe('grade das seis areas da Evolucao', () => {
   it('tem as seis areas, na ordem combinada', () => {
     const titles = [...mobile('home/EvolutionAreaGrid.tsx').matchAll(/title: '([^']+)', subtitle/g)].map((m) => m[1]);
-    expect(titles).toEqual(['Evolução do treinamento', 'Resposta à carga', 'Sono e recuperação', 'Bem-estar', 'Dor', 'Aderência']);
+    expect(titles).toEqual(['Evolução do treinamento', 'Resposta à carga', 'Sono e recuperação', 'Bem-estar e rotina', 'Dor', 'Aderência']);
   });
   it('a Home mostra a grade e abre a area escolhida; a aba Evolucao usa a mesma grade e abre direto na area', () => {
     expect(mobile('home/HomeScreen.tsx')).toContain('<EvolutionAreaGrid onOpenArea={onOpenArea} />');
