@@ -34,7 +34,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'messageLog', 'aiGenerationCost', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'weeklyRoutineChange', 'weeklyRoutineState', 'operationalReference', 'physiologicalIndicator', 'physiologicalAssessment', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualAiConsent', 'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'problemReportImage', 'problemReport', 'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoeEvent', 'shoePhoto', 'shoe', 'userDevice', 'userProfilePhoto', 'stravaConnection',
-  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerConnection', 'providerOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
+  'athletePrimarySource', 'stravaActivity', 'stravaAnalysisCache', 'stravaOAuthAttempt', 'polarConnection', 'polarOAuthAttempt', 'wahooConnection', 'wahooOAuthAttempt', 'providerConnection', 'wearDevice', 'providerOAuthAttempt', 'providerInboundEvent', 'funnelEvent', 'freeTesterEmail',
 ] as const;
 
 // ── B: preservar anonimizado (so' o necessario para registro financeiro/auditoria; nenhum dado de identificacao) ─────

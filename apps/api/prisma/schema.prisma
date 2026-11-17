@@ -104,6 +104,7 @@ model User {
   preferences           UserPreferences?
   availability          WeeklyAvailability[]
   routineState          WeeklyRoutineState?
+  wearDevices           WearDevice[]
   routineChanges        WeeklyRoutineChange[]
   tests                 FitnessTest[]
   physiologicalAssessments PhysiologicalAssessment[]
@@ -2784,4 +2785,25 @@ model ProblemReportImage {
   createdAt DateTime      @default(now())
 
   @@index([reportId])
+}
+
+// Relogio Wear OS pareado por codigo (17/11/2026, fase 1). Sem aluna (userId null) = pareamento pedido pelo relogio e ainda nao confirmado. Codigo, segredo de consulta e credencial do relogio ficam so'
+// como hash SHA-256 (nunca em claro). A credencial so' le os treinos da propria aluna; retirar o relogio (revokedAt) a invalida.
+model WearDevice {
+  id               String    @id @default(uuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceName       String?
+  platform         String    @default("wear_os")
+  pairingCodeHash  String?   @unique
+  pollSecretHash   String?
+  pairingExpiresAt DateTime?
+  confirmedAt      DateTime?
+  tokenHash        String?   @unique
+  tokenIssuedAt    DateTime?
+  lastSeenAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([userId])
 }
