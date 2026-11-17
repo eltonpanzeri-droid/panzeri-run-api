@@ -145,7 +145,7 @@ describe('Asaas — pagamento confirmado, primeira compra e transicoes', () => {
     const h = withBilling(build({ userStatus: 'active', studentCode: 7, statusChanges: false }));
     await h.service.processAsaasWebhook('asaas-token', asaasEvent('PAYMENT_RECEIVED', 'pay_2'));
     const created = eventsCreated(h.billingEvent);
-    expect(created).toEqual([expect.objectContaining({ event: 'payment_confirmed', value: 19.9, externalRef: 'pay_2' })]);
+    expect(created.filter((e: { event?: string }) => e.event !== 'asaas_notice')).toEqual([expect.objectContaining({ event: 'payment_confirmed', value: 19.9, externalRef: 'pay_2' })]);
     expect(h.billingSubscription.updateMany).not.toHaveBeenCalled();
   });
 

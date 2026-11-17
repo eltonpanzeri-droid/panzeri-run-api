@@ -12,6 +12,7 @@ import { fetchAppleSubscriptionVerdict, readAppleCredentials } from './apple-sto
 import { formatBRL } from './coupon-pricing';
 import { CouponDefinition, CouponPlan, evaluateCoupon, priceLabelFromCharge } from './coupon-rules';
 import { ensureExistingSubscriptionValue, verifyCreatedSubscriptionValue } from './coupon-charge';
+import { capturedNotice, isOverdueDay, isStalePaidEvent, noticeKindOfEvent, overdueNotice, pickLatestRelevantPayment, settledNotice, type AsaasNoticeKind } from './asaas-notices';
 
 type AsaasCustomer = { id: string };
 type AsaasCustomerList = { data: AsaasCustomer[] };
@@ -27,6 +28,9 @@ type AsaasPayment = {
   paymentDate?: string | null;
   clientPaymentDate?: string | null;
   confirmedDate?: string | null;
+  // 17/11/2026: data prevista (cartao) e data real em que o Asaas libera o dinheiro
+  estimatedCreditDate?: string | null;
+  creditDate?: string | null;
 };
 type AsaasPaymentList = { data: AsaasPayment[]; totalCount?: number };
 // Evento do RevenueCat (Apple App Store e Google Play usam o MESMO formato; o app_user_id e' o nosso userId).
@@ -99,7 +103,7 @@ export type SubscriptionExposure = {
 };
 type AsaasWebhookPayload = {
   event?: string;
-  payment?: { id?: string; subscription?: string; status?: string; value?: number };
+  payment?: { id?: string; subscription?: string; status?: string; value?: number; dueDate?: string; estimatedCreditDate?: string | null; creditDate?: string | null };
 };
 
 // 05/09: estado de UX derivado dos campos reais do banco — nunca expoe subscriptionStatus raw
@@ -1232,6 +1236,19 @@ export class BillingService {
       return { received: true, ignored: 'store_managed' };
     }
 
+    // 17/11/2026 (caso Fernando Teodoro): na cobranca por cartao o Asaas manda PAYMENT_RECEIVED cerca de 30 dias DEPOIS do PAYMENT_CONFIRMED. Esse segundo aviso e' da cobranca ANTIGA; se a mensalidade
+    // seguinte ja' esta vencida, ele reativava o aluno por engano (e mandava "Pagamento recebido" + e-mail de boas-vindas). Aviso de "pago" que NAO e' da cobranca mais recente nao reativa: so' registra o pagamento
+    // e avisa o treinador com o texto proprio. A conferencia so' acontece na transicao de quem NAO esta ativo (renovacao normal nao faz chamada extra); se o Asaas nao responder, vale o aviso (comportamento anterior).
+    if (appStatus === 'active' && payload.payment?.id && user.subscriptionStatus !== 'active') {
+      const stale = await this.isStalePaidEvent(subscriptionId, payload.payment.id);
+      if (stale) {
+        this.logger.warn(`Aviso de pagamento antigo ignorado para reativacao (userId=${billing.userId}, pagamento ${payload.payment.id}, evento ${payload.event}): ha cobranca mais recente em aberto.`);
+        if (payload.payment.value != null) await this.recordConfirmedPayment(billing.id, billing.userId, payload.payment.id, payload.payment.value, new Date(), false);
+        await this.sendAsaasNotice(billing.userId, payload, false);
+        return { received: true, ignored: 'stale_payment_event' };
+      }
+    }
+
     // 04/09: corrigida uma corrida real de webhook duplicado (o Asaas pode reenviar o mesmo evento
     // 2x, comum apos timeout de resposta) — antes lia subscriptionStatus ANTES do update pra decidir
     // se avisava o treinador/gerava a 1a semana, e duas entregas quase simultaneas liam o mesmo
@@ -1299,7 +1316,6 @@ export class BillingService {
         await this.assignStudentCodeIfNeeded(billing.userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: billing.userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(billing.userId);
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(billing.userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
@@ -1366,6 +1382,9 @@ export class BillingService {
         72,
       );
     }
+
+    // 17/11/2026: avisos do Asaas ao treinador com texto proprio para cada fase (pagamento feito, dinheiro liberado, mensalidade atrasada).
+    await this.sendAsaasNotice(billing.userId, payload, statusActuallyChanged && appStatus === 'active' && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode));
 
     return { received: true };
   }
@@ -1689,14 +1708,8 @@ export class BillingService {
 
     const providerStatus = subscription.status?.toLowerCase() ?? 'unknown';
     const todaySP = saoPauloDateString(new Date());
-    const relevantPayments = (payments.data ?? []).filter((payment) => {
-      const status = (payment.status ?? '').toLowerCase();
-      // >= hoje (nao so "> hoje"): vencimento e' HOJE ainda nao conta como atrasado/critico, so
-      // a partir de amanha. Ver comentario da saoPauloDateString acima.
-      const isFuturePending = status === 'pending' && payment.dueDate ? payment.dueDate >= todaySP : false;
-      return !isFuturePending;
-    });
-    const latestPayment = [...relevantPayments].sort((a, b) => (a.dueDate ?? a.dateCreated ?? '').localeCompare(b.dueDate ?? b.dateCreated ?? '')).at(-1);
+    // >= hoje (nao so "> hoje"): vencimento e' HOJE ainda nao conta como atrasado/critico, so a partir de amanha. Regra unica em asaas-notices.ts (usada tambem no aviso de pagamento antigo).
+    const { latest: latestPayment } = pickLatestRelevantPayment(payments.data ?? [], todaySP);
     const latestPaymentStatus = latestPayment?.status?.toLowerCase();
     // 27/08, achado real (aluno Rodrigo, mesmo dia da correcao acima): quando a UNICA cobranca
     // que o Asaas devolve pra essa assinatura e' a de hoje (ainda pendente, agora corretamente
@@ -1787,7 +1800,6 @@ export class BillingService {
         await this.assignStudentCodeIfNeeded(userId);
         const updatedUser = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { studentCode: true } });
         this.triggerFirstWeekGeneration(userId);
-        await this.telegram.notifyCoach(`Pagamento recebido no Panzeri Run!\n\nAluno: ${user.name} (Cod. ${formatStudentCode(updatedUser.studentCode)})\nE-mail: ${user.email}\nValor: R$ 19,90 via Asaas`);
         await this.messaging.sendEmail(userId, {
           trigger: 'payment_confirmed',
           subject: 'Pagamento confirmado - monte sua rotina de treinos!',
@@ -1833,7 +1845,65 @@ export class BillingService {
       ).catch(() => undefined);
     }
 
+    // 17/11/2026: avisos ao treinador na sincronizacao (cobre o que o webhook perdeu): pagamento e atraso, com a mensalidade e a data. Cada aviso sai UMA vez por cobranca (dedupe por pagamento).
+    if (latestPayment?.id) {
+      const kind: AsaasNoticeKind | null = appStatus === 'active' && latestPaymentStatus === 'confirmed' ? 'captured'
+        : appStatus === 'active' && ACTIVE_STATUSES.has(latestPaymentStatus ?? '') ? 'settled'
+        : appStatus === 'overdue' && latestPaymentStatus && (OVERDUE_STATUSES.has(latestPaymentStatus) || latestPaymentStatus === 'pending') && latestPaymentStatus !== 'refunded' && latestPaymentStatus !== 'refund_requested' && !latestPaymentStatus.startsWith('chargeback') ? 'overdue'
+        : null;
+      if (kind) await this.sendAsaasNoticeKind(userId, kind, latestPayment, statusActuallyChanged && appStatus === 'active' && isFirstPurchaseTransition(user.subscriptionStatus, user.studentCode));
+    }
+
     return { providerStatus: latestPaymentStatus ?? providerStatus, appStatus, nextChargeAt };
+  }
+
+  // ---- Avisos do Asaas ao treinador (17/11/2026) ---------------------------------------------------
+  // Aviso de pagamento ANTIGO? (a cobranca mais recente e' outra e nao esta paga). Sem resposta do Asaas: nao e' antigo (vale o aviso, como antes).
+  private async isStalePaidEvent(subscriptionId: string, paymentId: string): Promise<boolean> {
+    try {
+      const list = await this.asaasRequest<AsaasPaymentList>(`/payments?subscription=${subscriptionId}`);
+      return isStalePaidEvent(paymentId, list.data ?? [], saoPauloDateString(new Date()), ACTIVE_STATUSES);
+    } catch (error) {
+      this.logger.warn(`Nao consegui conferir a cobranca mais recente no Asaas (${paymentId}): ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  // Envia o aviso do evento do webhook, completando vencimento/data de liberacao pelo Asaas quando o aviso nao trouxer.
+  private async sendAsaasNotice(userId: string, payload: AsaasWebhookPayload, firstPayment: boolean): Promise<void> {
+    const kind = noticeKindOfEvent(payload.event);
+    const payment = payload.payment;
+    if (!kind || !payment?.id) return;
+    let facts: { id: string; dueDate?: string; estimatedCreditDate?: string | null } = { id: payment.id, dueDate: payment.dueDate, estimatedCreditDate: payment.estimatedCreditDate };
+    if (!facts.dueDate || (kind === 'captured' && !facts.estimatedCreditDate)) {
+      try {
+        const detail = await this.asaasRequest<AsaasPayment>(`/payments/${payment.id}`);
+        facts = { id: payment.id, dueDate: facts.dueDate ?? detail.dueDate, estimatedCreditDate: facts.estimatedCreditDate ?? detail.estimatedCreditDate ?? detail.creditDate };
+      } catch {
+        this.logger.warn(`Aviso do Asaas sem detalhe do pagamento ${payment.id}: vencimento ficou sem data.`);
+      }
+    }
+    await this.sendAsaasNoticeKind(userId, kind, facts, firstPayment);
+  }
+
+  private async sendAsaasNoticeKind(userId: string, kind: AsaasNoticeKind, payment: { id?: string; dueDate?: string; estimatedCreditDate?: string | null; creditDate?: string | null }, firstPayment: boolean): Promise<void> {
+    try {
+      if (!payment.id) return;
+      // Atraso so' a partir do dia seguinte ao vencimento (o aluno pode pagar ate o fim do dia).
+      if (kind === 'overdue' && !isOverdueDay(payment.dueDate, saoPauloDateString(new Date()))) return;
+      const ref = `${kind}:${payment.id}`;
+      if (await this.prisma.billingEvent.findFirst({ where: { event: 'asaas_notice', externalRef: ref }, select: { id: true } })) return; // webhook repetido ou sincronizacao: um aviso so' por cobranca
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true, studentCode: true } });
+      if (!user) return;
+      const code = formatStudentCode(user.studentCode);
+      const text = kind === 'captured' ? capturedNotice({ name: user.name, code, dueDate: payment.dueDate ?? null, creditDate: payment.estimatedCreditDate ?? payment.creditDate ?? null, firstPayment })
+        : kind === 'settled' ? settledNotice({ name: user.name, code, dueDate: payment.dueDate ?? null, firstPayment })
+        : overdueNotice({ name: user.name, code, dueDate: payment.dueDate ?? null });
+      await this.prisma.billingEvent.create({ data: { userId, event: 'asaas_notice', externalRef: ref } });
+      await this.telegram.notifyCoach(text);
+    } catch (error) {
+      this.logger.warn(`Aviso do Asaas (${kind}) nao enviado: ${(error as Error).message}`); // aviso ao treinador nunca derruba webhook nem sincronizacao
+    }
   }
 
   // ---- Estado comercial temporal (19/09, fundacao longitudinal) ----------------------------------
