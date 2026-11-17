@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icone provisorio (letra P estilizada); o icone oficial do Panzeri Run entra na fase 4. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,30h18c8,0 14,5 14,13s-6,13 -14,13h-8v22h-10z M50,38v10h7c3,0 5,-2 5,-5s-2,-5 -5,-5z" />
+</vector>

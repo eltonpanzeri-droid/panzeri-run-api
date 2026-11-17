@@ -1,0 +1,24 @@
+# Panzeri Run para Wear OS (Galaxy Watch, Pixel Watch e outros)
+
+Fase 2 (17/11/2026): app de relógio **somente leitura** — pareia por código e mostra os treinos da semana, guardados no relógio (funciona sem internet). Sem permissão de saúde, sensor ou localização. Gravar treino e GPS (fase 3) e publicação (fase 4) vêm depois.
+
+- Kotlin + Compose para Wear OS. `applicationId = com.panzerirun.app` (mesma ficha do app do celular na Play). `minSdk 30`.
+- Pareamento: o relógio pede um código (`POST /wear/pairing/start`), a aluna digita no Panzeri Run (Dispositivos e integrações > Samsung) e o relógio recebe uma credencial só de leitura (`/wear/pairing/poll`, uma vez). Semana: `GET /wear/week`.
+- A credencial fica no Android Keystore. Se o armazenamento seguro falhar, ela fica só na memória (nunca em arquivo comum).
+
+## Compilar e testar (Windows, sem Android Studio)
+Pré-requisitos: JDK 17 e Android SDK (`ANDROID_HOME`). Crie `local.properties` com `sdk.dir=...` se precisar.
+
+```
+.\gradlew.bat testDebugUnitTest assembleDebug
+```
+
+Emulador de relógio (imagem `system-images;android-34;android-wear;x86_64`, AVD `wear5`) e servidor de teste sem banco:
+
+```
+node tools/mock-server.js                       # http://localhost:8787 (no emulador: http://10.0.2.2:8787)
+.\gradlew.bat assembleDebug -Pwear.apiUrl=http://10.0.2.2:8787
+adb install -r app\build\outputs\apk\debug\app-debug.apk
+```
+
+A variante `debug` aceita HTTP (só para esse servidor de teste); a `release` fala só HTTPS com o servidor de produção. Nunca aponte o teste para o banco de produção.

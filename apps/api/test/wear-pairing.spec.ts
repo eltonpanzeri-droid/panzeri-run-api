@@ -248,3 +248,28 @@ describe('cartao no app (estatico)', () => {
     expect(card).toContain('Retirar');
   });
 });
+
+describe('app do relogio (apps/wearos), fase 2 somente leitura (estatico)', () => {
+  const wear = (...parts: string[]) => readFileSync(join(__dirname, '..', '..', 'wearos', ...parts), 'utf8');
+  it('so pede internet: nenhuma permissao de saude, sensor ou localizacao nesta fase', () => {
+    const manifest = wear('app', 'src', 'main', 'AndroidManifest.xml');
+    const permissions = [...manifest.matchAll(/<uses-permission android:name="([^"]+)"/g)].map((m) => m[1]);
+    expect(permissions).toEqual(['android.permission.INTERNET']);
+    expect(manifest).not.toMatch(/LOCATION|BODY_SENSORS|ACTIVITY_RECOGNITION|health\./i);
+  });
+  it('HTTP sem criptografia so existe na variante debug; a release nao o declara', () => {
+    expect(wear('app', 'src', 'debug', 'AndroidManifest.xml')).toContain('usesCleartextTraffic="true"');
+    expect(wear('app', 'src', 'main', 'AndroidManifest.xml')).not.toContain('usesCleartextTraffic');
+  });
+  it('chama so as tres rotas do relogio e usa o mesmo identificador do app do celular', () => {
+    const api = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'data', 'Api.kt');
+    for (const route of ['/wear/pairing/start', '/wear/pairing/poll', '/wear/week']) expect(api).toContain(route);
+    expect(api).not.toMatch(/"\/me\//);
+    expect(wear('app', 'build.gradle.kts')).toContain('applicationId = "com.panzerirun.app"');
+  });
+  it('a credencial nunca vai para arquivo comum', () => {
+    const store = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'data', 'Store.kt');
+    expect(store).toContain('EncryptedSharedPreferences');
+    expect(store).not.toMatch(/plain\.edit\(\)\.putString\("token"/);
+  });
+});
