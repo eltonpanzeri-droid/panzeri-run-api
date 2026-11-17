@@ -2,24 +2,13 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Switch, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Text } from '../PtText';
-import {
-  isAppleHealthSupported,
-  listScheduledWorkouts,
-  requestWorkoutAuthorization,
-  scheduleCustomWorkoutSpec,
-  validateCustomWorkoutSpec,
-} from '../../modules/panzeri-apple-health/src';
-import { AUTO_SEND_STORAGE_KEY, autoSendWeekToAppleWatch, AutoSendSession, syncSummaryMessage } from './autoSendWeekToAppleWatch';
-import { AppleEligibility, AppleWatchApi, ApplePrepare } from './sendSessionToAppleWatch';
+import { isAppleHealthSupported, requestWorkoutAuthorization } from '../../modules/panzeri-apple-health/src';
+import { AUTO_SEND_STORAGE_KEY, syncSummaryMessage } from './autoSendWeekToAppleWatch';
+import { makeWatchCall, syncWeekToAppleWatch } from './syncWeekNow';
 
 // Cartao "Envio de treinos ao Apple Watch" (06/11/2026, ordem de Elton): fica em Dispositivos e integracoes > Apple Watch. Substitui o botao "Enviar ao Apple Watch" que aparecia no card de cada
 // treino (inclusive para quem nao tem Apple Watch). A aluna AUTORIZA uma vez (a folha do iPhone para agendar treinos no relogio) e toca em "Sincronizar envio de treinos ao relogio" quando quiser;
 // com a autorizacao marcada, os treinos dos proximos 7 dias tambem seguem sozinhos ao abrir o Panzeri Run (useAppleWatchAutoSend). Desmarcar desliga tudo. So' no iPhone nativo.
-
-function localTodayIso(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
 
 export function AppleWatchWorkoutsCard({ accessToken, apiUrl }: { accessToken: string; apiUrl: string }) {
   const [authorized, setAuthorized] = useState(false);
@@ -31,18 +20,7 @@ export function AppleWatchWorkoutsCard({ accessToken, apiUrl }: { accessToken: s
     void AsyncStorage.getItem(AUTO_SEND_STORAGE_KEY).then((value) => setAuthorized(value === '1')).catch(() => undefined);
   }, []);
 
-  const call = useCallback(
-    async (method: 'GET' | 'POST', path: string, body?: unknown) => {
-      const response = await fetch(`${apiUrl}${path}`, {
-        method,
-        headers: { Authorization: `Bearer ${accessToken}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    },
-    [apiUrl, accessToken],
-  );
+  const call = useCallback(makeWatchCall(apiUrl, accessToken), [apiUrl, accessToken]);
 
   const onToggle = useCallback(async (next: boolean) => {
     setMessage(null);
@@ -73,25 +51,7 @@ export function AppleWatchWorkoutsCard({ accessToken, apiUrl }: { accessToken: s
     setBusy(true);
     setMessage(null);
     try {
-      const plan = (await call('GET', '/training-plans/current')) as { sessions?: AutoSendSession[] } | null;
-      const api: AppleWatchApi = {
-        prepare: (id) => call('POST', `/me/apple-watch/sessions/${id}/deliveries`) as Promise<ApplePrepare>,
-        confirmSent: (deliveryId) => call('POST', `/me/apple-watch/deliveries/${deliveryId}/sent`),
-        reportFailure: (deliveryId, failure) => call('POST', `/me/apple-watch/deliveries/${deliveryId}/failed`, { message: failure }),
-      };
-      const summary = await autoSendWeekToAppleWatch(plan?.sessions ?? [], {
-        api,
-        eligibility: (id) => call('GET', `/me/apple-watch/sessions/${id}/eligibility`) as Promise<AppleEligibility>,
-        todayIso: localTodayIso(),
-        attempted: new Set<string>(), // toque manual: tenta tudo de novo
-        native: {
-          isSupported: isAppleHealthSupported,
-          validateCustomWorkoutSpec,
-          requestAuthorization: requestWorkoutAuthorization,
-          listScheduled: listScheduledWorkouts,
-          scheduleCustomWorkout: (planId, specJson, date) => scheduleCustomWorkoutSpec(planId, specJson, date),
-        },
-      });
+      const summary = await syncWeekToAppleWatch(call); // toque manual: tenta tudo de novo
       setMessage(syncSummaryMessage(summary));
     } catch {
       setMessage('Não foi possível sincronizar agora. Tente novamente.');

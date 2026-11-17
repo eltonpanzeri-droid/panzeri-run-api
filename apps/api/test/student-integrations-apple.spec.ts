@@ -64,3 +64,36 @@ describe('Apple Saúde no painel do treinador', () => {
     expect(view.atlas.note).toContain('só vão à IA se a aluna marcou');
   });
 });
+
+describe('Apple Watch: envio de treinos no painel do treinador (16/11/2026, caso Volnei)', () => {
+  const watch = (over: Partial<NonNullable<IntegrationsRaw['appleWatch']>> = {}) => ({ lastSentAt: D('2026-10-29T12:00:00Z'), upcoming: 5, sentUpcoming: 2, failures: [], ...over });
+
+  it('mostra quantos dos próximos treinos de corrida já foram ao relógio e avisa que o envio depende de abrir o app', () => {
+    const view = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']), appleWatch: watch() }), NOW, false));
+    const category = view.categories.find((c) => c.id === 'watch_delivery')!;
+    expect(category).toMatchObject({ direction: 'envia', count: 2, lastAt: '2026-10-29T12:00:00.000Z' });
+    expect(category.note).toContain('2 de 5');
+    expect(category.note).toContain('3 ainda não');
+    expect(category.note).toContain('abre o Panzeri Run no iPhone');
+  });
+
+  it('tudo enviado: sem frase de pendência; sem treino nos próximos dias: diz isso', () => {
+    const all = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']), appleWatch: watch({ upcoming: 3, sentUpcoming: 3 }) }), NOW, false)).categories.find((c) => c.id === 'watch_delivery')!;
+    expect(all.note).not.toContain('ainda não');
+    const none0 = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']), appleWatch: watch({ upcoming: 0, sentUpcoming: 0 }) }), NOW, false)).categories.find((c) => c.id === 'watch_delivery')!;
+    expect(none0.note).toContain('Nenhum treino de corrida');
+  });
+
+  it('falhas do iPhone viram falha da integração, agrupadas, com o erro real encurtado', () => {
+    const failure = { errorMessage: 'WorkoutKit nao autorizado (denied).', failedAt: D('2026-10-30T10:00:00Z'), requestedAt: D('2026-10-30T09:59:00Z') };
+    const view = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']), appleWatch: watch({ failures: [failure, failure] }) }), NOW, false));
+    expect(view.failures).toHaveLength(1);
+    expect(view.failures[0]).toMatchObject({ count: 2, status: 'gave_up' });
+    expect(view.failures[0].message).toContain('WorkoutKit nao autorizado');
+  });
+
+  it('quem nunca usou o Apple Watch não ganha a categoria (sem ruído)', () => {
+    const view = apple(buildStudentIntegrations('s1', base({ appleHealth: record(['activity']) }), NOW, false));
+    expect(view.categories.find((c) => c.id === 'watch_delivery')).toBeUndefined();
+  });
+});

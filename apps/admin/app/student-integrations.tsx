@@ -127,7 +127,7 @@ function IntegrationCard({ item, meta }: { item: Integration; meta: (typeof PROV
                         <span className="catIcon"><Icon size={16} /></span>
                         <div>
                           <strong>{c.label}{c.direction === 'envia' ? <small> · envio ao relógio</small> : null}</strong>
-                          <span className={`integrationBadge ${c.authorized === true ? 'ok' : 'neutral'}`}>{authText}</span>
+                          {c.id === 'watch_delivery' ? null : <span className={`integrationBadge ${c.authorized === true ? 'ok' : 'neutral'}`}>{authText}</span>}
                           <span className="catReceived">
                             {c.direction === 'envia'
                               ? (c.lastAt ? `Último envio aceito: ${when(c.lastAt)}` : 'Nenhum envio aceito')

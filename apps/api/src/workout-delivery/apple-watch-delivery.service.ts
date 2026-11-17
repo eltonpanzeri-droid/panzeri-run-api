@@ -72,6 +72,24 @@ export class AppleWatchDeliveryService {
     };
   }
 
+  // Corridas pendentes (sem feedback) dos proximos 7 dias do programa ativo e quantas ja' tem envio confirmado. Leitura pura; so' da propria conta.
+  async upcomingStatus(userId: string): Promise<{ upcoming: number; sent: number }> {
+    const today = todayInSaoPauloIso();
+    const from = new Date(`${today}T00:00:00.000Z`);
+    const to = new Date(from.getTime() + 7 * 86_400_000);
+    const sessions = await this.prisma.trainingSession.findMany({
+      where: { userId, scheduledDate: { gte: from, lte: to }, modality: { in: ['corrida', 'esteira'] }, completion: null, plan: { status: 'active' } },
+      select: { id: true },
+    });
+    if (sessions.length === 0) return { upcoming: 0, sent: 0 };
+    const sentRows = await this.prisma.workoutDelivery.findMany({
+      where: { provider: APPLE_WORKOUTKIT_PROVIDER, status: { in: ['sent', 'delivered_to_device'] }, trainingSessionId: { in: sessions.map((s) => s.id) } },
+      select: { trainingSessionId: true },
+    });
+    const sent = new Set(sentRows.map((row) => row.trainingSessionId));
+    return { upcoming: sessions.length, sent: sessions.filter((s) => sent.has(s.id)).length };
+  }
+
   // Cria ou REUTILIZA a identidade persistente da entrega. Idempotente e serializada por sessao (advisory lock): dois toques simultaneos ou
   // fechar/reabrir o app devolvem a MESMA entrega e o MESMO planId.
   async prepare(userId: string, sessionId: string): Promise<ApplePrepareResult> {

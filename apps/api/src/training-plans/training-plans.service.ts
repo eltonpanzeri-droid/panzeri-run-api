@@ -1850,9 +1850,11 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         notifMessage =
           `${unregisteredCount} treinos da semana passada ficaram sem registro. Por rigor na segurança da prescrição, não podemos considerá-los como feitos. Registre o que você fez para a IA ter seu histórico real.`;
       }
+      // (16/11/2026, caso Volnei) Quem ja' enviou treinos ao Apple Watch: o envio so' acontece com o Panzeri Run aberto no iPhone, entao o aviso lembra de abrir.
+      const usesAppleWatch = await this.prisma.workoutDelivery.findFirst({ where: { provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId } }, select: { id: true } }).then(Boolean).catch(() => false);
       await this.notifications.notifyUser(userId, {
         title: '🏃 Seu novo programa chegou!',
-        message: notifMessage,
+        message: usesAppleWatch ? `${notifMessage} Abra o Panzeri Run no iPhone para enviar os treinos da semana ao seu Apple Watch.` : notifMessage,
         type: 'info',
       });
     }

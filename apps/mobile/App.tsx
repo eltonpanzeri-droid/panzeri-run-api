@@ -28,6 +28,7 @@ import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
 import { AppleWatchWorkoutsCard } from './src/appleWatchDelivery/AppleWatchWorkoutsCard';
 import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAutoSend';
+import { AppleWatchPendingBanner } from './src/appleWatchDelivery/AppleWatchPendingBanner';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -5718,6 +5719,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Treino da semana</Text>
       <IgnoredActivitiesSection accessToken={accessToken} refreshKey={plan} onChanged={loadPlan} />
+      <AppleWatchPendingBanner accessToken={accessToken} apiUrl={API_URL} refreshKey={plan} />
       {routineAlignment?.canRegenerate && weekOffset === 0 ? (
         <View style={styles.coachBox}>
           <Text style={styles.formSectionTitle}>Sua rotina mudou depois que este programa foi gerado</Text>

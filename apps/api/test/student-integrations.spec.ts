@@ -234,6 +234,7 @@ describe('carregamento (consulta real ao banco, so leitura)', () => {
       wearableDailySummary: { aggregate: agg(null, 0) },
       wearableHrvSummary: { aggregate: agg(null, 0) }, wearableMetricRecord: { groupBy: jest.fn(async () => []) },
       providerInboundEvent: { findFirst: jest.fn(async () => ({ processedAt: D('2026-10-21T18:01:00Z') })), findMany: jest.fn(async () => []) },
+      trainingSession: { findMany: jest.fn(async () => []) },
       workoutDelivery: { findFirst: jest.fn(async () => ({ providerMetadata: { windowAcceptedAt: '2026-10-21T00:05:00.000Z' }, sentAt: D('2026-10-20T00:00:00Z') })), findMany: jest.fn(async () => []) },
       ...over,
     };

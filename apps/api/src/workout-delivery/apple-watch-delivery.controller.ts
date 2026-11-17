@@ -10,6 +10,12 @@ import { AppleWatchDeliveryService } from './apple-watch-delivery.service';
 export class AppleWatchDeliveryController {
   constructor(private readonly service: AppleWatchDeliveryService) {}
 
+  // Quantos treinos de corrida dos proximos 7 dias ja tem envio confirmado ao relogio (aviso "N treinos ainda nao estao no seu Apple Watch").
+  @Get('upcoming-status')
+  upcomingStatus(@CurrentUser() user: CurrentUserPayload) {
+    return this.service.upcomingStatus(user.sub);
+  }
+
   @Get('sessions/:sessionId/eligibility')
   eligibility(@CurrentUser() user: CurrentUserPayload, @Param('sessionId') sessionId: string) {
     return this.service.eligibility(user.sub, sessionId);

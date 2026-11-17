@@ -118,6 +118,8 @@ export interface IntegrationsRaw {
   // Apple Saude (30/10/2026): autorizacoes por grupo registradas no servidor + o que chegou por categoria (mesmo desenho do Health Connect).
   appleHealth?: { createdAt: Date; disconnectedAt: Date | null; grantedCategories: unknown; consentVersion: string | null; consentTextHash: string | null } | null;
   appleReceipts?: Record<string, ReceiptStat>;
+  // Envio de treinos ao Apple Watch (16/11/2026, caso Volnei): o envio so' acontece com o Panzeri Run aberto no iPhone, entao o painel mostra o que ja' foi enviado dos proximos 7 dias e as falhas recentes.
+  appleWatch?: { lastSentAt: Date | null; upcoming: number; sentUpcoming: number; failures: Array<{ errorMessage: string | null; failedAt: Date | null; requestedAt: Date }> };
   // Decisao da aluna sobre o Atlas para Polar/Wahoo ja' conectadas (so' existe depois que ela responde).
   legacyConsent?: Partial<Record<'polar' | 'wahoo', { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown } | null>>;
   // Saude e recuperacao da Polar (23/10/2026): autorizacao por categoria (linha propria 'polar_health') e o que chegou. Ausente => a aluna ainda nao escolheu.
@@ -453,6 +455,26 @@ function appleHealthEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
     };
   });
   const lastAt = categories.reduce<string | null>((latest, c) => (c.lastAt && (!latest || c.lastAt > latest) ? c.lastAt : latest), null);
+  const watch = raw.appleWatch;
+  const watchFailures: IntegrationFailureView[] = [];
+  if (watch) {
+    const pendingWatch = Math.max(0, watch.upcoming - watch.sentUpcoming);
+    categories.push({
+      id: 'watch_delivery', label: 'Treinos enviados ao Apple Watch', direction: 'envia', authorized: null, lastAt: iso(watch.lastSentAt), count: watch.sentUpcoming,
+      note: watch.upcoming === 0
+        ? 'Nenhum treino de corrida nos próximos 7 dias para enviar.'
+        : `${watch.sentUpcoming} de ${watch.upcoming} treino(s) de corrida dos próximos 7 dias já foram enviados ao relógio${pendingWatch > 0 ? `; ${pendingWatch} ainda não. O envio só acontece quando a aluna abre o Panzeri Run no iPhone (depois de ter tocado uma vez em "Sincronizar envio de treinos ao relógio").` : '.'}`,
+    });
+    const grouped = new Map<string, IntegrationFailureView>();
+    for (const failure of watch.failures) {
+      const detail = (failure.errorMessage ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      const message = `O iPhone não conseguiu agendar um treino no Apple Watch${detail ? ` (erro: ${detail})` : ''}.`;
+      const at = (failure.failedAt ?? failure.requestedAt).toISOString();
+      const existing = grouped.get(message);
+      if (existing) { existing.count += 1; if (at > existing.at) existing.at = at; } else grouped.set(message, { at, message, count: 1, status: 'gave_up' });
+    }
+    watchFailures.push(...[...grouped.values()].sort((a, b) => (a.at < b.at ? 1 : -1)));
+  }
   const warnings: string[] = ['A autorização do Apple Saúde é feita no celular da aluna (duas etapas: a folha do iPhone e a tela de grupos do Panzeri Run). Aqui aparecem os grupos registrados no servidor e os dados que de fato chegaram.'];
   if (active && !consentCurrent) warnings.push('O texto das autorizações mudou: o compartilhamento está suspenso até a aluna confirmar o texto atualizado no aplicativo.');
   if (active && consentCurrent && !categories.some((c) => c.authorized)) warnings.push('A aluna não autorizou nenhum grupo no Panzeri Run: nada novo é recebido.');
@@ -467,7 +489,7 @@ function appleHealthEntry(raw: IntegrationsRaw): StudentIntegrationView | null {
       applies: true, authorized: active && consentCurrent, needsNewAuthorization: Boolean(active && !consentCurrent), since: null, systemEnabled: null,
       note: active && consentCurrent ? 'O uso pela IA segue os grupos autorizados (sem autorização separada). O percurso GPS nunca é enviado; pressão arterial, glicemia e ciclo menstrual só vão à IA se a aluna marcou esses grupos.' : 'Sem autorização vigente: nenhum dado do Apple Saúde é enviado à IA.',
     },
-    failures: [], warnings,
+    failures: watchFailures, warnings,
   };
 }
 
@@ -555,6 +577,18 @@ export class StudentIntegrationsService {
       vo2_max: metricStat('vo2_max'), body_composition: metricStat('body_composition'), pulse_ox: metricStat('pulse_ox'), skin_temperature: metricStat('skin_temperature'), respiratory_rate: metricStat('respiratory_rate'), nutrition: metricStat('nutrition', 'hydration'),
     };
 
+    // Envio de treinos ao Apple Watch (WorkoutKit): corridas dos proximos 7 dias e quais ja' tem envio confirmado; falhas dos ultimos 7 dias.
+    const watchTodayIso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(now);
+    const watchFrom = new Date(`${watchTodayIso}T00:00:00.000Z`);
+    const watchTo = new Date(watchFrom.getTime() + 7 * 86_400_000);
+    const [watchSessions, watchSentRows, watchLastSent, watchFailureRows] = await Promise.all([
+      this.prisma.trainingSession.findMany({ where: { userId, scheduledDate: { gte: watchFrom, lte: watchTo }, modality: { in: ['corrida', 'esteira'] }, completion: null, plan: { status: 'active' } }, select: { id: true } }),
+      this.prisma.workoutDelivery.findMany({ where: { provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId, scheduledDate: { gte: watchFrom, lte: watchTo } } }, select: { trainingSessionId: true } }),
+      this.prisma.workoutDelivery.findFirst({ where: { provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, select: { sentAt: true, requestedAt: true } }),
+      this.prisma.workoutDelivery.findMany({ where: { provider: 'apple_workoutkit', status: 'failed', requestedAt: { gte: since7 }, trainingSession: { userId } }, orderBy: { requestedAt: 'desc' }, take: 20, select: { errorMessage: true, failedAt: true, requestedAt: true } }),
+    ]);
+    const watchSentIds = new Set(watchSentRows.map((row) => row.trainingSessionId));
+    const hasAppleWatchHistory = watchSentRows.length > 0 || watchLastSent !== null || watchFailureRows.length > 0;
     // Apple Saude: autorizacoes por grupo (so' colunas de estado) e o que chegou por categoria.
     const apWhere = { userId, provider: 'apple_health' };
     const apSensorsWhere = { userId, provider: 'apple_health', OR: [{ avgHeartRateBpm: { not: null } }, { cadenceAvg: { not: null } }, { powerAvgWatts: { not: null } }, { elevationGainMeters: { not: null } }] };
@@ -634,7 +668,8 @@ export class StudentIntegrationsService {
       zepp_activity_sensors: { lastAt: sensorsRow?.rawActivity.receivedAt ?? null, count: sensorsCount },
       zepp_activity_route: { lastAt: routeRow?.rawActivity.receivedAt ?? null, count: routeCount },
       zepp_sleep: sleep, zepp_daily: daily, zepp_resting_hr: restingHr, zepp_hrv: hrv,
-      healthConnect: hcRow, hcReceipts, appleHealth: apRow, appleReceipts, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
+      healthConnect: hcRow, hcReceipts, appleHealth: apRow, appleReceipts,
+      appleWatch: hasAppleWatchHistory ? { lastSentAt: watchLastSent ? watchLastSent.sentAt ?? watchLastSent.requestedAt : null, upcoming: watchSessions.length, sentUpcoming: watchSessions.filter((s) => watchSentIds.has(s.id)).length, failures: watchFailureRows } : undefined, legacyConsent: { polar: polarConsentRow, wahoo: wahooConsentRow },
       polarHealth: { row: polarHealthRow as PolarHealthRow | null, receipts: { sleep: polarSleep, hrv: polarHrv, daily_activity: polarDaily } },
       zeppLastProcessedEventAt: lastEvent?.processedAt ?? null,
       zeppWorkoutLastAcceptedAt: acceptedAt,

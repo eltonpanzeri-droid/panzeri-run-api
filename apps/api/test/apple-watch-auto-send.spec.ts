@@ -87,7 +87,8 @@ describe('ligacao no Panzeri Run (06/11/2026: autorizacao + botao no cartao Appl
     expect(card).toContain('Autorizo o envio de treinos ao Apple Watch');
     expect(card).toContain("await AsyncStorage.setItem(AUTO_SEND_STORAGE_KEY, '1')");
     expect(card).toContain("if (state !== 'authorized')"); // sem a autorizacao do iPhone a flag NAO e gravada
-    expect(card).toContain('attempted: new Set<string>()'); // toque manual tenta tudo de novo
+    expect(card).toContain('syncWeekToAppleWatch(call)');
+    expect(mobile('src/appleWatchDelivery/syncWeekNow.ts')).toContain('attempted: new Set<string>()'); // toque manual tenta tudo de novo
     expect(mobile('src/appleWatchDelivery/useAppleWatchAutoSend.ts')).toContain("(await AsyncStorage.getItem(AUTO_SEND_STORAGE_KEY)) !== '1') return");
     expect(mobile('App.tsx')).toContain('useAppleWatchAutoSend(plan?.sessions, accessToken, API_URL);');
     expect(AUTO_SEND_STORAGE_KEY).toBe('panzeri:appleWatchAutoSend:v1');
