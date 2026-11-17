@@ -11,7 +11,9 @@ import java.io.File
 class WorkoutStore(context: Context) {
     private val dir = File(context.filesDir, "workouts").apply { mkdirs() }
     private val pendingDir = File(dir, "pending").apply { mkdirs() }
-    private val inProgress = File(dir, "in-progress.json")
+    private val inProgress = File(dir, "in-progress.json") // formato antigo (0.2.0): so' limpado
+    private val journalMeta = File(dir, "in-progress-meta.json")
+    private val journalPoints = File(dir, "in-progress-points.jsonl")
 
     fun savePending(clientId: String, json: JSONObject) {
         val tmp = File(pendingDir, "$clientId.tmp")
@@ -40,23 +42,31 @@ class WorkoutStore(context: Context) {
 
     fun deletePending(clientId: String) { File(pendingDir, "$clientId.json").delete() }
 
-    fun saveInProgress(json: JSONObject) {
-        val tmp = File(dir, "in-progress.tmp")
-        tmp.writeText(json.toString())
-        tmp.renameTo(inProgress)
+    // Diario do treino em andamento (a cada 5 s): resumo reescrito (pequeno) + so' os pontos novos acrescentados, para o custo nao crescer com a duracao da corrida.
+    fun appendJournal(meta: JSONObject, newPoints: List<JSONObject>) {
+        val tmp = File(dir, "in-progress-meta.tmp")
+        tmp.writeText(meta.toString())
+        tmp.renameTo(journalMeta)
+        if (newPoints.isNotEmpty()) journalPoints.appendText(newPoints.joinToString(separator = "\n", postfix = "\n") { it.toString() })
     }
 
-    fun clearInProgress() { inProgress.delete() }
+    fun clearInProgress() {
+        journalMeta.delete()
+        journalPoints.delete()
+        inProgress.delete() // formato antigo (versao 0.2.0), se existir
+    }
 
-    // Treino que o sistema encerrou no meio (bateria, app fechado): vira "interrompido" e entra na fila como os demais.
+    // Treino que o sistema encerrou no meio (bateria, app fechado): vira "interrompido" e entra na fila como os demais. Menos de 10 pontos (10 s) nao vale guardar.
     fun recoverInterrupted(): Boolean {
-        if (!inProgress.exists()) return false
-        val json = runCatching { JSONObject(inProgress.readText()) }.getOrNull()
-        inProgress.delete()
-        if (json == null) return false
-        json.put("interrupted", true)
+        val legacy = inProgress.takeIf { it.exists() }?.let { file -> runCatching { JSONObject(file.readText()) }.getOrNull() }
+        val journaled = journalMeta.takeIf { it.exists() }?.let { metaFile ->
+            runCatching { Journal.assemble(JSONObject(metaFile.readText()), journalPoints.takeIf { it.exists() }?.readLines() ?: emptyList()) }.getOrNull()
+        }
+        clearInProgress()
+        val json = journaled ?: legacy ?: return false
         val points = json.optJSONArray("points")
-        if (points == null || points.length() < 10) return false // menos de 10 s de dados: nao vale guardar
+        if (points == null || points.length() < 10) return false
+        json.put("interrupted", true)
         savePending(json.getString("clientId"), json)
         return true
     }

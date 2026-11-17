@@ -26,3 +26,5 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 A variante `debug` aceita HTTP (só para esse servidor de teste); a `release` fala só HTTPS com o servidor de produção. Nunca aponte o teste para o banco de produção.
 
 Teste da gravação no emulador (dados sintéticos do Health Services): `adb shell am broadcast -a whs.USE_SYNTHETIC_PROVIDERS com.google.android.wearable.healthservices` e, com a corrida iniciada, `adb shell am broadcast -a whs.synthetic.user.START_RUNNING com.google.android.wearable.healthservices`.
+
+Regras do relógio (17/11/2026, Elton): treino com menos de 10 s **pergunta** se guarda ou descarta; o diário de segurança grava a cada 5 s só os pontos novos (perda máxima de cerca de 5 s se o app fechar no meio); o relógio **nunca encerra** uma corrida antiga sozinho: pergunta "Você tem uma corrida em andamento. Iniciar uma nova encerra a anterior automaticamente.". Atalho só da variante debug para ver essa pergunta: `adb shell am start -n com.panzerirun.app/com.panzerirun.wear.MainActivity --es debugPrompt replace --es sessionId s1`.

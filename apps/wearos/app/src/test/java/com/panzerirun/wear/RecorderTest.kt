@@ -1,5 +1,6 @@
 package com.panzerirun.wear
 
+import com.panzerirun.wear.record.Journal
 import com.panzerirun.wear.record.Recorder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -127,6 +128,42 @@ class RecorderTest {
         r.onSpeed(t0, 3.0)
         r.onSpeed(t0 + 30_000, 3.0) // sensor ficou 30 s sem ler
         assertEquals(0, r.summary(t0 + 30_000).movingSec)
+    }
+
+    @Test fun `diario grava so os pontos completos e novos a cada passada sem repetir nem perder`() {
+        val r = recorder()
+        for (s in 0..12) r.onHeartRate(t0 + s * 1000L + 200, 100.0 + s)
+        // passada 1 (a 5,5 s): segundos 0 a 4 completos
+        val first = r.pointsJson(-1, r.currentSecond(t0 + 5_500))
+        assertEquals((0..4).toList(), first.map { it.getInt("t") })
+        // passada 2 (a 10,5 s): so' 5 a 9; o segundo 10, ainda em curso, fica para a proxima
+        val second = r.pointsJson(4, r.currentSecond(t0 + 10_500))
+        assertEquals((5..9).toList(), second.map { it.getInt("t") })
+        // amostra tardia no segundo em curso nao se perde: entra na passada seguinte
+        r.onHeartRate(t0 + 10_800, 150.0)
+        val third = r.pointsJson(9, r.currentSecond(t0 + 15_500))
+        assertEquals((10..12).toList(), third.map { it.getInt("t") })
+        assertEquals(150, third.first().getInt("hr"))
+    }
+
+    @Test fun `treino remontado do diario e igual ao treino completo`() {
+        val r = recorder()
+        for (s in 0..20) { r.onHeartRate(t0 + s * 1000L, 120.0 + s); r.onDistanceTotal(t0 + s * 1000L, s * 3.0); r.onSpeed(t0 + s * 1000L, 3.0) }
+        val journalLines = r.pointsJson(-1, 20).map { it.toString() } + "linha pela metade {\"t\":"
+        val rebuilt = Journal.assemble(r.metaJson(t0 + 20_000, interrupted = true), journalLines)
+        assertEquals(20, rebuilt.getJSONArray("points").length()) // 0..19; a linha ilegivel foi ignorada
+        assertEquals("c-1", rebuilt.getString("clientId"))
+        assertTrue(rebuilt.getBoolean("interrupted"))
+        assertEquals(20, rebuilt.getInt("durationSec"))
+        assertEquals(19, rebuilt.getJSONArray("points").getJSONObject(19).getInt("t"))
+    }
+
+    @Test fun `linhas repetidas do diario nao duplicam pontos`() {
+        val r = recorder()
+        for (s in 0..11) r.onHeartRate(t0 + s * 1000L, 110.0)
+        val lines = r.pointsJson(-1, 11).map { it.toString() }
+        val rebuilt = Journal.assemble(r.metaJson(t0 + 11_000), lines + lines)
+        assertEquals(11, rebuilt.getJSONArray("points").length())
     }
 
     @Test fun `json leva os tres tempos`() {

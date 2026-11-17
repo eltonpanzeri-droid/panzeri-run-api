@@ -283,3 +283,33 @@ describe('app do relogio (apps/wearos), fases 2 e 3 (estatico)', () => {
     expect(store).not.toMatch(/plain\.edit\(\)\.putString\("token"/);
   });
 });
+
+describe('regras de Elton para o relogio (17/11/2026, estatico)', () => {
+  const kt = (...parts: string[]) => readFileSync(join(__dirname, '..', '..', 'wearos', 'app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', ...parts), 'utf8');
+  it('treino curto pergunta se guarda ou descarta: nada e apagado antes da resposta', () => {
+    const service = kt('record', 'WorkoutService.kt');
+    expect(service).toContain('WorkoutController.publish(RecordingState.ConfirmShort(summary, rec.toJson(ended).toString()))');
+    expect(service).not.toContain('Treino muito curto: não foi guardado');
+    const controller = kt('record', 'WorkoutController.kt');
+    expect(controller).toContain('fun keepShort(');
+    expect(controller).toContain('fun discardShort(');
+    const ui = kt('ui', 'RecordingScreens.kt');
+    expect(ui).toContain('Quer guardar este treino ou descartar?');
+  });
+  it('o diario de seguranca grava a cada 5 s e so os pontos novos', () => {
+    expect(kt('record', 'WorkoutService.kt')).toContain('JOURNAL_INTERVAL_MS = 5_000L');
+    const store = kt('record', 'WorkoutStore.kt');
+    expect(store).toContain('journalPoints.appendText');
+    expect(store).not.toContain('fun saveInProgress');
+  });
+  it('o relogio nunca encerra corrida antiga sozinho: pergunta, e so encerra com a confirmacao', () => {
+    const policy = kt('record', 'StartPolicy.kt');
+    expect(policy).toContain('if (userConfirmedReplace) StartDecision.EndOldThenProceed else StartDecision.AskReplace');
+    const service = kt('record', 'WorkoutService.kt');
+    expect(service).toContain('StartDecision.AskReplace ->');
+    expect(service).toContain('StartDecision.EndOldThenProceed -> runCatching { client.endExerciseAsync().await() }');
+    expect(kt('ui', 'RecordingScreens.kt')).toContain('Você tem uma corrida em andamento. Iniciar uma nova encerra a anterior automaticamente.');
+    // o atalho de teste da pergunta so existe na variante debug
+    expect(kt('MainActivity.kt')).toContain('if (BuildConfig.DEBUG && intent.getStringExtra("debugPrompt") == "replace")');
+  });
+});

@@ -68,7 +68,7 @@ class WorkoutService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            WorkoutController.ACTION_START -> begin(intent.getStringExtra(WorkoutController.EXTRA_SESSION_ID))
+            WorkoutController.ACTION_START -> begin(intent.getStringExtra(WorkoutController.EXTRA_SESSION_ID), intent.getBooleanExtra(WorkoutController.EXTRA_REPLACE, false))
             WorkoutController.ACTION_PAUSE -> scope.launch { runCatching { client.pauseExerciseAsync().await() } }
             WorkoutController.ACTION_RESUME -> scope.launch { runCatching { client.resumeExerciseAsync().await() } }
             WorkoutController.ACTION_STOP -> finish()
@@ -77,15 +77,25 @@ class WorkoutService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun begin(sessionId: String?) {
+    private fun begin(sessionId: String?, replace: Boolean) {
         if (recorder != null) return
         startInForeground()
         scope.launch {
             try {
-                // Treino anterior que o sistema deixou aberto (app fechado no meio): encerra antes de comecar outro. Treino de OUTRO aplicativo em andamento: nao mexe, avisa.
-                val tracked = runCatching { client.getCurrentExerciseInfoAsync().await().exerciseTrackedStatus }.getOrNull()
-                if (tracked == ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS) return@launch fail("Outro aplicativo de treino está em andamento. Encerre-o e tente de novo.")
-                if (tracked == ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) runCatching { client.endExerciseAsync().await() }
+                // Corrida anterior que o sistema deixou aberta (app fechado no meio): o relogio NUNCA a encerra sozinho; pergunta primeiro. So' encerra depois da confirmacao (replace).
+                // Treino de OUTRO aplicativo em andamento: nao mexe, avisa.
+                val status = runCatching { client.getCurrentExerciseInfoAsync().await().exerciseTrackedStatus }.getOrNull()
+                val kind = when (status) { ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS -> TrackedKind.OWNED_IN_PROGRESS; ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS -> TrackedKind.OTHER_APP_IN_PROGRESS; else -> TrackedKind.NONE }
+                when (StartPolicy.decide(kind, replace)) {
+                    StartDecision.OtherAppRunning -> return@launch fail("Outro aplicativo de treino está em andamento. Encerre-o e tente de novo.")
+                    StartDecision.AskReplace -> {
+                        WorkoutController.publish(RecordingState.ConfirmReplace(sessionId))
+                        stopForegroundAndSelf()
+                        return@launch
+                    }
+                    StartDecision.EndOldThenProceed -> runCatching { client.endExerciseAsync().await() }
+                    StartDecision.Proceed -> Unit
+                }
                 val capabilities = client.getCapabilitiesAsync().await()
                 if (ExerciseType.RUNNING !in capabilities.supportedExerciseTypes) return@launch fail("Este relógio não permite gravar corrida pelo Panzeri Run.")
                 val supported = capabilities.getExerciseTypeCapabilities(ExerciseType.RUNNING).supportedDataTypes
@@ -102,16 +112,30 @@ class WorkoutService : Service() {
                 recorder = Recorder(sessionId, now, TimeZone.getDefault().getOffset(now) / 60_000)
                 paused = false
                 publish()
+                store.clearInProgress()
+                lastJournalSecond = -1
+                // Diario de seguranca a cada 5 s: resumo + so' os pontos novos (perda maxima de cerca de 5 s se o app for fechado no meio)
                 snapshotJob = scope.launch {
                     while (true) {
-                        delay(15_000)
-                        recorder?.let { store.saveInProgress(it.toJson(System.currentTimeMillis(), interrupted = true)) }
+                        delay(JOURNAL_INTERVAL_MS)
+                        writeJournal()
                     }
                 }
             } catch (e: Exception) {
                 fail("Não consegui iniciar a corrida. Feche outros apps de treino e tente de novo.")
             }
         }
+    }
+
+    private var lastJournalSecond = -1
+
+    private fun writeJournal() {
+        val rec = recorder ?: return
+        val now = System.currentTimeMillis()
+        val current = rec.currentSecond(now)
+        val fresh = rec.pointsJson(lastJournalSecond, current) // so' segundos completos
+        runCatching { store.appendJournal(rec.metaJson(now, interrupted = true), fresh) }
+        lastJournalSecond = current - 1
     }
 
     private fun handle(update: ExerciseUpdate) {
@@ -152,8 +176,8 @@ class WorkoutService : Service() {
             val ended = System.currentTimeMillis()
             val summary = rec.summary(ended)
             if (summary.activeSec < 10) {
-                store.clearInProgress()
-                WorkoutController.publish(RecordingState.Failed("Treino muito curto: não foi guardado."))
+                // Menos de 10 s: quase sempre foi um toque sem querer, mas quem decide e' a aluna (guardar ou descartar). Nada e' apagado antes da resposta.
+                WorkoutController.publish(RecordingState.ConfirmShort(summary, rec.toJson(ended).toString()))
             } else {
                 store.savePending(rec.clientId, rec.toJson(ended))
                 store.clearInProgress()
@@ -211,5 +235,6 @@ class WorkoutService : Service() {
     private companion object {
         const val CHANNEL_ID = "recording"
         const val NOTIFICATION_ID = 7
+        const val JOURNAL_INTERVAL_MS = 5_000L
     }
 }

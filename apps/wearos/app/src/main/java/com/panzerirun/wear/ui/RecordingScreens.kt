@@ -60,6 +60,8 @@ fun RecordingFlow(state: RecordingState) {
             }
         }
         is RecordingState.Recording -> RecordingScreen(state)
+        is RecordingState.ConfirmShort -> ConfirmShortScreen(state)
+        is RecordingState.ConfirmReplace -> ConfirmReplaceScreen(state)
         is RecordingState.Finished -> FinishedScreen(state.summary)
         is RecordingState.Failed -> FailedScreen(state.message)
         RecordingState.Idle -> Unit
@@ -127,6 +129,35 @@ private fun FailedScreen(message: String) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(message, textAlign = TextAlign.Center, fontSize = 13.sp)
             Chip(onClick = { WorkoutController.acknowledge() }, label = { Text("OK") }, colors = ChipDefaults.secondaryChipColors())
+        }
+    }
+}
+
+@Composable
+private fun ConfirmShortScreen(state: RecordingState.ConfirmShort) {
+    val context = LocalContext.current
+    val listState = rememberScalingLazyListState()
+    Scaffold(timeText = { TimeText() }, vignette = { Vignette(VignettePosition.TopAndBottom) }) {
+        ScalingLazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
+            item { Text("Treino muito curto", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+            item { Text("${RecordingFormat.clock(state.summary.activeSec.toLong())} · ${RecordingFormat.km(state.summary.distanceMeters)} km", fontSize = 16.sp, textAlign = TextAlign.Center) }
+            item { Text("Quer guardar este treino ou descartar?", fontSize = 12.sp, textAlign = TextAlign.Center) }
+            item { Chip(onClick = { WorkoutController.keepShort(context) }, label = { Text("Guardar") }, modifier = Modifier.fillMaxWidth()) }
+            item { Chip(onClick = { WorkoutController.discardShort(context) }, label = { Text("Descartar") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth()) }
+        }
+    }
+}
+
+@Composable
+private fun ConfirmReplaceScreen(state: RecordingState.ConfirmReplace) {
+    val context = LocalContext.current
+    val listState = rememberScalingLazyListState()
+    Scaffold(timeText = { TimeText() }, vignette = { Vignette(VignettePosition.TopAndBottom) }) {
+        ScalingLazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
+            item { Text("Corrida em andamento", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+            item { Text("Você tem uma corrida em andamento. Iniciar uma nova encerra a anterior automaticamente.", fontSize = 12.sp, textAlign = TextAlign.Center) }
+            item { Chip(onClick = { WorkoutController.start(context, state.sessionId, replace = true) }, label = { Text("Iniciar nova corrida") }, modifier = Modifier.fillMaxWidth()) }
+            item { Chip(onClick = { WorkoutController.cancelReplace() }, label = { Text("Cancelar") }, colors = ChipDefaults.secondaryChipColors(), modifier = Modifier.fillMaxWidth()) }
         }
     }
 }

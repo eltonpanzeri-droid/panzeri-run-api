@@ -4,6 +4,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import com.panzerirun.wear.record.RecordingState
+import com.panzerirun.wear.record.WorkoutController
 import com.panzerirun.wear.ui.PanzeriWearApp
 
 class MainActivity : ComponentActivity() {
@@ -11,6 +13,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // SO' na variante debug: permite abrir a pergunta "corrida em andamento" para conferir a tela (adb shell am start ... --es debugPrompt replace). Na release este bloco nao existe.
+        if (BuildConfig.DEBUG && intent.getStringExtra("debugPrompt") == "replace") WorkoutController.publish(RecordingState.ConfirmReplace(intent.getStringExtra("sessionId")))
         setContent {
             PanzeriWearApp(stateFlow = viewModel.state, onRefresh = viewModel::refresh, onNewCode = viewModel::newCode, onForget = viewModel::forgetPairing)
         }
