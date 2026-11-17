@@ -12,6 +12,7 @@ import ProblemReports from './problem-reports';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
 import GarminMeasures from './garmin-measures';
+import WatchSummary from './watch-summary';
 import BestMarks from './best-marks';
 import MonthlyReport from './monthly-report';
 import StudentTrainingLoad from './student-training-load';
@@ -4420,6 +4421,7 @@ function StudentPanel({
         <Detail icon={<AlertTriangle size={18} />} label="Diferentes" value={String(student.plan?.summary.differentSessions ?? 0)} />
       </div>
       {student.plan?.methodology ? <p className="methodologySummary">{methodologySummaryLine(student.plan.methodology)}</p> : null}
+      <WatchSummary studentId={student.id} accessToken={token} apiUrl={API_URL} />
 
       {/* 01/11/2026 (erro persistente #0012): o aviso amarelo geral de "plano desatualizado" continua fora desta tela (retirado em 19/10 a pedido), mas ESTE motivo — rotina mudou depois da geracao — volta,
           pequeno e junto do botao que o resolve, porque foi exatamente a falta dele que escondeu o caso da Duane. */}

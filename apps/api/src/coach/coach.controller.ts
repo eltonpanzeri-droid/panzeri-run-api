@@ -447,6 +447,12 @@ export class CoachController {
     return this.studentIntegrations.forStudent(studentId);
   }
 
+  // 17/11/2026 — Aluno > Treino da semana: resumo, por integracao, de quem recebe treino no relogio, quantos da semana ja' foram enviados e quantas atividades a aluna devolveu. Somente leitura.
+  @Get('students/:studentId/watch-summary')
+  watchSummary(@Param('studentId') studentId: string) {
+    return this.studentIntegrations.watchSummary(studentId);
+  }
+
   // 23/10/2026 — Aluno > Saude e Recuperacao: SOMENTE LEITURA, periodo livre (from/to), fonte e comparacao entre dois periodos (compareFrom/compareTo). So' aparece o que a aluna autorizou.
   // 23/10/2026 — Aluno > Carga (propria): metrica DESCRITIVA em avaliacao (esforco percebido x minutos), com a conta inteira a mostra. Somente leitura; o Atlas nao usa.
   @Get('students/:studentId/training-load')

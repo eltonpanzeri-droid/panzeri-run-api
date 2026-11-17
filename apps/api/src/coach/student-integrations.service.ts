@@ -10,6 +10,7 @@ import { ZEPP_WORKOUT_PROFILE } from '../zepp/zepp-workout-profile';
 import { HEALTH_CONNECT_CONSENT } from '../health-connect/health-connect-consent';
 import { APPLE_HEALTH_CONSENT } from '../apple-health/apple-health-consent';
 import { metricKindsOfCategory } from '../apple-health/apple-health-records';
+import { buildWatchSummary, WATCH_PROVIDERS, type WatchSummaryRaw, type WatchSummaryResult } from './student-watch-summary';
 import { LEGACY_CONSENT_DOCUMENTS } from '../legacy-consent/legacy-consent';
 import { grantedPolarHealthCategories, POLAR_HEALTH_CONSENT, type PolarHealthRow } from '../polar/polar-health-consent';
 
@@ -517,6 +518,44 @@ export class StudentIntegrationsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  // Resumo da tela Treino da semana (17/11/2026): por integracao conectada, se recebe treino no relogio, quantos treinos da semana ja' foram enviados e quantas atividades ela ja' devolveu ao Panzeri Run.
+  // Somente leitura e so' contagens/datas: nenhum token, identificador de conta ou conteudo de atividade.
+  async watchSummary(studentId: string): Promise<WatchSummaryResult> {
+    const user = await this.prisma.user.findUnique({ where: { id: studentId }, select: { id: true } });
+    if (!user) throw new NotFoundException('Aluno nao encontrado.');
+    const userId = studentId;
+    const now = new Date();
+    const since7 = new Date(now.getTime() - 7 * 86_400_000);
+    const plan = await this.prisma.trainingPlan.findFirst({ where: { userId, status: 'active' }, orderBy: { createdAt: 'desc' }, select: { id: true, startDate: true } });
+    const weekStart = plan?.startDate ?? since7;
+    const deliveryProviders = Object.values(WATCH_PROVIDERS).map((p) => p.deliveryProvider).filter((p): p is string => p !== null);
+    const [polar, wahoo, strava, connections, activityTotal, activityWeek, weekRuns, sentRows, failedRows] = await Promise.all([
+      this.prisma.polarConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
+      this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
+      this.prisma.stravaConnection.findUnique({ where: { userId }, select: { createdAt: true } }),
+      this.prisma.providerConnection.findMany({ where: { userId, provider: { in: ['zepp', 'coros', 'garmin', 'apple_health', 'health_connect'] } }, select: { provider: true, disconnectedAt: true } }),
+      this.prisma.activityLog.groupBy({ by: ['provider'], where: { userId }, _count: { _all: true }, _max: { startedAt: true } }),
+      this.prisma.activityLog.groupBy({ by: ['provider'], where: { userId, startedAt: { gte: weekStart } }, _count: { _all: true } }),
+      plan ? this.prisma.trainingSession.count({ where: { planId: plan.id, modality: { in: ['corrida', 'esteira'] } } }) : Promise.resolve(0),
+      plan ? this.prisma.workoutDelivery.groupBy({ by: ['provider'], where: { provider: { in: deliveryProviders }, status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { planId: plan.id } }, _count: { _all: true }, _max: { requestedAt: true } }) : Promise.resolve([]),
+      this.prisma.workoutDelivery.groupBy({ by: ['provider'], where: { provider: { in: deliveryProviders }, status: 'failed', requestedAt: { gte: since7 }, trainingSession: { userId } }, _count: { _all: true } }),
+    ]);
+    const received: WatchSummaryRaw['received'] = {};
+    for (const row of activityTotal) received[row.provider] = { week: 0, total: row._count._all, lastAt: row._max.startedAt };
+    for (const row of activityWeek) received[row.provider] = { ...(received[row.provider] ?? { total: 0, lastAt: null }), week: row._count._all };
+    const connected = new Set<string>();
+    if (polar && !polar.disconnectedAt) connected.add('polar');
+    if (wahoo && !wahoo.disconnectedAt) connected.add('wahoo');
+    if (strava) connected.add('strava');
+    for (const row of connections) if (!row.disconnectedAt) connected.add(row.provider);
+    // dados recebidos sem registro de conexao (aplicativo antigo): ainda conta como usando aquele caminho
+    for (const provider of Object.keys(received)) if (WATCH_PROVIDERS[provider] && (received[provider].total ?? 0) > 0 && !connections.some((c) => c.provider === provider && c.disconnectedAt)) connected.add(provider);
+    const deliveries: WatchSummaryRaw['deliveries'] = {};
+    for (const row of sentRows) deliveries[row.provider] = { sentWeek: row._count._all, lastSentAt: row._max.requestedAt, failures7d: 0 };
+    for (const row of failedRows) deliveries[row.provider] = { ...(deliveries[row.provider] ?? { sentWeek: 0, lastSentAt: null }), failures7d: row._count._all };
+    return buildWatchSummary({ connected: [...connected], received, weekRuns, deliveries });
+  }
 
   async forStudent(studentId: string): Promise<StudentIntegrationsResult> {
     const user = await this.prisma.user.findUnique({ where: { id: studentId }, select: { id: true } });
