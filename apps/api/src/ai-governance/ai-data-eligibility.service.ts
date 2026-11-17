@@ -34,7 +34,8 @@ import { AiDestination, AiScope } from './ai-scope';
 // 'coros' LIBERADO por Elton em 30/10/2026 (Atlas com a autorizacao propria da aluna; a pagina do COROS MCP lista "aplicativos de coaching com IA que analisam treinos e prescrevem treinos" entre os usos previstos); a segunda trava continua sendo COROS_EXTERNAL_AI_ENABLED.
 // 'garmin' LIBERADO por Elton em 08/11/2026 (premissa de 01/11: a IA tem acesso a tudo, exceto Strava/sem consentimento): Atlas so' com a autorizacao propria da aluna e so' resumos (Politica 5D; dados Garmin
 // nunca treinam modelos). Segunda trava: GARMIN_EXTERNAL_AI_ENABLED=true no servidor.
-export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect', 'coros', 'garmin'];
+// 'wear_os' LIBERADO por Elton (17/11/2026): o aplicativo do relogio e' nosso; o texto de consentimento inclui a IA (e o percurso). Segunda trava: WEAR_OS_EXTERNAL_AI_ENABLED=true no servidor.
+export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect', 'coros', 'garmin', 'wear_os'];
 
 // Provedores cuja conexao e' do APARELHO (sem OAuth/conector na Central) mas que tem consentimento por categoria/finalidade gravado em ProviderConnection. Para estes, o antigo atalho
 // "provedor legado = elegivel como antes" NAO vale: a IA so' recebe o que o aluno autorizou (Health Connect, 22/10/2026).

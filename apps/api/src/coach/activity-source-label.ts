@@ -2,7 +2,7 @@
 // So' afirma o que o proprio dado informa; sem nome de aparelho, mostra so' o canal. Nada e' inventado nem inferido.
 
 const CHANNEL_NAME: Record<string, string> = {
-  garmin: 'Garmin', zepp: 'Zepp/Amazfit', polar: 'Polar', wahoo: 'Wahoo', coros: 'COROS', strava: 'Strava', apple_health: 'Apple Saude', health_connect: 'Health Connect', samsung: 'Samsung Health',
+  garmin: 'Garmin', wear_os: 'Relogio Wear OS', zepp: 'Zepp/Amazfit', polar: 'Polar', wahoo: 'Wahoo', coros: 'COROS', strava: 'Strava', apple_health: 'Apple Saude', health_connect: 'Health Connect', samsung: 'Samsung Health',
 };
 
 const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() ? value.trim().slice(0, 80) : null);

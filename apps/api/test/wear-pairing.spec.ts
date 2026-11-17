@@ -221,7 +221,7 @@ describe('ligacoes (estatico)', () => {
   it('rotas, modulo, migracao aditiva e limites de uso', () => {
     const controller = read('src', 'wear', 'wear.controller.ts');
     for (const route of ["@Post('pairing/start')", "@Post('pairing/poll')", "@Get('week')", "@Post('pairing/confirm')", "@Get('devices')", "@Delete('devices/:deviceId')"]) expect(controller).toContain(route);
-    expect((controller.match(/@Throttle\(/g) ?? []).length).toBe(3);
+    expect((controller.match(/@Throttle\(/g) ?? []).length).toBe(4);
     expect(controller).toContain("@UseGuards(AuthGuard('jwt'))");
     expect(controller).toContain('@UseGuards(WearDeviceGuard)');
     expect(read('src', 'app.module.ts')).toContain('WearModule');
