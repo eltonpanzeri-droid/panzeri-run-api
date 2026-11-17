@@ -23,6 +23,19 @@ class WorkoutStore(context: Context) {
         .sortedBy { it.lastModified() }
         .mapNotNull { runCatching { JSONObject(it.readText()) }.getOrNull() }
 
+    // treino + id (nome do arquivo), do mais antigo ao mais novo, para o envio
+    fun pendingEntries(): List<Pair<String, JSONObject>> = (pendingDir.listFiles { f -> f.extension == "json" } ?: emptyArray())
+        .sortedBy { it.lastModified() }
+        .mapNotNull { file -> runCatching { file.nameWithoutExtension to JSONObject(file.readText()) }.getOrNull() }
+
+    // treino que o servidor recusou para sempre: sai da fila de envio (fica guardado em rejected/ para conferencia)
+    fun rejectPending(id: String) {
+        val source = File(pendingDir, "$id.json")
+        if (!source.exists()) return
+        val rejected = File(dir, "rejected").apply { mkdirs() }
+        if (!source.renameTo(File(rejected, "$id.json"))) source.delete()
+    }
+
     fun pendingCount(): Int = pendingDir.listFiles { f -> f.extension == "json" }?.size ?: 0
 
     fun deletePending(clientId: String) { File(pendingDir, "$clientId.json").delete() }

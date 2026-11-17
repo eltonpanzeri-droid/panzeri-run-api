@@ -115,7 +115,7 @@ private fun FinishedScreen(summary: RecordingSummary) {
             item { Text(if (summary.movingSec > 0 && summary.distanceMeters >= 50) "Ritmo médio ${Format.pace(Math.round(summary.movingSec / (summary.distanceMeters / 1000.0)).toInt())}/km" else "", fontSize = 12.sp, textAlign = TextAlign.Center) }
             item { Text(listOfNotNull(summary.avgHr?.let { "média $it bpm" }, summary.maxHr?.let { "máx $it bpm" }).joinToString(" · ").ifBlank { "Sem frequência cardíaca" }, fontSize = 12.sp, textAlign = TextAlign.Center) }
             item { Text(if (summary.hasRoute) "Percurso gravado." else "Sem percurso (GPS não encontrado).", fontSize = 12.sp, textAlign = TextAlign.Center) }
-            item { Text("Guardado no relógio. O envio ao Panzeri Run entra na próxima etapa.", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp)) }
+            item { Text("Guardado no relógio. O envio ao Panzeri Run é automático quando houver internet e a autorização no celular.", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp)) }
             item { Chip(onClick = { WorkoutController.acknowledge() }, label = { Text("OK") }, modifier = Modifier.fillMaxWidth()) }
         }
     }

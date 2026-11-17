@@ -137,8 +137,9 @@ private fun WeekScreen(state: UiState, onOpen: (String) -> Unit, onRefresh: () -
                 }
             }
             // chave inclui o estado: sem ela a lista do relogio nao redesenhava este rodape quando o download terminava (visto no emulador)
-            if (state.pendingWorkouts > 0) item(key = "pending-${state.pendingWorkouts}") {
-                Text(if (state.pendingWorkouts == 1) "1 treino gravado no relógio" else "${state.pendingWorkouts} treinos gravados no relógio", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+            if (state.pendingWorkouts > 0) item(key = "pending-${state.pendingWorkouts}-${state.needsConsent}") {
+                val count = if (state.pendingWorkouts == 1) "1 treino aguardando envio" else "${state.pendingWorkouts} treinos aguardando envio"
+                Text(if (state.needsConsent) "$count. Autorize o relógio no Panzeri Run do celular para enviar." else count, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
             }
             item(key = "status-${state.refreshing}-${state.offline}") {
                 val status = when {

@@ -9,6 +9,7 @@ import com.panzerirun.wear.data.Api
 import com.panzerirun.wear.data.ApiException
 import com.panzerirun.wear.data.PendingPairing
 import com.panzerirun.wear.data.PollResult
+import com.panzerirun.wear.data.UploadResult
 import com.panzerirun.wear.data.Store
 import com.panzerirun.wear.data.Week
 import com.panzerirun.wear.record.RecordingState
@@ -39,6 +40,8 @@ data class UiState(
     val updatedAtMillis: Long? = null,
     // treinos gravados no relogio e ainda nao enviados ao Panzeri Run (o envio entra na proxima etapa)
     val pendingWorkouts: Int = 0,
+    // o servidor respondeu que a aluna ainda nao autorizou o relogio no Panzeri Run (os treinos ficam guardados)
+    val needsConsent: Boolean = false,
 )
 
 // Fase 2 (somente leitura): parear por codigo e mostrar os treinos da semana, guardados no relogio.
@@ -53,7 +56,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         // treino que o sistema encerrou no meio (se a copia periodica existir) entra na fila como interrompido
         if (WorkoutController.state.value is RecordingState.Idle) workouts.recoverInterrupted()
         _state.update { it.copy(pendingWorkouts = workouts.pendingCount()) }
-        viewModelScope.launch { WorkoutController.state.collect { if (it is RecordingState.Finished) _state.update { s -> s.copy(pendingWorkouts = workouts.pendingCount()) } } }
+        viewModelScope.launch { WorkoutController.state.collect { if (it is RecordingState.Finished) { _state.update { s -> s.copy(pendingWorkouts = workouts.pendingCount()) }; uploadPending() } } }
         loadCachedWeek()
         if (store.token != null) {
             _state.update { it.copy(screen = Screen.Week) }
@@ -79,6 +82,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
                 store.saveWeek(json, now)
                 _state.update { it.copy(week = week, offline = false, noAccess = false, updatedAtMillis = now) }
+                uploadPending() // com internet de volta, aproveita para enviar os treinos que estavam esperando
             } catch (e: ApiException) {
                 when {
                     e.status == 401 -> { forgetPairing() } // relogio retirado no Panzeri Run: pede novo pareamento
@@ -90,6 +94,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(offline = true) }
             } finally {
                 _state.update { it.copy(refreshing = false) }
+            }
+        }
+    }
+
+    private var uploading = false
+
+    // Envia os treinos gravados que ainda nao foram ao Panzeri Run, do mais antigo ao mais novo. Nunca roda durante uma corrida. Sem autorizacao da aluna, sem internet ou com erro do servidor,
+    // o treino continua guardado no relogio e a proxima tentativa e' na proxima abertura, atualizacao ou treino encerrado.
+    fun uploadPending() {
+        val token = store.token ?: return
+        if (uploading || WorkoutController.state.value is RecordingState.Recording) return
+        uploading = true
+        viewModelScope.launch {
+            try {
+                for ((id, json) in workouts.pendingEntries()) {
+                    when (Api.uploadActivity(token, json)) {
+                        UploadResult.Stored, UploadResult.Excluded -> { workouts.deletePending(id); _state.update { it.copy(needsConsent = false) } }
+                        UploadResult.Invalid -> workouts.rejectPending(id)
+                        UploadResult.NeedsConsent -> { _state.update { it.copy(needsConsent = true) }; break }
+                        UploadResult.Unauthorized -> { forgetPairing(); break }
+                        UploadResult.Retry -> break
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("PanzeriWear", "envio falhou: $e")
+            } finally {
+                uploading = false
+                _state.update { it.copy(pendingWorkouts = workouts.pendingCount()) }
             }
         }
     }

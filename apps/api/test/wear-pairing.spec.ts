@@ -239,7 +239,7 @@ describe('cartao no app (estatico)', () => {
   const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
   const card = readFileSync(join(__dirname, '..', '..', 'mobile', 'src', 'wearOs', 'WearOsPairingCard.tsx'), 'utf8');
   it('aparece na tela Samsung / Galaxy Watch, acima do Health Connect, e usa as tres rotas da aluna', () => {
-    expect(app).toContain('samsung: () => (<><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard');
+    expect(app).toContain('samsung: () => (<><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard');
     for (const route of ['/me/wear/devices', '/me/wear/pairing/confirm']) expect(card).toContain(route);
     expect(card).toContain("method: 'DELETE'");
   });

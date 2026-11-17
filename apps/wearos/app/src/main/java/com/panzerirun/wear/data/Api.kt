@@ -24,6 +24,15 @@ sealed interface PollResult {
     data class Paired(val token: String) : PollResult
 }
 
+sealed interface UploadResult {
+    object Stored : UploadResult
+    object Excluded : UploadResult // a aluna/treinador excluiu esta atividade: o relogio pode apagar a copia
+    object NeedsConsent : UploadResult // a aluna ainda nao autorizou o relogio no Panzeri Run: manter guardado
+    object Invalid : UploadResult // o servidor recusou o conteudo: nunca vai ser aceito, nao tentar de novo
+    object Unauthorized : UploadResult // credencial retirada
+    object Retry : UploadResult // sem internet ou erro do servidor: tentar depois
+}
+
 object Api {
     private const val CONNECT_TIMEOUT_MS = 10_000
     private const val READ_TIMEOUT_MS = 20_000
@@ -78,6 +87,21 @@ object Api {
             "already_issued" -> PollResult.AlreadyIssued
             else -> PollResult.Pending
         }
+    }
+
+    // Envia UM treino gravado. Idempotente no servidor (pelo clientId): reenviar o mesmo treino nunca duplica.
+    suspend fun uploadActivity(token: String, body: JSONObject): UploadResult = try {
+        val json = JSONObject(request("POST", "/wear/activities", body, token))
+        if (json.optBoolean("stored")) UploadResult.Stored else UploadResult.Excluded
+    } catch (e: ApiException) {
+        when {
+            e.status == 401 -> UploadResult.Unauthorized
+            e.status == 403 && e.code == "wear_consent_required" -> UploadResult.NeedsConsent
+            e.status == 400 || e.status == 413 -> UploadResult.Invalid
+            else -> UploadResult.Retry
+        }
+    } catch (e: IOException) {
+        UploadResult.Retry
     }
 
     // JSON bruto da semana (guardado como esta no relogio para funcionar sem internet).

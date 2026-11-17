@@ -307,3 +307,27 @@ describe('ligacoes (estatico)', () => {
     expect(controller).toContain("@UseGuards(AuthGuard('jwt'))");
   });
 });
+
+describe('app: cartao de autorizacao e envio automatico do relogio (estatico)', () => {
+  const mobile = (...parts: string[]) => readFileSync(join(__dirname, '..', '..', 'mobile', ...parts), 'utf8');
+  const wear = (...parts: string[]) => readFileSync(join(__dirname, '..', '..', 'wearos', ...parts), 'utf8');
+  it('o cartao mostra o texto do servidor, nada vem marcado e exige a confirmacao ao conceder', () => {
+    const card = mobile('src', 'wearOs', 'WearOsConsentCard.tsx');
+    expect(card).toContain('/me/wear/consent');
+    expect(card).toContain('setSelected(data.groups.filter((g) => g.granted).map((g) => g.id))'); // so vem marcado o que ja estava autorizado
+    expect(card).toContain('Marque a confirmação ao final do texto para autorizar.');
+    expect(card).toContain('version: view.document.version, textHash: view.document.textHash');
+    expect(card).toContain('Retirar todas as autorizações');
+    expect(mobile('App.tsx')).toContain('<WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard');
+  });
+  it('o relogio envia os treinos guardados e trata cada resposta: apaga o enviado, guarda sem autorizacao, descarta o recusado', () => {
+    const vm = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'AppViewModel.kt');
+    expect(vm).toContain('UploadResult.Stored, UploadResult.Excluded -> { workouts.deletePending(id)');
+    expect(vm).toContain('UploadResult.NeedsConsent -> { _state.update { it.copy(needsConsent = true) }; break }');
+    expect(vm).toContain('UploadResult.Invalid -> workouts.rejectPending(id)');
+    expect(vm).toContain('WorkoutController.state.value is RecordingState.Recording'); // nunca envia durante a corrida
+    const api = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'data', 'Api.kt');
+    expect(api).toContain('"/wear/activities"');
+    expect(api).toContain('wear_consent_required');
+  });
+});

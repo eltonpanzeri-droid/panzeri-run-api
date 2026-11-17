@@ -30,6 +30,7 @@ import { AppleWatchWorkoutsCard } from './src/appleWatchDelivery/AppleWatchWorko
 import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAutoSend';
 import { AppleWatchPendingBanner } from './src/appleWatchDelivery/AppleWatchPendingBanner';
 import { WearOsPairingCard } from './src/wearOs/WearOsPairingCard';
+import { WearOsConsentCard } from './src/wearOs/WearOsConsentCard';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -9623,7 +9624,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
     // 17/11/2026: cartao de pareamento do relogio Wear OS (em teste) acima do Health Connect.
-    samsung: () => (<><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard accessToken={accessToken} apiUrl={API_URL} /></>),
+    samsung: () => (<><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard accessToken={accessToken} apiUrl={API_URL} /></>),
     // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
     // COROS (30/10/2026): conexao pelo COROS MCP, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da Zepp.

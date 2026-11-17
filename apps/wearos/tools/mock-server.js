@@ -4,6 +4,8 @@
 const http = require('http');
 const PORT = Number(process.env.PORT || 8787);
 let polls = 0;
+let consent = false; // POST /__consent liga/desliga a autorizacao da aluna (teste do 403 wear_consent_required)
+const received = [];
 const TOKEN = 'mock-token-' + Math.random().toString(36).slice(2);
 const iso = (offset) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + offset); return d.toISOString().slice(0, 10); };
 const week = () => ({
@@ -28,6 +30,13 @@ http.createServer((req, res) => {
     console.log(req.method, req.url, req.headers.authorization ? '(com credencial)' : '');
     if (req.method === 'POST' && req.url === '/wear/pairing/start') { polls = 0; return send(201, { pairingId: 'p1', code: 'AB3K-7MPQ', pollSecret: 'segredo', expiresAt: new Date(Date.now() + 600000).toISOString() }); }
     if (req.method === 'POST' && req.url === '/wear/pairing/poll') { polls += 1; return send(201, polls >= 4 ? (polls === 4 ? { status: 'paired', token: TOKEN } : { status: 'already_issued' }) : { status: 'pending' }); }
+    if (req.method === 'POST' && req.url === '/__consent') { consent = !consent; return send(200, { consent }); }
+    if (req.method === 'GET' && req.url === '/__received') return send(200, received.map((r) => ({ clientId: r.clientId, points: r.points.length, durationSec: r.durationSec, elapsedSec: r.elapsedSec, movingSec: r.movingSec })));
+    if (req.method === 'POST' && req.url === '/wear/activities') {
+      if (req.headers.authorization !== 'Bearer ' + TOKEN) return send(401, { message: 'Unauthorized' });
+      if (!consent) return send(403, { code: 'wear_consent_required', message: 'Autorize o relogio no Panzeri Run.' });
+      try { const body = JSON.parse(raw); if (!received.some((r) => r.clientId === body.clientId)) received.push(body); return send(201, { stored: true, classification: null, removed: [] }); } catch { return send(400, { code: 'wear_activity_invalid', message: 'json' }); }
+    }
     if (req.method === 'GET' && req.url === '/wear/week') { return req.headers.authorization === 'Bearer ' + TOKEN ? send(200, week()) : send(401, { message: 'Unauthorized' }); }
     send(404, { message: 'nao existe' });
   });
