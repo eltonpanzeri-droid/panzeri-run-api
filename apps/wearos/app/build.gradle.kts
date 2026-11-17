@@ -13,7 +13,7 @@ android {
         applicationId = "com.panzerirun.app"
         minSdk = 30 // Wear OS 3 (Galaxy Watch 4 em diante)
         targetSdk = 34
-        versionCode = 2
+        versionCode = 100002
         versionName = "0.2.0"
         // API de producao do Panzeri Run (a mesma do app do celular). Troque por -Pwear.apiUrl=... para testar contra outro servidor.
         val apiUrl = (project.findProperty("wear.apiUrl") as String?) ?: "https://agenteselton-panzeri-run-api.hbljgk.easypanel.host"

@@ -105,3 +105,14 @@ describe('ligacoes (estatico)', () => {
     expect(page.indexOf('<WatchSummary ')).toBeGreaterThan(page.indexOf("detailTab === 'treinos'"));
   });
 });
+
+describe('Relogio Wear OS no resumo do painel (17/11/2026)', () => {
+  it('aparece como integracao conectada que usa o aplicativo do relogio, com o que devolveu ao Panzeri Run', () => {
+    const result = buildWatchSummary({ connected: ['wear_os'], received: { wear_os: { week: 2, total: 5, lastAt: new Date('2026-11-17T10:00:00Z') } }, weekRuns: 4, deliveries: {} });
+    expect(result.devices).toHaveLength(1);
+    expect(result.devices[0]).toMatchObject({ provider: 'wear_os', receivesWorkouts: false, receivedWeek: 2, receivedTotal: 5 });
+    expect(result.devices[0].text).toContain('Usa Relógio Wear OS');
+    expect(result.devices[0].text).toContain('Já enviou ao Panzeri Run 2 treinos nesta semana (5 no total, o último em 17/11)');
+    expect(result.devices[0].explain).toContain('Não depende do Health Connect');
+  });
+});

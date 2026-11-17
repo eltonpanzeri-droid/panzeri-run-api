@@ -38,6 +38,8 @@ describe('documento de consentimento do relogio', () => {
     expect(text).toMatch(/incluindo o percurso GPS quando você o autorizar, são enviados à Anthropic/);
     expect(text).toContain('desligar o uso dos dados do relógio pela inteligência artificial');
     expect(text).not.toContain('não é enviado à inteligência artificial');
+    // decisao de Elton (17/11/2026): nenhum dado da aluna vai a servico de clima; o texto nao promete temperatura
+    expect(text).not.toMatch(/meteorolog|clima|temperatura/i);
     expect(WEAR_OS_CONSENT.optionalPurposes.map((p) => p.id)).toEqual(['ai_external']);
     expect(WEAR_OS_CONSENT.optionalPurposes[0].screen).toBeUndefined(); // a IA ja esta no texto da conexao
   });

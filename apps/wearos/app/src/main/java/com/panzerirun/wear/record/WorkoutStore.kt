@@ -6,7 +6,7 @@ import java.io.File
 
 // Treinos gravados ficam em arquivos privados do app no relogio (nenhum outro app le). Fase 3: so' guardar; o envio ao Panzeri Run entra com a autorizacao da aluna na etapa seguinte.
 // - pending/<clientId>.json : treino encerrado, esperando envio
-// - in-progress.json        : copia periodica do treino em andamento, para recuperar se o app for fechado no meio
+// - in-progress.json        : copia periodica (a cada 15 s) do treino em andamento, para recuperar se o app for fechado no meio
 
 class WorkoutStore(context: Context) {
     private val dir = File(context.filesDir, "workouts").apply { mkdirs() }

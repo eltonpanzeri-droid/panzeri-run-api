@@ -534,7 +534,7 @@ export class StudentIntegrationsService {
       this.prisma.polarConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
       this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } }),
       this.prisma.stravaConnection.findUnique({ where: { userId }, select: { createdAt: true } }),
-      this.prisma.providerConnection.findMany({ where: { userId, provider: { in: ['zepp', 'coros', 'garmin', 'apple_health', 'health_connect'] } }, select: { provider: true, disconnectedAt: true } }),
+      this.prisma.providerConnection.findMany({ where: { userId, provider: { in: ['zepp', 'coros', 'garmin', 'apple_health', 'health_connect', 'wear_os'] } }, select: { provider: true, disconnectedAt: true } }),
       this.prisma.activityLog.groupBy({ by: ['provider'], where: { userId }, _count: { _all: true }, _max: { startedAt: true } }),
       this.prisma.activityLog.groupBy({ by: ['provider'], where: { userId, startedAt: { gte: weekStart } }, _count: { _all: true } }),
       plan ? this.prisma.trainingSession.count({ where: { planId: plan.id, modality: { in: ['corrida', 'esteira'] } } }) : Promise.resolve(0),

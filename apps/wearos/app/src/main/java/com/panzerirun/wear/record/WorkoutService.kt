@@ -18,6 +18,7 @@ import androidx.health.services.client.data.Availability
 import androidx.health.services.client.data.DataType
 import androidx.health.services.client.data.ExerciseConfig
 import androidx.health.services.client.data.ExerciseLapSummary
+import androidx.health.services.client.data.ExerciseTrackedStatus
 import androidx.health.services.client.data.ExerciseType
 import androidx.health.services.client.data.ExerciseUpdate
 import androidx.wear.ongoing.OngoingActivity
@@ -81,6 +82,10 @@ class WorkoutService : Service() {
         startInForeground()
         scope.launch {
             try {
+                // Treino anterior que o sistema deixou aberto (app fechado no meio): encerra antes de comecar outro. Treino de OUTRO aplicativo em andamento: nao mexe, avisa.
+                val tracked = runCatching { client.getCurrentExerciseInfoAsync().await().exerciseTrackedStatus }.getOrNull()
+                if (tracked == ExerciseTrackedStatus.OTHER_APP_IN_PROGRESS) return@launch fail("Outro aplicativo de treino está em andamento. Encerre-o e tente de novo.")
+                if (tracked == ExerciseTrackedStatus.OWNED_EXERCISE_IN_PROGRESS) runCatching { client.endExerciseAsync().await() }
                 val capabilities = client.getCapabilitiesAsync().await()
                 if (ExerciseType.RUNNING !in capabilities.supportedExerciseTypes) return@launch fail("Este relógio não permite gravar corrida pelo Panzeri Run.")
                 val supported = capabilities.getExerciseTypeCapabilities(ExerciseType.RUNNING).supportedDataTypes
@@ -99,7 +104,7 @@ class WorkoutService : Service() {
                 publish()
                 snapshotJob = scope.launch {
                     while (true) {
-                        delay(30_000)
+                        delay(15_000)
                         recorder?.let { store.saveInProgress(it.toJson(System.currentTimeMillis(), interrupted = true)) }
                     }
                 }
