@@ -23,7 +23,10 @@ data class RecordingSummary(
     val sessionId: String?,
     val startedAtMillis: Long,
     val endedAtMillis: Long,
+    // tres tempos, como no Strava: da atividade (do inicio ao fim, incluindo paradas), do cronometro (sem as pausas manuais) e em movimento (so' quando esta se deslocando)
+    val elapsedSec: Int,
     val activeSec: Int,
+    val movingSec: Int,
     val distanceMeters: Double,
     val avgHr: Int?,
     val maxHr: Int?,
@@ -31,6 +34,9 @@ data class RecordingSummary(
     val hasRoute: Boolean,
     val interrupted: Boolean,
 )
+
+private const val MOVING_MIN_SPEED_MPS = 0.5
+private const val MAX_SPEED_GAP_MS = 5_000L
 
 class Recorder(
     val sessionId: String?,
@@ -42,6 +48,10 @@ class Recorder(
     private val points = TreeMap<Int, LivePoint>()
     private var activeMs = 0L
     private var activeSince: Long? = startedAtMillis
+    // tempo em movimento: soma dos intervalos entre amostras de velocidade em que a velocidade era de corrida/caminhada (>= 0,5 m/s) e o cronometro estava ativo
+    private var movingMs = 0L
+    private var lastSpeedTime: Long? = null
+    private var lastSpeedMoving = false
     private var latestDistance = 0.0
     private var hrSum = 0L
     private var hrCount = 0
@@ -77,6 +87,14 @@ class Recorder(
     fun onSpeed(timeMillis: Long, metersPerSecond: Double) {
         if (metersPerSecond.isNaN() || metersPerSecond < 0 || metersPerSecond > 15) return
         slot(timeMillis).speedMps = metersPerSecond
+        val last = lastSpeedTime
+        // o intervalo desde a amostra anterior conta como movimento se ela estava em movimento; lacunas longas (sensor sem leitura) nao contam
+        if (last != null && lastSpeedMoving && activeSince != null) {
+            val gap = timeMillis - last
+            if (gap in 1..MAX_SPEED_GAP_MS) movingMs += gap
+        }
+        lastSpeedTime = timeMillis
+        lastSpeedMoving = metersPerSecond >= MOVING_MIN_SPEED_MPS
     }
 
     // pausa e retomada: o tempo parado nao conta no tempo ativo
@@ -84,19 +102,22 @@ class Recorder(
         val since = activeSince ?: return
         activeMs += (atMillis - since).coerceAtLeast(0)
         activeSince = null
+        lastSpeedTime = null // a pausa nao conta como movimento
     }
 
     fun onResumed(atMillis: Long) {
         if (activeSince == null) activeSince = atMillis
     }
 
+    fun movingMillis(): Long = movingMs
     fun activeMillis(nowMillis: Long): Long = activeMs + (activeSince?.let { (nowMillis - it).coerceAtLeast(0) } ?: 0L)
     fun distanceMeters(): Double = latestDistance
     fun lastHeartRate(): Int? = points.descendingMap().values.firstOrNull { it.hr != null }?.hr
 
     fun summary(endedAtMillis: Long, interrupted: Boolean = false): RecordingSummary = RecordingSummary(
         clientId = clientId, sessionId = sessionId, startedAtMillis = startedAtMillis, endedAtMillis = endedAtMillis,
-        activeSec = (activeMillis(endedAtMillis) / 1000).toInt(), distanceMeters = latestDistance,
+        elapsedSec = ((endedAtMillis - startedAtMillis).coerceAtLeast(0) / 1000).toInt(), activeSec = (activeMillis(endedAtMillis) / 1000).toInt(),
+        movingSec = (minOf(movingMs, activeMillis(endedAtMillis)) / 1000).toInt(), distanceMeters = latestDistance,
         avgHr = if (hrCount > 0) Math.round(hrSum.toDouble() / hrCount).toInt() else null, maxHr = hrMax,
         points = points.size, hasRoute = points.values.any { it.lat != null && it.lon != null }, interrupted = interrupted,
     )
@@ -121,7 +142,10 @@ class Recorder(
             .put("startedAt", Instant.ofEpochMilli(s.startedAtMillis).toString())
             .put("endedAt", Instant.ofEpochMilli(s.endedAtMillis).toString())
             .put("utcOffsetMinutes", utcOffsetMinutes)
+            // durationSec = cronometro (sem pausas), como o resumo das outras integracoes; elapsedSec e movingSec sao os outros dois tempos
             .put("durationSec", s.activeSec)
+            .put("elapsedSec", s.elapsedSec)
+            .put("movingSec", s.movingSec)
             .put("distanceMeters", Math.round(s.distanceMeters * 10) / 10.0)
             .put("avgHr", s.avgHr ?: JSONObject.NULL)
             .put("maxHr", s.maxHr ?: JSONObject.NULL)

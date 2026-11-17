@@ -132,7 +132,7 @@ class WorkoutService : Service() {
         val pace = lastSpeed?.takeIf { it > 0.5 && !paused }?.let { Math.round(1000.0 / it).toInt() }
         WorkoutController.publish(RecordingState.Recording(
             paused = paused, activeBaseMs = rec.activeMillis(now), activeSinceElapsed = if (paused) null else SystemClock.elapsedRealtime(),
-            distanceMeters = rec.distanceMeters(), heartRate = rec.lastHeartRate(), paceSecPerKm = pace, gpsReady = gpsReady,
+            movingMs = rec.movingMillis(), distanceMeters = rec.distanceMeters(), heartRate = rec.lastHeartRate(), paceSecPerKm = pace, gpsReady = gpsReady,
         ))
     }
 

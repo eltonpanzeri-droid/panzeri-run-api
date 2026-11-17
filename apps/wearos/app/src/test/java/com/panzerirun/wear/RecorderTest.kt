@@ -86,7 +86,7 @@ class RecorderTest {
         assertEquals(-180, json.getInt("utcOffsetMinutes"))
         assertEquals(61, json.getInt("durationSec"))
         assertTrue(json.getBoolean("interrupted"))
-        assertEquals(setOf("clientId", "sessionId", "startedAt", "endedAt", "utcOffsetMinutes", "durationSec", "distanceMeters", "avgHr", "maxHr", "interrupted", "points"), json.keys().asSequence().toSet())
+        assertEquals(setOf("clientId", "sessionId", "startedAt", "endedAt", "utcOffsetMinutes", "durationSec", "elapsedSec", "movingSec", "distanceMeters", "avgHr", "maxHr", "interrupted", "points"), json.keys().asSequence().toSet())
         assertEquals("2023-11-14T22:13:20Z", json.getString("startedAt"))
     }
 
@@ -96,5 +96,45 @@ class RecorderTest {
         assertTrue(json.isNull("sessionId"))
         assertTrue(json.isNull("avgHr"))
         assertNull(r.summary(t0 + 30_000).avgHr)
+    }
+
+    @Test fun `tempo em movimento nao conta a parada e tempo da atividade conta tudo`() {
+        val r = recorder()
+        // 30 s correndo (2,5 m/s), 20 s parado no semaforo (0 m/s), 30 s correndo de novo
+        for (s in 0..30) r.onSpeed(t0 + s * 1000L, 2.5)
+        for (s in 31..50) r.onSpeed(t0 + s * 1000L, 0.0)
+        for (s in 51..80) r.onSpeed(t0 + s * 1000L, 2.5)
+        val summary = r.summary(t0 + 80_000)
+        assertEquals(80, summary.elapsedSec)
+        assertEquals(80, summary.activeSec) // sem pausa manual o cronometro anda junto
+        assertEquals(60, summary.movingSec) // 30 + 30; os 20 s parado ficam de fora
+    }
+
+    @Test fun `pausa manual nao conta em movimento nem no cronometro mas conta no tempo da atividade`() {
+        val r = recorder()
+        for (s in 0..20) r.onSpeed(t0 + s * 1000L, 3.0)
+        r.onPaused(t0 + 20_000)
+        r.onResumed(t0 + 60_000) // 40 s pausado
+        for (s in 60..80) r.onSpeed(t0 + s * 1000L, 3.0)
+        val summary = r.summary(t0 + 80_000)
+        assertEquals(80, summary.elapsedSec)
+        assertEquals(40, summary.activeSec)
+        assertEquals(40, summary.movingSec) // 20 s antes e 20 s depois; a lacuna da pausa nao e interpolada
+    }
+
+    @Test fun `lacuna longa sem leitura de velocidade nao vira movimento`() {
+        val r = recorder()
+        r.onSpeed(t0, 3.0)
+        r.onSpeed(t0 + 30_000, 3.0) // sensor ficou 30 s sem ler
+        assertEquals(0, r.summary(t0 + 30_000).movingSec)
+    }
+
+    @Test fun `json leva os tres tempos`() {
+        val r = recorder()
+        for (s in 0..10) r.onSpeed(t0 + s * 1000L, 3.0)
+        val json = r.toJson(t0 + 20_000)
+        assertEquals(20, json.getInt("elapsedSec"))
+        assertEquals(20, json.getInt("durationSec"))
+        assertEquals(10, json.getInt("movingSec"))
     }
 }

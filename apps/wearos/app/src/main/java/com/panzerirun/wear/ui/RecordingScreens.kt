@@ -79,6 +79,7 @@ private fun RecordingScreen(state: RecordingState.Recording) {
         ScalingLazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
             item { Text(RecordingFormat.clock(activeMs / 1000), fontSize = 34.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colors.primary) }
             item { Text(if (state.paused) "Pausado" else "${RecordingFormat.km(state.distanceMeters)} km", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+            item { Text("Em movimento ${RecordingFormat.clock(state.movingMs / 1000)}", fontSize = 12.sp, textAlign = TextAlign.Center) }
             item {
                 val parts = listOfNotNull(state.heartRate?.let { "$it bpm" }, state.paceSecPerKm?.let { "${Format.pace(it)}/km" })
                 Text(if (parts.isEmpty()) "Medindo…" else parts.joinToString("  ·  "), fontSize = 14.sp, textAlign = TextAlign.Center)
@@ -108,7 +109,10 @@ private fun FinishedScreen(summary: RecordingSummary) {
     Scaffold(timeText = { TimeText() }, vignette = { Vignette(VignettePosition.TopAndBottom) }) {
         ScalingLazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
             item { Text("Treino concluído", fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
-            item { Text("${RecordingFormat.clock(summary.activeSec.toLong())} · ${RecordingFormat.km(summary.distanceMeters)} km", fontSize = 18.sp, textAlign = TextAlign.Center) }
+            item { Text("${RecordingFormat.km(summary.distanceMeters)} km", fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
+            item { Text("Em movimento ${RecordingFormat.clock(summary.movingSec.toLong())}", fontSize = 14.sp, textAlign = TextAlign.Center) }
+            item { Text("Tempo da atividade ${RecordingFormat.clock(summary.elapsedSec.toLong())}", fontSize = 14.sp, textAlign = TextAlign.Center) }
+            item { Text(if (summary.movingSec > 0 && summary.distanceMeters >= 50) "Ritmo médio ${Format.pace(Math.round(summary.movingSec / (summary.distanceMeters / 1000.0)).toInt())}/km" else "", fontSize = 12.sp, textAlign = TextAlign.Center) }
             item { Text(listOfNotNull(summary.avgHr?.let { "média $it bpm" }, summary.maxHr?.let { "máx $it bpm" }).joinToString(" · ").ifBlank { "Sem frequência cardíaca" }, fontSize = 12.sp, textAlign = TextAlign.Center) }
             item { Text(if (summary.hasRoute) "Percurso gravado." else "Sem percurso (GPS não encontrado).", fontSize = 12.sp, textAlign = TextAlign.Center) }
             item { Text("Guardado no relógio. O envio ao Panzeri Run entra na próxima etapa.", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp)) }

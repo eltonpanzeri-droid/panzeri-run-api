@@ -18,6 +18,7 @@ sealed interface RecordingState {
         val paused: Boolean,
         val activeBaseMs: Long, // tempo ativo acumulado ate' a ultima mudanca de estado
         val activeSinceElapsed: Long?, // SystemClock.elapsedRealtime() em que voltou a contar (null = pausado)
+        val movingMs: Long, // tempo em movimento acumulado (como no Strava)
         val distanceMeters: Double,
         val heartRate: Int?,
         val paceSecPerKm: Int?,
