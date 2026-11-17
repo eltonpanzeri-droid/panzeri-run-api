@@ -183,3 +183,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - **Clima/temperatura por local e hora: DESCARTADO por ora (Elton, 17/11/2026):** não enviaremos dados da aluna a serviço de meteorologia. Se um dia voltar, exige nova decisão e novo texto de consentimento (nova versão).
 - **Percurso lido pela IA:** a autorização já permite, mas nenhum prompt usa o percurso ainda; fazer junto com o mapa.
 - **Wear OS publicado:** ver `apps/wearos/PUBLICACAO_PLAY.md` (checklist, declaração de serviço em primeiro plano, segurança de dados e trecho da política, todos rascunhos).
+
+## 17/11/2026 — Wear OS liberado para TODAS as alunas (ordem de Elton), com aviso de funcionalidade nova
+- Nada de "em teste" nem lista de alunas: o cartão do relógio aparece na tela Samsung / Galaxy Watch para todas (Android e PWA). Aviso fixo no alto: "Funcionalidade nova ... estamos trabalhando para melhorá-lo ... envie em Relatar problema", com botão que abre a tela Relatar problema.
+- **Atenção ao lançar:** o cartão manda a aluna abrir o aplicativo do Panzeri Run no relógio. Para não confundir, **publicar o app do relógio na Play (ao menos em teste aberto) no mesmo dia em que o build do celular com os cartões sair**. Antes disso o cartão aparece mas não há o que instalar.

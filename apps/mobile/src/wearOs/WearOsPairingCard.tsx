@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { Text } from '../PtText';
 
-// Cartao "Relógio Wear OS" (17/11/2026, fase 1 do Wear OS; em teste). A aluna digita o codigo que aparece no relogio e o conecta; ve os relogios conectados e pode retirar cada um. O relogio recebe
+// Cartao "Relógio Wear OS" (17/11/2026, fase 1 do Wear OS; liberado para todas as alunas, com aviso de funcionalidade nova na tela). A aluna digita o codigo que aparece no relogio e o conecta; ve os relogios conectados e pode retirar cada um. O relogio recebe
 // uma credencial propria, so' para LER os treinos dela. Nenhuma senha e' digitada no relogio. Fica na tela Samsung / Galaxy Watch.
 
 interface WearDeviceView { id: string; name: string; pairedAt: string | null; lastSeenAt: string | null }
@@ -76,7 +76,7 @@ export function WearOsPairingCard({ accessToken, apiUrl }: { accessToken: string
 
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Relógio Wear OS (em teste)</Text>
+      <Text style={styles.title}>Relógio Wear OS</Text>
       <Text style={styles.text}>Para ver os seus treinos direto no Galaxy Watch (ou outro relógio Wear OS), abra o aplicativo Panzeri Run no relógio, anote o código que ele mostra e digite aqui. Você não digita senha no relógio e pode retirar o relógio quando quiser.</Text>
       <TextInput
         style={styles.input}

@@ -31,6 +31,7 @@ import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAut
 import { AppleWatchPendingBanner } from './src/appleWatchDelivery/AppleWatchPendingBanner';
 import { WearOsPairingCard } from './src/wearOs/WearOsPairingCard';
 import { WearOsConsentCard } from './src/wearOs/WearOsConsentCard';
+import { WearOsNotice } from './src/wearOs/WearOsNotice';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -2057,7 +2058,7 @@ function AppInner() {
             {activeTab === 'ciclo' && <MenstrualCycleScreen accessToken={accessToken} />}
             {/* Etapa 2 (08/10/2026): 'strava' e rota antiga; abre o hub ja na tela do Strava (Privacidade ainda usa setActiveTab('strava')). */}
             {(activeTab === 'devices' || activeTab === 'strava') && (
-              <DevicesIntegrationsScreen key={`${activeTab}-${devicesProvider ?? ''}`} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : devicesProvider} />
+              <DevicesIntegrationsScreen key={`${activeTab}-${devicesProvider ?? ''}`} accessToken={accessToken} initialProviderId={activeTab === 'strava' ? 'strava' : devicesProvider} onOpenProblemReport={() => setActiveTab('problemReport')} />
             )}
             {activeTab === 'billing' && <Billing accessToken={accessToken} />}
             {activeTab === 'privacy' && <PrivacyDataScreen accessToken={accessToken} onOpenStrava={() => setActiveTab('strava')} onOpenBilling={() => setActiveTab('billing')} onAccountDeleted={logout} />}
@@ -9611,7 +9612,7 @@ function WahooConnect({ accessToken, variant = 'screen' }: { accessToken: string
 
 // Registro central: qual conteudo ja existente abre para cada id do catalogo (GET /me/integrations).
 // Fabricante sem entrada aqui (Samsung, Garmin, COROS) so mostra o texto de indisponibilidade do catalogo.
-function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessToken: string; initialProviderId?: string }) {
+function DevicesIntegrationsScreen({ accessToken, initialProviderId, onOpenProblemReport }: { accessToken: string; initialProviderId?: string; onOpenProblemReport?: () => void }) {
   const screens: IntegrationScreens = {
     // Polar/Wahoo ja' conectadas: o pedido do Atlas aparece logo abaixo (so' para quem esta conectada); sem resposta, nada muda.
     // 01/11/2026: Polar = UM cartao so' (saude + Atlas, um "Salvar"); o cartao separado do Atlas so' continua para a Wahoo.
@@ -9623,8 +9624,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId }: { accessT
     apple_watch: () => (<><AppleWatchWorkoutsCard accessToken={accessToken} apiUrl={API_URL} /><AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} /></>),
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
-    // 17/11/2026: cartao de pareamento do relogio Wear OS (em teste) acima do Health Connect.
-    samsung: () => (<><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard accessToken={accessToken} apiUrl={API_URL} /></>),
+    // 17/11/2026: aviso de funcionalidade nova + autorizacoes + pareamento do relogio Wear OS, liberados para todas as alunas, acima do Health Connect.
+    samsung: () => (<><WearOsNotice onOpenProblemReport={onOpenProblemReport} /><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard accessToken={accessToken} apiUrl={API_URL} /></>),
     // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
     // COROS (30/10/2026): conexao pelo COROS MCP, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da Zepp.

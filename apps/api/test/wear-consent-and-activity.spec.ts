@@ -333,3 +333,25 @@ describe('app: cartao de autorizacao e envio automatico do relogio (estatico)', 
     expect(api).toContain('wear_consent_required');
   });
 });
+
+describe("liberado para todas as alunas, com aviso de funcionalidade nova (17/11/2026)", () => {
+  const mobile = (...parts: string[]) => readFileSync(join(__dirname, "..", "..", "mobile", ...parts), "utf8");
+  it("nenhum cartao diz \"em teste\" e o aviso manda relatar erros e sugestoes em Relatar problema", () => {
+    const notice = mobile("src", "wearOs", "WearOsNotice.tsx");
+    expect(notice).toContain("Funcionalidade nova");
+    expect(notice).toContain("é uma novidade, e estamos trabalhando para melhorá-lo");
+    expect(notice).toContain("erro ou tiver alguma sugestão, envie em “Relatar problema”");
+    for (const file of ["WearOsPairingCard.tsx", "WearOsConsentCard.tsx", "WearOsNotice.tsx"]) {
+      // so' o que a aluna le (linhas de codigo), sem os comentarios de historico
+      const source = mobile("src", "wearOs", file).split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
+      expect(source).not.toMatch(/em teste/i);
+    }
+  });
+  it("o botao leva a tela Relatar problema e nao ha trava por aluna (sem lista de ids nem variavel de liberacao)", () => {
+    const app = mobile("App.tsx");
+    expect(app).toContain("onOpenProblemReport={() => setActiveTab('problemReport')}");
+    expect(app).toContain("<WearOsNotice onOpenProblemReport={onOpenProblemReport} />");
+    const api = readFileSync(join(__dirname, "..", "src", "wear", "wear.module.ts"), "utf8") + readFileSync(join(__dirname, "..", "src", "wear", "wear.service.ts"), "utf8");
+    expect(api).not.toMatch(/ENABLED_USER_IDS|isEnabledFor/);
+  });
+});
