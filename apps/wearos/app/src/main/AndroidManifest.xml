@@ -3,9 +3,18 @@
 
     <uses-feature android:name="android.hardware.type.watch" />
 
-    <!-- Fase 2 (somente leitura dos treinos): so' internet. Nenhuma permissao de saude, sensor ou localizacao.
-         O GPS e os sensores entram na fase 3, com permissao pedida so' ao iniciar um treino. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Fase 3 (gravar o treino): sensores e localizacao SO' sao pedidos quando a aluna toca em "Iniciar corrida" (nunca ao abrir o app) e so' enquanto o treino esta em andamento:
+         o servico de gravacao roda em primeiro plano com a notificacao visivel e para ao encerrar. Nao ha permissao de localizacao em segundo plano. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BODY_SENSORS" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="false"
@@ -32,5 +41,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".record.WorkoutService"
+            android:exported="false"
+            android:foregroundServiceType="health|location" />
     </application>
 </manifest>

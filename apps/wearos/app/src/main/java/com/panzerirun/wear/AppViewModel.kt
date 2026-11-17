@@ -11,6 +11,9 @@ import com.panzerirun.wear.data.PendingPairing
 import com.panzerirun.wear.data.PollResult
 import com.panzerirun.wear.data.Store
 import com.panzerirun.wear.data.Week
+import com.panzerirun.wear.record.RecordingState
+import com.panzerirun.wear.record.WorkoutController
+import com.panzerirun.wear.record.WorkoutStore
 import com.panzerirun.wear.data.WeekParser
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -34,16 +37,23 @@ data class UiState(
     val offline: Boolean = false,
     val noAccess: Boolean = false,
     val updatedAtMillis: Long? = null,
+    // treinos gravados no relogio e ainda nao enviados ao Panzeri Run (o envio entra na proxima etapa)
+    val pendingWorkouts: Int = 0,
 )
 
 // Fase 2 (somente leitura): parear por codigo e mostrar os treinos da semana, guardados no relogio.
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val store = Store(application)
+    private val workouts = WorkoutStore(application)
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
     private var pairingJob: Job? = null
 
     init {
+        // treino que o sistema encerrou no meio (se a copia periodica existir) entra na fila como interrompido
+        if (WorkoutController.state.value is RecordingState.Idle) workouts.recoverInterrupted()
+        _state.update { it.copy(pendingWorkouts = workouts.pendingCount()) }
+        viewModelScope.launch { WorkoutController.state.collect { if (it is RecordingState.Finished) _state.update { s -> s.copy(pendingWorkouts = workouts.pendingCount()) } } }
         loadCachedWeek()
         if (store.token != null) {
             _state.update { it.copy(screen = Screen.Week) }

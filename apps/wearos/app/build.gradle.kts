@@ -13,8 +13,8 @@ android {
         applicationId = "com.panzerirun.app"
         minSdk = 30 // Wear OS 3 (Galaxy Watch 4 em diante)
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
         // API de producao do Panzeri Run (a mesma do app do celular). Troque por -Pwear.apiUrl=... para testar contra outro servidor.
         val apiUrl = (project.findProperty("wear.apiUrl") as String?) ?: "https://agenteselton-panzeri-run-api.hbljgk.easypanel.host"
         buildConfigField("String", "API_URL", "\"$apiUrl\"")
@@ -52,6 +52,11 @@ dependencies {
     implementation("androidx.wear.compose:compose-navigation:1.4.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
+    // Fase 3: gravar o treino pelo Health Services (sensores do relogio) e mostrar a atividade em andamento no mostrador.
+    implementation("androidx.health:health-services-client:1.0.0")
+    implementation("androidx.wear:wear-ongoing:1.0.0")
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.2.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

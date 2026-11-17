@@ -249,13 +249,23 @@ describe('cartao no app (estatico)', () => {
   });
 });
 
-describe('app do relogio (apps/wearos), fase 2 somente leitura (estatico)', () => {
+describe('app do relogio (apps/wearos), fases 2 e 3 (estatico)', () => {
   const wear = (...parts: string[]) => readFileSync(join(__dirname, '..', '..', 'wearos', ...parts), 'utf8');
-  it('so pede internet: nenhuma permissao de saude, sensor ou localizacao nesta fase', () => {
+  it('permissoes da fase 3: so as da gravacao do treino, nunca localizacao em segundo plano', () => {
     const manifest = wear('app', 'src', 'main', 'AndroidManifest.xml');
-    const permissions = [...manifest.matchAll(/<uses-permission android:name="([^"]+)"/g)].map((m) => m[1]);
-    expect(permissions).toEqual(['android.permission.INTERNET']);
-    expect(manifest).not.toMatch(/LOCATION|BODY_SENSORS|ACTIVITY_RECOGNITION|health\./i);
+    const permissions = [...manifest.matchAll(/<uses-permission android:name="([^"]+)"/g)].map((m) => m[1].replace('android.permission.', '')).sort();
+    expect(permissions).toEqual(['ACCESS_FINE_LOCATION', 'ACTIVITY_RECOGNITION', 'BODY_SENSORS', 'FOREGROUND_SERVICE', 'FOREGROUND_SERVICE_HEALTH', 'FOREGROUND_SERVICE_LOCATION', 'INTERNET', 'POST_NOTIFICATIONS', 'WAKE_LOCK']);
+    expect(manifest).not.toContain('ACCESS_BACKGROUND_LOCATION');
+    expect(manifest).not.toMatch(/ACCESS_COARSE_LOCATION|android.permission.health./);
+    // o servico de gravacao e' o unico que usa sensores e GPS, em primeiro plano
+    expect(manifest).toContain('android:foregroundServiceType="health|location"');
+  });
+  it('as permissoes so sao pedidas ao tocar em Iniciar corrida, nunca ao abrir o app', () => {
+    const ui = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'ui', 'PanzeriWearApp.kt');
+    expect(ui).toContain('launcher.launch(WorkoutController.requiredPermissions())');
+    expect(ui.split("launcher.launch(").length - 1).toBe(1);
+    const activity = wear('app', 'src', 'main', 'java', 'com', 'panzerirun', 'wear', 'MainActivity.kt');
+    expect(activity).not.toMatch(/requestPermissions|RequestMultiplePermissions/);
   });
   it('HTTP sem criptografia so existe na variante debug; a release nao o declara', () => {
     expect(wear('app', 'src', 'debug', 'AndroidManifest.xml')).toContain('usesCleartextTraffic="true"');

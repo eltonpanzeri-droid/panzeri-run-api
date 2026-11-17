@@ -1,5 +1,8 @@
 package com.panzerirun.wear.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,6 +12,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.flow.StateFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +43,8 @@ import com.panzerirun.wear.UiState
 import com.panzerirun.wear.data.Format
 import com.panzerirun.wear.data.Item
 import com.panzerirun.wear.data.Session
+import com.panzerirun.wear.record.RecordingState
+import com.panzerirun.wear.record.WorkoutController
 import java.time.LocalDate
 
 // Telas do relogio (fase 2, somente leitura): pareamento por codigo, lista da semana e detalhe do treino. Textos curtos, toque grande, funciona sem internet com o que ja' foi baixado.
@@ -45,7 +54,10 @@ import java.time.LocalDate
 @Composable
 fun PanzeriWearApp(stateFlow: StateFlow<UiState>, onRefresh: () -> Unit, onNewCode: () -> Unit, onForget: () -> Unit) {
     val state by stateFlow.collectAsState()
+    val recording by WorkoutController.state.collectAsState()
     MaterialTheme {
+        // corrida em andamento (ou resumo/erro dela): a tela da corrida tem prioridade sobre a navegacao normal
+        if (recording !is RecordingState.Idle) { RecordingFlow(recording); return@MaterialTheme }
         when (val screen = state.screen) {
             Screen.Loading -> CenteredMessage("Abrindo…", progress = true)
             is Screen.Pairing -> PairingScreen(screen, onNewCode)
@@ -125,6 +137,9 @@ private fun WeekScreen(state: UiState, onOpen: (String) -> Unit, onRefresh: () -
                 }
             }
             // chave inclui o estado: sem ela a lista do relogio nao redesenhava este rodape quando o download terminava (visto no emulador)
+            if (state.pendingWorkouts > 0) item(key = "pending-${state.pendingWorkouts}") {
+                Text(if (state.pendingWorkouts == 1) "1 treino gravado no relógio" else "${state.pendingWorkouts} treinos gravados no relógio", fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+            }
             item(key = "status-${state.refreshing}-${state.offline}") {
                 val status = when {
                     state.refreshing -> "Atualizando…"
@@ -142,10 +157,28 @@ private fun WeekScreen(state: UiState, onOpen: (String) -> Unit, onRefresh: () -
 @Composable
 private fun DetailScreen(session: Session) {
     val listState = rememberScalingLazyListState()
+    val context = LocalContext.current
+    var denied by remember { mutableStateOf(false) }
+    // As permissoes (GPS, sensores, reconhecimento de atividade) so' sao pedidas aqui, quando a aluna toca em "Iniciar corrida".
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val granted = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.BODY_SENSORS, Manifest.permission.ACTIVITY_RECOGNITION).all { result[it] == true }
+        if (granted) WorkoutController.start(context, session.id) else denied = true
+    }
     Scaffold(timeText = { TimeText() }, vignette = { Vignette(VignettePosition.TopAndBottom) }, positionIndicator = { PositionIndicator(scalingLazyListState = listState) }) {
         ScalingLazyColumn(Modifier.fillMaxSize(), state = listState, horizontalAlignment = Alignment.CenterHorizontally) {
             item { Text(session.title, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center) }
             item { Text(Format.dayLabel(session.date) + (Format.summary(session).takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""), fontSize = 12.sp, textAlign = TextAlign.Center) }
+            if (session.kind == "corrida" && !session.done) {
+                item {
+                    Chip(
+                        onClick = { denied = false; launcher.launch(WorkoutController.requiredPermissions()) },
+                        label = { Text("Iniciar corrida") },
+                        secondaryLabel = { Text("GPS só durante o treino", maxLines = 1) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                }
+                if (denied) item { Text("Sem a permissão do GPS e dos sensores não dá para gravar a corrida.", fontSize = 11.sp, textAlign = TextAlign.Center) }
+            }
             if (session.items.isEmpty()) {
                 item { Text("Veja os detalhes deste treino no Panzeri Run do celular.", fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 8.dp)) }
             }
