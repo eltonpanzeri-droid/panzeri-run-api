@@ -251,12 +251,15 @@ Como aplicar:
 1. Editar os arquivos diretamente no checkout canônico.
 2. Rodar `tsc --noEmit` em cada app tocada (api, admin, mobile) e os testes aplicáveis — não commitar com typecheck vermelho.
 
-**Checklist pós-commit — OBRIGATÓRIO, NUNCA PULAR:**
-1. `git add` + `git commit` no checkout canônico com mensagem já pronta em português.
-2. **Claude abre o GitHub Desktop** via PowerShell: `Start-Process "C:\Users\elton\AppData\Local\GitHubDesktop\GitHubDesktop.exe"`. Nunca escrever "abra o GitHub Desktop" — ABRIR EU MESMO.
-3. Informar o título do commit no chat — **SEMPRE, sem exceção**.
+**Checklist ao terminar QUALQUER mudança — PADRÃO ÚNICO (ordem de Elton, 18/11/2026, repetida 10+ vezes; NUNCA variar):**
+1. **NÃO fazer `git commit`.** Deixar os arquivos alterados no GitHub Desktop; quem commita é o Elton (ele pediu assim para só "commitar, dar o push e o deploy").
+2. **Abrir o GitHub Desktop eu mesmo** via PowerShell: `Start-Process "C:\Users\elton\AppData\Local\GitHubDesktop\GitHubDesktop.exe"`. Nunca escrever "abra o GitHub Desktop".
+3. **Copiar o título do commit para a área de transferência** (`Set-Clipboard -Value "título"`), para ele só colar (Ctrl+V) no campo Summary.
+4. **Escrever o título do commit no chat**, em linha própria, no fim da resposta.
+5. Dizer quais serviços precisam de Deploy (só API? API + web? build nativo?).
+Sempre os cinco, em toda resposta que deixa algo pronto, mesmo sem ele pedir. Título descreve só os arquivos que aparecem em "Changes" naquele momento.
 
-**O Elton faz dois cliques: Push origin → Deploy no EasyPanel (manual, não automático).**
+**O Elton faz: commit (colar o título) → Push origin → Deploy no EasyPanel (manual, não automático).**
 
 **Regras de segurança inamovíveis:**
 - Nunca logar em nenhum lugar, nunca inserir senha/credencial/chave de API/token em nenhum campo.
