@@ -9632,8 +9632,8 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId, onOpenProbl
     apple_watch: () => (<><AppleWatchWorkoutsCard accessToken={accessToken} apiUrl={API_URL} /><AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} /></>),
     health_connect: () => <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />,
     // Samsung / Galaxy Watch: os dados chegam pelo Health Connect, entao o cartao abre a MESMA tela (22/10/2026).
-    // 17/11/2026: aviso de funcionalidade nova + autorizacoes + pareamento do relogio Wear OS, liberados para todas as alunas, acima do Health Connect.
-    samsung: () => (<><WearOsNotice onOpenProblemReport={onOpenProblemReport} /><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} /><HealthConnectCard accessToken={accessToken} apiUrl={API_URL} /></>),
+    // 17/11/2026: aviso de funcionalidade nova + autorizacoes + pareamento do relogio Wear OS, liberados para todas as alunas, acima do Health Connect (que fica de fora no PWA: so' funciona no app Android e mostrava 'Disponivel somente no app Android' sob o pareamento do relogio).
+    samsung: () => (<><WearOsNotice onOpenProblemReport={onOpenProblemReport} /><WearOsConsentCard accessToken={accessToken} apiUrl={API_URL} /><WearOsPairingCard accessToken={accessToken} apiUrl={API_URL} />{Platform.OS === 'web' ? null : <HealthConnectCard accessToken={accessToken} apiUrl={API_URL} />}</>),
     // Zepp/Amazfit (consentimento 2.0): conexao, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes.
     zepp: () => <ZeppIntegration accessToken={accessToken} apiUrl={API_URL} privacyUrl={LEGAL_PRIVACY_URL} termsUrl={LEGAL_TERMS_URL} />,
     // COROS (30/10/2026): conexao pelo COROS MCP, autorizacoes separadas (importar, historico, enviar treinos, Atlas) e Privacidade e permissoes. Mesmo padrao da Zepp.
