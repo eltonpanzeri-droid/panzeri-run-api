@@ -46,7 +46,7 @@ describe('catalogo de dispositivos e integracoes', () => {
   it('Samsung / Galaxy Watch: disponivel no Android e leva ao Health Connect (os dados da Samsung chegam por ele)', () => {
     const entry = byId(buildIntegrationsCatalog({ configuredEnv: ENV_OK, connectedProviderIds: new Set() }), 'samsung');
     expect(entry.availability).toBe('available');
-    expect(entry.platforms).toEqual(['android']);
+    expect(entry.platforms).toEqual(['android', 'web']);
     expect(entry.capabilities).toEqual({ receiveActivities: true, sendWorkouts: false });
     expect(entry.summary).toContain('Health Connect');
   });

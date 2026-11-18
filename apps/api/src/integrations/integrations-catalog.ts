@@ -93,10 +93,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
   {
     id: 'samsung',
     name: 'Samsung / Galaxy Watch',
+    // 18/11/2026: tambem no PWA (web), para a aluna autorizar e parear o relogio Wear OS; o cartao do Health Connect dentro dela continua dizendo que so' funciona no app Android.
     // 22/10/2026: os dados do Samsung Health e do Galaxy Watch chegam pelo Health Connect (confirmado pela Samsung). Este cartao leva a aluna para a MESMA tela do Health Connect.
     summary: 'Os dados do seu Galaxy Watch e do Samsung Health chegam ao Panzeri Run pelo Health Connect do Android. Conecte por aqui e, no app Samsung Health, ligue o compartilhamento com o Health Connect.',
     availability: 'available',
-    platforms: ['android'],
+    platforms: ['android', 'web'],
     capabilities: { receiveActivities: true, sendWorkouts: false },
     // Os dados chegam pelo Health Connect (confirmado pela Samsung em 22/10/2026), entao os grupos sao os mesmos dele. A Samsung respondeu (23/10/2026) que o acesso direto ao Samsung Health
     // exige o programa de parceiros dela e que nem todos os tipos de dado sincronizam com o Health Connect; o envio de treinos ao Galaxy Watch NAO foi confirmado.
