@@ -252,15 +252,14 @@ Como aplicar:
 2. Rodar `tsc --noEmit` em cada app tocada (api, admin, mobile) e os testes aplicáveis — não commitar com typecheck vermelho.
 
 **Checklist ao terminar QUALQUER mudança — PADRÃO ÚNICO (ordem de Elton, 18/11/2026, repetida 10+ vezes; NUNCA variar):**
-1. **NÃO fazer `git commit`.** Deixar os arquivos alterados no GitHub Desktop; quem commita é o Elton (ele pediu assim para só "commitar, dar o push e o deploy").
+1. **EU FAÇO o `git add` + `git commit` com o título (só os arquivos da tarefa; sem corpo, sem trailer).** Elton NÃO commita — ele só dá o Push origin (decisão final de 18/11/2026; eu não consigo preencher o campo do GitHub Desktop, então o commit sai pronto daqui). Nunca deixar sem commit "para ele commitar".
 2. **Abrir o GitHub Desktop eu mesmo** via PowerShell: `Start-Process "C:\Users\elton\AppData\Local\GitHubDesktop\GitHubDesktop.exe"`. Nunca escrever "abra o GitHub Desktop".
-3. **Copiar o título do commit para a área de transferência** (`Set-Clipboard -Value "título"`), para ele só colar (Ctrl+V) no campo Summary.
-4. **Escrever o título do commit no chat**, em linha própria, no fim da resposta.
-5. Dizer quais serviços precisam de Deploy (só API? API + web? build nativo?).
+3. **Escrever o título do commit no chat**, em linha própria, no fim da resposta.
+4. Dizer quais serviços precisam de Deploy (só API? API + web? build nativo?).
 **Título SEMPRE rastreável (ordem de Elton, 18/11/2026):** formato `dd/mm Área: o que mudou` (ex.: `18/11 Wear OS: libera cartão no PWA`), com a área/função afetada no início (Wear OS, Asaas, Apple Watch, Catálogo, Admin…) e, quando o caso nasceu de uma aluna ou incidente, o código dela (ex.: `Cod. 0000075`). Um título que permita achar o commit no histórico sem abrir o diff; nunca genérico ("ajustes", "correções").
-Sempre os cinco, em toda resposta que deixa algo pronto, mesmo sem ele pedir. Título descreve só os arquivos que aparecem em "Changes" naquele momento.
+Sempre os quatro, em toda resposta que deixa algo pronto, mesmo sem ele pedir. Nunca push, nunca deploy. O título descreve só os arquivos do commit.
 
-**O Elton faz: commit (colar o título) → Push origin → Deploy no EasyPanel (manual, não automático).**
+**O Elton faz: Push origin → Deploy no EasyPanel (manual, não automático).**
 
 **Regras de segurança inamovíveis:**
 - Nunca logar em nenhum lugar, nunca inserir senha/credencial/chave de API/token em nenhum campo.
