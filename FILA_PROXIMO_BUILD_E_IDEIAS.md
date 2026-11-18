@@ -193,3 +193,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Código: `apps/mobile/src/appleWatchDelivery/sendAfterGeneration.ts` + `watchSendLock.ts` (um envio por vez), chamado nos dois caminhos de sucesso de `runGenerateCurrentWeek` em `App.tsx`; o envio da abertura (`useAppleWatchAutoSend`) usa a mesma trava.
 - Sem build isto NÃO chega ao iPhone nativo. O e-mail a cada programa gerado e o aviso "confira se chegou ao relógio" já saem só com o Deploy da API.
 - Validação em aparelho real pendente (não há iPhone aqui): gerar o treino com um Apple Watch pareado e conferir se os treinos aparecem no relógio sem abrir outra tela.
+
+## 18/11/2026 — Escolha ritmo/velocidade na prescrição (exige build nativo; no PWA vale com o Deploy do web)
+- `apps/mobile/src/paceView/*` + `App.tsx` (SessionPrescription). Pedido da aluna Thais via Elton. Validar na tela: botões aparecem, escolha persiste ao reabrir, intervalado e contínuo convertem.

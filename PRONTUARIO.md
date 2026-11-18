@@ -4466,3 +4466,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Não coberto:** Apple Watch NÃO recebe alerta de pace (decisão antiga, `pace_not_sent`; exige build iOS e validação em aparelho). Passo com valor único SEM banda (ex.: aquecimento com min = max) continua com limites iguais; o app também mostra valor único nesses casos.
 - **Testes preexistentes falhando (não causados por esta mudança):** `zepp-cycle.spec.ts` (Atlas sem a variável) e `zepp-oauth.spec.ts` (`wear-consent.service.ts` lê a tabela de conexões).
 - Treinos JÁ enviados continuam com o valor único até serem reenviados (o hash do conteúdo muda e o reenvio é automático no próximo ciclo de publicação — a confirmar no scheduler).
+
+### 18/11/2026 — Aluno escolhe ver ritmo (min/km) ou velocidade (km/h) na prescrição (pedido da aluna Thais)
+- Dois botões "Ritmo (min/km)" / "Velocidade (km/h)" no alto da prescrição de corrida; padrão = ritmo; a escolha fica guardada no aparelho (AsyncStorage `panzeri_pace_view`) e vale para todos os treinos.
+- Só converte o texto mostrado (`apps/mobile/src/paceView/paceText.ts`); não muda a prescrição nem o que vai ao relógio. Cobre os blocos contínuos e os passos de intervalado.
+- Reverte parcialmente a regra de 30/10 "km/h só nos Testes físicos": agora também em `src/paceView` (teste em `zepp-workout.spec.ts` atualizado).
+- Mobile: chega ao PWA com o Deploy do web e ao app nativo só no próximo build (registrado na FILA).

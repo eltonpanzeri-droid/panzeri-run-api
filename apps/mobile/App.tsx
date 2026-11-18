@@ -33,6 +33,8 @@ import { AppleWatchPendingBanner } from './src/appleWatchDelivery/AppleWatchPend
 import { WearOsPairingCard } from './src/wearOs/WearOsPairingCard';
 import { WearOsConsentCard } from './src/wearOs/WearOsConsentCard';
 import { WearOsNotice } from './src/wearOs/WearOsNotice';
+import { paceTextForView, paceViewLabel, paceViewOptionLabel } from './src/paceView/paceText';
+import { setPaceView, usePaceView } from './src/paceView/usePaceView';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -12086,6 +12088,7 @@ function SessionPrescription({
 }) {
   // 12/09: prescricao colapsavel — comeca expandida, pode recolher para dar espaco ao formulario
   const [prescExpanded, setPrescExpanded] = useState(true);
+  const paceView = usePaceView();
   const structure = session.structure;
   if (!structure) {
     return null;
@@ -12144,6 +12147,15 @@ function SessionPrescription({
         </Text>
       </Pressable>
       {prescExpanded && (
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+          {(['pace', 'speed'] as const).map((option) => (
+            <Pressable key={option} onPress={() => setPaceView(option)} accessibilityRole="button" accessibilityState={{ selected: paceView === option }} style={{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 14, borderWidth: 1, borderColor: PRColors.ocean, backgroundColor: paceView === option ? PRColors.ocean : 'transparent' }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: paceView === option ? '#ffffff' : PRColors.ocean }}>{paceViewOptionLabel(option)}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+      {prescExpanded && (
         <>
       {/* Texto do treino (notas da IA: aquecimento, resfriamento etc.) — colapsavel com prescricao */}
       {sessionNotes ? (
@@ -12179,7 +12191,7 @@ function SessionPrescription({
                 return (
                   <Text style={styles.prescriptionText} key={`${step.label}-${index}`}>
                     - {step.label}{step.pausaType === 'ativa' ? ' (pausa ativa' + (step.activityType ? `, ${step.activityType}` : '') + ')' : step.activityType ? ` (${step.activityType})` : ''} por {step.distanceValue}{step.distanceUnit ?? 'km'}
-                    {stepPaceText(step) ? ` - Pace (${stepPaceText(step)})` : ''}
+                    {stepPaceText(step) ? ` - ${paceViewLabel(paceView)} (${paceTextForView(stepPaceText(step), paceView)})` : ''}
                     {step.durationRange ? ` - completar entre ${collapseEqualRange(step.durationRange)}` : ''}
                   </Text>
                 );
@@ -12188,7 +12200,7 @@ function SessionPrescription({
           );
         }
         const paceRaw = block.paceRange ?? paceRangeFromSpeedText(block.speedRange) ?? (block.speedKmh ? paceFromSpeed(block.speedKmh) : null);
-        const pace = paceRaw ? collapseEqualRange(paceRaw) : paceRaw;
+        const pace = paceRaw ? paceTextForView(collapseEqualRange(paceRaw), paceView) : paceRaw;
         return (
           <View style={styles.runBlock} key={block.label}>
             <View style={styles.runBlockHeader}>
@@ -12197,7 +12209,7 @@ function SessionPrescription({
             </View>
             <View style={styles.runBlockMetrics}>
               <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Distância</Text>{'\n'}{runBlockDistanceLabel(block)}</Text>
-              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>Pace</Text>{'\n'}{pace ?? '-'}</Text>
+              <Text style={styles.runBlockMetric}><Text style={styles.runBlockLabel}>{paceViewLabel(paceView)}</Text>{'\n'}{pace ?? '-'}</Text>
             </View>
             {block.rpe ? <Text style={styles.prescriptionText}>Percepcao de esforco: {rpeLabel(block.rpe)}</Text> : null}
             {block.guidance ? <Text style={styles.prescriptionText}>{block.guidance}</Text> : null}

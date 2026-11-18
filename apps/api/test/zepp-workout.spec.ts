@@ -467,8 +467,10 @@ describe('protecoes estruturais do envio', () => {
     // 30/10/2026 (decisão do treinador nos Testes físicos): velocidade e pace são duas representações da mesma informação, então a seção
     // Testes físicos pode mostrar km/h como representação secundária e aceitar km/h ao digitar resultados de laboratório. A exceção vale SÓ
     // para essa pasta; o padrão da tela continua sendo min/km, e nenhum outro arquivo do app pode mostrar km/h.
+    // 18/11/2026 (aluna Thais, via Elton): na prescricao o aluno pode ESCOLHER ver a velocidade (km/h) no lugar do ritmo; o padrao continua sendo min/km. O texto km/h fica so na pasta src/paceView.
     const physical = join('src', 'physicalTests');
-    expect(offenders.filter((path) => !path.includes(physical))).toEqual([]);
+    const paceView = join('src', 'paceView');
+    expect(offenders.filter((path) => !path.includes(physical) && !path.includes(paceView))).toEqual([]);
     expect(readFileSync(join(mobile, 'src', 'physicalTests', 'PhysicalTestsScreen.tsx'), 'utf8')).toContain("useState<SpeedUnit>('pace')");
   });
 
