@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { CanonicalStep, CanonicalWorkout, paceBoundForWatch } from '../training-plans/canonical-workout';
 import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor Garmin (08/11/2026): CanonicalWorkout -> workout da Training API V2 ("Training_API V2 2.0.pdf"). SO' traduz a estrutura que a IA/o treinador ja' decidiu (Principio da prescricao): nao escolhe
@@ -94,10 +94,10 @@ export function translateToGarminWorkout(workout: CanonicalWorkout, context: Gar
       else { out.durationType = 'TIME'; out.durationValue = seconds; }
     } // senao: OPEN (a aluna encerra a etapa na volta/lap)
 
-    // Meta de ritmo: SO' o pace PRESCRITO (a banda derivada de +-20 s nunca e' usada). Recuperacao parada nao tem ritmo.
+    // Meta de ritmo: a FAIXA mostrada a aluna (inclui a banda de +-20 s do gerador; ver paceBoundForWatch). Recuperacao parada nao tem ritmo.
     const paceAllowed = !(step.role === 'recovery' && step.recoveryKind === 'passive');
     if (step.pace && paceAllowed) {
-      const { fastSecPerKm, slowSecPerKm } = step.pace.prescribed;
+      const { fastSecPerKm, slowSecPerKm } = paceBoundForWatch(step.pace);
       if (!(fastSecPerKm > 0) || !(slowSecPerKm > 0)) refuse('pace_invalid', 'Pace prescrito invalido.', path);
       else if (fastSecPerKm < MIN_PACE_SEC || slowSecPerKm < MIN_PACE_SEC || fastSecPerKm > MAX_PACE_SEC || slowSecPerKm > MAX_PACE_SEC) refuse('pace_out_of_range', `Pace fora do intervalo aceito (${MIN_PACE_SEC} a ${MAX_PACE_SEC} s/km).`, path);
       else {

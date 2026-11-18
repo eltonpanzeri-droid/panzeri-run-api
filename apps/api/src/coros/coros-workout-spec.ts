@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { CanonicalStep, CanonicalWorkout, paceBoundForWatch } from '../training-plans/canonical-workout';
 import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor COROS (30/10/2026): CanonicalWorkout -> `course` da ferramenta createScheduledWorkout / updateScheduledWorkout do COROS MCP. SO' traduz a estrutura que a IA/o treinador
@@ -92,10 +92,10 @@ export function translateToCorosCourse(workout: CanonicalWorkout, context: Coros
       section.targetType = 4; // modo livre: a aluna encerra a etapa na volta (lap); a COROS nao aceita targetValue
     }
 
-    // Meta de ritmo: SO' o pace PRESCRITO (a banda de +-20 s criada pelo gerador e' derivada e nunca e' usada). Recuperacao parada nao tem ritmo.
+    // Meta de ritmo: a FAIXA mostrada a aluna (inclui a banda de +-20 s do gerador; ver paceBoundForWatch). Recuperacao parada nao tem ritmo.
     const paceAllowed = !(step.role === 'recovery' && step.recoveryKind === 'passive');
     if (step.pace && paceAllowed) {
-      const { fastSecPerKm, slowSecPerKm } = step.pace.prescribed;
+      const { fastSecPerKm, slowSecPerKm } = paceBoundForWatch(step.pace);
       const a = Math.round(fastSecPerKm);
       const b = Math.round(slowSecPerKm);
       if (!(fastSecPerKm > 0) || !(slowSecPerKm > 0)) refuse('pace_invalid', 'Pace prescrito invalido.', path);

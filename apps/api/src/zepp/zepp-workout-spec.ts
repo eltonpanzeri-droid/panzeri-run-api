@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { CanonicalStep, CanonicalWorkout } from '../training-plans/canonical-workout';
+import { CanonicalStep, CanonicalWorkout, paceBoundForWatch } from '../training-plans/canonical-workout';
 import { isRunModality } from '../activity-execution/canonical-modality';
 
 // Tradutor Zepp (Lote 2, 20/10/2026): CanonicalWorkout -> treino da Workout API V2 (`POST /users/-/workouts?version=2.0.0`). Esta camada SO' traduz a estrutura que a
@@ -150,7 +150,7 @@ export function translateToZeppWorkout(workout: CanonicalWorkout, context: ZeppT
       if (!profile.paceUnit) {
         refuse('pace_unit_unconfirmed', 'Unidade de PACE_LAP ainda nao confirmada pela Zepp.', path, true);
       } else {
-        const { fastSecPerKm, slowSecPerKm } = step.pace.prescribed;
+        const { fastSecPerKm, slowSecPerKm } = paceBoundForWatch(step.pace);
         if (!(fastSecPerKm > 0) || !(slowSecPerKm > 0)) refuse('pace_invalid', 'Pace prescrito invalido.', path);
         else if (fastSecPerKm === slowSecPerKm && profile.singlePaceAsEqualBounds !== true) refuse('single_pace_bounds_unconfirmed', 'Pace unico (sem faixa): a Zepp ainda nao confirmou se aceita limite baixo igual ao alto.', path, true);
         else {

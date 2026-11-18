@@ -36,6 +36,13 @@ export interface CanonicalPace {
   derivedToleranceBand: (CanonicalPaceBound & { toleranceSec: number }) | null;
 }
 
+// FAIXA que vai ao RELOGIO (ordem de Elton, 18/11/2026, caso Juliana/Garmin): o app mostra a faixa (ex.: 3:55 a 4:35) e o relogio recebe a MESMA faixa. Antes so' o valor unico (centro) ia, e o relogio
+// avisava 'fora do ritmo' o tempo todo. Quando o gerador criou a banda em volta do valor unico (derivedToleranceBand), e' ela que o relogio recebe; sem banda, vale o prescrito (faixa do treinador/IA ou valor unico).
+export function paceBoundForWatch(pace: CanonicalPace): CanonicalPaceBound {
+  const band = pace.derivedToleranceBand;
+  return band ? { fastSecPerKm: band.fastSecPerKm, slowSecPerKm: band.slowSecPerKm } : pace.prescribed;
+}
+
 export interface CanonicalIntensity {
   mode: 'pace' | 'speed' | 'zone' | 'rpe' | null;
   zone: string | null;

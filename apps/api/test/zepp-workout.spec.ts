@@ -92,7 +92,7 @@ describe('tradutor Zepp (CanonicalWorkout -> Workout V2)', () => {
     ]);
   });
 
-  it('intervalado: WorkoutRepeatStep com ordem propria, INTERVAL/RECOVERY, pace unico como limites iguais e a banda de +-20 s NUNCA e usada', () => {
+  it('intervalado: WorkoutRepeatStep com ordem propria, INTERVAL/RECOVERY, pace unico como limites iguais e sem a marca do gerador (a banda do gerador vai ao relogio: ver watch-pace-band.spec.ts)', () => {
     const result = translateToZeppWorkout(canonical(interval), ctx, HYPOTHETICAL);
     expect(result.ok).toBe(true);
     if (!result.ok) return;

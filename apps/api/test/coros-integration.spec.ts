@@ -47,7 +47,7 @@ describe('tradutor COROS (CanonicalWorkout -> course do COROS MCP)', () => {
     expect(result.ok && result.course.sections[0]).toMatchObject({ sectionType: 2, targetType: 2, targetValue: 1800, intensityType: 2, intensityValueStart: 360, intensityValueEnd: 380 });
   });
 
-  it('intervalado: grupo { intervalGroup, repeats, sets } sem alvo no grupo, pace unico com os DOIS limites iguais e a banda de +-20 s NUNCA usada; recuperacao ativa = secao 3', () => {
+  it('intervalado: grupo { intervalGroup, repeats, sets } sem alvo no grupo, pace unico com os DOIS limites iguais e sem a marca do gerador (a banda do gerador vai ao relogio: ver watch-pace-band.spec.ts); recuperacao ativa = secao 3', () => {
     const result = translateToCorosCourse(canonical(interval), ctx);
     expect(result.ok).toBe(true);
     if (!result.ok) return;

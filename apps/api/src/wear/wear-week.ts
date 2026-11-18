@@ -1,5 +1,5 @@
 import { isRunModality } from '../activity-execution/canonical-modality';
-import { buildCanonicalWorkout, type CanonicalStep, type CanonicalWorkoutItem } from '../training-plans/canonical-workout';
+import { buildCanonicalWorkout, paceBoundForWatch, type CanonicalStep, type CanonicalWorkoutItem } from '../training-plans/canonical-workout';
 
 // Treino da semana para o relogio (17/11/2026, fase 1 do Wear OS): so' LEITURA, formato enxuto para a tela pequena e para guardar no relogio (funciona sem internet). Nada de texto livre da aluna,
 // historico ou dado de saude: so' o que foi prescrito. Funcao pura sobre a sessao ja' lida.
@@ -43,7 +43,7 @@ export interface WearSession {
 
 const toStep = (step: CanonicalStep): WearStep => ({
   kind: 'step', label: step.label, role: step.role, goal: step.goal,
-  pace: step.pace ? { fastSecPerKm: step.pace.prescribed.fastSecPerKm, slowSecPerKm: step.pace.prescribed.slowSecPerKm } : null,
+  pace: step.pace ? paceBoundForWatch(step.pace) : null,
 });
 
 function toItems(items: CanonicalWorkoutItem[]): Array<WearStep | WearRepeat> {
