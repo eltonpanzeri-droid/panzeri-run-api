@@ -45,6 +45,8 @@ import {
   ContextGap, describeError, formatObservationForAgent, formatPendingProfileEvent, selectHistoryWeeks, selectRelevantReportEntries,
 } from './student-information-context';
 import { NotificationsService } from '../notifications/notifications.service';
+import { MessagingService } from '../messaging/messaging.service';
+import { planGeneratedEmail, planGeneratedPush } from './plan-generated-notice';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { executionWeekStart, weekStartOfDate as getWeekStartFromDate } from '../common/weekly-volume';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
@@ -278,6 +280,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     @Optional() private readonly healthIndicators?: HealthIndicatorsService,
     // Referencia fisiologica operacional (Testes fisicos, 30/10/2026): leitura e ajustes. Opcional: aluno sem avaliacao ou falha na leitura nunca bloqueia a geracao.
     @Optional() private readonly operationalReference?: OperationalReferenceService,
+    // E-mail ao aluno quando o programa da semana fica pronto (18/11/2026). Opcional: falha ou ausencia nunca bloqueia a geracao.
+    @Optional() private readonly messaging?: MessagingService,
   ) {}
 
   // Referencia fisiologica operacional atual para os agentes de IA (null = aluno sem avaliacao). Nunca lanca: contexto adicional nao bloqueia a geracao.
@@ -1851,12 +1855,21 @@ export class TrainingPlansService implements OnApplicationBootstrap {
           `${unregisteredCount} treinos da semana passada ficaram sem registro. Por rigor na segurança da prescrição, não podemos considerá-los como feitos. Registre o que você fez para a IA ter seu histórico real.`;
       }
       // (16/11/2026, caso Volnei) Quem ja' enviou treinos ao Apple Watch: o envio so' acontece com o Panzeri Run aberto no iPhone, entao o aviso lembra de abrir.
-      const usesAppleWatch = await this.prisma.workoutDelivery.findFirst({ where: { provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId } }, select: { id: true } }).then(Boolean).catch(() => false);
-      await this.notifications.notifyUser(userId, {
-        title: '🏃 Seu novo programa chegou!',
-        message: usesAppleWatch ? `${notifMessage} Abra o Panzeri Run no iPhone para enviar os treinos da semana ao seu Apple Watch.` : notifMessage,
-        type: 'info',
-      });
+      let usesAppleWatch = false;
+      try {
+        usesAppleWatch = Boolean(await this.prisma.workoutDelivery.findFirst({ where: { provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId } }, select: { id: true } }));
+      } catch {
+        usesAppleWatch = false; // a consulta so' decide o texto do aviso: nunca derruba a geracao
+      };
+      const push = planGeneratedPush(notifMessage, usesAppleWatch);
+      await this.notifications.notifyUser(userId, { title: push.title, message: push.message, type: 'info' });
+      // 18/11/2026 (Elton): todo programa gerado tambem vai por e-mail, qualquer que seja a marca do relogio. Melhor esforco: falha do e-mail nunca derruba a geracao.
+      try {
+        const email = planGeneratedEmail({ name: user.name, baseMessage: notifMessage, usesAppleWatch });
+        await this.messaging?.sendEmail(userId, { trigger: 'plan_generated', subject: email.subject, content: email.content });
+      } catch (error) {
+        this.logger.warn(`E-mail de programa gerado nao enviado (${userId}): ${(error as Error).message}`);
+      }
     }
 
     // 07/09: aviso pro treinador sempre que qualquer treino for gerado — antes so chegava mensagem

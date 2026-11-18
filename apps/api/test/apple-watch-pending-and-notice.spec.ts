@@ -45,7 +45,7 @@ describe('ligacoes (estatico)', () => {
   it('o aviso de programa novo lembra de abrir o Panzeri Run so para quem ja enviou treinos ao Apple Watch', () => {
     const plans = read('src', 'training-plans', 'training-plans.service.ts');
     expect(plans).toContain("provider: 'apple_workoutkit', status: { in: ['sent', 'delivered_to_device'] }, trainingSession: { userId } }");
-    expect(plans).toContain('Abra o Panzeri Run no iPhone para enviar os treinos da semana ao seu Apple Watch.');
+    expect(readFileSync(join(__dirname, '..', 'src', 'training-plans', 'plan-generated-notice.ts'), 'utf8')).toContain('Confira se os treinos da semana chegaram ao seu Apple Watch');
   });
   it('o app mostra o aviso na tela da semana e o cartao usa a mesma sincronizacao', () => {
     const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
