@@ -187,3 +187,9 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 ## 17/11/2026 — Wear OS liberado para TODAS as alunas (ordem de Elton), com aviso de funcionalidade nova
 - Nada de "em teste" nem lista de alunas: o cartão do relógio aparece na tela Samsung / Galaxy Watch para todas (Android e PWA). Aviso fixo no alto: "Funcionalidade nova ... estamos trabalhando para melhorá-lo ... envie em Relatar problema", com botão que abre a tela Relatar problema.
 - **Atenção ao lançar:** o cartão manda a aluna abrir o aplicativo do Panzeri Run no relógio. Para não confundir, **publicar o app do relógio na Play (ao menos em teste aberto) no mesmo dia em que o build do celular com os cartões sair**. Antes disso o cartão aparece mas não há o que instalar.
+
+## 18/11/2026 — Envio ao Apple Watch logo que o treino é gerado (exige build do iPhone)
+- Ordem de Elton (caso Volnei): a aluna só gera o treino com o Panzeri Run aberto, então o envio ao Apple Watch sai assim que a geração termina, e o resultado aparece na tela (antes falhas eram silenciosas). Só vale para quem já fez um envio manual com sucesso (permissão do iPhone dada).
+- Código: `apps/mobile/src/appleWatchDelivery/sendAfterGeneration.ts` + `watchSendLock.ts` (um envio por vez), chamado nos dois caminhos de sucesso de `runGenerateCurrentWeek` em `App.tsx`; o envio da abertura (`useAppleWatchAutoSend`) usa a mesma trava.
+- Sem build isto NÃO chega ao iPhone nativo. O e-mail a cada programa gerado e o aviso "confira se chegou ao relógio" já saem só com o Deploy da API.
+- Validação em aparelho real pendente (não há iPhone aqui): gerar o treino com um Apple Watch pareado e conferir se os treinos aparecem no relógio sem abrir outra tela.

@@ -9,6 +9,7 @@ import {
 } from '../../modules/panzeri-apple-health/src';
 import { AUTO_SEND_STORAGE_KEY, AutoSendSession, autoSendWeekToAppleWatch, sessionsToAutoSend } from './autoSendWeekToAppleWatch';
 import { AppleEligibility, AppleWatchApi, ApplePrepare } from './sendSessionToAppleWatch';
+import { withWatchSendLock } from './watchSendLock';
 
 // Liga o envio automatico (ver autoSendWeekToAppleWatch.ts) a tela da semana: roda uma vez por abertura do Panzeri Run e quando a lista de treinos muda. So' no iPhone nativo e so' depois de a
 // aluna ter feito um envio manual com sucesso (flag guardada no aparelho). Melhor esforco: qualquer falha e' ignorada, o botao manual continua valendo.
@@ -44,7 +45,7 @@ export function useAppleWatchAutoSend(sessions: AutoSendSession[] | null | undef
           reportFailure: (deliveryId, failure) => call('POST', `deliveries/${deliveryId}/failed`, { message: failure }),
         };
         if (cancelled) return;
-        await autoSendWeekToAppleWatch(sessions, {
+        await withWatchSendLock(() => autoSendWeekToAppleWatch(sessions, {
           api,
           eligibility: (id) => call('GET', `sessions/${id}/eligibility`) as Promise<AppleEligibility>,
           todayIso: localTodayIso(),
@@ -56,7 +57,7 @@ export function useAppleWatchAutoSend(sessions: AutoSendSession[] | null | undef
             listScheduled: listScheduledWorkouts,
             scheduleCustomWorkout: (planId, specJson, date) => scheduleCustomWorkoutSpec(planId, specJson, date),
           },
-        });
+        }));
       } catch {
         // melhor esforco
       } finally {

@@ -28,6 +28,7 @@ import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
 import { AppleWatchWorkoutsCard } from './src/appleWatchDelivery/AppleWatchWorkoutsCard';
 import { useAppleWatchAutoSend } from './src/appleWatchDelivery/useAppleWatchAutoSend';
+import { sendWeekAfterGeneration } from './src/appleWatchDelivery/sendAfterGeneration';
 import { AppleWatchPendingBanner } from './src/appleWatchDelivery/AppleWatchPendingBanner';
 import { WearOsPairingCard } from './src/wearOs/WearOsPairingCard';
 import { WearOsConsentCard } from './src/wearOs/WearOsConsentCard';
@@ -4905,6 +4906,11 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     setStatus('Gerando seu treino da semana...');
 
     let settled = false;
+    // 18/11/2026 (caso Volnei): a aluna so' gera o treino com o Panzeri Run aberto, entao o envio ao Apple Watch sai assim que a geracao termina (e o resultado aparece na tela).
+    const announceWatchSend = async () => {
+      const message = await sendWeekAfterGeneration(API_URL, accessToken);
+      if (message) setStatus(message);
+    };
 
     const directAttempt = (async () => {
       try {
@@ -4954,6 +4960,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
         }
         settled = true;
         await loadPlan();
+        void announceWatchSend();
       } catch {
         // Conexao pode ter caido no meio do caminho — nao mostra erro aqui, o polling abaixo
         // ainda pode confirmar que deu certo do outro lado.
@@ -4981,6 +4988,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
             settled = true;
             setStatus('Seu treino da semana já esta pronto.');
             await loadPlan();
+            void announceWatchSend();
             return;
           }
         } catch {
