@@ -326,10 +326,14 @@ export interface IntervalPartDecision {
   repeatCount: number;
   stimulusLabel: string;
   stimulusStepKm: number;
-  stimulusPaceSecondsPerKm: number;
+  stimulusPaceSecondsPerKm: number; // ponto central da faixa
+  stimulusPaceSecondsPerKmMin?: number; // faixa (18/11/2026); ausente em decisoes antigas => banda de +-20 s ao redor do ponto central
+  stimulusPaceSecondsPerKmMax?: number;
   recoveryLabel: string;
   recoveryStepKm: number;
-  recoveryPaceSecondsPerKm: number;
+  recoveryPaceSecondsPerKm: number; // ponto central da faixa
+  recoveryPaceSecondsPerKmMin?: number;
+  recoveryPaceSecondsPerKmMax?: number;
 }
 
 export type SessionPartDecision = ContinuousPartDecision | IntervalPartDecision;

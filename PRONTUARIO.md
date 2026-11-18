@@ -4472,3 +4472,11 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Só converte o texto mostrado (`apps/mobile/src/paceView/paceText.ts`); não muda a prescrição nem o que vai ao relógio. Cobre os blocos contínuos e os passos de intervalado.
 - Reverte parcialmente a regra de 30/10 "km/h só nos Testes físicos": agora também em `src/paceView` (teste em `zepp-workout.spec.ts` atualizado).
 - Mobile: chega ao PWA com o Deploy do web e ao app nativo só no próximo build (registrado na FILA).
+
+### 18/11/2026 — IA prescreve TODO ritmo em faixa (campos Min/Max também no intervalado)
+- **Esquema da IA** (`prescription-agent.service.ts`): o trecho intervalado ganhou `stimulusPaceSecondsPerKmMin/Max` e `recoveryPaceSecondsPerKmMin/Max`, OBRIGATÓRIOS (saída estruturada: a IA não consegue omitir). Os campos antigos `stimulus/recoveryPaceSecondsPerKm` ficam como ponto central. A parte contínua já tinha Min/Max.
+- **Prompt** (semana inteira e um dia): "REGRA DE FAIXA" — nunca ritmo único; Min ≠ Max; a largura da faixa é decisão da IA (nenhuma fórmula em código, respeitando [[no_math_rules_for_workout_calc]]).
+- **Gerador** (`intervalStep`): usa a faixa da IA; decisão antiga sem faixa, ou faixa inválida (limites iguais), cai na banda antiga de ±20 s. Faixa invertida é reordenada.
+- **Efeito:** só vale para programas gerados daqui para frente; programas já gerados ficam como estão (banda de ±20 s, que os relógios já recebem desde o commit anterior).
+- **Não garantido por código:** a IA poderia mandar Min = Max numa parte contínua (o esquema aceita); o prompt proíbe, mas não há bloqueio (decisão contextual, Princípio da prescrição). Se aparecer, tratar como achado e reforçar o prompt.
+- **Testes:** `test/ai-pace-range.spec.ts` (esquema, gerador, fallback, ponta a ponta até a Garmin, prompt). Corrigido `prescription-trace.spec.ts` (MessagingService opcional de hoje entrou depois da trilha). AINDA FALHA, e já falhava antes desta mudança: "prompts de sistema só mudam pelo bloco de raciocínio declarado" (hashes congelados da 1.2a desatualizados por edições anteriores de prompt) — precisa de decisão de Elton para recongelar.

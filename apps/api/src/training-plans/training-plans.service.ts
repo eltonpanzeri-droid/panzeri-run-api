@@ -2961,8 +2961,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         label: forcedLabel ?? 'Serie intervalada',
         repeatCount: part.repeatCount,
         steps: [
-          this.intervalStep(part.stimulusLabel, part.stimulusStepKm, part.stimulusPaceSecondsPerKm),
-          this.intervalStep(part.recoveryLabel, part.recoveryStepKm, part.recoveryPaceSecondsPerKm),
+          this.intervalStep(part.stimulusLabel, part.stimulusStepKm, part.stimulusPaceSecondsPerKm, 20, part.stimulusPaceSecondsPerKmMin, part.stimulusPaceSecondsPerKmMax),
+          this.intervalStep(part.recoveryLabel, part.recoveryStepKm, part.recoveryPaceSecondsPerKm, 20, part.recoveryPaceSecondsPerKmMin, part.recoveryPaceSecondsPerKmMax),
         ],
       };
     }
@@ -3036,9 +3036,11 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     return Math.round(((lower + upper) / 2) / 60);
   }
 
-  private intervalStep(label: string, distanceKm: number, paceSecondsCenter: number, toleranceSeconds = 20) {
-    const fast = Math.max(paceSecondsCenter - toleranceSeconds, 60);
-    const slow = paceSecondsCenter + toleranceSeconds;
+  // Faixa de ritmo do trecho: a que a IA prescreveu (min < max; 18/11/2026) ou, em decisao sem faixa, a banda de +-toleranceSeconds ao redor do ponto central (comportamento anterior).
+  private intervalStep(label: string, distanceKm: number, paceSecondsCenter: number, toleranceSeconds = 20, paceSecondsMin?: number, paceSecondsMax?: number) {
+    const hasRange = typeof paceSecondsMin === 'number' && typeof paceSecondsMax === 'number' && paceSecondsMin > 0 && paceSecondsMax > 0 && paceSecondsMin !== paceSecondsMax;
+    const fast = hasRange ? Math.min(paceSecondsMin as number, paceSecondsMax as number) : Math.max(paceSecondsCenter - toleranceSeconds, 60);
+    const slow = hasRange ? Math.max(paceSecondsMin as number, paceSecondsMax as number) : paceSecondsCenter + toleranceSeconds;
     const minimumSeconds = Math.round(distanceKm * fast);
     const maximumSeconds = Math.round(distanceKm * slow);
     return {
