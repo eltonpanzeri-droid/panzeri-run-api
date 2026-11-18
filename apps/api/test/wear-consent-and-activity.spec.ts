@@ -20,7 +20,7 @@ describe('documento de consentimento do relogio', () => {
   it('registra no registro de conectores sem erro e declara so as tres categorias do relogio', () => {
     const registry = new ConnectorRegistry();
     expect(() => registry.register(WEAR_OS_CONNECTOR)).not.toThrow();
-    expect(registry.get(WEAR_OS_PROVIDER_ID)?.consent?.version).toBe('1.0');
+    expect(registry.get(WEAR_OS_PROVIDER_ID)?.consent?.version).toBe('1.1');
     expect([...WEAR_OS_CATEGORIES]).toEqual(['activity', 'activity_sensors', 'activity_route']);
   });
   it('grupos: corridas, frequencia cardiaca e percurso (os dois ultimos dependem de corridas); nada de saude do dia a dia', () => {
@@ -35,7 +35,7 @@ describe('documento de consentimento do relogio', () => {
     const text = JSON.stringify(WEAR_OS_CONSENT);
     expect(text).toContain('só funcionam durante o treino');
     expect(text).toContain('não usa localização em segundo plano');
-    expect(text).toMatch(/incluindo o percurso GPS quando você o autorizar, são enviados à Anthropic/);
+    expect(text).toMatch(/incluindo o percurso GPS, são enviados à Anthropic/);
     expect(text).toContain('desligar o uso dos dados do relógio pela inteligência artificial');
     expect(text).not.toContain('não é enviado à inteligência artificial');
     // decisao de Elton (17/11/2026): nenhum dado da aluna vai a servico de clima; o texto nao promete temperatura
@@ -89,7 +89,7 @@ describe('consentimento do relogio (servico)', () => {
   it('primeira concessao: grava as categorias, liga a IA (ja esta no texto) e registra a versao e o hash do texto visto', async () => {
     const { service, state, events } = consentHarness();
     const result = await service.update('u1', { groups: ['activity', 'sensors', 'route'], ...ack });
-    expect(state.row).toMatchObject({ grantedCategories: ['activity', 'activity_sensors', 'activity_route'], grantedPurposes: ['ai_external'], consentVersion: '1.0', consentTextHash: HASH });
+    expect(state.row).toMatchObject({ grantedCategories: ['activity', 'activity_sensors', 'activity_route'], grantedPurposes: ['ai_external'], consentVersion: '1.1', consentTextHash: HASH });
     expect(result.ai).toBe(true);
     expect(events.map((e) => e.type)).toEqual(['connected']);
     expect((await service.access('u1')).allowed).toEqual(new Set(['activity', 'activity_sensors', 'activity_route']));

@@ -492,4 +492,14 @@ export const runnerStrengthExercises: StrengthExercise[] = [
     level: 'base',
     equipment: 'bodyweight',
   },
+  {
+    id: 'quadril-reativo',
+    category: runnerStrengthCategory,
+    name: 'Quadril reativo',
+    videoUrl: 'https://youtu.be/0nq4hMW9_yI',
+    description: 'Objetivo melhorar a forca e a sincronia dos musculos do quadril e a forca para o quadriceps. Ajuda os musculos que estabilizam o quadril a trabalharem em conjunto durante a corrida, melhorando a eficiencia mecanica e a protecao de quadril e joelhos.',
+    focus: ['quadril', 'quadriceps', 'coordenacao'],
+    level: 'intermediate',
+    equipment: 'bodyweight',
+  },
 ];

@@ -1,8 +1,7 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
 
-// Autorizacoes do relogio Wear OS (Galaxy Watch, Pixel Watch e outros) — versao 1.0, RASCUNHO de 17/11/2026 escrito pelo Claude a pedido de Elton. NAO foi revisado por advogado nem aprovado por Elton:
-// so' pode ir ao ar depois dessas duas revisoes (o texto completo da Politica de Privacidade e dos Termos continua pendente de advogado). Qualquer alteracao de texto, grupo ou finalidade muda o hash e
-// EXIGE nova versao (quem ja' tiver autorizado precisa reconfirmar).
+// Autorizacoes do relogio Wear OS (Galaxy Watch, Pixel Watch e outros) — versao 1.1 de 18/11/2026, aprovada por Elton (texto enxuto, pedido dele: dizer que o Panzeri Run usa tudo, com consentimento, de acordo com a lei). Texto completo da Politica de Privacidade e dos Termos continua pendente de advogado.
+// Qualquer alteracao de texto, grupo ou finalidade muda o hash e EXIGE nova versao (quem ja' tiver autorizado precisa reconfirmar).
 //
 // Decisoes de Elton (17/11/2026) refletidas aqui: (1) o GPS e' gravado pelo relogio SO' durante o treino que a aluna inicia, nunca fora dele; (2) a IA usa os dados autorizados, INCLUINDO o percurso (premissa
 // de 01/11: todo dado vai a IA salvo falta de consentimento ou regra da empresa do relogio); por isso o texto da conexao ja' inclui a IA — nao ha tela separada, como no Apple Saude — e a aluna pode
@@ -13,37 +12,18 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 export const WEAR_OS_PROVIDER_ID = 'wear_os';
 
 export const WEAR_OS_CONSENT: ConsentCapability = {
-  version: '1.0',
-  dateLabel: '17/11/2026',
+  version: '1.1',
+  dateLabel: '18/11/2026',
   title: 'Conecte o seu relógio Wear OS ao Panzeri Run',
   intro: 'O aplicativo do Panzeri Run no relógio (Galaxy Watch, Pixel Watch e outros relógios Wear OS) grava as suas corridas e as envia ao Panzeri Run. Escolha o que você quer compartilhar.',
   sections: [
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, quando você iniciar uma corrida no relógio, o Panzeri Run poderá receber: data e horário, duração (tempo da atividade, tempo do cronômetro e tempo em movimento), distância, ritmo e velocidade, frequência cardíaca média, máxima e ao longo do treino e, se você marcar o grupo “Percurso GPS”, o trajeto e a localização do treino, com a altitude.',
-        'Essas informações serão utilizadas para mostrar sua evolução e o mapa dos seus treinos, entender onde você corre e como o terreno e a altitude influenciam seu desempenho, comparar os treinos planejados com os realizados e personalizar seu treinamento. Seu treinador também verá esses dados. Seus dados individuais não serão vendidos nem divulgados publicamente, e não são usados para publicidade. Nada disso substitui avaliação médica.',
-        'Sobre a inteligência artificial: para gerar essas análises, os dados necessários dos grupos que você autorizar, incluindo o percurso GPS quando você o autorizar, são enviados à Anthropic, empresa fornecedora da tecnologia de inteligência artificial usada pelo Panzeri Run (o Atlas), o que pode envolver transferência internacional de dados, conforme a Política de Privacidade. As análises automáticas podem apresentar limitações. Você pode desligar o uso dos dados do relógio pela inteligência artificial a qualquer momento, no Panzeri Run, e isso vale para as análises seguintes.',
-      ],
-    },
-    {
-      heading: 'O GPS e os sensores só funcionam durante o treino',
-      paragraphs: [
-        'O relógio só liga o GPS e os sensores de frequência cardíaca depois que você toca em “Iniciar corrida” e para quando você encerra o treino. O Panzeri Run não coleta a sua localização fora do treino e não usa localização em segundo plano. Durante a corrida, o relógio mostra uma notificação de atividade em andamento.',
-        'O relógio também pede, na primeira vez, a permissão do Android para usar o GPS e os sensores. Esta tela é outra: ela registra, no Panzeri Run, o que você autoriza guardar e usar. O Panzeri Run só guarda o que você marcar aqui, mesmo que o Android permita mais.',
-      ],
-    },
-    {
-      heading: 'O que esta autorização não inclui',
-      paragraphs: [
-        'Esta autorização não inclui dados de saúde do dia a dia (sono, passos, variabilidade da frequência cardíaca e outros), que o aplicativo do relógio não lê. O Panzeri Run também não grava nada no seu relógio além do que você pede, e não lê dados de outras pessoas.',
-        'Se o seu relógio também enviar o mesmo treino por outro caminho (por exemplo, pelo Health Connect), o Panzeri Run mantém um só registro do treino.',
-      ],
-    },
-    {
-      heading: 'Como você controla',
-      paragraphs: [
-        'Você pode consultar e retirar cada autorização quando quiser, no Panzeri Run (Dispositivos e integrações → Samsung / Galaxy Watch → Relógio Wear OS). Ao retirar o grupo “Percurso GPS” ou o de frequência cardíaca, os dados daquele grupo já guardados são apagados. Ao retirar todas as autorizações, o Panzeri Run deixa de receber treinos do relógio. Você também pode retirar o relógio da lista, e ele deixa de enviar na hora, e pedir a exclusão dos treinos recebidos. Os detalhes estão na Política de Privacidade.',
+        'Ao autorizar, você permite que o Panzeri Run use todos os dados das corridas gravadas no relógio que você selecionar abaixo: data e horário, duração, distância, ritmo e velocidade, frequência cardíaca (dado de saúde), e o trajeto e a localização do treino, com a altitude (se você marcar “Percurso GPS”). Usamos esses dados para acompanhar e gerenciar o seu treinamento, mostrar sua evolução e o mapa dos treinos, comparar o planejado com o realizado e personalizar seus programas de treino. Seu treinador também vê esses dados. Tudo é tratado de acordo com a lei (LGPD), nada é vendido e nada é usado para publicidade.',
+        'Inteligência artificial: os dados que você autorizar, incluindo o percurso GPS, são enviados à Anthropic, fornecedora da tecnologia de inteligência artificial usada pelo Panzeri Run (o Atlas), o que pode envolver transferência internacional de dados, conforme a Política de Privacidade. Você pode desligar o uso dos dados do relógio pela inteligência artificial a qualquer momento, no Panzeri Run.',
+        'O GPS e os sensores só funcionam durante o treino: o relógio só liga depois que você toca em “Iniciar corrida” e desliga quando você encerra. O Panzeri Run não usa localização em segundo plano. O Android também pede, na primeira vez, a permissão do relógio; esta tela é outra e registra o que você autoriza o Panzeri Run a guardar e usar.',
+        'Você pode mudar ou retirar cada autorização quando quiser, em Dispositivos e integrações → Relógio Wear OS. Ao retirar um grupo, os dados daquele grupo já guardados são apagados, e você também pode retirar o relógio e pedir a exclusão dos treinos recebidos. Os detalhes estão na Política de Privacidade.',
       ],
     },
   ],
