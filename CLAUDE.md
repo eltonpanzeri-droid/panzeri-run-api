@@ -257,6 +257,7 @@ Como aplicar:
 3. **Copiar o título do commit para a área de transferência** (`Set-Clipboard -Value "título"`), para ele só colar (Ctrl+V) no campo Summary.
 4. **Escrever o título do commit no chat**, em linha própria, no fim da resposta.
 5. Dizer quais serviços precisam de Deploy (só API? API + web? build nativo?).
+**Título SEMPRE rastreável (ordem de Elton, 18/11/2026):** formato `dd/mm Área: o que mudou` (ex.: `18/11 Wear OS: libera cartão no PWA`), com a área/função afetada no início (Wear OS, Asaas, Apple Watch, Catálogo, Admin…) e, quando o caso nasceu de uma aluna ou incidente, o código dela (ex.: `Cod. 0000075`). Um título que permita achar o commit no histórico sem abrir o diff; nunca genérico ("ajustes", "correções").
 Sempre os cinco, em toda resposta que deixa algo pronto, mesmo sem ele pedir. Título descreve só os arquivos que aparecem em "Changes" naquele momento.
 
 **O Elton faz: commit (colar o título) → Push origin → Deploy no EasyPanel (manual, não automático).**
