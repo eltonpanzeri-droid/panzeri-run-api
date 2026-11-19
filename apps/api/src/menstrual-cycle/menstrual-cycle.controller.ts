@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { CreateCycleLogDto } from './dto/create-cycle-log.dto';
@@ -8,11 +8,37 @@ import { EndCycleDto } from './dto/end-cycle.dto';
 import { CorrectCycleDto } from './dto/correct-cycle.dto';
 import { UpsertDailyLogDto } from './dto/upsert-daily-log.dto';
 import { MenstrualCycleService } from './menstrual-cycle.service';
+import { MenstrualReportService } from './menstrual-report.service';
+import { CYCLE_SYMPTOMS } from './cycle-symptoms';
 
 @Controller('menstrual-cycle')
 @UseGuards(AuthGuard('jwt'))
 export class MenstrualCycleController {
-  constructor(private readonly svc: MenstrualCycleService) {}
+  constructor(private readonly svc: MenstrualCycleService, private readonly reports: MenstrualReportService) {}
+
+  // Lista fixa de sintomas do registro do dia (19/11/2026).
+  @Get('symptoms')
+  symptoms() {
+    return { symptoms: CYCLE_SYMPTOMS };
+  }
+
+  // Relatorio mensal por fase (19/11/2026): lista, pedido (um por mes) e leitura. Sempre da propria aluna (id do token).
+  @Get('reports')
+  listReports(@CurrentUser() user: CurrentUserPayload) {
+    return this.reports.list(user.sub);
+  }
+
+  @Post('reports/request')
+  requestReport(@CurrentUser() user: CurrentUserPayload) {
+    return this.reports.request(user.sub);
+  }
+
+  @Get('reports/:id')
+  async getReport(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    const report = await this.reports.get(user.sub, id);
+    if (!report) throw new NotFoundException('Relatório não encontrado.');
+    return report;
+  }
 
   // Perfil (dados estaticos: anticoncepcional, duracao do ciclo etc.)
   @Get('profile')

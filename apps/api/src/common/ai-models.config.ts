@@ -35,6 +35,7 @@ export const AI_CACHE_POLICY = {
   gerente_tecnico: '5m',         // varias iteracoes (ferramentas) da mesma conversa em segundos: o prefixo e' reaproveitado dentro da conversa
   prontuario_condensacao: '5m',  // mantido como estava; prefixo ~3 mil tokens a US$ 0,10/MTok: efeito em dolares desprezivel
   prontuario: '5m',              // Agente de Evolucao (relatorio de trajetoria): chamadas raras; idem
+  mulher: 'off',                 // Agente da Mulher: uma chamada por aluna por mes, a pedido dela; sem reaproveitamento esperado
   relator: 'off',                // chamadas esporadicas (um relato por vez), prefixo pequeno: sem reaproveitamento esperado (era inerte no Haiku 4.5 por ficar abaixo de 4096 tokens)
 } as const satisfies Record<string, AiCacheTtl>;
 export type AiCacheAgent = keyof typeof AI_CACHE_POLICY;
