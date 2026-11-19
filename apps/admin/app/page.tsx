@@ -8,6 +8,7 @@ import TrainingIntelligenceStudio from './ti/studio';
 import EvolutionHub from './evolution-hub';
 import ZeppTestPanel from './zepp-test-panel';
 import BroadcastEmail from './broadcast-email';
+import NotificationsLog from './notifications-log';
 import ProblemReports from './problem-reports';
 import StudentCalendar from './student-calendar';
 import StudentIntegrations from './student-integrations';
@@ -1778,6 +1779,7 @@ export default function AdminHome() {
         {/* 19/10/2026: pagina TEMPORARIA de teste da conexao Zepp/Amazfit (so' autenticacao; nada e' importado). Remover apos os testes. */}
         {activeView === 'tools' ? <ZeppTestPanel apiUrl={API_URL} token={token} /> : null}
         {activeView === 'tools' ? <BroadcastEmail apiUrl={API_URL} token={token} /> : null}
+        {activeView === 'tools' ? <NotificationsLog apiUrl={API_URL} token={token} /> : null}
 
         {activeView === 'problemReports' ? <ProblemReports apiUrl={API_URL} token={token} /> : null}
 
