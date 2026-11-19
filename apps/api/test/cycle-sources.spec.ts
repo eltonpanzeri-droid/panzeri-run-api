@@ -95,3 +95,25 @@ describe('Garmin: ciclo (Women\'s Health API)', () => {
     expect(JSON.stringify(GARMIN_CONSENT)).not.toContain('não recebe dados de saúde da mulher');
   });
 });
+
+describe('gate do ciclo da Garmin (GARMIN_WOMENS_HEALTH_ENABLED)', () => {
+  // verificado em 19/11/2026 contra o texto anterior (commit 63f6373): sem o gate o documento e' IDENTICO ao 1.1 que as alunas ja aceitaram (mesmo hash), entao ninguem reconfirma.
+  const { garminConsentFor, garminConsentWithoutCycle } = require('../src/garmin/garmin-consent');
+  const config = (value?: string) => ({ get: () => value });
+  it('desligado (padrao): texto 1.1 sem o grupo do ciclo e sem citar o ciclo', () => {
+    const doc = garminConsentFor(config(undefined));
+    expect(doc.version).toBe('1.1');
+    expect(doc.groups.some((group: { id: string }) => group.id === 'cycle')).toBe(false);
+    expect(JSON.stringify(doc)).not.toContain('Ciclo menstrual');
+    expect(JSON.stringify(doc)).toContain('não recebe dados de saúde da mulher');
+    const ai = doc.optionalPurposes.find((p: { id: string }) => p.id === 'ai_external');
+    expect(ai.screen.version).toBe('1.0');
+  });
+  it('ligado: texto completo 1.2 com o grupo do ciclo e tela de IA 1.1', () => {
+    const doc = garminConsentFor(config('true'));
+    expect(doc.version).toBe('1.2');
+    expect(doc.groups.some((group: { id: string }) => group.id === 'cycle')).toBe(true);
+    expect(doc.optionalPurposes.find((p: { id: string }) => p.id === 'ai_external').screen.version).toBe('1.1');
+    expect(garminConsentWithoutCycle().version).toBe('1.1');
+  });
+});

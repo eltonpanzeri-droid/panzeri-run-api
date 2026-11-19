@@ -112,3 +112,33 @@ export const GARMIN_CONSENT: ConsentCapability = {
   acknowledgementText: 'Autorizo o Panzeri Run a acessar e utilizar os dados que eu selecionar na conexão com a Garmin, para acompanhamento e gestão do meu treinamento.',
   confirmButtonLabel: 'Conectar minha conta Garmin',
 };
+
+// GATE DO CICLO (19/11/2026, ordem de Elton): enquanto a Garmin nao liberar a Women's Health API para o app, o grupo "Ciclo menstrual" fica ESCONDIDO e vale o texto 1.1 de antes (identico, byte a byte, ao que as alunas
+// ja' aceitaram: ninguem precisa reconfirmar por algo que ainda nao envia dado). Com GARMIN_WOMENS_HEALTH_ENABLED=true vale o texto completo (1.2), e quem ja' conectou reconfirma uma vez.
+const CYCLE_SENTENCE_IN_LIST = ' e, se você marcar, a agenda do seu ciclo menstrual (início, duração e fase).';
+const CYCLE_SENTENCE_IN_CHOICE = 'O ciclo menstrual (a agenda do ciclo na Garmin: início, duração e fase) só é guardado se você marcar o grupo “Ciclo menstrual”. Os sintomas que você registra na Garmin e qualquer informação de gestação não são recebidos nem guardados.';
+const CYCLE_SENTENCE_IN_AI = 'Se você marcou o grupo “Ciclo menstrual” na conexão, a agenda do seu ciclo, que é um dado sensível, também poderá ser usada pelo Atlas, junto com os demais dados que você autorizou.';
+
+export function garminConsentWithoutCycle(full: ConsentCapability = GARMIN_CONSENT): ConsentCapability {
+  const clone = JSON.parse(JSON.stringify(full)) as ConsentCapability;
+  clone.version = '1.1';
+  clone.dateLabel = '09/11/2026';
+  for (const section of clone.sections) {
+    section.paragraphs = (section.paragraphs ?? []).map((text) => {
+      if (text.includes(CYCLE_SENTENCE_IN_LIST)) return text.replace(CYCLE_SENTENCE_IN_LIST, '.');
+      if (text.includes(CYCLE_SENTENCE_IN_CHOICE)) return text.replace(CYCLE_SENTENCE_IN_CHOICE, 'O Panzeri Run não recebe dados de saúde da mulher (como o ciclo menstrual).');
+      return text;
+    });
+  }
+  clone.groups = clone.groups.filter((group) => group.id !== 'cycle');
+  for (const purpose of clone.optionalPurposes ?? []) {
+    if (purpose.id !== 'ai_external' || !purpose.screen) continue;
+    purpose.screen.version = '1.0';
+    purpose.screen.dateLabel = '08/11/2026';
+    purpose.screen.paragraphs = purpose.screen.paragraphs.filter((text) => text !== CYCLE_SENTENCE_IN_AI);
+  }
+  return clone;
+}
+
+export const garminWomensHealthEnabled = (config: { get<T = string>(key: string): T | undefined }): boolean => config.get<string>('GARMIN_WOMENS_HEALTH_ENABLED')?.trim().toLowerCase() === 'true';
+export const garminConsentFor = (config: { get<T = string>(key: string): T | undefined }): ConsentCapability => (garminWomensHealthEnabled(config) ? GARMIN_CONSENT : garminConsentWithoutCycle());

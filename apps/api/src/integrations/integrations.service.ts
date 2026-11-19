@@ -7,7 +7,7 @@ import { isEnabledFor } from '../provider-hub/provider-access';
 import { isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { ZEPP_CONSENT } from '../zepp/zepp-consent';
 import { COROS_CONSENT } from '../coros/coros-consent';
-import { GARMIN_CONSENT } from '../garmin/garmin-consent';
+import { garminConsentFor } from '../garmin/garmin-consent';
 
 // Autorizacoes OPCIONAIS (tela propria) que a aluna ainda nao deu — para o app destacar o que falta logo na lista de integracoes (22/10/2026: alunas conectavam e nunca chegavam a essas telas).
 const ZEPP_PENDING_LABELS: Record<string, string> = { watch_delivery: 'envio de treinos ao relógio', ai_external: 'análise com o Atlas' };
@@ -57,7 +57,7 @@ export class IntegrationsService {
     const corosGranted = new Set<string>(coros && !coros.disconnectedAt && Array.isArray(coros.grantedPurposes) ? (coros.grantedPurposes as unknown[]).filter((p): p is string => typeof p === 'string') : []);
     const corosPending = coros && !coros.disconnectedAt ? Object.keys(ZEPP_PENDING_LABELS).filter((id) => !(corosGranted.has(id) && isPurposeCurrent(COROS_CONSENT, id, coros.purposeConsents))).map((id) => ZEPP_PENDING_LABELS[id]) : [];
     const garminGranted = new Set<string>(garmin && !garmin.disconnectedAt && Array.isArray(garmin.grantedPurposes) ? (garmin.grantedPurposes as unknown[]).filter((p): p is string => typeof p === 'string') : []);
-    const garminPending = garmin && !garmin.disconnectedAt ? Object.keys(ZEPP_PENDING_LABELS).filter((id) => !(garminGranted.has(id) && isPurposeCurrent(GARMIN_CONSENT, id, garmin.purposeConsents))).map((id) => ZEPP_PENDING_LABELS[id]) : [];
+    const garminPending = garmin && !garmin.disconnectedAt ? Object.keys(ZEPP_PENDING_LABELS).filter((id) => !(garminGranted.has(id) && isPurposeCurrent(garminConsentFor(this.config), id, garmin.purposeConsents))).map((id) => ZEPP_PENDING_LABELS[id]) : [];
     // Polar/Wahoo conectadas e SEM decisao registrada sobre o Atlas: destaca na lista (a aluna que ja' estava conectada nunca tinha visto essa autorizacao).
     const atlasPending = (id: string, decision: { disconnectedAt: Date | null } | null) => (connectedProviderIds.has(id) && !(decision && !decision.disconnectedAt) ? ['análise com o Atlas'] : []);
     const providers = buildIntegrationsCatalog({ configuredEnv, connectedProviderIds, allowedProviderIds }).map((entry) => {

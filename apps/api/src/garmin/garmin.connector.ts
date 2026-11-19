@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { DataDeletionCapability, EventProcessingCapability, ProviderConnector } from '../provider-hub/provider-connector';
 import { GarminOAuth, GarminRevocation } from './garmin-oauth';
-import { GARMIN_CONSENT } from './garmin-consent';
+import { garminConsentFor } from './garmin-consent';
 
 export const GARMIN_PROVIDER_ID = 'garmin';
 
@@ -18,7 +18,7 @@ export function buildGarminConnector(config: ConfigService, deps: GarminConnecto
     id: GARMIN_PROVIDER_ID,
     displayName: 'Garmin',
     categories: ['activity', 'activity_sensors', 'activity_route', 'sleep', 'hrv', 'daily_activity', 'resting_heart_rate', 'lifestyle_load', 'vo2_max', 'body_composition', 'pulse_ox', 'respiratory_rate', 'heart_rate', 'clinical_vitals', 'skin_temperature', 'nutrition', 'menstrual_cycle', 'profile'],
-    consent: GARMIN_CONSENT,
+    consent: garminConsentFor(config), // sem GARMIN_WOMENS_HEALTH_ENABLED o grupo do ciclo fica escondido (texto 1.1)
     oauth: new GarminOAuth(config),
     revocation: new GarminRevocation(config),
     ...(deps.events ? { events: deps.events } : {}),
