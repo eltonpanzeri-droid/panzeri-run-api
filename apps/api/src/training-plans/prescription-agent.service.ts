@@ -12,6 +12,8 @@ import {
   computeRunSlots,
   computeStrengthSlots,
   acceptRaceStrategies,
+  paceRangeWarning,
+  SessionPartDecision,
   raceCoveredWeekdays,
   racesInWeek,
   requiredStrengthSlots,
@@ -784,6 +786,13 @@ export class PrescriptionAgentService {
         sessionMismatches[`${session.weekday}:corrida`] = `Este treino foi gerado com ${session.durationMin}min, diferente dos ${slot.durationMin}min combinados na sua rotina.`;
       }
 
+      // 19/11/2026: ritmo sem faixa nao bloqueia nada, mas o treinador e' avisado no aviso do treino.
+      const rangeWarning = paceRangeWarning(session.parts as SessionPartDecision[]);
+      if (rangeWarning) {
+        const warnKey = `${session.weekday}:corrida`;
+        sessionMismatches[warnKey] = sessionMismatches[warnKey] ? `${sessionMismatches[warnKey]} ${rangeWarning}` : rangeWarning;
+        this.logger.warn(`Ritmo sem faixa no dia ${session.weekday}: ${rangeWarning}`);
+      }
       result.push({
         weekday: session.weekday,
         title: session.title,

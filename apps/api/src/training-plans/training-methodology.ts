@@ -340,6 +340,23 @@ export interface IntervalPartDecision {
 
 export type SessionPartDecision = ContinuousPartDecision | IntervalPartDecision;
 
+// Alerta (NAO bloqueia; ordem de Elton, 19/11/2026): todo ritmo deve vir em FAIXA (minimo e maximo diferentes). Se a IA mandar limites iguais ou sem faixa, o treinador e' avisado (aviso do treino) e o relogio recebe um valor so'.
+// Funcao pura: so' compara numeros; nao altera a prescricao.
+export function paceRangeWarning(parts: SessionPartDecision[]): string | null {
+  const problems: string[] = [];
+  parts.forEach((part, index) => {
+    const label = parts.length > 1 ? `parte ${index + 1}` : 'o treino';
+    if (part.kind === 'continua') {
+      if (part.paceSecondsPerKmMin === part.paceSecondsPerKmMax) problems.push(label);
+      return;
+    }
+    const noRange = (min: number | undefined, max: number | undefined) => typeof min !== 'number' || typeof max !== 'number' || min === max;
+    if (noRange(part.stimulusPaceSecondsPerKmMin, part.stimulusPaceSecondsPerKmMax)) problems.push(`${label} (estimulo)`);
+    if (noRange(part.recoveryPaceSecondsPerKmMin, part.recoveryPaceSecondsPerKmMax)) problems.push(`${label} (recuperacao)`);
+  });
+  return problems.length ? `Ritmo sem faixa de minimo e maximo em: ${problems.join(', ')}. O relogio recebe um valor so e pode avisar fora do ritmo; confira o treino.` : null;
+}
+
 export interface RunSessionDecision {
   weekday: number;
   title: string;

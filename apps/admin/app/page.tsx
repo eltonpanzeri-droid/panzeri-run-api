@@ -6886,7 +6886,7 @@ function HistorySessionCard({ session }: { session: CalendarSession }) {
         {session.kind === 'extra_aluno' ? <span className="calKindTag">Extra da aluna</span> : null}
       </div>
       <div className="sessionOverview">
-        <strong>{session.title}</strong>
+        <strong>{session.title}<RaceStamp structure={(session as { structure?: unknown }).structure} /></strong>
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} />
@@ -6963,7 +6963,7 @@ function HistorySessionDetail({ session, studentId, token }: { session: Calendar
   return (
     <div className="historyDetail">
       <div className="historyDetailTitle">
-        <strong>{session.title}</strong>
+        <strong>{session.title}<RaceStamp structure={(session as { structure?: unknown }).structure} /></strong>
         <span>{modalityLabel(session.modality)} | {statusWord(session.status)}</span>
       </div>
       <div className="historyDetailTabs" role="tablist">
@@ -7254,7 +7254,7 @@ function EditableSession({
         </div>
       </div>
       <div className="sessionOverview">
-        <strong>{session.title}</strong>
+        <strong>{session.title}<RaceStamp structure={(session as { structure?: unknown }).structure} /></strong>
         <span>{modalityLabel(session.modality)} | {session.durationMin ?? 0} min {session.distanceKm ? `| ${session.distanceKm} km` : ''}</span>
       </div>
       <AdminPrescription structure={session.structure} notes={session.notes} />
@@ -8305,6 +8305,13 @@ function zonePrescription(zone: string, testPaceSeconds: number | null) {
     paceRange: `${paceFromSeconds(recommended.fast)} a ${paceFromSeconds(recommended.slow)}`,
     speedRange: speedRangeForPaces(recommended.fast, recommended.slow),
   };
+}
+
+// Prova marcada pela aluna no calendario (19/11/2026): a sessao da prova tem structure.race. O painel mostra o mesmo carimbo do Panzeri Run.
+function RaceStamp({ structure }: { structure?: unknown }) {
+  const race = structure && typeof structure === 'object' ? (structure as { race?: unknown }).race : null;
+  if (!race || typeof race !== 'object') return null;
+  return <span className="calKindTag" style={{ marginLeft: 8, background: '#fef3c7', color: '#92400e', border: '1px solid #f59e0b', fontWeight: 800 }}>🏁 PROVA MARCADA PELA ALUNA</span>;
 }
 
 function modalityLabel(value: string) {
