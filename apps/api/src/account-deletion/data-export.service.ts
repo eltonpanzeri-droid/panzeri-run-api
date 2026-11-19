@@ -8,8 +8,10 @@ import { ACCOUNT_DELETE_ORDER, ACCOUNT_PRESERVED } from './account-deletion.serv
 // NUNCA exporta segredos: tokens, senhas, hashes e chaves sao removidos por nome de campo; tentativas de login/OAuth e travas internas ficam de fora.
 
 // Fora da exportacao: segredo/uso interno, nao e' dado da aluna.
+// Tentativas de OAuth (qualquer provedor) tambem ficam fora: sao segredos temporarios, nao dado da aluna (regra por sufixo para nao citar cada provedor).
+const isOAuthAttempt = (model: string) => /OAuthAttempt$/.test(model);
 export const DATA_EXPORT_EXCLUDED = new Set<string>([
-  'passwordResetToken', 'passwordResetCode', 'loginLinkToken', 'stravaOAuthAttempt', 'polarOAuthAttempt', 'wahooOAuthAttempt', 'providerOAuthAttempt',
+  'passwordResetToken', 'passwordResetCode', 'loginLinkToken',
   'trainingPlanGenerationLock', 'freeTesterEmail', 'aiGenerationCost',
 ]);
 
@@ -45,7 +47,7 @@ export class DataExportService {
     const data: Record<string, unknown[]> = {};
     const summary: Record<string, { registros: number; incompleto: boolean }> = {};
     for (const model of [...ACCOUNT_DELETE_ORDER, ...ACCOUNT_PRESERVED.filter((name) => name !== 'user')]) {
-      if (DATA_EXPORT_EXCLUDED.has(model)) continue;
+      if (DATA_EXPORT_EXCLUDED.has(model) || isOAuthAttempt(model)) continue;
       let where: Record<string, unknown>;
       switch (model) {
         case 'workoutDelivery': where = { trainingSessionId: { in: sessionIds } }; break;

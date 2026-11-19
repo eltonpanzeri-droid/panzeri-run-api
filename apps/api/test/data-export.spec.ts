@@ -55,7 +55,8 @@ describe('exportacao dos dados da aluna', () => {
     const { prisma, calls } = fakePrisma({});
     await new DataExportService(prisma as never).build('u1');
     const read = new Set(calls.map((c) => c.model));
-    for (const model of ACCOUNT_DELETE_ORDER) if (!DATA_EXPORT_EXCLUDED.has(model)) expect(read.has(model)).toBe(true);
+    for (const model of ACCOUNT_DELETE_ORDER) if (!DATA_EXPORT_EXCLUDED.has(model) && !/OAuthAttempt$/.test(model)) expect(read.has(model)).toBe(true);
+    expect([...read].some((model) => /OAuthAttempt$/.test(model))).toBe(false);
   });
 
   it('conta excluida ou inexistente: nada e exportado', async () => {

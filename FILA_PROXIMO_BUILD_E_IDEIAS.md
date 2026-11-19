@@ -206,3 +206,8 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 ## 19/11/2026 (tarde) — itens que exigem build nativo
 - Bandeirinha 🏁 no cartão da prova (aluna); botão "Baixar meus dados" em Privacidade (no aplicativo abre o compartilhamento; no PWA baixa arquivo); tela de preferências de notificações com teto 36 (0/6/12/24/36). Validar no aparelho: baixar dados e salvar/enviar o arquivo; bandeira aparece só em cartão de prova.
 - **Ideia a avaliar (NÃO fazer sem ordem):** enxugar blocos `byModality` do contexto da IA (economia ~9% por geração; risco de perder detalhe; comparar 2–3 gerações reais).
+
+## 19/11/2026 (noite) — BUILD 1.0.5: lista fechada
+- Versão do `app.json`: **1.0.5**. Entra tudo da parte A dos itens de 11/11 em diante (relatar problema, cadastro curto, Evolução por regra/redesenho, tela inicial, ritmo estimado pelo GPS, Apple Saúde mais robusto, divisão da musculação, ritmo/velocidade, bandeirinha da prova, preferências de notificações, baixar meus dados, envio ao Apple Watch ao gerar, cartões do Wear OS).
+- **Fora (ordem de Elton):** mapa estilo Strava, Panz Fit no Panzeri Run, economia de contexto da IA. **Fora (decisão técnica):** temas das alunas (precisam de ciclo próprio com conferência visual).
+- Servidor/painel (sem build): Apple Saúde v2.3 (percurso à IA, reconfirmação), divisão da musculação no painel, avisos proativos (desligados), painel "Avisos enviados".
