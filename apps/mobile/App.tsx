@@ -9358,13 +9358,7 @@ function DevicesIntegrationsPanel({ accessToken, onOpenStrava, polarVariant }: {
   return (
     <>
       <PolarConnect accessToken={accessToken} variant={polarVariant} />
-      <View style={styles.formSection}>
-        <Text style={styles.reportTitle}>Strava</Text>
-        <Pressable style={styles.secondaryOutlineButton} onPress={onOpenStrava}>
-          <Text style={styles.secondaryOutlineButtonText}>Gerenciar conexão com o Strava</Text>
-          <Ionicons name="sync" size={18} color={PRColors.ocean} />
-        </Pressable>
-      </View>
+      {/* Strava escondido das alunas (19/11/2026, ordem de Elton): sem entrada nesta lista. */}
       {/* Apple Saude (28/10/2026): sincronizacao simples; so' aparece no app nativo iOS. A antiga tela tecnica (AppleHealthProofCard) nao e' mais exibida ao aluno. */}
       <AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} />
     </>
@@ -9626,7 +9620,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId, onOpenProbl
   };
   return (
     <View style={styles.section}>
-      <IntegrationsHub accessToken={accessToken} apiUrl={API_URL} screens={screens} initialProviderId={initialProviderId} fallback={[{ id: 'polar', name: 'Polar' }, { id: 'strava', name: 'Strava' }]} />
+      <IntegrationsHub accessToken={accessToken} apiUrl={API_URL} screens={screens} initialProviderId={initialProviderId} fallback={[{ id: 'polar', name: 'Polar' }]} />
     </View>
   );
 }

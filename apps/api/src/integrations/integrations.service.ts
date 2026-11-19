@@ -67,6 +67,7 @@ export class IntegrationsService {
       const pending = entry.id === 'polar' ? atlasPending('polar', polarDecision) : entry.id === 'wahoo' ? atlasPending('wahoo', wahooDecision) : [];
       return pending.length > 0 ? { ...entry, pendingAuthorizations: pending } : entry;
     });
-    return { providers };
+    // Strava PARADO e ESCONDIDO das alunas (19/11/2026, ordem de Elton): a integracao continua no codigo (sem nova conexao, sem uso pela IA), mas nao aparece em nenhuma tela de aluna.
+    return { providers: providers.filter((entry) => entry.id !== 'strava') };
   }
 }
