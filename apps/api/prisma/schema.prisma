@@ -142,6 +142,8 @@ model User {
   problemReports        ProblemReport[]
   menstrualCycleLogs    MenstrualCycleLog[]
   menstrualDailyLogs    MenstrualDailyLog[]
+  menstrualReports      MenstrualReport[]
+  menstrualHistory      MenstrualHistorySummary?
   rawExternalActivities RawExternalActivity[]
   activityLogs          ActivityLog[]
   nightlySleepLogs      NightlySleepLog[]
@@ -1292,11 +1294,39 @@ model MenstrualDailyLog {
   energyLevel   Int?
   moodLevel     Int?
   flowIntensity String? // 'leve' | 'moderado' | 'intenso' | null (fora do sangramento ou nao informado)
+  // 19/11/2026: sintomas escolhidos de uma lista fixa (ids) e relato livre do dia. Opcionais; nunca viram escala.
+  symptoms      Json?
+  notes         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@unique([userId, date])
   @@index([userId, date])
+}
+
+// Relatorio mensal do ciclo por fase (19/11/2026, ordem de Elton): gerado so' quando a aluna PEDE, no maximo um por mes (chave unica userId+monthKey, mes de Sao Paulo). `payload` guarda os numeros por fase
+// calculados pelo codigo; `narrative` e' o texto do Agente da Mulher (pode faltar: o relatorio vale sem ele).
+model MenstrualReport {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  monthKey    String
+  payload     Json
+  narrative   String?
+  agentStatus String   @default("skipped")
+  createdAt   DateTime @default(now())
+
+  @@unique([userId, monthKey])
+  @@index([userId, createdAt])
+}
+
+// Historico resumido da trajetoria da aluna no ciclo, mantido pelo Agente da Mulher (regra dos 6 mil caracteres: aos 5 mil sinaliza condensar). Uma linha por aluna.
+model MenstrualHistorySummary {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id])
+  summary   String
+  chars     Int
+  updatedAt DateTime @updatedAt
 }
 
 model StravaConnection {

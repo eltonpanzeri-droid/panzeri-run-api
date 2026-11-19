@@ -8,6 +8,8 @@ import { StartCycleDto } from './dto/start-cycle.dto';
 import { EndCycleDto } from './dto/end-cycle.dto';
 import { CorrectCycleDto } from './dto/correct-cycle.dto';
 import { UpsertDailyLogDto } from './dto/upsert-daily-log.dto';
+import { CYCLE_NOTES_MAX_CHARS, normalizeSymptoms } from './cycle-symptoms';
+import { summarizeDailyLogs, type DailyLogSummary } from './cycle-daily-summary';
 import { CYCLE_AI_CONSENT_TEXT, CYCLE_AI_CONSENT_VERSION, cycleAiConsentHash, isCycleAiConsentCurrent } from './menstrual-ai-consent';
 
 // Nomes das fases para exibicao e contexto da IA
@@ -86,6 +88,8 @@ export interface AgentMenstrualCycleContext {
   periodLengthEvidenceN: number;
   predictedNextPeriod: CycleOverview['predictedNextPeriod'];
   reliabilityCaveats: string[];
+  // 19/11/2026: resumo compacto dos registros diarios (medias, sintomas mais frequentes, por fase). Ausente quando a aluna nao registrou nada recente.
+  registrosDiarios?: DailyLogSummary;
 }
 
 @Injectable()
@@ -205,6 +209,9 @@ export class MenstrualCycleService {
       energyLevel: dto.energyLevel ?? null,
       moodLevel: dto.moodLevel ?? null,
       flowIntensity: dto.flowIntensity ?? null,
+      // 19/11/2026: sintomas da lista fixa (so' ids validos) e relato livre do dia (texto aparado).
+      symptoms: normalizeSymptoms(dto.symptoms),
+      notes: dto.notes?.trim() ? dto.notes.trim().slice(0, CYCLE_NOTES_MAX_CHARS) : null,
     };
     return this.prisma.menstrualDailyLog.upsert({
       where: { userId_date: { userId, date } },
@@ -338,6 +345,11 @@ export class MenstrualCycleService {
     const [profile, overview] = await Promise.all([this.getProfile(userId), this.getCycleOverview(userId)]);
     const maturity = overview.maturity;
     if (!profile?.hasActiveCycle || maturity === 'none') return null;
+    const [dailyLogs, cycleLogs] = await Promise.all([
+      this.prisma.menstrualDailyLog.findMany({ where: { userId }, orderBy: { date: 'desc' }, take: 120, select: { date: true, crampsLevel: true, energyLevel: true, moodLevel: true, symptoms: true } }),
+      this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' }, select: { cycleStartDate: true, cycleEndDate: true } }),
+    ]);
+    const registrosDiarios = summarizeDailyLogs(dailyLogs, cycleLogs.map((log) => ({ start: log.cycleStartDate, end: log.cycleEndDate })), profile);
     return {
       currentDayOfCycle: overview.currentDayOfCycle,
       isCurrentlyMenstruating: overview.isCurrentlyMenstruating,
@@ -349,6 +361,7 @@ export class MenstrualCycleService {
       periodLengthEvidenceN: overview.periodLengthStats?.n ?? 0,
       predictedNextPeriod: overview.predictedNextPeriod,
       reliabilityCaveats: overview.reliabilityCaveats,
+      ...(registrosDiarios ? { registrosDiarios } : {}),
     };
   }
 
