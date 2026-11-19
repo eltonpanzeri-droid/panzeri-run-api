@@ -10,6 +10,9 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { containsLocationPoints, isLocationSampleType } from './polar-location-filter';
+import { parsePolarGpx } from './polar-route';
+import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
+import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID, POLAR_ROUTE_ON } from './polar-health-consent';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { isActivityExcluded } from '../prisma/activity-exclusion-scope';
@@ -189,6 +192,46 @@ export class PolarActivityIngestionService {
     });
   }
 
+  // Busca o GPX do exercicio e junta lat/lon/altitude a serie temporal (mesma linha por segundo que o normalizador usa). Sem autorizacao do grupo ou sem percurso, nao faz nada.
+  private async ingestRoute(userId: string, activityLogId: string, exerciseUrl: string, accessToken: string): Promise<void> {
+    if (!POLAR_ROUTE_ON) return;
+    try {
+      const consent = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: POLAR_HEALTH_PROVIDER_ID, userId } }, select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true } });
+      if (!grantedPolarHealthCategories(consent).includes('activity_route')) return;
+      const log = await this.prisma.activityLog.findUnique({ where: { id: activityLogId }, select: { startedAt: true } });
+      if (!log) return;
+      let response: Response;
+      try {
+        response = await fetch(`${exerciseUrl}/gpx`, { headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/gpx+xml' } });
+      } catch (error) {
+        this.logger.warn(`Falha de rede ao buscar o percurso (${activityLogId}): ${error instanceof Error ? error.message : String(error)}`);
+        return;
+      }
+      if (response.status === 204 || response.status === 404) return; // treino sem percurso
+      if (!response.ok) { this.logger.warn(`Polar recusou o percurso (${activityLogId}): status ${response.status}.`); return; }
+      const points = parsePolarGpx(await response.text(), log.startedAt);
+      if (points.length === 0) return;
+      for (let i = 0; i < points.length; i += 400) {
+        const chunk = points.slice(i, i + 400);
+        await this.writeIfStillAuthorized(userId, async (tx) => {
+          // reconfere o grupo DENTRO da gravacao: retirada concorrente nao deixa percurso para tras
+          const again = await tx.providerConnection.findUnique({ where: { provider_userId: { provider: POLAR_HEALTH_PROVIDER_ID, userId } }, select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true } });
+          if (!grantedPolarHealthCategories(again).includes('activity_route')) return;
+          for (const point of chunk) {
+            await tx.activityTimeSeriesPoint.upsert({
+              where: { activityLogId_offsetSec_normalizationVersion: { activityLogId, offsetSec: point.offsetSec, normalizationVersion: NORMALIZATION_VERSION } },
+              create: { activityLogId, provider: 'polar', offsetSec: point.offsetSec, normalizationVersion: NORMALIZATION_VERSION, latitude: point.latitude, longitude: point.longitude, elevationMeters: point.elevationMeters },
+              update: { latitude: point.latitude, longitude: point.longitude, ...(point.elevationMeters !== null ? { elevationMeters: point.elevationMeters } : {}) },
+            });
+          }
+        });
+      }
+      await this.prisma.activityLog.update({ where: { id: activityLogId }, data: { hasRoute: true } });
+    } catch (error) {
+      this.logger.warn(`Percurso da Polar nao gravado (${activityLogId}): ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private async openTransaction(userId: string, polarUserId: string, accessToken: string): Promise<string | null> {
     let response: Response;
     try {
@@ -305,6 +348,9 @@ export class PolarActivityIngestionService {
     } catch (error) {
       this.logger.warn(`Falha ao normalizar serie temporal da atividade ${activityLog.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
+
+    // Percurso GPS (19/11/2026): SO' com o grupo autorizado pela aluna sobre o texto vigente (e POLAR_ROUTE_ENABLED). Best-effort: nunca derruba a ingestao.
+    await this.ingestRoute(userId, activityLog.id, exerciseUrl, accessToken);
 
     // Aciona o Motor de Reconciliacao ja' existente (03/10/2026) — antes desta linha, classify()
     // nunca era chamado por nenhum adapter de provedor (ver cabecalho de

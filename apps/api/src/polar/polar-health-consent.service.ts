@@ -78,6 +78,13 @@ export class PolarHealthConsentService {
   // Apaga os dados importados de UMA categoria: a tabela de resumo (se houver) e os registros de metrica dela (Nightly Recharge extras, Cardio Load, SleepWise, FC continua).
   private async eraseCategory(db: unknown, userId: string, category: PolarHealthCategory): Promise<void> {
     const client = db as Record<string, { deleteMany(args: unknown): Promise<unknown> }>;
+    if (category === 'activity_route') {
+      // Percurso da Polar: some da serie temporal e da marca de percurso das atividades dela (os demais dados do treino ficam).
+      const raw = db as unknown as { activityTimeSeriesPoint: { updateMany(args: unknown): Promise<unknown> }; activityLog: { updateMany(args: unknown): Promise<unknown> } };
+      await raw.activityTimeSeriesPoint.updateMany({ where: { provider: POLAR_WEARABLE_PROVIDER, latitude: { not: null }, activityLog: { userId } }, data: { latitude: null, longitude: null } });
+      await raw.activityLog.updateMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER, hasRoute: true }, data: { hasRoute: false } });
+      return;
+    }
     const table = POLAR_HEALTH_TABLE[category];
     if (table) await client[table].deleteMany({ where: { userId, provider: POLAR_WEARABLE_PROVIDER } });
     const kinds = POLAR_HEALTH_METRIC_KINDS[category];
