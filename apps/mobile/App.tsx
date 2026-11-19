@@ -24,6 +24,8 @@ import { volumeReadingId } from './home/evolutionReading';
 import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
 import { ExportDataSection } from './src/dataExport/ExportDataSection';
+import { CycleReportSection } from './src/cycleReport/CycleReportSection';
+import { CYCLE_NOTES_MAX_CHARS, CYCLE_SYMPTOM_OPTIONS } from './src/cycleReport/cycleSymptoms';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
@@ -8206,6 +8208,8 @@ interface DailyLog {
   energyLevel: number | null;
   moodLevel: number | null;
   flowIntensity: string | null;
+  symptoms?: string[] | null;
+  notes?: string | null;
 }
 
 const WEEKDAY_LABELS = ['SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB', 'DOM'];
@@ -8342,6 +8346,8 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
   const [energy, setEnergy] = useState<number | null>(existingDailyLog?.energyLevel ?? cycleStartingHere?.energyLevel ?? null);
   const [mood, setMood] = useState<number | null>(existingDailyLog?.moodLevel ?? cycleStartingHere?.moodLevel ?? null);
   const [flow, setFlow] = useState<string | null>(existingDailyLog?.flowIntensity ?? cycleStartingHere?.flowIntensity ?? null);
+  const [symptoms, setSymptoms] = useState<string[]>(Array.isArray(existingDailyLog?.symptoms) ? (existingDailyLog?.symptoms as string[]) : []);
+  const [notes, setNotes] = useState<string>(existingDailyLog?.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -8370,7 +8376,7 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
     if (ok) onClose();
   }
   async function saveDailyLog() {
-    const ok = await post('daily-log', 'POST', { date: dateStr, crampsLevel: cramps ?? undefined, energyLevel: energy ?? undefined, moodLevel: mood ?? undefined, flowIntensity: flow ?? undefined });
+    const ok = await post('daily-log', 'POST', { date: dateStr, crampsLevel: cramps ?? undefined, energyLevel: energy ?? undefined, moodLevel: mood ?? undefined, flowIntensity: flow ?? undefined, symptoms, notes: notes.trim() || undefined });
     if (ok) onClose();
   }
 
@@ -8427,6 +8433,19 @@ function DaySheet({ dateStr, overview, dailyLogs, accessToken, onClose, onChange
                       </Pressable>
                     ))}
                   </View>
+                  <Text style={[styles.copyTight, { marginTop: 8 }]}>Outros sintomas de hoje</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
+                    {CYCLE_SYMPTOM_OPTIONS.map((opt) => {
+                      const active = symptoms.includes(opt.id);
+                      return (
+                        <Pressable key={opt.id} style={[styles.completionChip, active && styles.completionChipActive]} onPress={() => setSymptoms(active ? symptoms.filter((item) => item !== opt.id) : [...symptoms, opt.id])}>
+                          <Text style={[styles.completionChipText, active && styles.completionChipTextActive]}>{opt.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Text style={[styles.copyTight, { marginTop: 10 }]}>Quer contar algo específico sobre hoje?</Text>
+                  <TextInput style={[styles.input, { minHeight: 70, textAlignVertical: 'top' }]} multiline maxLength={CYCLE_NOTES_MAX_CHARS} value={notes} onChangeText={setNotes} placeholder="Escreva aqui, se quiser (opcional)" />
                 </View>
 
                 {!!message && <Text style={styles.statusMessage}>{message}</Text>}
@@ -8871,6 +8890,7 @@ function MenstrualCycleScreen({ accessToken }: { accessToken: string }) {
             </View>
           )}
 
+          <CycleReportSection accessToken={accessToken} apiUrl={API_URL} />
           <MenstrualProfileSettings accessToken={accessToken} />
           <MedicationsSection accessToken={accessToken} />
         </>

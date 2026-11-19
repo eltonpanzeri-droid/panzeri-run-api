@@ -536,8 +536,13 @@ export class MenstrualCycleService {
     const avgEnergy = average(logs.map((l) => l.energyLevel).filter((v): v is number => v !== null));
     const avgMood   = average(logs.map((l) => l.moodLevel).filter((v): v is number => v !== null));
 
+    // Limitacoes ditas ao treinador (19/11/2026, regra de Elton): sem duracao de ciclo declarada o padrao e' 28 dias, sempre avisando; com anticoncepcional hormonal as fases sao estimativa.
+    const limitations: string[] = [];
+    if (!profile.cycleLengthDays) limitations.push('A aluna não informou a duração do ciclo: foi usado o padrão de 28 dias, então as fases são uma estimativa.');
+    if (profile.usesHormonalContraceptive) limitations.push('Usa anticoncepcional hormonal: as fases são uma estimativa e podem não refletir o ciclo natural.');
     return {
       isReliable,
+      limitations,
       cycleCount: logs.length,
       phaseStats,
       averageSymptoms: { crampsLevel: avgCramps, energyLevel: avgEnergy, moodLevel: avgMood },
