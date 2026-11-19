@@ -44,3 +44,17 @@ export const polarRouteEnabled = (env: { get<T = string>(key: string): T | undef
   const value = typeof (env as { get?: unknown }).get === 'function' ? (env as { get(key: string): string | undefined }).get('POLAR_ROUTE_ENABLED') : (env as NodeJS.ProcessEnv).POLAR_ROUTE_ENABLED;
   return value?.trim().toLowerCase() === 'true';
 };
+
+// Ganho de elevacao do percurso (metros subidos): media movel de 5 pontos para tirar o ruido do GPS e soma so' das subidas. E' a UNICA informacao do percurso que segue para a IA (ordem de Elton, 19/11/2026):
+// as coordenadas nunca saem do Panzeri Run para a IA. Sem altitude suficiente (menos de 10 pontos com altitude) devolve null: ausencia nunca vira zero.
+export function elevationGainFromRoute(points: PolarRoutePoint[]): number | null {
+  const elevations = points.map((point) => point.elevationMeters).filter((value): value is number => value !== null);
+  if (elevations.length < 10) return null;
+  const smooth = elevations.map((_, index) => {
+    const window = elevations.slice(Math.max(0, index - 2), Math.min(elevations.length, index + 3));
+    return window.reduce((sum, value) => sum + value, 0) / window.length;
+  });
+  let gain = 0;
+  for (let i = 1; i < smooth.length; i += 1) if (smooth[i] > smooth[i - 1]) gain += smooth[i] - smooth[i - 1];
+  return Math.round(gain);
+}

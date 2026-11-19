@@ -434,6 +434,7 @@ export function ActivityDetailBody({ detail }: { detail: ActivityDetail }) {
       {/* 1. Resumo */}
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 13, color: MUTED }}>{new Date(detail.startedAt).toLocaleDateString('pt-BR')} · origem: {detail.provider}</Text>
+        {detail.provider === 'polar' ? <Text style={{ fontSize: 12, color: MUTED }}>Dados fornecidos pela Polar (Polar Flow).</Text> : null}
         {s.distanceKm != null ? <Text style={{ fontSize: 15 }}>Distância: {roundKm(s.distanceKm)} km</Text> : null}
         {s.durationSec != null ? <Text style={{ fontSize: 15 }}>Duração: {formatDurationSec(s.durationSec)}</Text> : null}
         {s.avgPaceSecondsKm != null ? <Text style={{ fontSize: 15 }}>Ritmo médio: {formatPace(s.avgPaceSecondsKm)}/km</Text> : null}

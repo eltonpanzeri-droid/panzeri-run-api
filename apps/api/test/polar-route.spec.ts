@@ -59,7 +59,7 @@ describe('autorizacao e gate (POLAR_ROUTE_ENABLED)', () => {
 
   it('ligado: texto 1.3 com o grupo, aviso de dado sensivel e origem Polar', () => {
     const m = load('true');
-    expect(m.POLAR_HEALTH_CONSENT.version).toBe('1.3');
+    expect(m.POLAR_HEALTH_CONSENT.version).toBe('1.4');
     const group = m.POLAR_HEALTH_CONSENT.groups.find((g) => g.id === 'activity_route');
     expect(group?.description).toContain('Dado sensível');
     expect(group?.description).toContain('Polar');
@@ -74,5 +74,21 @@ describe('autorizacao e gate (POLAR_ROUTE_ENABLED)', () => {
     expect(m.grantedPolarHealthCategories({ ...ok, grantedCategories: ['sleep'] })).not.toContain('activity_route');
     expect(m.grantedPolarHealthCategories({ ...ok, consentVersion: '1.2' })).toEqual([]);
     expect(m.grantedPolarHealthCategories({ ...ok, disconnectedAt: new Date() })).toEqual([]);
+  });
+});
+
+describe('altimetria do percurso (o que a IA le)', () => {
+  const { elevationGainFromRoute } = require('../src/polar/polar-route');
+  const pts = (elevations: Array<number | null>) => elevations.map((e, i) => ({ offsetSec: i, latitude: -19.9, longitude: -43.9, elevationMeters: e }));
+  it('soma as subidas suavizadas; descida nao conta; sem altitude suficiente = nada (nunca zero)', () => {
+    const climb = elevationGainFromRoute(pts(Array.from({ length: 30 }, (_, i) => 800 + i * 2)));
+    expect(climb).toBeGreaterThan(45);
+    expect(climb).toBeLessThan(65);
+    expect(elevationGainFromRoute(pts(Array.from({ length: 30 }, (_, i) => 900 - i * 2)))).toBe(0);
+    expect(elevationGainFromRoute(pts([800, 801, 802]))).toBeNull();
+    expect(elevationGainFromRoute(pts(Array.from({ length: 30 }, () => null)))).toBeNull();
+  });
+  it('as coordenadas nao fazem parte do numero enviado: so a altimetria derivada existe como saida', () => {
+    expect(typeof elevationGainFromRoute(pts(Array.from({ length: 12 }, (_, i) => 800 + i)))).toBe('number');
   });
 });

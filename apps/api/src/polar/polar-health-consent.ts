@@ -20,7 +20,7 @@ export const POLAR_HEALTH_PURPOSES = ['history', 'tracking', 'indicators', 'coac
 export interface PolarHealthGroup { id: PolarHealthCategory; label: string; description: string }
 
 export const POLAR_HEALTH_CONSENT = {
-  version: POLAR_ROUTE_ON ? '1.3' : '1.2',
+  version: POLAR_ROUTE_ON ? '1.4' : '1.2',
   dateLabel: POLAR_ROUTE_ON ? '19/11/2026' : '10/11/2026',
   title: 'Saúde e recuperação da sua Polar',
   paragraphs: [
@@ -29,7 +29,7 @@ export const POLAR_HEALTH_CONSENT = {
     'Esses dados serão usados para acompanhar sua recuperação e sua evolução, e seu treinador os verá no painel dele para acompanhar seu treino. Se você também autorizar o Atlas (nossa inteligência artificial) nesta mesma página, ele poderá usar os grupos que você marcar aqui para personalizar seus treinos; sem essa autorização, eles ficam só para você e para o seu treinador. Eles não substituem avaliação médica.',
     'Ao autorizar, importamos o que a Polar disponibilizar, normalmente os últimos 28 dias, e passamos a importar os dados novos. A origem de cada dado (Polar) é sempre preservada.',
     ...(POLAR_ROUTE_ON ? [
-      'Percurso GPS (opcional): se você marcar esse grupo, o Panzeri Run guarda o trajeto (latitude, longitude e altitude) dos seus treinos que a Polar disponibilizar, para mostrar o percurso e entender onde você treina. O trajeto é um dado sensível, vem da Polar e é identificado como tal. Sem marcar, nenhum trajeto é guardado.',
+      'Percurso GPS (opcional): se você marcar esse grupo, o Panzeri Run guarda o trajeto (latitude, longitude e altitude) dos seus treinos que a Polar disponibilizar, para mostrar o percurso e entender onde você treina. O trajeto é um dado sensível, vem da Polar e é identificado como tal. Sem marcar, nenhum trajeto é guardado. Se você também autorizou o Atlas (nossa inteligência artificial) para a Polar, a altimetria dos seus treinos (o ganho de elevação calculado do trajeto) poderá ser usada por ele; as coordenadas do trajeto nunca são enviadas à inteligência artificial.',
     ] : []),
     'Você escolhe cada grupo. Ao retirar um grupo, a importação dele para e os dados já importados desse grupo são apagados do Panzeri Run. Desconectar a Polar também interrompe a importação. Os detalhes estão na Política de Privacidade.',
   ],
@@ -38,7 +38,7 @@ export const POLAR_HEALTH_CONSENT = {
     { id: 'hrv', label: 'Recuperação noturna (Nightly Recharge e HRV)', description: 'HRV médio da noite e indicadores de recuperação noturna.' },
     { id: 'daily_activity', label: 'Atividade diária', description: 'Passos, distância e calorias do dia e a carga de treino (Cardio Load).' },
     { id: 'heart_rate', label: 'Frequência cardíaca ao longo do dia', description: 'Frequência cardíaca medida pelo relógio ao longo do dia (mínima, média e máxima de cada dia).' },
-    ...(POLAR_ROUTE_ON ? [{ id: 'activity_route' as const, label: 'Percurso GPS dos treinos', description: 'Trajeto (latitude, longitude e altitude) dos treinos que a Polar disponibilizar. Dado sensível. Origem: Polar.' }] : []),
+    ...(POLAR_ROUTE_ON ? [{ id: 'activity_route' as const, label: 'Percurso GPS dos treinos', description: 'Trajeto (latitude, longitude e altitude) dos treinos que a Polar disponibilizar. Dado sensível. Origem: Polar. A altimetria pode ser usada pelo Atlas, se você o autorizou; as coordenadas, nunca.' }] : []),
   ] as PolarHealthGroup[],
   checkboxText: 'Autorizo o Panzeri Run a importar da Polar os grupos de dados que marquei, para acompanhamento da minha recuperação e do meu treino, inclusive pelo meu treinador.',
   buttonLabel: 'Salvar minha escolha',

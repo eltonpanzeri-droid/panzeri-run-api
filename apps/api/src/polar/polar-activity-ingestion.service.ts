@@ -10,7 +10,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { containsLocationPoints, isLocationSampleType } from './polar-location-filter';
-import { parsePolarGpx } from './polar-route';
+import { elevationGainFromRoute, parsePolarGpx } from './polar-route';
 import { NORMALIZATION_VERSION } from '../activity-timeseries/activity-timeseries.service';
 import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID, POLAR_ROUTE_ON } from './polar-health-consent';
 import { Prisma } from '@prisma/client';
@@ -198,7 +198,7 @@ export class PolarActivityIngestionService {
     try {
       const consent = await this.prisma.providerConnection.findUnique({ where: { provider_userId: { provider: POLAR_HEALTH_PROVIDER_ID, userId } }, select: { disconnectedAt: true, grantedCategories: true, consentVersion: true, consentTextHash: true } });
       if (!grantedPolarHealthCategories(consent).includes('activity_route')) return;
-      const log = await this.prisma.activityLog.findUnique({ where: { id: activityLogId }, select: { startedAt: true } });
+      const log = await this.prisma.activityLog.findUnique({ where: { id: activityLogId }, select: { startedAt: true, elevationGainMeters: true } });
       if (!log) return;
       let response: Response;
       try {
@@ -226,7 +226,9 @@ export class PolarActivityIngestionService {
           }
         });
       }
-      await this.prisma.activityLog.update({ where: { id: activityLogId }, data: { hasRoute: true } });
+      // Altimetria derivada do percurso: preenche o ganho de elevacao so' quando a Polar nao informou (nunca sobrescreve o valor dela). Esse numero (e nao as coordenadas) e' o que a IA le.
+      const gain = log.elevationGainMeters == null ? elevationGainFromRoute(points) : null;
+      await this.prisma.activityLog.update({ where: { id: activityLogId }, data: { hasRoute: true, ...(gain !== null ? { elevationGainMeters: gain } : {}) } });
     } catch (error) {
       this.logger.warn(`Percurso da Polar nao gravado (${activityLogId}): ${error instanceof Error ? error.message : String(error)}`);
     }
