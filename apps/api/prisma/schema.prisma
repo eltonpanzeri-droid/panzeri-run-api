@@ -366,9 +366,9 @@ model UserNotification {
 model NotificationPreference {
   userId          String   @id
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  dailyCap        Int      @default(20)
+  dailyCap        Int      @default(36)
   windowStartHour Int      @default(6)
-  windowEndHour   Int      @default(20)
+  windowEndHour   Int      @default(36)
   categories      Json     @default("{}")
   updatedAt       DateTime @updatedAt
 }

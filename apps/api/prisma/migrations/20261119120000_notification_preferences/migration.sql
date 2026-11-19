@@ -2,7 +2,7 @@
 -- CreateTable
 CREATE TABLE "NotificationPreference" (
     "userId" TEXT NOT NULL,
-    "dailyCap" INTEGER NOT NULL DEFAULT 20,
+    "dailyCap" INTEGER NOT NULL DEFAULT 36,
     "windowStartHour" INTEGER NOT NULL DEFAULT 6,
     "windowEndHour" INTEGER NOT NULL DEFAULT 20,
     "categories" JSONB NOT NULL DEFAULT '{}',

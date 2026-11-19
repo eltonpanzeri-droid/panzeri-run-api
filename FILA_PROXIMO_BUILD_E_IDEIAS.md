@@ -202,3 +202,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## 19/11/2026 — Tela "Preferências de notificações" (exige build nativo; no PWA vale com o Deploy do web)
 - `apps/mobile/src/notificationPreferences/NotificationPreferencesScreen.tsx` + menu em `App.tsx`. Servidor: orquestrador de avisos proativos (ver PRONTUARIO 19/11). Validar: temas ligam/desligam, faixa por tema, máximo por dia, horário, salvar e reabrir.
+
+## 19/11/2026 (tarde) — itens que exigem build nativo
+- Bandeirinha 🏁 no cartão da prova (aluna); botão "Baixar meus dados" em Privacidade (no aplicativo abre o compartilhamento; no PWA baixa arquivo); tela de preferências de notificações com teto 36 (0/6/12/24/36). Validar no aparelho: baixar dados e salvar/enviar o arquivo; bandeira aparece só em cartão de prova.
+- **Ideia a avaliar (NÃO fazer sem ordem):** enxugar blocos `byModality` do contexto da IA (economia ~9% por geração; risco de perder detalhe; comparar 2–3 gerações reais).

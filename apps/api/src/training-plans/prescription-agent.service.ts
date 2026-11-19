@@ -73,8 +73,8 @@ export const WATCH_RECOVERY_INSTRUCTION = 'RECUPERACAO DE INTERVALADO E RELOGIOS
 const AiContinuousPartSchema = z.object({
   kind: z.literal('continua'),
   // Corrida OU caminhada continua — o codigo nao distingue os dois, o pace escolhido e que diz o
-  // que e. Cobre tanto ritmo constante (paceSecondsPerKmMin igual ao Max) quanto ritmo variado ao
-  // longo da parte (os dois diferentes, descrevendo a faixa real).
+  // que e. TODO ritmo e' uma FAIXA (Min menor que Max, 19/11/2026): Min igual a Max faria o relogio acusar
+  // fora do ritmo o tempo todo. Se o objetivo pede ritmo bem preciso, a faixa e' curta (ex.: 10 s/km), nunca um numero so.
   //
   // BUG REAL (30/08, aluna Roberta — geracao falhando toda vez): minimo de 0.05 rejeitava a
   // resposta INTEIRA sempre que a IA decidia uma parte "continua" bem curta (uma transicao/pausa
@@ -88,8 +88,8 @@ const AiContinuousPartSchema = z.object({
   // nao entrava no total, subestimando o volume do aluno). min(0.01) aceita a decisao bem curta da
   // IA sem abrir essa lacuna — achado por auto-revisao.
   distanceKm: z.number().min(0.01).max(60),
-  paceSecondsPerKmMin: z.number().int().min(150).max(1200),
-  paceSecondsPerKmMax: z.number().int().min(150).max(1200),
+  paceSecondsPerKmMin: z.number().int().min(150).max(1200).describe('Ritmo MAIS RAPIDO da faixa, em segundos por km. Sempre MENOR que o Max (ex.: 345 para 5:45/km).'),
+  paceSecondsPerKmMax: z.number().int().min(150).max(1200).describe('Ritmo MAIS LENTO da faixa, em segundos por km. Sempre MAIOR que o Min, nunca igual (ex.: 360 para 6:00/km). Faixa curta e permitida (10 a 15 s/km).'),
 });
 
 const AiIntervalPartSchema = z.object({
@@ -102,13 +102,13 @@ const AiIntervalPartSchema = z.object({
   stimulusStepKm: z.number().min(0.02).max(5),
   // 18/11/2026 (Elton, caso Juliana/Garmin): todo ritmo e' prescrito em FAIXA (min < max), que e' o que o aluno ve e o que o relogio recebe. O campo antigo (stimulusPaceSecondsPerKm) fica como o PONTO CENTRAL da faixa.
   stimulusPaceSecondsPerKm: z.number().int().min(120).max(1200),
-  stimulusPaceSecondsPerKmMin: z.number().int().min(100).max(1500),
-  stimulusPaceSecondsPerKmMax: z.number().int().min(100).max(1500),
+  stimulusPaceSecondsPerKmMin: z.number().int().min(100).max(1500).describe('Ritmo MAIS RAPIDO da faixa do estimulo, em segundos por km. Sempre MENOR que o Max.'),
+  stimulusPaceSecondsPerKmMax: z.number().int().min(100).max(1500).describe('Ritmo MAIS LENTO da faixa do estimulo, em segundos por km. Sempre MAIOR que o Min, nunca igual.'),
   recoveryLabel: z.string().min(1).max(40),
   recoveryStepKm: z.number().min(0.02).max(3),
   recoveryPaceSecondsPerKm: z.number().int().min(150).max(1200),
-  recoveryPaceSecondsPerKmMin: z.number().int().min(100).max(1500),
-  recoveryPaceSecondsPerKmMax: z.number().int().min(100).max(1500),
+  recoveryPaceSecondsPerKmMin: z.number().int().min(100).max(1500).describe('Ritmo MAIS RAPIDO da faixa da recuperacao, em segundos por km. Sempre MENOR que o Max.'),
+  recoveryPaceSecondsPerKmMax: z.number().int().min(100).max(1500).describe('Ritmo MAIS LENTO da faixa da recuperacao, em segundos por km. Sempre MAIOR que o Min, nunca igual.'),
 });
 
 const AiSessionPartSchema = z.discriminatedUnion('kind', [AiContinuousPartSchema, AiIntervalPartSchema]);

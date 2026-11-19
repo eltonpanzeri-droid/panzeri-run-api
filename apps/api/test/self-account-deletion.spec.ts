@@ -168,7 +168,7 @@ describe('endpoint', () => {
     expect(guards).toHaveLength(1);
     expect(Reflect.getMetadata('THROTTLER:LIMITdefault', SelfAccountDeletionController.prototype.delete)).toBe(5);
     const deleteOwnAccount = jest.fn(async () => ({}));
-    const controller = new SelfAccountDeletionController({ deleteOwnAccount, info: jest.fn() } as never);
+    const controller = new SelfAccountDeletionController({ deleteOwnAccount, info: jest.fn() } as never, {} as never);
     await controller.delete({ sub: 'user-do-token' } as never, { userId: 'outro', password: 'x', confirmText: SELF_DELETE_PHRASE } as never);
     expect(deleteOwnAccount).toHaveBeenCalledWith('user-do-token', expect.anything());
   });

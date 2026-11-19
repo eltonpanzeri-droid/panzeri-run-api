@@ -11,7 +11,7 @@ interface CategoryPref { enabled: boolean; band: string }
 interface Prefs { dailyCap: number; windowStartHour: number; windowEndHour: number; categories: Record<string, CategoryPref> }
 interface ScreenData { preferences: Prefs; categories: Category[]; bands: Band[]; defaults: Prefs }
 
-const CAP_OPTIONS = [0, 5, 10, 20];
+const CAP_OPTIONS = [0, 6, 12, 24, 36];
 const START_OPTIONS = [5, 6, 7, 8, 9];
 const END_OPTIONS = [18, 19, 20, 21, 22];
 const hourLabel = (hour: number) => `${String(hour).padStart(2, '0')}:00`;

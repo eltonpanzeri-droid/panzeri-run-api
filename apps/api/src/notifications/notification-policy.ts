@@ -1,5 +1,5 @@
 // Politica de avisos proativos (19/11/2026, ordem de Elton). Funcoes PURAS: decidem se um aviso pode sair AGORA para esta aluna, pelas preferencias dela. Nao escolhem o que dizer nem quando disparar (isso e' de
-// cada regra); so' impedem excesso. Ideia central: o limite diario e' um TETO (padrao 20), nunca uma meta; a aluna gerencia categorias, quantidade por dia e horario.
+// cada regra); so' impedem excesso. Ideia central: o limite diario e' um TETO (padrao 36 = 6 temas x 6), nunca uma meta; a aluna gerencia categorias, quantidade por dia e horario.
 export const NOTIFICATION_CATEGORIES = [
   { id: 'novidades', label: 'Novidades do Panzeri Run' },
   { id: 'instrucoes', label: 'Instruções de uso do Panzeri Run' },
@@ -18,11 +18,11 @@ export const NOTIFICATION_BANDS = [
 ] as const;
 export type NotificationBandId = (typeof NOTIFICATION_BANDS)[number]['id'];
 
-export const DEFAULT_DAILY_CAP = 20;
-export const MAX_DAILY_CAP = 20;
+export const DEFAULT_DAILY_CAP = 36; // 6 temas x 6 por dia: a aluna que libera o maximo em todos os temas pode receber ate 36 (ordem de Elton, 19/11/2026)
+export const MAX_DAILY_CAP = 36;
 export const DEFAULT_WINDOW_START_HOUR = 6;
 export const DEFAULT_WINDOW_END_HOUR = 20;
-export const DEFAULT_BAND: NotificationBandId = '1-2';
+export const DEFAULT_BAND: NotificationBandId = '5-6'; // padrao: maximo em cada tema; a aluna reduz em Preferencias de notificacoes
 // Fuso padrao (Sao Paulo, sem horario de verao). Mesma regra de dia local usada no resto do Panzeri Run.
 export const DEFAULT_TZ_OFFSET_MINUTES = -180;
 

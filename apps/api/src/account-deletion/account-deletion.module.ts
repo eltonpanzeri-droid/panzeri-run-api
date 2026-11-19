@@ -6,13 +6,14 @@ import { WahooModule } from '../wahoo/wahoo.module';
 import { ProviderHubModule } from '../provider-hub/provider-hub.module';
 import { AccountDeletionService } from './account-deletion.service';
 import { SelfAccountDeletionService } from './self-account-deletion.service';
+import { DataExportService } from './data-export.service';
 import { SelfAccountDeletionController } from './self-account-deletion.controller';
 import { BillingModule } from '../billing/billing.module';
 
 @Module({
   imports: [PrismaModule, TombstoneModule, PolarModule, WahooModule, ProviderHubModule, BillingModule],
   controllers: [SelfAccountDeletionController],
-  providers: [AccountDeletionService, SelfAccountDeletionService],
+  providers: [AccountDeletionService, SelfAccountDeletionService, DataExportService],
   exports: [AccountDeletionService],
 })
 export class AccountDeletionModule {}

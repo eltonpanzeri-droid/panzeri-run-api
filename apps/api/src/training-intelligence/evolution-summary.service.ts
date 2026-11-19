@@ -10,10 +10,10 @@ import { EVOLUTION_SUMMARY_META, buildAreaSummary, buildIndicatorResult, type Ar
 // Evolução da aluna: leitura por regra de cada indicador e síntese por área (13/11/2026). SOMENTE LEITURA, sempre com o id da aluna autenticada. Reaproveita o leitor de observações e a camada
 // matemática existentes: nenhum cálculo novo de série. Os dados que a IA usa NÃO passam por aqui (a tela pode esconder gráficos sem afetar a IA).
 // Dados do relógio: só a fonte PRINCIPAL da aluna (a ativa e mais constante; nunca mistura marcas) e, no sono, só a sessão principal de cada noite. Sem fonte identificada = tudo, como já era.
-export function mainSourceOnly<T extends { timestamp: Date; context: { sourceKey?: string; sessionRole?: 'principal' | 'additional' } }>(rows: T[], now: Date = new Date()): T[] {
+export function mainSourceOnly<T extends { timestamp: Date; context: { sourceKey?: string; sessionRole?: 'principal' | 'additional' } }>(rows: T[], now: Date = new Date(), preferred: string | null = null): T[] {
   const keys = new Set(rows.map((r) => r.context?.sourceKey).filter((k): k is string => !!k));
   if (keys.size === 0) return rows;
-  const main = chooseMainSource([...keys].map((key) => ({ key, timestamps: rows.filter((r) => r.context?.sourceKey === key).map((r) => r.timestamp) })), null, now);
+  const main = chooseMainSource([...keys].map((key) => ({ key, timestamps: rows.filter((r) => r.context?.sourceKey === key).map((r) => r.timestamp) })), preferred, now);
   return rows.filter((r) => r.context?.sourceKey === main && r.context?.sessionRole !== 'additional');
 }
 
@@ -85,7 +85,8 @@ export class EvolutionSummaryService {
       } else {
         const observations = filterByModality(await this.reader.getObservations(userId, entry.variableId), modality);
         let usable = observations.filter((o): o is typeof o & { value: number } => typeof o.value === 'number' && Number.isFinite(o.value));
-        if (entry.wearable) usable = mainSourceOnly(usable);
+        // Preferencia explicita da aluna (AthletePrimarySource) desempata entre fontes ATIVAS, igual ao que a IA le; sem preferencia ou falha = so' atualidade/cobertura.
+        if (entry.wearable) usable = mainSourceOnly(usable, new Date(), (await this.reader.preferredSourceProvider?.(userId)) ?? null);
         let points = usable.map((o) => ({ value: o.value, timestamp: o.timestamp }));
         if (entry.variableId === 'activity.avgPaceSecondsKm') {
           // Ritmo: relógio + treinos preenchidos pela aluna (sem relógio), sem ritmo impossível; a frase diz de onde veio cada parte. Falha na leitura dos preenchidos = só o relógio.

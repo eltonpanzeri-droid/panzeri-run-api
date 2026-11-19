@@ -23,6 +23,7 @@ import { ScientificSourcesScreen, SourcesLink } from './src/scientificSources/Sc
 import { volumeReadingId } from './home/evolutionReading';
 import { registerSourcesOpener } from './src/scientificSources/sources';
 import { DeleteAccountSection } from './src/accountDeletion/DeleteAccountSection';
+import { ExportDataSection } from './src/dataExport/ExportDataSection';
 import { describeTargetRaceError, validateTargetTime } from './src/targetRace/messages';
 import { useHealthConnectAutoSync } from './src/healthConnect/useHealthConnect';
 import { isWeekInProgress } from './home/trendChannel';
@@ -1422,58 +1423,6 @@ const quickIntakeQuestions: InterviewQuestion[] = [
   QUICK_BARRIER_QUESTION,
   QUICK_EXPECTATIONS_QUESTION,
 ];
-
-// Frase natural pra embutir o objetivo (literal em portugues, o mesmo texto usado como
-// label/value la em cima) dentro do resumo personalizado antes do pagamento.
-const QUICK_INTAKE_OBJECTIVE_PHRASES: Record<string, string> = {
-  'Comecar a correr': 'comecar a correr',
-  'Completar 5 km': 'completar seus 5 km',
-  'Melhorar meu tempo nos 5 km': 'melhorar seu tempo nos 5 km',
-  'Completar 10 km': 'completar seus 10 km',
-  'Melhorar meu tempo nos 10 km': 'melhorar seu tempo nos 10 km',
-  'Completar 21 km': 'completar sua meia maratona',
-  'Melhorar meu tempo nos 21 km': 'melhorar seu tempo na meia maratona',
-  'Completar 42 km': 'completar sua maratona',
-  'Melhorar meu tempo nos 42 km': 'melhorar seu tempo na maratona',
-  'Correr ultramaratona': 'correr sua ultramaratona',
-};
-
-function joinNaturalList(items: string[]): string {
-  if (items.length === 0) return '';
-  if (items.length === 1) return items[0];
-  return `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`;
-}
-
-// Tela de resumo antes do pagamento (documento externo, secao 10) — junta objetivo, prova alvo,
-// dificuldade(s) e expectativa(s) das 5 perguntas rapidas numa mensagem so, pra mostrar que a
-// gente prestou atencao no que a pessoa acabou de contar.
-function buildQuickIntakeSummary(name: string, answers: InterviewAnswers): string {
-  const objectiveRaw = String(answers.objective ?? '');
-  const objectivePhrase = QUICK_INTAKE_OBJECTIVE_PHRASES[objectiveRaw] ?? 'comecar sua jornada na corrida';
-  const hasRace = answers.quick_has_target_race === 'sim';
-
-  const barrierQuestion = quickIntakeQuestions.find((q) => q.key === 'quick_main_barrier');
-  const barrierValues = Array.isArray(answers.quick_main_barrier) ? (answers.quick_main_barrier as string[]) : [];
-  const barrierLabels = barrierValues
-    .map((v) => barrierQuestion?.options?.find((o) => o.value === v)?.label)
-    .filter((label): label is string => Boolean(label))
-    .map((label) => label.charAt(0).toLowerCase() + label.slice(1));
-
-  const expectationQuestion = quickIntakeQuestions.find((q) => q.key === 'quick_expectations');
-  const expectationValues = Array.isArray(answers.quick_expectations) ? (answers.quick_expectations as string[]) : [];
-  const expectationLabels = expectationValues
-    .map((v) => expectationQuestion?.options?.find((o) => o.value === v)?.label)
-    .filter((label): label is string => Boolean(label))
-    .map((label) => label.replace(/^Que /, ''));
-
-  let text = `Pronto, ${name}. Agora a gente ja conhece um pouco de voce.\n\nVoce quer ${objectivePhrase}`;
-  if (hasRace) text += ', ja tem uma prova marcada';
-  if (barrierLabels.length) text += ` e contou que sua maior dificuldade hoje e ${joinNaturalList(barrierLabels)}`;
-  text += '.';
-  if (expectationLabels.length) text += ` Voce espera que a gente ${joinNaturalList(expectationLabels)}.`;
-  text += '\n\nJa temos um bom ponto de partida.';
-  return text;
-}
 
 // 25/09/2026 (Passo 3 — correcao de comparabilidade longitudinal): a reavaliacao passou a
 // REAPLICAR, com as MESMAS chaves/textos/escalas/opcoes da entrevista inicial, os construtos que a
@@ -3375,11 +3324,8 @@ function GuidedInterview({ accessToken, userName, onLater, onComplete, questions
   if (finished && mode === 'quickIntake') return (
     <View style={styles.section}>
       <Text style={styles.sectionLabel}>Perguntas concluídas</Text>
-      <Text style={styles.copyTight}>{buildQuickIntakeSummary(userName || 'voce', answers)}</Text>
-      <Text style={styles.copyTight}>
-        Nada aqui e planilha padrao. Um agente de inteligencia artificial monta e ajusta seu treino seguindo a metodologia do treinador, sempre com base no que voce foi contando ate agora. Nao existe um modelo pronto que serve pra qualquer pessoa, seu treino nasce das suas respostas.
-      </Text>
-      <Text style={styles.copyTight}>Depois de confirmar a assinatura, ainda vem uma entrevista completa (saude, historico de corrida, condicionamento fisico) pra deixar sua prescricao ainda mais precisa e segura pra voce especificamente. Sua assinatura fica em R$19,90 por mes, e voce pode cancelar quando quiser, sem multa.</Text>
+      <Text style={styles.titleSmall}>Próximo passo: confirmar sua assinatura</Text>
+      <Text style={styles.copyTight}>Falta só isso para começar. Depois da assinatura você completa uma entrevista rápida e cadastra sua rotina, e a IA monta o seu programa de treino. R$19,90 por mês, cancele quando quiser, sem multa.</Text>
       <Pressable style={styles.primaryButton} onPress={onComplete}><Text style={styles.primaryButtonText}>{answers.objective === 'Comecar a correr' ? 'Quero comecar meus treinos' : 'Quero comecar minha preparacao'}</Text><Ionicons name="arrow-forward" size={18} color={PRColors.mineral} /></Pressable>
       {status ? <Text style={styles.statusMessage}>{status}</Text> : null}
     </View>
@@ -5860,7 +5806,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                           <Text style={styles.sessionTitle}>{session.title}</Text>
                         </View>
                         {raceOfCard ? (
-                          <Text style={{ alignSelf: 'flex-start', marginTop: 4, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10, backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#f59e0b', color: '#92400e', fontSize: 11, fontWeight: '800' }}>{RACE_STAMP_TEXT}</Text>
+                          <Text accessibilityLabel={RACE_STAMP_TEXT} style={{ alignSelf: 'flex-start', marginTop: 4, fontSize: 20 }}>🏁</Text>
                         ) : null}
                         {raceDayNotice ? (
                           <Text style={{ marginTop: 4, color: '#92400e', fontSize: 12, fontWeight: '700' }}>🏁 Dia de prova: sugerimos descansar</Text>
@@ -5914,9 +5860,6 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                             nao exibe mais pro aluno aqui. O campo continua salvo no banco. */}
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
-                        {raceOfCard ? (
-                          <Text style={{ fontSize: 12, fontWeight: '800', color: '#92400e', backgroundColor: '#fef3c7', padding: 8, borderRadius: 8 }}>{RACE_STAMP_TEXT}: {raceOfCard.name}</Text>
-                        ) : null}
                         {raceDayNotice ? (
                           <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400e', backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#f59e0b', padding: 8, borderRadius: 8 }}>{raceDayNotice}</Text>
                         ) : null}
@@ -9737,6 +9680,7 @@ function PrivacyDataScreen({ accessToken, onOpenStrava, onOpenBilling, onAccount
 
       {block('solicitacoes', 'Solicitações sobre meus dados')}
 
+      <ExportDataSection accessToken={accessToken} apiUrl={API_URL} />
       <DeleteAccountSection accessToken={accessToken} apiUrl={API_URL} onOpenBilling={onOpenBilling} onDeleted={onAccountDeleted} />
     </View>
   );

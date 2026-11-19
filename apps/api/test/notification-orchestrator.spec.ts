@@ -5,16 +5,16 @@ import {
 } from '../src/notifications/notification-policy';
 import { NotificationOrchestratorService } from '../src/notifications/notification-orchestrator.service';
 
-// 19/11/2026 (Elton): teto diario padrao de 20 (nao e meta), seis categorias, faixas de 1-2 / 3-4 / 5-6 por dia por categoria, janela 06:00 a 20:00, e a aluna gerencia tudo.
+// 19/11/2026 (Elton): teto diario padrao de 36 = 6 temas x 6 (nao e meta), seis categorias, faixas de 1-2 / 3-4 / 5-6 por dia por categoria, janela 06:00 a 20:00, e a aluna gerencia tudo.
 const at = (hourLocal: number) => new Date(Date.UTC(2026, 10, 19, hourLocal + 3, 0, 0)); // Sao Paulo = UTC-3
 
 describe('politica de avisos proativos', () => {
-  it('padroes: teto 20, janela 6 a 20, seis categorias ligadas na faixa 1 a 2', () => {
+  it('padroes: teto 36, janela 6 a 20, seis categorias ligadas na faixa 5 a 6', () => {
     const prefs = defaultPreferences();
-    expect(prefs.dailyCap).toBe(20);
+    expect(prefs.dailyCap).toBe(36);
     expect([prefs.windowStartHour, prefs.windowEndHour]).toEqual([6, 20]);
     expect(NOTIFICATION_CATEGORIES.map((c) => c.id)).toEqual(['novidades', 'instrucoes', 'relatorios', 'saude', 'educacao_treino', 'mundo_corrida']);
-    expect(NOTIFICATION_CATEGORIES.every((c) => prefs.categories[c.id].enabled && prefs.categories[c.id].band === '1-2')).toBe(true);
+    expect(NOTIFICATION_CATEGORIES.every((c) => prefs.categories[c.id].enabled && prefs.categories[c.id].band === '5-6')).toBe(true);
     expect(NOTIFICATION_BANDS.map((b) => b.id)).toEqual(['1-2', '3-4', '5-6']);
     expect(['1-2', '3-4', '5-6'].map((b) => bandMaxPerDay(b as never))).toEqual([2, 4, 6]);
   });
@@ -23,18 +23,18 @@ describe('politica de avisos proativos', () => {
     expect(JSON.stringify(NOTIFICATION_CATEGORIES).toLowerCase()).not.toMatch(/\bapp\b/);
   });
 
-  it('normaliza qualquer entrada: lixo cai no padrao, teto nunca passa de 20, horas invertidas voltam ao padrao', () => {
+  it('normaliza qualquer entrada: lixo cai no padrao, teto nunca passa de 36, horas invertidas voltam ao padrao', () => {
     expect(normalizePreferences(null)).toEqual(defaultPreferences());
     expect(normalizePreferences('x')).toEqual(defaultPreferences());
-    expect(normalizePreferences({ dailyCap: 999 }).dailyCap).toBe(20);
+    expect(normalizePreferences({ dailyCap: 999 }).dailyCap).toBe(36);
     expect(normalizePreferences({ dailyCap: -4 }).dailyCap).toBe(0);
-    expect(normalizePreferences({ dailyCap: 7.5 }).dailyCap).toBe(20);
+    expect(normalizePreferences({ dailyCap: 7.5 }).dailyCap).toBe(36);
     const swapped = normalizePreferences({ windowStartHour: 22, windowEndHour: 8 });
     expect([swapped.windowStartHour, swapped.windowEndHour]).toEqual([6, 20]);
     const custom = normalizePreferences({ windowStartHour: 8, windowEndHour: 22, categories: { saude: { enabled: false, band: '5-6' }, inventada: { enabled: false }, relatorios: { band: 'xx' } } });
     expect([custom.windowStartHour, custom.windowEndHour]).toEqual([8, 22]);
     expect(custom.categories.saude).toEqual({ enabled: false, band: '5-6' });
-    expect(custom.categories.relatorios).toEqual({ enabled: true, band: '1-2' });
+    expect(custom.categories.relatorios).toEqual({ enabled: true, band: '5-6' });
     expect(Object.keys(custom.categories)).toHaveLength(6);
   });
 
@@ -53,8 +53,10 @@ describe('politica de avisos proativos', () => {
     expect(decideNotification({ ...base, now: at(5) })).toEqual({ allow: false, reason: 'outside_window' });
     expect(decideNotification({ ...base, now: at(20) })).toEqual({ allow: false, reason: 'outside_window' });
     expect(decideNotification({ ...base, now: at(19) })).toEqual({ allow: true });
-    expect(decideNotification({ ...base, sentTodayInCategory: 2 })).toEqual({ allow: false, reason: 'category_cap' });
-    expect(decideNotification({ ...base, sentTodayTotal: 20 })).toEqual({ allow: false, reason: 'daily_cap' });
+    expect(decideNotification({ ...base, sentTodayInCategory: 6 })).toEqual({ allow: false, reason: 'category_cap' });
+    const narrow = normalizePreferences({ categories: { educacao_treino: { enabled: true, band: '1-2' } } });
+    expect(decideNotification({ ...base, prefs: narrow, sentTodayInCategory: 2 })).toEqual({ allow: false, reason: 'category_cap' });
+    expect(decideNotification({ ...base, sentTodayTotal: 36 })).toEqual({ allow: false, reason: 'daily_cap' });
     const off = normalizePreferences({ categories: { educacao_treino: { enabled: false, band: '1-2' } } });
     expect(decideNotification({ ...base, prefs: off })).toEqual({ allow: false, reason: 'category_off' });
     const wide = normalizePreferences({ categories: { educacao_treino: { enabled: true, band: '5-6' } } });
@@ -96,16 +98,16 @@ describe('orquestrador de avisos proativos', () => {
   });
 
   it('respeita a preferencia da aluna: categoria desligada nao envia', async () => {
-    const stored = { dailyCap: 20, windowStartHour: 6, windowEndHour: 20, categories: { saude: { enabled: false, band: '1-2' } } };
+    const stored = { dailyCap: 36, windowStartHour: 6, windowEndHour: 20, categories: { saude: { enabled: false, band: '1-2' } } };
     const { service, notifications } = fakeOrchestrator({ stored });
     expect(await service.dispatch('u1', rule)).toEqual({ sent: false, reason: 'category_off' });
     expect(notifications.notifyUserIfNotRecent).not.toHaveBeenCalled();
   });
 
   it('limite da faixa na categoria e teto diario total', async () => {
-    const two = fakeOrchestrator({ sent: [{ category: 'saude' }, { category: 'saude' }] });
+    const two = fakeOrchestrator({ sent: Array.from({ length: 6 }, () => ({ category: 'saude' })) });
     expect(await two.service.dispatch('u1', rule)).toEqual({ sent: false, reason: 'category_cap' });
-    const twenty = fakeOrchestrator({ sent: Array.from({ length: 20 }, () => ({ category: 'novidades' })) });
+    const twenty = fakeOrchestrator({ sent: Array.from({ length: 36 }, () => ({ category: 'novidades' })) });
     expect(await twenty.service.dispatch('u1', rule)).toEqual({ sent: false, reason: 'daily_cap' });
   });
 
@@ -124,9 +126,9 @@ describe('orquestrador de avisos proativos', () => {
   it('salvar preferencias grava o valor JA normalizado e devolve o que gravou', async () => {
     const { service, prisma } = fakeOrchestrator();
     const saved = await service.savePreferences('u1', { dailyCap: 500, windowStartHour: 7, windowEndHour: 21, categories: { saude: { enabled: false, band: '3-4' } } });
-    expect(saved.dailyCap).toBe(20);
+    expect(saved.dailyCap).toBe(36);
     const call = prisma.notificationPreference.upsert.mock.calls[0][0];
-    expect(call.update).toMatchObject({ dailyCap: 20, windowStartHour: 7, windowEndHour: 21 });
+    expect(call.update).toMatchObject({ dailyCap: 36, windowStartHour: 7, windowEndHour: 21 });
     expect(call.update.categories.saude).toEqual({ enabled: false, band: '3-4' });
   });
 });

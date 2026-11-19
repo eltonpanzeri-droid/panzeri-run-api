@@ -81,7 +81,7 @@ describe('agente: prova nunca trava e segue preferencialmente o pace do aluno', 
     const app = readFileSync(join(__dirname, '..', '..', 'mobile', 'App.tsx'), 'utf8');
     expect(app).toContain('const raceOfCard = raceOfSession(session);');
     expect(app).toContain('const raceDayNotice = raceDayNoticeFor(session, group.sessions);');
-    expect(app).toContain('{RACE_STAMP_TEXT}</Text>');
+    expect(app).toContain('accessibilityLabel={RACE_STAMP_TEXT}');
     expect(app).toContain('{raceDayNotice}</Text>');
   });
 });

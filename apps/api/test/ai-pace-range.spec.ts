@@ -59,3 +59,13 @@ describe('IA prescreve ritmo sempre em faixa', () => {
     expect(source).not.toContain('mesmo numero nos dois quando o ritmo for constante');
   });
 });
+
+describe('schema orienta a IA a nunca mandar faixa com Min igual a Max (19/11/2026)', () => {
+  it('todo campo Min/Max de ritmo tem descricao dizendo mais rapido/mais lento e nunca igual', () => {
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'training-plans', 'prescription-agent.service.ts'), 'utf8') as string;
+    const fields = ['paceSecondsPerKmMin', 'paceSecondsPerKmMax', 'stimulusPaceSecondsPerKmMin', 'stimulusPaceSecondsPerKmMax', 'recoveryPaceSecondsPerKmMin', 'recoveryPaceSecondsPerKmMax'];
+    for (const field of fields) expect(src).toMatch(new RegExp(String.raw`${field}: z\.number\(\)[^
+]*\.describe\('Ritmo MAIS (?:RAPIDO|LENTO)`));
+    expect(src).not.toContain('paceSecondsPerKmMin igual ao Max');
+  });
+});

@@ -246,6 +246,16 @@ describe('esforço, volume, ritmo e relógio', () => {
     expect(mainSourceOnly(semFonte, NOW)).toEqual(semFonte);
     expect(mainSourceOnly([{ value: 1, timestamp: NOW } as never], NOW).length).toBe(1);
   });
+
+  it('preferencia explicita da aluna desempata entre fontes ATIVAS, mas fonte inativa nunca prevalece', () => {
+    const mk = (days: number, value: number, sourceKey: string, endDaysAgo = 1) =>
+      Array.from({ length: days }, (_, i) => ({ value, timestamp: new Date(NOW.getTime() - (endDaysAgo + days - i) * DAY), context: { sourceKey } }));
+    const duas = [...mk(40, 400, 'garmin'), ...mk(10, 300, 'polar')];
+    expect(mainSourceOnly(duas, NOW).every((r) => r.value === 400)).toBe(true); // sem preferencia: maior cobertura
+    expect(mainSourceOnly(duas, NOW, 'polar').every((r) => r.value === 300)).toBe(true); // com preferencia: a escolhida (ativa)
+    const polarInativa = [...mk(40, 400, 'garmin'), ...mk(10, 300, 'polar', 20)];
+    expect(mainSourceOnly(polarInativa, NOW, 'polar').every((r) => r.value === 400)).toBe(true);
+  });
 });
 
 describe('volume prescrito, razão e extras (14/11/2026)', () => {
