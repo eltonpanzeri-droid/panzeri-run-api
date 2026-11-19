@@ -199,3 +199,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## 19/11/2026 — Carimbo "Prova marcada por você" e alerta de descanso nos outros treinos do dia (exige build nativo; no PWA vale com o Deploy do web)
 - `apps/mobile/src/raceDay/raceDay.ts` + `App.tsx` (lista de treinos da semana). Validar na tela: carimbo no cartão da prova; alerta nos outros treinos do mesmo dia; nenhum alerta em dia sem prova. Pendente: carimbo no painel do treinador.
+
+## 19/11/2026 — Tela "Preferências de notificações" (exige build nativo; no PWA vale com o Deploy do web)
+- `apps/mobile/src/notificationPreferences/NotificationPreferencesScreen.tsx` + menu em `App.tsx`. Servidor: orquestrador de avisos proativos (ver PRONTUARIO 19/11). Validar: temas ligam/desligam, faixa por tema, máximo por dia, horário, salvar e reabrir.

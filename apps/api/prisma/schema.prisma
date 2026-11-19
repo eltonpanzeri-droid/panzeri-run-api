@@ -105,6 +105,8 @@ model User {
   availability          WeeklyAvailability[]
   routineState          WeeklyRoutineState?
   wearDevices           WearDevice[]
+  notificationPreference NotificationPreference?
+  notificationSendLogs  NotificationSendLog[]
   routineChanges        WeeklyRoutineChange[]
   tests                 FitnessTest[]
   physiologicalAssessments PhysiologicalAssessment[]
@@ -355,6 +357,32 @@ model UserNotification {
   externalRef String?
   readAt      DateTime?
   createdAt   DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Preferencias de notificacao da aluna (19/11/2026, ordem de Elton): teto diario (padrao 20; nao e meta de envio), janela de horario (padrao 06:00 a 20:00, fuso de Sao Paulo) e, por categoria, se quer receber e quantas por dia (1 a 2, 3 a 4, 5 a 6).
+// `categories` e um JSON { [categoria]: { enabled, band } }; categoria ausente = padrao (ligada, 1 a 2).
+model NotificationPreference {
+  userId          String   @id
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyCap        Int      @default(20)
+  windowStartHour Int      @default(6)
+  windowEndHour   Int      @default(20)
+  categories      Json     @default("{}")
+  updatedAt       DateTime @updatedAt
+}
+
+// Registro de cada tentativa de aviso proativo: enviada ou barrada (com o motivo). Base do limite diario por categoria e do painel futuro.
+model NotificationSendLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  ruleId    String
+  status    String
+  reason    String?
+  createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
 }

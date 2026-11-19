@@ -30,7 +30,7 @@ export const ACCOUNT_DELETE_ORDER = [
   'shoeUsage', 'workoutDelivery', 'sessionExecutionLink', 'workoutFeedbackVersion', 'workoutCompletion', 'trainingSession', 'weeklyCheckIn',
   'trainingExecutionInsight', 'trainingPlan', 'trainingPlanGenerationLock', 'nightlySleepLog', 'stressCheckin', 'contextEvent',
   'wearableSleepSummary', 'wearableDailySummary', 'wearableHrvSummary', 'wearableMetricRecord', 'rawActivitySample', 'activityTimeSeriesPoint', 'activityHrDecoupling', 'activityLog', 'rawExternalActivity', 'evolutionReport', 'reassessment',
-  'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'passwordResetCode', 'loginLinkToken', 'userNotification',
+  'studentDirective', 'studentObservation', 'coachChatMessage', 'passwordResetToken', 'passwordResetCode', 'loginLinkToken', 'userNotification', 'notificationPreference', 'notificationSendLog',
   'messageLog', 'aiGenerationCost', 'healthProfile', 'userPreferences', 'weeklyAvailability', 'weeklyRoutineChange', 'weeklyRoutineState', 'operationalReference', 'physiologicalIndicator', 'physiologicalAssessment', 'fitnessTest', 'targetRace', 'painReport',
   'menstrualAiConsent', 'menstrualProfile', 'menstrualCycleLog', 'menstrualDailyLog', 'userAchievementTransition', 'userAchievement', 'correctionReevaluation', 'challengeProgress', 'coachReport',
   'problemReportImage', 'problemReport', 'studentProfileEvent', 'studentProfile', 'studentReportEntry', 'onboardingInterview', 'shoeEvent', 'shoePhoto', 'shoe', 'userDevice', 'userProfilePhoto', 'stravaConnection',
