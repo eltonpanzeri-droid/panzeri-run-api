@@ -35,6 +35,7 @@ import { WearOsConsentCard } from './src/wearOs/WearOsConsentCard';
 import { WearOsNotice } from './src/wearOs/WearOsNotice';
 import { paceTextForView, paceViewLabel, paceViewOptionLabel } from './src/paceView/paceText';
 import { setPaceView, usePaceView } from './src/paceView/usePaceView';
+import { RACE_STAMP_TEXT, raceDayNoticeFor, raceOfSession } from './src/raceDay/raceDay';
 import Purchases from 'react-native-purchases';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { parseJourneyFromSearch, resolveJourney } from './src/journey';
@@ -5801,6 +5802,9 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
             <View style={{ flex: 1, minWidth: 0, gap: 8 }}>
               {group.sessions.map((session) => {
                 const sessionExpanded = Boolean(expandedDays[session.id]);
+                // Prova marcada pela aluna (19/11/2026): carimbo no cartao da prova e alerta de descanso nos outros treinos do mesmo dia.
+                const raceOfCard = raceOfSession(session);
+                const raceDayNotice = raceDayNoticeFor(session, group.sessions);
                 const sessionStatus = session.completion?.status ?? null;
                 // 09/09: sistema de cores por estado do treino
                 // Verde = feito/ajustado | Vermelho = não feito (confirmado) | Amarelo = sem registro (passado)
@@ -5853,6 +5857,12 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                           <Ionicons name={iconForModality(session.modality)} size={18} color="#111827" />
                           <Text style={styles.sessionTitle}>{session.title}</Text>
                         </View>
+                        {raceOfCard ? (
+                          <Text style={{ alignSelf: 'flex-start', marginTop: 4, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10, backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#f59e0b', color: '#92400e', fontSize: 11, fontWeight: '800' }}>{RACE_STAMP_TEXT}</Text>
+                        ) : null}
+                        {raceDayNotice ? (
+                          <Text style={{ marginTop: 4, color: '#92400e', fontSize: 12, fontWeight: '700' }}>🏁 Dia de prova: sugerimos descansar</Text>
+                        ) : null}
                         {/* 12/09: exibe tempo e distancia no cabecalho colapsado.
                             17/09: prefere valores realizados (completion) sobre prescrição —
                             essencial para sessões extras sem prescrição (durationMin=0/null). */}
@@ -5902,6 +5912,12 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                             nao exibe mais pro aluno aqui. O campo continua salvo no banco. */}
                         {/* 12/09: session.notes (texto IA: aquecimento/resfriamento) agora aparece dentro
                             do colapsivel da SessionPrescription em vez de sempre visivel aqui */}
+                        {raceOfCard ? (
+                          <Text style={{ fontSize: 12, fontWeight: '800', color: '#92400e', backgroundColor: '#fef3c7', padding: 8, borderRadius: 8 }}>{RACE_STAMP_TEXT}: {raceOfCard.name}</Text>
+                        ) : null}
+                        {raceDayNotice ? (
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400e', backgroundColor: '#fffbeb', borderWidth: 1, borderColor: '#f59e0b', padding: 8, borderRadius: 8 }}>{raceDayNotice}</Text>
+                        ) : null}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
                         <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} updating={Boolean(plan?.sessionReportsUpdating?.includes(session.id))} />
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}

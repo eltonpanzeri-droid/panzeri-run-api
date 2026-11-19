@@ -196,3 +196,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## 18/11/2026 — Escolha ritmo/velocidade na prescrição (exige build nativo; no PWA vale com o Deploy do web)
 - `apps/mobile/src/paceView/*` + `App.tsx` (SessionPrescription). Pedido da aluna Thais via Elton. Validar na tela: botões aparecem, escolha persiste ao reabrir, intervalado e contínuo convertem.
+
+## 19/11/2026 — Carimbo "Prova marcada por você" e alerta de descanso nos outros treinos do dia (exige build nativo; no PWA vale com o Deploy do web)
+- `apps/mobile/src/raceDay/raceDay.ts` + `App.tsx` (lista de treinos da semana). Validar na tela: carimbo no cartão da prova; alerta nos outros treinos do mesmo dia; nenhum alerta em dia sem prova. Pendente: carimbo no painel do treinador.
