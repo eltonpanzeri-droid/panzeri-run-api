@@ -502,4 +502,14 @@ export const runnerStrengthExercises: StrengthExercise[] = [
     level: 'intermediate',
     equipment: 'bodyweight',
   },
+  {
+    id: 'skip-deslocamento',
+    category: runnerStrengthCategory,
+    name: 'Skip em deslocamento',
+    videoUrl: 'https://youtu.be/6SNDxIxvptw',
+    description: 'Exercicio para treinar o tempo de contato com o solo, melhorar a forca do tendao de Aquiles e melhorar a sincronia dos movimentos entre as articulacoes do pe, joelho, quadril e coluna. Muito importante para corredores melhorarem a forca e principalmente a potencia durante a corrida, ajudando a melhorar o pace e a capacidade de sustentacao do esforco ate o final da corrida.',
+    focus: ['tecnica', 'panturrilha', 'coordenacao', 'potencia'],
+    level: 'intermediate',
+    equipment: 'bodyweight',
+  },
 ];
