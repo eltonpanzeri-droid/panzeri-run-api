@@ -9,8 +9,9 @@ import { isRunModality } from '../activity-execution/canonical-modality';
 import { buildPhasedCycles, cycleLimitations, PHASE_IDS, PHASE_LABEL, type PhaseId } from './cycle-phases';
 import { buildOverviewSentences, bucketValuesByPhase, daysPerPhase, FORMAT_PACE, meanOf, statsByPhase, type ComparableMetric, type PhaseStat, type TimedValue } from './cycle-phase-report';
 import { WomanAgentService } from './woman-agent.service';
+import { MenstrualCycleService } from './menstrual-cycle.service';
 import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
-import { runWithAiScope } from '../ai-governance/ai-scope';
+import { currentAiScope, runWithAiScope } from '../ai-governance/ai-scope';
 
 // Relatorio mensal do ciclo por fase (19/11/2026, ordem de Elton). So' gerado quando a aluna PEDE, no maximo UM por mes (mes de Sao Paulo; chave unica no banco). Os numeros sao calculados pelo codigo a partir das
 // mesmas fontes da Evolucao (leitor de observacoes + feedbacks de treino + relatos de dor); o texto do Agente da Mulher e' opcional (falha dele nao impede o relatorio). SOMENTE LEITURA dos dados da aluna.
@@ -43,7 +44,7 @@ export interface PhaseReportPayload {
 export class MenstrualReportService {
   private readonly logger = new Logger(MenstrualReportService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly reader: ObservationReaderService, @Optional() private readonly agent?: WomanAgentService, @Optional() private readonly aiEligibility?: AiDataEligibility) {}
+  constructor(private readonly prisma: PrismaService, private readonly reader: ObservationReaderService, @Optional() private readonly agent?: WomanAgentService, @Optional() private readonly aiEligibility?: AiDataEligibility, @Optional() private readonly cycleService?: MenstrualCycleService) {}
 
   async list(userId: string) {
     const rows = await this.prisma.menstrualReport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 12, select: { id: true, monthKey: true, createdAt: true, agentStatus: true } });
@@ -70,8 +71,10 @@ export class MenstrualReportService {
     if (this.agent) {
       // O que vai a IA e' remontado DENTRO do escopo de IA da aluna (dado de provedor nao autorizado fica de fora); o que ela le na tela e' o relatorio completo dela.
       const aiScope = this.aiEligibility ? await this.aiEligibility.scopeFor(userId, 'external_ai').catch(() => null) : null;
-      const aiPayload = aiScope ? await runWithAiScope(aiScope, () => this.buildPayload(userId, now)) : payload;
-      const outcome = await this.agent.narrate(userId, aiPayload, monthKey).catch((error) => { this.logger.warn(`Agente da Mulher falhou: ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`); return null; });
+      // A chamada a IA tambem roda DENTRO do escopo (a fila de IA recusa dado de dispositivo fora dele).
+      const agent = this.agent;
+      const generate = async () => agent.narrate(userId, aiScope ? await this.buildPayload(userId, now) : payload, monthKey);
+      const outcome = await (aiScope ? runWithAiScope(aiScope, generate) : generate()).catch((error) => { this.logger.warn(`Agente da Mulher falhou: ${error instanceof Error ? error.message.slice(0, 120) : 'erro'}`); return null; });
       if (outcome) { narrative = outcome.narrative; agentStatus = 'ok'; } else agentStatus = 'failed';
     }
     try {
@@ -90,7 +93,8 @@ export class MenstrualReportService {
   async buildPayload(userId: string, now: Date): Promise<PhaseReportPayload> {
     const [profile, logs] = await Promise.all([
       this.prisma.menstrualProfile.findUnique({ where: { userId } }),
-      this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' }, select: { cycleStartDate: true, cycleEndDate: true } }),
+      // Ciclos de todas as fontes que a aluna autorizou (manual, Apple Saude, Garmin); dentro do escopo de IA, so' as fontes permitidas para a IA.
+      this.cycleService ? this.cycleService.loadCycleLogs(userId, { forAi: !!currentAiScope(), manualAllowed: true }) : this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' }, select: { cycleStartDate: true, cycleEndDate: true } }),
     ]);
     const cycles = buildPhasedCycles(logs.map((log) => ({ start: log.cycleStartDate, end: log.cycleEndDate })), profile);
     const since = new Date(Math.max(EVOLUTION_SINCE.getTime(), now.getTime() - WINDOW_DAYS * 86_400_000));

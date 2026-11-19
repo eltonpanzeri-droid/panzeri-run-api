@@ -56,6 +56,7 @@ const ITEM_LABEL: Record<string, string> = {
   snapshot: 'Health Snapshot',
   blood_pressure: 'Pressão arterial',
   nutrition: 'Nutrição e hidratação',
+  cycle: 'Ciclo menstrual (agenda do ciclo)',
   [WATCH]: 'Envio de treinos ao relógio',
   [ATLAS]: 'Análise pelo Atlas com a Anthropic',
 };
@@ -74,6 +75,7 @@ const REVOKE_EFFECT: Record<string, string> = {
   snapshot: 'Os novos Health Snapshots deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   blood_pressure: 'As novas leituras de pressão arterial deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   nutrition: 'Os novos registros de nutrição e hidratação deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
+  cycle: 'A agenda do seu ciclo deixa de ser lida e usada (na tela e pela inteligência artificial). Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   body: 'Os novos dados de peso e composição corporal deixam de ser guardados. O que já foi importado continua guardado até você pedir a exclusão. Os resultados de inteligência artificial feitos com esses dados serão invalidados ou atualizados.',
   [WATCH]: 'O Panzeri Run apaga do seu Garmin Connect os treinos que enviou e deixa de enviar e de atualizar treinos. Seus treinos continuam disponíveis no Panzeri Run.',
   [ATLAS]: 'Seus dados Garmin deixam de ser usados pelo Atlas, e os resultados de inteligência artificial já gerados com eles serão invalidados ou atualizados, respeitadas as obrigações legais de conservação. O que já foi enviado à Anthropic não pode ser desfeito junto a ela.',

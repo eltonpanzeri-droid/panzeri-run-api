@@ -17,9 +17,10 @@ function walk(dir: string, out: string[] = []): string[] {
 const allFiles = walk(SRC);
 
 describe('todo envio a fornecedor externo de IA passa pela fila unica, que declara o agente', () => {
-  it('chamadas ao SDK da Anthropic existem SO nos 4 servicos de agente conhecidos', () => {
+  it('chamadas ao SDK da Anthropic existem SO nos servicos de agente conhecidos (o Agente da Mulher entrou em 19/11/2026, ordem de Elton)', () => {
     const callers = allFiles.filter((f) => /\bmessages\.(parse|create|stream)\(/.test(readFileSync(f, 'utf8'))).map((f) => norm(f).split('/src/')[1]);
     expect(callers.sort()).toEqual([
+      'menstrual-cycle/woman-agent.service.ts',
       'reassessment/evolution-agent.service.ts',
       'reporter/student-reporter-agent.service.ts',
       'technical-manager/technical-manager-agent.service.ts',
@@ -41,7 +42,7 @@ describe('todo envio a fornecedor externo de IA passa pela fila unica, que decla
       for (const m of options) declared.push({ file: norm(file).split('/src/')[1], agent: m[1], deviceData: m[2] === 'true' });
     }
     expect(declared.map((d) => `${d.agent}:${d.deviceData}`).sort()).toEqual([
-      'gerente_tecnico:true', 'prontuario:true', 'prontuario_condensacao:true', 'relator:false', 'treinador_dia_corrida:true', 'treinador_dia_forca:true', 'treinador_semana:true',
+      'gerente_tecnico:true', 'mulher:true', 'mulher_reducao:true', 'prontuario:true', 'prontuario_condensacao:true', 'relator:false', 'treinador_dia_corrida:true', 'treinador_dia_forca:true', 'treinador_semana:true',
     ]);
   });
 
@@ -118,7 +119,7 @@ describe('todo leitor de ActivityLog dos modulos que alimentam IA aplica o escop
 describe('invariantes da trava de envio externo', () => {
   it('a lista de provedores liberados e a trava dupla existem no codigo e a lista so tem Zepp (21/10/2026) e Health Connect (22/10/2026)', () => {
     const text = read('ai-governance/ai-data-eligibility.service.ts');
-    expect(text).toMatch(/export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string\[\] = \['zepp', 'health_connect', 'coros', 'garmin'\];/);
+    expect(text).toMatch(/export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string\[\] = \['zepp', 'health_connect', 'coros', 'garmin', 'wear_os'];/);
     expect(text).toContain('_EXTERNAL_AI_ENABLED');
   });
 

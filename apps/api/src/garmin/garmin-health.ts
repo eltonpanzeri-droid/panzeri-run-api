@@ -10,12 +10,13 @@ import { InboundEventDraft } from '../provider-hub/provider-connector';
 //   userMetrics   -> metrica `vo2_max` (VO2 maximo corrida/bike e idade fitness)
 //   bodyComps     -> metrica `body_composition` (peso, gordura, massa muscular, agua, IMC)
 // Lote 5 (08/11/2026) — TODOS os demais tipos de saude, guardados como a Garmin enviou (metrica generica, valores sanitizados, nada inventado, sem coordenadas), um grupo de autorizacao por tipo:
+//   mct (Women's Health API, 19/11/2026) -> `menstrual_cycle` (categoria menstrual_cycle; sensivel): so' a agenda do ciclo (inicio, duracao, fase). Gestacao (pregnancySnapshot) e sintomas NUNCA sao guardados.
 //   epochs -> `epoch` (categoria daily_activity) | pulseox -> `pulse_ox` | allDayRespiration -> `respiration` e breathingVariations -> `breathing_variations` (respiratory_rate) | healthSnapshot -> `health_snapshot` (heart_rate)
 //   bloodPressures -> `blood_pressure` (clinical_vitals; sensivel) | skinTemp -> `skin_temperature` | nutrition -> `nutrition` e hydration -> `hydration` (nutrition)
 // Tipos que nao trazem horario (nutricao, hidratacao): a ancora e' o meio-dia UTC do calendarDate. O SpO2 e a respiracao DENTRO do resumo de sono continuam sem ser guardados (so' o que a Politica descreve).
 // Atualizacao: a Garmin reenvia o MESMO resumo com mais dados (sono noturno, dia parcial): a gravacao e' idempotente por (aluna, provedor, dia, inicio) e substitui o anterior.
 export const GARMIN_HEALTH_EVENT_TYPES = ['sleep_summary', 'daily_summary', 'hrv_summary', 'metric_summary'] as const;
-export const GARMIN_METRIC_KINDS = ['lifestyle_load', 'vo2_max', 'body_composition', 'epoch', 'pulse_ox', 'respiration', 'breathing_variations', 'health_snapshot', 'blood_pressure', 'skin_temperature', 'nutrition', 'hydration'] as const;
+export const GARMIN_METRIC_KINDS = ['lifestyle_load', 'vo2_max', 'body_composition', 'epoch', 'pulse_ox', 'respiration', 'breathing_variations', 'health_snapshot', 'blood_pressure', 'skin_temperature', 'nutrition', 'hydration', 'menstrual_cycle'] as const;
 export type GarminMetricKind = (typeof GARMIN_METRIC_KINDS)[number];
 const ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -183,6 +184,24 @@ export function parseGarminHealthPush(body: unknown): { records: GarminHealthRec
       fields: { kind: 'body_composition', weightInGrams: within(num(item.weightInGrams), 10_000, 500_000), bodyFatInPercent: within(num(item.bodyFatInPercent), 0, 100), bodyWaterInPercent: within(num(item.bodyWaterInPercent), 0, 100), muscleMassInGrams: within(num(item.muscleMassInGrams), 0, 200_000), boneMassInGrams: within(num(item.boneMassInGrams), 0, 20_000), bodyMassIndex: within(num(item.bodyMassIndex), 5, 100) },
     });
   }
+  // ---- Ciclo menstrual (Women's Health API, resumo `mct`): so' campos conhecidos e saneados; gestacao e' descartada por inteiro.
+  for (const entry of list(root.mct)) {
+    const item = obj(entry);
+    const c = item ? common(item) : null;
+    const periodStart = item && typeof item.periodStartDate === 'string' && CALENDAR_DATE.test(item.periodStartDate) ? item.periodStartDate : null;
+    if (!item || !c?.userId || !periodStart) { ignored += 1; continue; }
+    const pregnancy = obj(item.pregnancySnapshot);
+    const phaseType = str(item.currentPhaseType, 40);
+    if ((pregnancy && Object.keys(pregnancy).length > 0) || (phaseType && /PREGNAN|TRIMESTER/i.test(phaseType))) { ignored += 1; continue; }
+    out.push({
+      eventType: 'metric_summary', metricKind: 'menstrual_cycle', identityKey: `mct:${periodStart}`, userId: c.userId, summaryId: c.summaryId, calendarDate: periodStart, startTimeSec: noonUtc(periodStart), startOffsetSec: null,
+      fields: {
+        kind: 'menstrual_cycle', periodStartDate: periodStart, dayInCycle: within(int(item.dayInCycle), 1, 400), periodLength: within(int(item.periodLength), 1, 30), currentPhaseType: phaseType,
+        cycleLength: within(int(item.cycleLength), 10, 120), predictedCycleLength: within(int(item.predictedCycleLength), 10, 120), isPredictedCycle: typeof item.isPredictedCycle === 'boolean' ? item.isPredictedCycle : null,
+        hasSpecifiedCycleLength: typeof item.hasSpecifiedCycleLength === 'boolean' ? item.hasSpecifiedCycleLength : null, hasSpecifiedPeriodLength: typeof item.hasSpecifiedPeriodLength === 'boolean' ? item.hasSpecifiedPeriodLength : null,
+      },
+    });
+  }
   // ---- Lote 5: demais tipos (metrica generica)
   const generic = (key: string, kind: GarminMetricKind, identity: (item: Record<string, unknown>, c: ReturnType<typeof common>, start: number) => string | null, startOf: (item: Record<string, unknown>, c: ReturnType<typeof common>) => number | null) => {
     for (const entry of list(root[key])) {
@@ -230,6 +249,7 @@ export function requiredCategoryOf(record: Pick<GarminHealthRecord, 'eventType' 
     case 'skin_temperature': return 'skin_temperature';
     case 'nutrition':
     case 'hydration': return 'nutrition';
+    case 'menstrual_cycle': return 'menstrual_cycle';
     default: return null;
   }
 }

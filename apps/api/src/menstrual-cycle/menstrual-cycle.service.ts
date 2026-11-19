@@ -9,6 +9,8 @@ import { EndCycleDto } from './dto/end-cycle.dto';
 import { CorrectCycleDto } from './dto/correct-cycle.dto';
 import { UpsertDailyLogDto } from './dto/upsert-daily-log.dto';
 import { CYCLE_NOTES_MAX_CHARS, normalizeSymptoms } from './cycle-symptoms';
+import { cyclesFromAppleRows, cyclesFromGarminRows, isExternalCycleId, mergeCycleLogs } from './cycle-sources';
+import { isHealthBlockedForAi } from '../ai-governance/ai-scope';
 import { summarizeDailyLogs, type DailyLogSummary } from './cycle-daily-summary';
 import { CYCLE_AI_CONSENT_TEXT, CYCLE_AI_CONSENT_VERSION, cycleAiConsentHash, isCycleAiConsentCurrent } from './menstrual-ai-consent';
 
@@ -182,6 +184,7 @@ export class MenstrualCycleService {
 
   /** Marca o fim do sangramento de um ciclo já registrado. */
   async endCycle(userId: string, logId: string, dto: EndCycleDto) {
+    if (isExternalCycleId(logId)) throw new BadRequestException({ code: 'external_cycle', message: 'Este ciclo veio do seu relógio ou do app Saúde e é atualizado lá.' });
     const log = await this.prisma.menstrualCycleLog.findFirst({ where: { id: logId, userId } });
     if (!log) throw new NotFoundException('Ciclo nao encontrado.');
     return this.prisma.menstrualCycleLog.update({
@@ -192,6 +195,7 @@ export class MenstrualCycleService {
 
   /** Correção retroativa de início/fim de um ciclo (seção 31 do pedido) — recalcula tudo pela mesma fonte canônica, nunca reescreve derivado manualmente. */
   async correctCycle(userId: string, logId: string, dto: CorrectCycleDto) {
+    if (isExternalCycleId(logId)) throw new BadRequestException({ code: 'external_cycle', message: 'Este ciclo veio do seu relógio ou do app Saúde e é atualizado lá.' });
     const log = await this.prisma.menstrualCycleLog.findFirst({ where: { id: logId, userId } });
     if (!log) throw new NotFoundException('Ciclo nao encontrado.');
     const data: { cycleStartDate?: Date; cycleEndDate?: Date | null } = {};
@@ -234,10 +238,29 @@ export class MenstrualCycleService {
    * MathLayerService/LongitudinalDynamicsService (mesma matemática do resto da Training
    * Intelligence — nenhuma fórmula nova aqui). Ver seções 13, 14 e 16 do pedido.
    */
-  async getCycleOverview(userId: string): Promise<CycleOverview> {
+  // Ciclos de TODAS as fontes da aluna (19/11/2026): registro manual + Apple Saude (fluxo) + Garmin (agenda do ciclo), cada uma so' se ela autorizou. Para a IA (`forAi`), cada fonte passa pela propria permissao:
+  // o manual pelo aceite do ciclo (`manualAllowed`), Apple e Garmin pelo escopo de IA da aluna. Para a tela dela (`forAi` falso) entra tudo o que ela tem autorizado.
+  async loadCycleLogs(userId: string, options: { forAi?: boolean; manualAllowed?: boolean } = {}) {
+    const forAi = options.forAi === true;
+    const manual = !forAi || options.manualAllowed !== false ? await this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' } }) : [];
+    const rows = await Promise.resolve().then(() => this.prisma.wearableMetricRecord.findMany({ where: { userId, metricKind: 'menstrual_cycle', provider: { in: ['apple_health', 'garmin'] } }, select: { provider: true, calendarDate: true, startTimeSec: true, values: true } })).catch(() => []);
+    // Permissao LIDA AGORA: a fonte so' entra se a aluna esta conectada e com o grupo do ciclo marcado (retirou = o dado guardado deixa de ser lido, na tela e na IA).
+    const connections = await Promise.resolve().then(() => this.prisma.providerConnection.findMany({ where: { userId, provider: { in: ['apple_health', 'garmin'] } }, select: { provider: true, disconnectedAt: true, grantedCategories: true } })).catch(() => []);
+    const granted = (provider: string) => connections.some((row) => row.provider === provider && !row.disconnectedAt && Array.isArray(row.grantedCategories) && (row.grantedCategories as unknown[]).includes('menstrual_cycle'));
+    const allowed = (provider: string) => granted(provider) && (!forAi || !isHealthBlockedForAi(provider, 'menstrual_cycle'));
+    const external = [
+      ...(allowed('garmin') ? cyclesFromGarminRows(rows.filter((row) => row.provider === 'garmin')) : []),
+      ...(allowed('apple_health') ? cyclesFromAppleRows(rows.filter((row) => row.provider === 'apple_health')) : []),
+    ];
+    return mergeCycleLogs(manual, external).map((log) => ('id' in log && !isExternalCycleId(String(log.id))
+      ? (log as (typeof manual)[number])
+      : ({ id: (log as { id: string }).id, userId, cycleStartDate: log.cycleStartDate, cycleEndDate: (log as { cycleEndDate: Date | null }).cycleEndDate, crampsLevel: null, energyLevel: null, moodLevel: null, flowIntensity: null } as (typeof manual)[number])));
+  }
+
+  async getCycleOverview(userId: string, options: { forAi?: boolean; manualAllowed?: boolean } = {}): Promise<CycleOverview> {
     const [profile, logs] = await Promise.all([
       this.getProfile(userId),
-      this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' } }),
+      this.loadCycleLogs(userId, options),
     ]);
 
     const cycles: CycleSummary[] = logs.map((log, i) => {
@@ -341,20 +364,23 @@ export class MenstrualCycleService {
    */
   async getAgentContext(userId: string): Promise<AgentMenstrualCycleContext | null> {
     // Sem aceite vigente (nunca aceitou, retirou, ou o texto mudou) o ciclo NAO vai a IA, mesmo com dado registrado.
-    if (!isCycleAiConsentCurrent(await this.prisma.menstrualAiConsent.findUnique({ where: { userId } }))) return null;
-    const [profile, overview] = await Promise.all([this.getProfile(userId), this.getCycleOverview(userId)]);
+    // 19/11/2026: o registro manual so' entra com o aceite do ciclo; Apple Saude e Garmin entram pela propria permissao (escopo de IA). Sem nenhuma fonte permitida, nada vai.
+    const manualAllowed = isCycleAiConsentCurrent(await this.prisma.menstrualAiConsent.findUnique({ where: { userId } }));
+    const [profile, overview] = await Promise.all([this.getProfile(userId), this.getCycleOverview(userId, { forAi: true, manualAllowed })]);
     const maturity = overview.maturity;
-    if (!profile?.hasActiveCycle || maturity === 'none') return null;
+    if (profile?.hasActiveCycle === false || maturity === 'none') return null;
+    if (!profile?.hasActiveCycle && manualAllowed && !overview.cycles.some((cycle) => isExternalCycleId(cycle.id))) return null;
     const [dailyLogs, cycleLogs] = await Promise.all([
       this.prisma.menstrualDailyLog.findMany({ where: { userId }, orderBy: { date: 'desc' }, take: 120, select: { date: true, crampsLevel: true, energyLevel: true, moodLevel: true, symptoms: true } }),
-      this.prisma.menstrualCycleLog.findMany({ where: { userId }, orderBy: { cycleStartDate: 'asc' }, select: { cycleStartDate: true, cycleEndDate: true } }),
+      this.loadCycleLogs(userId, { forAi: true, manualAllowed }),
     ]);
-    const registrosDiarios = summarizeDailyLogs(dailyLogs, cycleLogs.map((log) => ({ start: log.cycleStartDate, end: log.cycleEndDate })), profile);
+    // Registros diarios sao so' do registro manual: so' vao com o aceite do ciclo.
+    const registrosDiarios = manualAllowed ? summarizeDailyLogs(dailyLogs, cycleLogs.map((log) => ({ start: log.cycleStartDate, end: log.cycleEndDate })), profile) : null;
     return {
       currentDayOfCycle: overview.currentDayOfCycle,
       isCurrentlyMenstruating: overview.isCurrentlyMenstruating,
       maturity,
-      usesHormonalContraceptive: profile.usesHormonalContraceptive,
+      usesHormonalContraceptive: profile?.usesHormonalContraceptive ?? null,
       cycleLengthMedianDays: overview.cycleLengthStats?.median ?? null,
       cycleLengthEvidenceN: overview.cycleLengthStats?.n ?? 0,
       periodLengthMedianDays: overview.periodLengthStats?.median ?? null,
@@ -411,7 +437,7 @@ export class MenstrualCycleService {
   async getPendingCheck(userId: string): Promise<PendingCycleCheck | null> {
     const overview = await this.getCycleOverview(userId);
     const lastCycle = overview.cycles[overview.cycles.length - 1];
-    if (!lastCycle) return null;
+    if (!lastCycle || isExternalCycleId(lastCycle.id)) return null; // ciclo vindo da Garmin ou do Saude e' atualizado la
 
     if (!lastCycle.endDate) {
       const typicalPeriodLength = overview.periodLengthStats?.median ?? null;

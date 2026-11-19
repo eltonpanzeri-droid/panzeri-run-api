@@ -1,23 +1,23 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
 
-// Textos de autorizacao Garmin — versao 1.1 (09/11/2026; a 1.0 de 08/11/2026 nao tinha o grupo de percurso GPS nem citava a temperatura). Mesmo desenho da COROS/Zepp: TRES autorizacoes INDEPENDENTES (nenhuma caixa vem marcada; nenhuma e' presumida a partir da outra):
+// Textos de autorizacao Garmin — versao 1.2 (19/11/2026: grupo de ciclo menstrual, Women's Health API; a 1.1 de 09/11/2026 acrescentou o percurso GPS e a temperatura; a 1.0 de 08/11/2026 nao tinha nenhum dos dois). Mesmo desenho da COROS/Zepp: TRES autorizacoes INDEPENDENTES (nenhuma caixa vem marcada; nenhuma e' presumida a partir da outra):
 //  1. CONEXAO (este documento): importar atividades e os grupos de saude que a aluna selecionar.
 //  2. ENVIO DE TREINOS AO RELOGIO (finalidade `watch_delivery`, tela propria): opcional, depois de conectar.
 //  3. ANALISE COM O ATLAS / Anthropic (finalidade `ai_external`, tela propria): opcional. Regra da Garmin (declarada na Politica, secao 5D): dados Garmin e derivados NUNCA treinam, avaliam ou
 //     melhoram modelos de IA; so' resumos, so' com esta autorizacao separada e retiravel.
-// Coerencia com a Politica de Privacidade (5D): ha' um grupo proprio de Percurso GPS (09/11/2026, opcional, depende de Atividades) e NAO ha' dados de saude da mulher (ciclo). O Starter nao traz historico: nao existe "importar atividades anteriores".
+// Coerencia com a Politica de Privacidade (5D): ha' um grupo proprio de Percurso GPS (09/11/2026, opcional, depende de Atividades) e, desde 19/11/2026, um grupo proprio de Ciclo menstrual (agenda do ciclo; gestacao nunca e' guardada). O Starter nao traz historico: nao existe "importar atividades anteriores".
 // O texto do envio de treinos foi conferido com a Training API V2 (08/11/2026): a Garmin permite criar, atualizar e APAGAR treino e agendamento. Ajustar ANTES de qualquer aluna conectar nao exige nova
 // versao; depois disso, qualquer mudanca muda o hash e EXIGE nova versao.
 export const GARMIN_CONSENT: ConsentCapability = {
-  version: '1.1',
-  dateLabel: '09/11/2026',
+  version: '1.2',
+  dateLabel: '19/11/2026',
   title: 'Conecte sua Garmin ao Panzeri Run',
   intro: 'Conecte sua conta Garmin ao Panzeri Run para acompanhar seus treinos e sua recuperação em um só lugar.',
   sections: [
     {
       heading: null,
       paragraphs: [
-        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação, temperatura, voltas e, se você marcar, o percurso GPS) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, oxigenação do sangue, respiração, temperatura da pele, pressão arterial, nutrição e hidratação, passos e atividade do dia, inclusive minuto a minuto).',
+        'Com sua autorização, poderemos receber as atividades registradas pelo seu relógio Garmin (como distância, duração, ritmo, frequência cardíaca, cadência, potência, elevação, temperatura, voltas e, se você marcar, o percurso GPS) e, se você marcar, dados de saúde e bem-estar (como sono, frequência cardíaca de repouso, variabilidade da frequência cardíaca, estresse, Body Battery, VO₂ máximo, peso e composição corporal, oxigenação do sangue, respiração, temperatura da pele, pressão arterial, nutrição e hidratação, passos e atividade do dia, inclusive minuto a minuto) e, se você marcar, a agenda do seu ciclo menstrual (início, duração e fase).',
         'Essas informações serão utilizadas para acompanhar sua evolução e sua recuperação, comparar os treinos planejados com os realizados e personalizar seu treinamento. Seu treinador vê no painel os dados que você autorizou. Elas não substituem avaliação médica.',
       ],
     },
@@ -25,7 +25,7 @@ export const GARMIN_CONSENT: ConsentCapability = {
       heading: 'Você escolhe quais dados compartilhar',
       paragraphs: [
         'Marque abaixo apenas os grupos de dados que você quer compartilhar. O que você não marcar não será guardado nem utilizado. Na página da Garmin você também controla o que ela compartilha conosco. Nem todos os dados estarão sempre disponíveis: isso depende do seu relógio e do que a Garmin disponibilizar.',
-        'Os dados chegam a partir da conexão: a Garmin não envia o histórico de atividades anteriores a ela. O percurso GPS (trajeto e localização da atividade) só é guardado se você marcar o grupo “Percurso GPS”. O Panzeri Run não recebe dados de saúde da mulher (como o ciclo menstrual).',
+        'Os dados chegam a partir da conexão: a Garmin não envia o histórico de atividades anteriores a ela. O percurso GPS (trajeto e localização da atividade) só é guardado se você marcar o grupo “Percurso GPS”. O ciclo menstrual (a agenda do ciclo na Garmin: início, duração e fase) só é guardado se você marcar o grupo “Ciclo menstrual”. Os sintomas que você registra na Garmin e qualquer informação de gestação não são recebidos nem guardados.',
         'O identificador da sua conta Garmin é necessário apenas para vincular a conexão.',
       ],
     },
@@ -59,6 +59,7 @@ export const GARMIN_CONSENT: ConsentCapability = {
     { id: 'skin_temp', label: 'Temperatura da pele', description: 'Desvio da temperatura da pele em relação ao seu padrão, quando o seu relógio o medir.', required: false, categories: ['skin_temperature'] },
     { id: 'snapshot', label: 'Health Snapshot', description: 'Medição de 2 minutos com frequência cardíaca, variabilidade, oxigênio, respiração e estresse, quando você a fizer no relógio.', required: false, categories: ['heart_rate'] },
     { id: 'blood_pressure', label: 'Pressão arterial', description: 'Leituras de pressão arterial (sistólica, diastólica e pulso) feitas com um aparelho Garmin ou registradas por você. É um dado de saúde sensível.', required: false, categories: ['clinical_vitals'] },
+    { id: 'cycle', label: 'Ciclo menstrual (agenda do ciclo)', description: 'Início, duração e fase do seu ciclo menstrual, registrados no acompanhamento do ciclo da Garmin Connect. Dado sensível. Os sintomas e a gestação não são recebidos.', required: false, categories: ['menstrual_cycle'] },
     { id: 'nutrition', label: 'Nutrição e hidratação', description: 'Calorias, macronutrientes e alimentos que você registrou na Garmin, e a água que você registrou.', required: false, categories: ['nutrition'] },
   ],
   // Finalidades OBRIGATORIAS descritas no texto da conexao. 'ai_external', 'ai_internal', 'watch_delivery' e qualquer outra NAO estao aqui => nao autorizadas por este consentimento.
@@ -91,12 +92,13 @@ export const GARMIN_CONSENT: ConsentCapability = {
       external: true,
       changeableAfterConnect: true,
       screen: {
-        version: '1.0',
-        dateLabel: '08/11/2026',
+        version: '1.1',
+        dateLabel: '19/11/2026',
         title: 'Personalize seus treinos com o Atlas',
         paragraphs: [
           'O Atlas é a inteligência artificial utilizada pelo Panzeri Run para ajudar a analisar seu treinamento e orientar a personalização das próximas sessões.',
           'Com sua autorização, o Atlas poderá utilizar resumos e indicadores derivados das informações que você autorizou compartilhar da sua Garmin — treinos e as medidas dos grupos autorizados — para avaliar como você respondeu às sessões e gerar a análise ou a recomendação de treino que você pediu. Para isso, o Panzeri Run poderá transmitir esses resumos à Anthropic, empresa fornecedora da tecnologia de inteligência artificial usada pelo Atlas, o que envolve transferência internacional de dados.',
+          'Se você marcou o grupo “Ciclo menstrual” na conexão, a agenda do seu ciclo, que é um dado sensível, também poderá ser usada pelo Atlas, junto com os demais dados que você autorizou.',
           'O Panzeri Run não usa dados da Garmin, nem informações derivadas deles, para treinar, avaliar ou melhorar modelos de inteligência artificial.',
           'A recusa desta autorização não impede você de conectar a Garmin nem de usar as funcionalidades que não dependam desse processamento. Se você não autorizar, os dados Garmin não serão enviados à inteligência artificial.',
           'Você pode retirar esta autorização quando quiser, em Privacidade e permissões. Ao retirar, o envio futuro cessa e os resultados de inteligência artificial já gerados com seus dados Garmin são invalidados ou atualizados.',

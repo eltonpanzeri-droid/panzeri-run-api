@@ -170,6 +170,8 @@ export class AiDataEligibility {
     for (const provider of new Set([...consentProviders.map((c) => c.id), 'garmin', 'zepp', 'coros', 'health_connect', 'polar', 'wahoo', 'strava'])) {
       for (const sensitive of APPLE_SENSITIVE_AI_CATEGORIES) blockedHealth.add(`${provider}:${sensitive}`);
     }
+    // Ciclo menstrual da Garmin (19/11/2026, ordem de Elton): entra na IA SO' com a categoria autorizada E a finalidade de IA da Garmin sobre o texto vigente (mesma regra das demais categorias de saude da Garmin).
+    if ((await this.decide(userId, 'garmin', { category: 'menstrual_cycle', destination })).allowed) blockedHealth.delete('garmin:menstrual_cycle');
     // Polar (01/11/2026, ordem de Elton): a saude da Polar (sono, HRV, atividade diaria) alimenta a IA quando a aluna (1) AUTORIZOU o Atlas para a Polar, de forma EXPLICITA e sobre o texto vigente
     // (o mesmo texto que cobre os treinos — legacy-consent.ts; "sem decisao" NAO vale como autorizacao para saude) e (2) marcou aquele grupo de saude, sobre o texto vigente (polar-health-consent.ts).
     // Qualquer outra situacao continua bloqueada (fail-closed). Wahoo nao tem dado de saude: segue bloqueado.

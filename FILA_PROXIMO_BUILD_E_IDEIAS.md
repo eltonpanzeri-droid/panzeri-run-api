@@ -211,3 +211,7 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Versão do `app.json`: **1.0.5**. Entra tudo da parte A dos itens de 11/11 em diante (relatar problema, cadastro curto, Evolução por regra/redesenho, tela inicial, ritmo estimado pelo GPS, Apple Saúde mais robusto, divisão da musculação, ritmo/velocidade, bandeirinha da prova, preferências de notificações, baixar meus dados, envio ao Apple Watch ao gerar, cartões do Wear OS).
 - **Fora (ordem de Elton):** mapa estilo Strava, Panz Fit no Panzeri Run, economia de contexto da IA. **Fora (decisão técnica):** temas das alunas (precisam de ciclo próprio com conferência visual).
 - Servidor/painel (sem build): Apple Saúde v2.3 (percurso à IA, reconfirmação), divisão da musculação no painel, avisos proativos (desligados), painel "Avisos enviados".
+
+## 19/11/2026 (madrugada) — Ciclo no aplicativo (exige build nativo; no PWA vale com o Deploy do web)
+- Tela Ciclo: sintomas em lista + relato livre no registro do dia; seção "Relatório do seu ciclo" (pedir relatório mensal, um por mês); rótulo do grupo do ciclo no cartão da Garmin. Arquivos: `apps/mobile/src/cycleReport/*`, `App.tsx` (DaySheet e MenstrualCycleScreen), `src/garmin/GarminIntegration.tsx`. Validar: salvar sintomas/relato e reabrir o dia; pedir relatório e ver o limite do mês; conectar Garmin e ver o grupo do ciclo.
+- Ideia não feita: análise agregada e anônima do ciclo da comunidade (lembrete semanal no Telegram às segundas).
