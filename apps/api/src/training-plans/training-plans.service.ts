@@ -1204,6 +1204,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         weekday: day.weekday,
         modalities: day.modalities,
         availableMin: day.availableMin,
+        raceDay: (day as { raceDay?: boolean }).raceDay === true,
         modalityDurations: normalizeModalityDurations('modalityDurations' in day ? day.modalityDurations : undefined),
       })),
       history: methodologyHistory,
@@ -3664,7 +3665,8 @@ export function injectTargetRaceDays<T extends { weekday: number; modalities: st
     if (existingWeekdays.has(weekday)) continue; // rotina ja cobre esse dia — nada a injetar
     if (race.raceDate.getTime() < weekStart.getTime() || race.raceDate.getTime() > weekEnd.getTime()) continue;
     existingWeekdays.add(weekday); // evita duplicar se 2 provas caissem no mesmo weekday (raro)
-    injected.push({ weekday, modalities: ['corrida'], availableMin: 180, noTraining: false } as T);
+    // 19/11/2026 (Elton): o dia da prova NAO tem limite de tempo da rotina (antes: 180 min fixos; uma ultra passava disso). Tempo e ritmo vem da propria prova (pace alvo do aluno); o dia fica marcado como raceDay e nao entra nos dias de corrida oferecidos a IA.
+    injected.push({ weekday, modalities: ['corrida'], availableMin: null, noTraining: false, raceDay: true } as unknown as T);
   }
   return injected.length ? [...availableDays, ...injected] : availableDays;
 }

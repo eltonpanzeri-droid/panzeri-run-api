@@ -105,6 +105,8 @@ export interface MethodologyAvailability {
   weekday: number;
   modalities: string[];
   availableMin?: number | null;
+  // 19/11/2026: dia injetado por uma prova alvo (nao faz parte da rotina). Sem limite de tempo; nao e oferecido a IA como dia de corrida (a prova substitui a corrida do dia).
+  raceDay?: boolean;
   modalityDurations?: Record<string, number> | null;
 }
 
@@ -402,7 +404,7 @@ export interface WeeklyMethodologyDecision {
 }
 
 export function computeRunSlots(availability: MethodologyAvailability[]) {
-  return availability
+  return availability.filter((day) => day.raceDay !== true)
     .flatMap((day) => (day.modalities.some(isRunModality) ? [{
       weekday: day.weekday,
       // Um dia de corrida e' UM dia (so' existe corrida). Linhas antigas com corrida+esteira no mesmo dia sao lidas como uma so' ate a migracao dos dados.
