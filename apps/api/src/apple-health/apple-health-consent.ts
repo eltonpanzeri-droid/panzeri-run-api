@@ -12,13 +12,13 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 // a importacao basica continua aceita como antes; tudo o mais (medidas de sensor, percurso e saude do dia a dia) so' e' aceito com o grupo correspondente autorizado AQUI. Quem retirar a autorizacao deixa de poder importar.
 //
 // IA: nao ha finalidade propria de IA (decisao de produto de 28/10). Os dados de saude autorizados podem compor o contexto das analises como os das demais fontes. v2.2 (10/11/2026, decisao de Elton de 01/11):
-// pressao arterial, glicemia e ciclo menstrual TAMBEM alimentam a IA, mas SO' com o grupo marcado pela aluna (ver APPLE_SENSITIVE_AI_CATEGORIES em ai-data-eligibility.service.ts); o percurso GPS continua fora da IA.
+// pressao arterial, glicemia e ciclo menstrual TAMBEM alimentam a IA, mas SO' com o grupo marcado pela aluna (ver APPLE_SENSITIVE_AI_CATEGORIES em ai-data-eligibility.service.ts); v2.3 (19/11/2026, ordem de Elton): o percurso GPS TAMBEM vai a IA, so' com o grupo marcado pela aluna sobre o texto vigente (quem ja' tinha autorizado reconfirma).
 // Nenhuma analise automatica substitui avaliacao medica. Quem ja' tinha autorizado precisa reconfirmar (texto novo = nova versao).
 export const APPLE_HEALTH_PROVIDER_ID = 'apple_health';
 
 export const APPLE_HEALTH_CONSENT: ConsentCapability = {
-  version: '2.2',
-  dateLabel: '10/11/2026',
+  version: '2.3',
+  dateLabel: '19/11/2026',
   title: 'Compartilhe seus dados do app Saúde (iPhone)',
   intro: 'O app Saúde do iPhone guarda os treinos e as medições do Apple Watch, do iPhone e de outros aplicativos. Escolha o que você quer compartilhar com o Panzeri Run.',
   sections: [
@@ -27,7 +27,7 @@ export const APPLE_HEALTH_CONSENT: ConsentCapability = {
       paragraphs: [
         'Com sua autorização, o Panzeri Run poderá receber do app Saúde, dos últimos 3 anos e depois a cada sincronização: os seus treinos (tipo, data e horário, duração, distância, velocidade, calorias, ambiente e o aplicativo e o aparelho que registraram), as medidas guardadas junto do treino e o percurso GPS, e a sua saúde do dia a dia — atividade (passos, distância, escadas, calorias, minutos de exercício e de pé), sono, frequência cardíaca, variabilidade da frequência cardíaca (HRV), VO₂ máximo, peso e composição corporal, oxigenação, temperatura, respiração, mobilidade, hábitos (luz do dia, atenção plena, ruído), nutrição e hidratação, pressão arterial, glicemia e ciclo menstrual.',
         'Essas informações serão utilizadas para mostrar sua evolução, comparar os treinos planejados com os realizados, entender como você se recupera e personalizar seu treinamento. Seu treinador também verá esses dados. Com sua autorização, o Panzeri Run poderá usar os dados de atividade física, saúde e recuperação que você escolher compartilhar para acompanhar sua evolução, analisar seus treinos e oferecer orientações personalizadas com auxílio de inteligência artificial. Seus dados individuais não serão vendidos nem divulgados publicamente, e não são usados para publicidade. Nada disso substitui avaliação médica.',
-        'Sobre a inteligência artificial: para gerar essas análises, os dados necessários dos grupos que você autorizar são enviados à Anthropic, empresa fornecedora da tecnologia de inteligência artificial usada pelo Panzeri Run, o que pode envolver transferência internacional de dados, conforme a Política de Privacidade. O percurso GPS não é enviado à inteligência artificial. A pressão arterial, a glicemia e o ciclo menstrual são dados sensíveis e só são usados pela inteligência artificial se você marcar esses grupos. Se você retirar um grupo, os dados dele deixam de ser usados nas análises seguintes. As análises automáticas podem apresentar limitações.',
+        'Sobre a inteligência artificial: para gerar essas análises, os dados necessários dos grupos que você autorizar são enviados à Anthropic, empresa fornecedora da tecnologia de inteligência artificial usada pelo Panzeri Run, o que pode envolver transferência internacional de dados, conforme a Política de Privacidade. O percurso GPS, se você marcar esse grupo, também pode ser usado pela inteligência artificial nas análises do seu treinamento (por exemplo, para entender onde você corre e a altimetria dos treinos). A pressão arterial, a glicemia e o ciclo menstrual são dados sensíveis e só são usados pela inteligência artificial se você marcar esses grupos. Se você retirar um grupo, os dados dele deixam de ser usados nas análises seguintes. As análises automáticas podem apresentar limitações.',
       ],
     },
     {

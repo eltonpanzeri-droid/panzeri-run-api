@@ -234,7 +234,7 @@ interface StudentDetail {
     trainingLocations: string[];
   };
   // Estado da rotina (26/10/2026): cadastrada? revisao (para barrar escrita obsoleta) e semana toda de pausa?
-  routine?: { configured: boolean; revision: number; allRest: boolean };
+  routine?: { configured: boolean; revision: number; allRest: boolean; strengthSplit?: { hasPreference: boolean; days: Record<string, string[]>; answeredAt: string } | null };
   availability?: Array<{
     weekday: number;
     noTraining: boolean;
@@ -4407,6 +4407,7 @@ function StudentPanel({
           <div><p className="eyebrow">Rotina semanal</p><h3>Dias e horarios de treino</h3></div>
         </div>
         <RoutineAvailabilityTable answers={student.interview?.answers ?? {}} availability={student.availability ?? []} />
+        <StrengthSplitNote split={student.routine?.strengthSplit ?? null} availability={student.availability ?? []} />
         <ManualRoutineEditor studentId={student.id} token={token} routine={student.routine} availability={student.availability ?? []} onStatus={onStatus} onSaved={onRefresh} />
       </section>
       </>
@@ -8431,6 +8432,20 @@ function manualRoutineDaysFromAvailability(availability: NonNullable<StudentDeta
 // Botao "Editar rotina" no painel do treinador — pedido explicito 03/08 (caso da Roberta): o
 // treinador precisa poder corrigir a rotina de um aluno na hora, sem depender do proprio aluno
 // acertar isso sozinho pelo app nem esbarrar na trava de 1x por mes (essa trava e so do aluno).
+// Preferencia de divisao da musculacao da aluna (19/11/2026): so' leitura. Mostra o que ela pediu para cada dia de musculacao da rotina atual; sem resposta, a IA decide livremente.
+const STRENGTH_GROUP_LABELS: Record<string, string> = { membros_inferiores: 'Membros inferiores', costas: 'Costas', peito: 'Peito', ombro: 'Ombro', biceps: 'Bíceps', triceps: 'Tríceps', abdomen: 'Abdômen' };
+const WEEKDAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+function StrengthSplitNote({ split, availability }: { split: { hasPreference: boolean; days: Record<string, string[]> } | null; availability: Array<{ weekday: number; noTraining?: boolean; modalities?: string[] }> }) {
+  const hasStrength = (availability ?? []).some((day) => !day.noTraining && (day.modalities ?? []).includes('forca'));
+  if (!hasStrength) return null;
+  if (!split) return <p className="muted">Divisão da musculação: a aluna ainda não respondeu (a IA decide livremente).</p>;
+  if (!split.hasPreference) return <p className="muted">Divisão da musculação: a aluna disse que não tem preferência (a IA decide livremente).</p>;
+  const lines = Object.entries(split.days).filter(([, groups]) => groups.length > 0).sort(([a], [b]) => Number(a) - Number(b));
+  return (
+    <p className="muted">Divisão da musculação pedida pela aluna: {lines.map(([weekday, groups]) => `${WEEKDAY_NAMES[Number(weekday)] ?? weekday}: ${groups.map((group) => STRENGTH_GROUP_LABELS[group] ?? group).join(', ')}`).join(' · ')}</p>
+  );
+}
+
 function ManualRoutineEditor({ studentId, token, routine, availability, onStatus, onSaved }: { studentId: string; token: string; routine?: NonNullable<StudentDetail['routine']>; availability: NonNullable<StudentDetail['availability']>; onStatus: (message: string) => void; onSaved: () => Promise<void> | void }) {
   const [editing, setEditing] = useState(false);
   const [days, setDays] = useState<ManualRoutineDay[]>(() => manualRoutineDaysFromAvailability(availability));

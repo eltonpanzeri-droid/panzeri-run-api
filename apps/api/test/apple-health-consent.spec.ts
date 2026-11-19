@@ -61,7 +61,7 @@ describe('documento de consentimento do Apple Saude', () => {
     expect(text).toContain('últimos 3 anos');
     expect(text).toContain('só são usados pela inteligência artificial se você marcar esses grupos');
     expect(text).not.toContain('não importa sono');
-    expect(doc.version).toBe('2.2');
+    expect(doc.version).toBe('2.3');
     expect(text).toContain('Anthropic');
     expect(text).toContain('transferência internacional');
     expect(text).toContain('não serão vendidos nem divulgados publicamente');

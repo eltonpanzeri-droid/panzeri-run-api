@@ -33,6 +33,7 @@ import { WeeklyPlanSchedulerService } from '../training-plans/weekly-plan-schedu
 import { UpdateStudentAvailabilityDto } from './dto/update-student-availability.dto';
 import { RoutineService } from '../me/routine.service';
 import { readRoutineState } from '../common/routine-state';
+import { parseStrengthSplitRecord } from '../common/strength-split';
 import { satisfactionLabel, cargaLabel, SATISFACTION_SCORE, CARGA_SCORE } from '../workout-completions/workout-completions.service';
 import { NotificationTriggersService } from '../messaging/notification-triggers.service';
 import { computeProspectLevel } from '../messaging/prospect-level';
@@ -1722,6 +1723,7 @@ export class CoachService {
     const generationLock = await this.prisma.trainingPlanGenerationLock.findUnique({ where: { userId: studentId } }).catch(() => null);
     const generationInProgress = Boolean(generationLock && Date.now() - generationLock.startedAt.getTime() < 10 * 60 * 1000);
     const routineState = await readRoutineState(this.prisma, studentId);
+    const strengthSplitRaw = await this.prisma.weeklyRoutineState.findUnique({ where: { userId: studentId }, select: { strengthSplit: true } });
     const student = await (this.prisma.user as any).findFirstOrThrow({
       where: { id: studentId, role: 'student' },
       include: {
@@ -1837,6 +1839,8 @@ export class CoachService {
         trainingLocations: student.preferences?.trainingLocations ?? [],
       },
       routine: { configured: routineState.configured, revision: routineState.revision, allRest: routineState.allRest },
+      // Preferencia de divisao da musculacao (16/11/2026): so' mostra a resposta da revisao ATUAL da rotina (a mesma regra que vale para a IA); anterior nao vale.
+      strengthSplit: (() => { const record = parseStrengthSplitRecord(strengthSplitRaw?.strengthSplit); return record && record.answeredRevision === routineState.revision ? { hasPreference: record.hasPreference, days: record.days, answeredAt: record.answeredAt } : null; })(),
       availability: student.availability.map((day: any) => ({
         weekday: day.weekday,
         noTraining: day.noTraining,
