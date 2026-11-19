@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, RACE_CALENDAR_INSTRUCTION, SELF_REPORTED_RUNS_INSTRUCTION, RACE_STRATEGY_INSTRUCTION, HEALTH_INDICATORS_INSTRUCTION, INTERNAL_LOAD_INSTRUCTION, RECENT_TREND_INSTRUCTION, DOMAIN_OVERVIEW_INSTRUCTION, PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_INSTRUCTION, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION } from '../src/training-plans/prescription-agent.service';
+import { ANALYST_DAY_INSTRUCTION, ANALYST_EVIDENCE_INSTRUCTION, EXECUTION_REPORT_INSTRUCTION, INTEGRATED_SOURCES_INSTRUCTION, LINK_CORRECTION_INSTRUCTION, PrescriptionAgentService, RACE_CALENDAR_INSTRUCTION, SELF_REPORTED_RUNS_INSTRUCTION, RACE_STRATEGY_INSTRUCTION, HEALTH_INDICATORS_INSTRUCTION, INTERNAL_LOAD_INSTRUCTION, RECENT_TREND_INSTRUCTION, DOMAIN_OVERVIEW_INSTRUCTION, PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, PHYSIOLOGICAL_REFERENCE_INSTRUCTION, REASONING_INSTRUCTION, WATCH_RECOVERY_INSTRUCTION, SPLIT_PREFERENCE_INSTRUCTION, SPLIT_PREFERENCE_INSTRUCTION_SINGLE_DAY } from '../src/training-plans/prescription-agent.service';
 import { AI_MODELS } from '../src/common/ai-models.config';
 import { PANZERI_DEVELOPMENTAL_DIRECTIVE } from '../src/training-plans/panzeri-developmental-directive';
 import {
@@ -27,12 +27,14 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
     // 30/10/2026 (Testes fisicos, Lote 4, ordem do Elton): a 'PROIBICAO ABSOLUTA - TESTE DE 3KM' (feature suspensa) virou 'REGRA SOBRE TESTES FISICOS' nos prompts da semana e do dia de corrida, porque a funcionalidade voltou.
     // Os blocos novos de referencia fisiologica sao nomeados e removidos pelo teste abaixo. Hashes anteriores: stable d8f398d9...e320, run fd6058c9...f4c.
     // 30/10/2026: regra de testes fisicos agora permite citar zonas e limiares ao aluno (ele ve as proprias zonas); hashes anteriores 20ddd69f... (stable) e c94e2188... (run)
-    stable: '3593da143696dc0fcee040446cdaece45cbc4fe0f3dd6a99b4e82aca724b2036',
+    // 19/11/2026 (ordem de Elton: "faca as pendencias que nao precisam de build"): RECONGELADO. O teste ja falhava desde as edicoes de prompt/metodologia de 09 a 16/11 (nao registradas aqui); a esse desvio somaram-se
+    // a REGRA DE FAIXA do ritmo (18/11) e a preferencia de divisao da musculacao (16/11, agora removivel como as demais instrucoes). Hashes anteriores: stable 3593da14..., run 2994004d..., strength a0da8995...
+    stable: 'e5291228f7c388ed2eec17d89fa0a151ad1a5b82921bcd4510036d154e52bce2',
     safetyOff: '90845a73c34035ad1ae2cdd755ff5c3acd966196e01159ca6640f9257e70af58',
     safetyOn: '4d827cdb6a2977afa4cd38e6838bf968b48ff564fe4655b6aec818b5b089c09b',
     safetyRemove: '8e865b48162c93abcc974f533fc525d97abaa53ac555cf5463762fec6907f987',
-    run: '2994004d2ce5e85c744d038cbc79ebb65be6eae5cd48414375db5e3201eb84b6',
-    strength: 'a0da89959385c84ac9f1b6436dd5965d7e93ccd5519b5f97d1f959339388bcaa', // 27/10/2026: tirado o trecho do 8:30/km da metodologia (hash anterior: c895e9a1...3711) // 25/10/2026: mesma subordinacao da regua de dor (hash anterior: f1ed5573...7351)
+    run: '9715a8a3daff532e0d8ea1a2c90dce139d2dcd165826ceed0f6295ad929fdf89',
+    strength: '5d0c45309f0773599949f823af2e3998389d2aa301e35ec9a92d6ee68d564bce', // 27/10/2026: tirado o trecho do 8:30/km da metodologia (hash anterior: c895e9a1...3711) // 25/10/2026: mesma subordinacao da regua de dor (hash anterior: f1ed5573...7351)
   };
   const service = new PrescriptionAgentService({ get: () => undefined } as never, {} as never) as unknown as Record<string, (...args: unknown[]) => string>;
 
@@ -41,7 +43,7 @@ describe('prompts e modelos CONGELADOS na 1.2a', () => {
   it('os prompts de sistema so mudam pelo bloco de raciocinio declarado (1.2b): sem ele, voltam bit a bit ao original', () => {
     // 1.2b: REASONING_INSTRUCTION (3 prompts) | 2.1: EXECUTION_REPORT_INSTRUCTION (so no prompt da semana) | 15/10/2026: LINK_CORRECTION_INSTRUCTION (3 prompts,
     // precedencia da informacao corrigida sobre interpretacao historica). Removidos os blocos, voltam ao original.
-    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + RACE_CALENDAR_INSTRUCTION, '').replace('\n\n' + SELF_REPORTED_RUNS_INSTRUCTION, '').replace('\n\n' + RACE_STRATEGY_INSTRUCTION, '').replace('\n\n' + HEALTH_INDICATORS_INSTRUCTION, '').replace('\n\n' + INTERNAL_LOAD_INSTRUCTION, '').replace('\n\n' + RECENT_TREND_INSTRUCTION, '').replace('\n\n' + DOMAIN_OVERVIEW_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '');
+    const without = (prompt: string) => prompt.replace('\n\n' + ANALYST_DAY_INSTRUCTION, '').replace('\n\n' + ANALYST_EVIDENCE_INSTRUCTION, '').replace('\n\n' + EXECUTION_REPORT_INSTRUCTION, '').replace('\n\n' + INTEGRATED_SOURCES_INSTRUCTION, '').replace('\n\n' + RACE_CALENDAR_INSTRUCTION, '').replace('\n\n' + SELF_REPORTED_RUNS_INSTRUCTION, '').replace('\n\n' + RACE_STRATEGY_INSTRUCTION, '').replace('\n\n' + HEALTH_INDICATORS_INSTRUCTION, '').replace('\n\n' + INTERNAL_LOAD_INSTRUCTION, '').replace('\n\n' + RECENT_TREND_INSTRUCTION, '').replace('\n\n' + DOMAIN_OVERVIEW_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_ADJUSTMENT_INSTRUCTION, '').replace('\n\n' + PHYSIOLOGICAL_REFERENCE_DAY_INSTRUCTION, '').replace('\n\n' + LINK_CORRECTION_INSTRUCTION, '').replace('\n\n' + REASONING_INSTRUCTION, '').replace('\n\n' + PANZERI_DEVELOPMENTAL_DIRECTIVE, '').replace('\n\n' + WATCH_RECOVERY_INSTRUCTION, '').replace(' ' + WATCH_RECOVERY_INSTRUCTION, '').replace('\n' + SPLIT_PREFERENCE_INSTRUCTION, '').replace('\n' + SPLIT_PREFERENCE_INSTRUCTION_SINGLE_DAY, '');
     const stable = service.buildSystemPromptStable();
     const run = service.buildRunSessionSystemPrompt();
     const strength = service.buildSingleStrengthSystemPrompt();

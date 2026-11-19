@@ -452,7 +452,7 @@ describe('exclusao, IA e catalogo', () => {
     expect(garmin.availability).toBe('available');
     expect(garmin.capabilities).toEqual({ receiveActivities: true, sendWorkouts: true });
     expect(garmin.requiresEnv).toEqual(['GARMIN_CLIENT_ID', 'GARMIN_CLIENT_SECRET', 'GARMIN_REDIRECT_URI', 'GARMIN_TOKEN_ENCRYPTION_KEY']);
-    expect(garmin.profile.dataGroups).not.toContain('route');
+    expect(garmin.profile.dataGroups).toContain('route'); // 09/11/2026: a Garmin ganhou o grupo de Percurso GPS (garmin-consent.ts v1.1); o catalogo precisa dizer o mesmo
   });
 });
 
