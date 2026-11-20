@@ -223,3 +223,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 - Health Connect (séries/voltas) e COROS (extras): mantidos como estão, por ordem de Elton.
 
 - 19/11 (noite): crédito "Dados fornecidos pela Polar" no detalhe do treino (`apps/mobile/src/activityDetail.tsx`) — exige build nativo; PWA no Deploy do web.
+
+## Cuidado fixo de todo build Android (20/11/2026): páginas de 16 KB
+Antes de enviar um `.aab` à Play, rodar `python -I apps/mobile/check-16kb-alignment.py caminho.aab`. Resultado esperado: arm64-v8a e x86_64 com 0 bibliotecas abaixo de 16 KB (32 bits podem ficar em 4 KB). Repetir ao atualizar Expo, React Native, RevenueCat, Health Connect ou o plugin do Gradle do Wear OS. Detalhes no PRONTUARIO (20/11/2026).

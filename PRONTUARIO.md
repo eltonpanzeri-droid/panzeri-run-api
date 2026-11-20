@@ -4583,3 +4583,9 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Chave de envio baixada do EAS e guardada fora do repositório (pasta "chaves" do Elton); `apps/wearos/app/build.gradle.kts` assina o release por variáveis de ambiente (WEAR_KEYSTORE e senhas), nunca no código. A impressão digital do pacote confere com a do Panzeri Run.
 - A Play exigiu targetSdk 35: compileSdk/targetSdk 35, versionCode 100003 (0.2.1). Formato Wear OS ativado; pacote 100003 em TESTE INTERNO com a lista "Testadores Wear SO" (Elton e Luara). Capturas redondas 384x384 do emulador em `apps/wearos/capturas`.
 - WEAR_OS_EXTERNAL_AI_ENABLED=true ligada por Elton em 20/11. Pendente: teste real da Luara (Galaxy Watch), declaração de serviço em primeiro plano (vídeo), segurança de dados do relógio, capturas na ficha, consentimento do relógio e política (advogado), produção.
+
+### 20/11/2026 — Páginas de 16 KB (Play): investigação e cuidados
+- A Play mostra o aviso "Seu app pode falhar em dispositivos de 16 KB". Conferi os `.aab` reais: Panzeri Run 1.0.4 (v20) e 1.0.5 (v21) têm todas as bibliotecas de 64 bits (arm64-v8a, x86_64) alinhadas a 16 KB; as de 32 bits estão em 4 KB, mas a exigência da Google é só para 64 bits. O app do Wear OS 0.2.1 também está alinhado. Expo 54 e React Native 0.81.5 suportam 16 KB.
+- Provável origem do aviso: versão antiga na produção ou análise genérica; item exato desconhecido (Elton vai mandar o detalhe do painel).
+- **Cuidado permanente no build:** antes de enviar um `.aab` novo, rodar `python -I apps/mobile/check-16kb-alignment.py caminho.aab` (script criado hoje; zero bibliotecas de 64 bits abaixo de 16 KB). Repetir ao atualizar Expo/RN/bibliotecas nativas ou o plugin do Gradle do Wear OS.
+- Declarações do Wear OS para a Play (serviço em primeiro plano, localização, segurança de dados, saúde) em `PLAY_WEAR_OS_DECLARACOES.md`.
