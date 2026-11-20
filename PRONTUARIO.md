@@ -4578,3 +4578,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Apple:** `eas submit -p ios` do build `0a0784b2…` → compilação **21** (versão 1.0.5) no App Store Connect; versão 1.0.5 criada, novidades e notas do revisor reescritas (contas de demonstração mantidas), **enviada para revisão em 19/11/2026 às 20:47** (status "Aguardando revisão"). Lançamento MANUAL após aprovação (soltar junto com Android e Wear OS). Contrato de apps pagos aceito em 19/11.
 - **Google Play:** versão 1.0.5 (versionCode 21, build `410749c7…`) enviada e "Em análise".
 - **Pendente:** aprovação das duas lojas; publicar Wear OS no mesmo dia; mover a parte A da FILA para a C com estes números; declarações das lojas, CNPJ/contador, DSA UE, advogado.
+
+### 20/11/2026 — Wear OS enviado ao teste interno da Play
+- Chave de envio baixada do EAS e guardada fora do repositório (pasta "chaves" do Elton); `apps/wearos/app/build.gradle.kts` assina o release por variáveis de ambiente (WEAR_KEYSTORE e senhas), nunca no código. A impressão digital do pacote confere com a do Panzeri Run.
+- A Play exigiu targetSdk 35: compileSdk/targetSdk 35, versionCode 100003 (0.2.1). Formato Wear OS ativado; pacote 100003 em TESTE INTERNO com a lista "Testadores Wear SO" (Elton e Luara). Capturas redondas 384x384 do emulador em `apps/wearos/capturas`.
+- WEAR_OS_EXTERNAL_AI_ENABLED=true ligada por Elton em 20/11. Pendente: teste real da Luara (Galaxy Watch), declaração de serviço em primeiro plano (vídeo), segurança de dados do relógio, capturas na ficha, consentimento do relógio e política (advogado), produção.
