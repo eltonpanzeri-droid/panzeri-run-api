@@ -6,22 +6,36 @@ plugins {
 
 android {
     namespace = "com.panzerirun.wear"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         // Mesmo identificador do app do celular (com.panzerirun.app): na Play, o app de relogio vai na MESMA ficha do Panzeri Run.
         applicationId = "com.panzerirun.app"
         minSdk = 30 // Wear OS 3 (Galaxy Watch 4 em diante)
-        targetSdk = 34
-        versionCode = 100002
-        versionName = "0.2.0"
+        targetSdk = 35
+        versionCode = 100003
+        versionName = "0.2.1"
         // API de producao do Panzeri Run (a mesma do app do celular). Troque por -Pwear.apiUrl=... para testar contra outro servidor.
         val apiUrl = (project.findProperty("wear.apiUrl") as String?) ?: "https://agenteselton-panzeri-run-api.hbljgk.easypanel.host"
         buildConfigField("String", "API_URL", "\"$apiUrl\"")
     }
 
+    // Assinatura de envio da Play: a chave e as senhas vem de variaveis de ambiente do computador do Elton (nunca ficam no codigo nem passam pelo Claude).
+    val uploadKeystore = System.getenv("WEAR_KEYSTORE")
+    if (uploadKeystore != null) {
+        signingConfigs {
+            create("upload") {
+                storeFile = file(uploadKeystore)
+                storePassword = System.getenv("WEAR_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("WEAR_KEY_ALIAS")
+                keyPassword = System.getenv("WEAR_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            if (uploadKeystore != null) signingConfig = signingConfigs.getByName("upload")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
