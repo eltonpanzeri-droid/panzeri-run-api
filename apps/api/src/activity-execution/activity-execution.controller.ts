@@ -71,6 +71,13 @@ export class ActivityExecutionController {
     return this.sessionExecutionLinkService.classifyActivityAsStudent(user.sub, activityLogId, kind === 'daily' ? 'daily' : 'extra');
   }
 
+  // "Qual treino vale?" (21/11/2026): body { choose: boolean }. Quando o treino tem uma gravacao do proprio Panzeri Run e outra de outra fonte (ex.: o relogio), a do Panzeri Run vale por padrao;
+  // choose=true escolhe ESTA atividade (a do relogio) no lugar, choose=false volta ao padrao. Nada e' apagado nem alterado nas gravacoes. 404 = atividade de outra conta; 400 = sem gravacao do Panzeri Run no evento.
+  @Post(':activityLogId/canonical-choice')
+  canonicalChoice(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('choose') choose: unknown) {
+    return this.identityConfirmation.chooseCanonicalAsStudent(user.sub, activityLogId, choose === true);
+  }
+
   // "Registro duplicado": body { otherActivityLogId }. A execucao passa a contar uma vez (decisao humana de identidade); nada e' apagado.
   @Post(':activityLogId/duplicate')
   duplicate(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('otherActivityLogId') otherActivityLogId: string) {

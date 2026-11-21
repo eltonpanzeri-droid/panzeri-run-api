@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { compareObservations, IdentityComparison, ObservedActivity, observerKeyOf } from './physical-activity-identity';
-import { CanonicalCandidateInput, selectCanonicalObservation } from './physical-canonical';
+import { CanonicalCandidateInput, OWN_RECORDING_PROVIDER_ID, selectCanonicalObservation } from './physical-canonical';
 import { resolveExplicitOverride } from './athlete-primary-source';
 import { DuplicateScan, findSameObserverDuplicates } from './same-observer-duplicates';
 import { activeDecisions, applyHumanDecision, decisionForPair, decisionsOfEvidence, HumanDecisionState, HumanIdentityDecision, pairKey } from './physical-identity-decisions';
@@ -45,13 +45,14 @@ type Row = {
   physicalCanonicalActivityLogId: string | null;
   physicalCanonicalReason: Prisma.JsonValue | null;
   physicalIdentityEvidence: Prisma.JsonValue | null;
+  studentCanonicalChoiceAt: Date | null;
 };
 
 const SELECT = {
   id: true, userId: true, provider: true, sport: true, startedAt: true, durationSec: true, distanceMeters: true,
   caloriesKcal: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, hasRoute: true,
   providerMetrics: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true, physicalCanonicalReason: true,
-  physicalIdentityEvidence: true,
+  physicalIdentityEvidence: true, studentCanonicalChoiceAt: true,
 } as const;
 
 // Assinatura estavel das decisoes humanas de uma observacao (id/estado/reversao), para detectar mudanca sem depender da ordem das chaves do JSON.
@@ -73,6 +74,7 @@ function toCandidate(row: Row): CanonicalCandidateInput {
     id: row.id, provider: row.provider, providerMetrics: row.providerMetrics, durationSec: row.durationSec, distanceMeters: row.distanceMeters,
     caloriesKcal: row.caloriesKcal, avgHeartRateBpm: row.avgHeartRateBpm, maxHeartRateBpm: row.maxHeartRateBpm, cadenceAvg: row.cadenceAvg,
     powerAvgWatts: row.powerAvgWatts, elevationGainMeters: row.elevationGainMeters, hasRoute: row.hasRoute,
+    studentChoseThis: row.studentCanonicalChoiceAt !== null,
   };
 }
 
@@ -298,6 +300,30 @@ export class PhysicalActivityIdentityService {
     }
     for (const row of withoutIdentity) await write(row, null, null);
     return canonicalChanged;
+  }
+
+  // Escolha da ALUNA sobre qual observacao vale (21/11/2026, decisao de Elton). So' existe quando o evento fisico tem uma gravacao do proprio Panzeri Run: por padrao ela vale; a aluna pode escolher a de
+  // outra fonte (ex.: o relogio) no lugar, e desfazer a escolha. choose=true numa observacao do proprio Panzeri Run equivale a desfazer (e' o padrao). Nao altera os dados de nenhuma observacao nem a
+  // identidade do evento: so' a marca de escolha e a canonica. Sob a mesma trava de identidade da aluna; devolve os ids cuja canonica mudou para o chamador reconciliar o vinculo (D2).
+  async setStudentCanonicalChoice(userId: string, activityLogId: string, choose: boolean): Promise<PhysicalIdentityResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'physical-identity:' + userId}))`;
+      const target = (await tx.activityLog.findFirst({ where: { id: activityLogId, userId }, select: SELECT })) as Row | null;
+      if (!target) throw new NotFoundException('Atividade nao encontrada.');
+      if (target.physicalIdentityStatus !== 'matched' || !target.physicalEventId) throw new BadRequestException('Este treino nao tem outra gravacao do mesmo treino para escolher.');
+      const members = (await tx.activityLog.findMany({ where: { userId, physicalEventId: target.physicalEventId, physicalIdentityStatus: 'matched' }, select: SELECT })) as Row[];
+      if (!members.some((member) => member.provider === OWN_RECORDING_PROVIDER_ID)) throw new BadRequestException('Este treino nao foi gravado no Panzeri Run: nao ha escolha a fazer.');
+      const pickOther = choose && target.provider !== OWN_RECORDING_PROVIDER_ID;
+      const marked = pickOther ? target.id : null;
+      for (const member of members) {
+        const want = member.id === marked ? (member.studentCanonicalChoiceAt ?? new Date()) : null;
+        const has = member.studentCanonicalChoiceAt;
+        if ((want === null) !== (has === null)) await tx.activityLog.update({ where: { id: member.id }, data: { studentCanonicalChoiceAt: want } });
+      }
+      const fresh = (await tx.activityLog.findMany({ where: { userId, physicalEventId: target.physicalEventId }, select: SELECT })) as Row[];
+      const changed = await this.applyCanonical(tx, userId, [fresh], [], []);
+      return { activityLogId, status: 'matched' as const, physicalEventId: target.physicalEventId, memberCount: fresh.length, affectedActivityLogIds: [...changed].sort() };
+    });
   }
 
   // Override EXCEPCIONAL (nao e' fluxo normal): registra um ecossistema que desempata entre gravadores nativos equivalentes A PARTIR de uma data

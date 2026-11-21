@@ -11,7 +11,10 @@
 // Independe da ordem de chegada: depende so' do CONJUNTO de observacoes do evento.
 
 export type ProvenanceRole = 'native_recorder' | 'relay' | 'unknown';
-export type CanonicalRule = 'sole_observation' | 'native_recorder' | 'best_available';
+export type CanonicalRule = 'sole_observation' | 'native_recorder' | 'best_available' | 'own_recording' | 'student_choice';
+
+// Gravacao feita no proprio Panzeri Run (Iniciar treino). Fonte do ActivityLog.provider; run-consent.ts reexporta o mesmo valor.
+export const OWN_RECORDING_PROVIDER_ID = 'panzeri_run';
 export type CanonicalTieBreak = 'completeness' | 'explicit_override' | 'id' | null;
 
 export interface CanonicalCandidateInput {
@@ -28,6 +31,8 @@ export interface CanonicalCandidateInput {
   powerAvgWatts: number | null;
   elevationGainMeters: number | null;
   hasRoute: boolean | null;
+  // Escolha da ALUNA (21/11/2026): marca a observacao que ela escolheu como a que vale no evento (so' tem efeito quando o evento tem uma gravacao do proprio Panzeri Run).
+  studentChoseThis?: boolean;
 }
 
 export interface ProvenanceProfile {
@@ -219,6 +224,18 @@ export function selectCanonicalObservation(members: CanonicalCandidateInput[], o
   });
 
   if (candidates.length === 1) return done(candidates[0].m.id, 'sole_observation', null, []);
+
+  // 0) Gravacao do proprio Panzeri Run (21/11/2026, decisao de Elton): se a aluna gravou pelo Panzeri Run E por outro aparelho, ela apertou iniciar nos dois lugares; vale a gravacao do Panzeri Run, a nao ser
+  //    que a aluna tenha ESCOLHIDO a de outra fonte (ex.: o relogio, que costuma ter frequencia cardiaca, potencia, cadencia). So' vale com observacoes validas. Sem gravacao do Panzeri Run no evento,
+  //    NADA disto roda e o comportamento abaixo (regra v2) permanece exatamente como era. As demais observacoes ficam preservadas, so' nao sao escolhidas.
+  const ownValid = candidates.filter((c) => c.m.provider === OWN_RECORDING_PROVIDER_ID && c.valid);
+  if (ownValid.length > 0) {
+    const byCompleteness = (a: (typeof candidates)[number], b: (typeof candidates)[number]) => b.completeness - a.completeness || (a.m.id < b.m.id ? -1 : 1);
+    const chosen = candidates.filter((c) => c.m.studentChoseThis === true && c.m.provider !== OWN_RECORDING_PROVIDER_ID && c.valid).sort(byCompleteness);
+    if (chosen.length > 0) return done(chosen[0].m.id, 'student_choice', null, candidates.filter((c) => c.m.id !== chosen[0].m.id && c.profile.role === 'native_recorder').map((c) => c.m.id));
+    const own = [...ownValid].sort(byCompleteness);
+    return done(own[0].m.id, 'own_recording', own.length > 1 ? (own[0].completeness === own[1].completeness ? 'id' : 'completeness') : null, candidates.filter((c) => c.m.id !== own[0].m.id && c.profile.role === 'native_recorder').map((c) => c.m.id));
+  }
 
   // 1) gravador nativo vence. Entre varios nativos (ex.: dois relogios): o override excepcional (se houver), depois o registro mais completo, depois id.
   if (nativeValid.length > 0) {

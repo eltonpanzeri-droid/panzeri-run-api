@@ -1,4 +1,5 @@
 import { ConsentCapability } from '../provider-hub/provider-connector';
+import { OWN_RECORDING_PROVIDER_ID } from '../activity-execution/physical-canonical';
 
 // Autorizacoes para GRAVAR treinos no proprio Panzeri Run ("Iniciar treino", celular) — versao 1.0 de 21/11/2026. RASCUNHO redigido por Claude como revisor juridico a pedido de Elton enquanto nao ha advogado;
 // o texto da Politica de Privacidade e dos Termos continua pendente de advogado. Qualquer alteracao de texto, grupo ou finalidade muda o hash e EXIGE nova versao (quem ja' autorizou reconfirma).
@@ -9,7 +10,7 @@ import { ConsentCapability } from '../provider-hub/provider-connector';
 //
 // A permissao de localizacao do iPhone/Android (pedida ao iniciar o treino) e este consentimento (registrado no servidor) sao coisas DIFERENTES: a primeira deixa o aplicativo LER o GPS; este autoriza o
 // Panzeri Run a GUARDAR e USAR o que chega. O servidor so' guarda o que este registro autoriza.
-export const PANZERI_RUN_PROVIDER_ID = 'panzeri_run';
+export const PANZERI_RUN_PROVIDER_ID = OWN_RECORDING_PROVIDER_ID; // 'panzeri_run' (valor unico, definido junto da escolha da observacao canonica)
 
 export const RUN_RECORDING_CONSENT: ConsentCapability = {
   version: '1.0',

@@ -129,6 +129,14 @@ export class IdentityConfirmationService {
     }
   }
 
+  // "Qual treino vale?" (21/11/2026): a aluna escolhe a observacao de OUTRA fonte (ex.: o relogio) no lugar da gravacao do Panzeri Run, ou volta ao padrao (choose=false). Delega a escolha e reconcilia so' o que
+  // mudou (D2). Atividade de outra conta = 404; treino sem gravacao do Panzeri Run no evento = 400.
+  async chooseCanonicalAsStudent(userId: string, activityLogId: string, choose: boolean) {
+    const result = await this.identity.setStudentCanonicalChoice(userId, activityLogId, choose);
+    const reconciled = await this.link.reconcileAffectedByIdentity(result, null);
+    return { ok: reconciled !== false, changedActivityLogIds: result.affectedActivityLogIds, choice: choose ? 'chosen' : 'default' };
+  }
+
   // Reavalia a identidade das observacoes envolvidas (servico existente) e reconcilia so' o que mudou (D2). true = identidade E reconciliacao concluidas.
   private async reevaluateAndReconcile(ids: string[]): Promise<boolean> {
     const affected = new Set<string>();

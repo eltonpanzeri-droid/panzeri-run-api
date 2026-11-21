@@ -46,6 +46,7 @@ export function tombstoneMetricsPatch() {
     providerMetrics: Prisma.JsonNull,
     physicalIdentityEvidence: Prisma.JsonNull,
     physicalCanonicalReason: Prisma.JsonNull,
+    studentCanonicalChoiceAt: null, // a escolha da aluna sobre qual treino vale some junto com os detalhes da atividade excluida
   };
 }
 

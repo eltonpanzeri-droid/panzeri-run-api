@@ -1754,6 +1754,9 @@ model ActivityLog {
   // primaria vigente NA DATA DO EVENTO, fallback e candidatas) para auditoria e recalculo.
   physicalCanonicalActivityLogId String?
   physicalCanonicalReason Json?
+  // Escolha da ALUNA (21/11/2026): quando o evento fisico tem uma gravacao do proprio Panzeri Run, ela vale por padrao; se a aluna escolher a observacao de OUTRA fonte (ex.: o relogio) como a que vale, esta
+  // coluna marca a observacao escolhida (data da escolha). So' uma observacao por evento carrega a marca; limpar a marca devolve o padrao. Nunca altera os dados da observacao nem a identidade do evento.
+  studentCanonicalChoiceAt DateTime?
 
   executionLinks SessionExecutionLink[]
   samples        RawActivitySample[]
