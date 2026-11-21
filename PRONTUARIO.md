@@ -4589,3 +4589,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Provável origem do aviso: versão antiga na produção ou análise genérica; item exato desconhecido (Elton vai mandar o detalhe do painel).
 - **Cuidado permanente no build:** antes de enviar um `.aab` novo, rodar `python -I apps/mobile/check-16kb-alignment.py caminho.aab` (script criado hoje; zero bibliotecas de 64 bits abaixo de 16 KB). Repetir ao atualizar Expo/RN/bibliotecas nativas ou o plugin do Gradle do Wear OS.
 - Declarações do Wear OS para a Play (serviço em primeiro plano, localização, segurança de dados, saúde) em `PLAY_WEAR_OS_DECLARACOES.md`.
+
+### 21/11/2026 — Panz Fit dentro do Panzeri Run: decisões de Elton (SÓ PLANEJADO, nada implementado)
+- Trazer a execução do Panz Fit para o Panzeri Run: "Iniciar treino" na prescrição (ou treino do zero), GPS, avisos de voz/vibração, mapa/vídeo, cartão compartilhável com a marca do Panzeri Run e comparação prescrito × realizado. Reescrever copiando do Panz Fit (mesma base: Expo 54 / RN 0.81.5); Panz Fit segue separado e intocado.
+- Não pode interferir nas integrações de relógio existentes. Mapa: o mais barato. Cartões com mapa para TODA atividade com rota (Panzeri Run e relógio), para criar a cultura de compartilhar com o Panzeri Run e não com o Strava.
+- Vínculo: o registro do Panzeri Run fica vinculado ao treino; o do relógio chega como extra, e a aluna pode vincular o do relógio no lugar (com aviso). Pontos em aberto para decidir: contagem de volume quando os dois existem, privacidade do início/fim da rota nos cartões, créditos dos fabricantes nos cartões, provedor de mapa e custo, consentimento de localização.
