@@ -15,6 +15,8 @@ export type RouteData = {
   elevationGainMeters: number | null;
   // credito que o cartao precisa mostrar quando o fabricante exige ("Garmin [modelo]", Polar); null = nenhum
   attribution: string | null;
+  // fonte da coleta do dado ("Garmin Forerunner 265", "Polar", "Panzeri Run"): vai em todo cartao de TREINO como "FONTE: ..."
+  sourceLabel?: string | null;
   points: RoutePoint[];
 };
 
@@ -83,7 +85,7 @@ export function routeFromRecording(state: RunState, points: RecordedPoint[], utc
   const distanceKm = state.distanceM / 1000;
   return {
     activityLogId: null, provider: 'panzeri_run', startedAt: new Date(state.startedAt).toISOString(), utcOffsetMinutes, sport: 'corrida',
-    distanceKm, durationSec: duration, avgPaceSecondsKm: distanceKm > 0.02 && duration > 0 ? Math.round(duration / distanceKm) : null, elevationGainMeters: null, attribution: null,
+    distanceKm, durationSec: duration, avgPaceSecondsKm: distanceKm > 0.02 && duration > 0 ? Math.round(duration / distanceKm) : null, elevationGainMeters: null, attribution: null, sourceLabel: 'Panzeri Run',
     points: points.map((point) => ({ t: Math.max(0, Math.round((point.timestamp - state.startedAt) / 1000)), lat: point.latitude, lon: point.longitude, alt: point.altitude })),
   };
 }

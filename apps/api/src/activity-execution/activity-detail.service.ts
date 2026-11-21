@@ -89,6 +89,8 @@ export class ActivityDetailService {
       avgPaceSecondsKm: distanceKm && distanceKm > 0 && log.durationSec != null ? Math.round(log.durationSec / distanceKm) : null,
       elevationGainMeters: log.elevationGainMeters,
       attribution: attributionFor(log.provider, log.providerMetrics),
+      // Fonte da coleta do dado, mostrada em TODO cartao de treino que a aluna pode publicar ("FONTE: GARMIN FORERUNNER 265"; decisao de Elton, 21/11/2026). Garmin leva o modelo (exigencia da Garmin).
+      sourceLabel: recordingLabel(log.provider, log.providerMetrics),
       points: simplifyRoute(rows),
     };
   }

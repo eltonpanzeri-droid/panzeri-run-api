@@ -81,12 +81,17 @@ describe('percurso para mapa e cartao', () => {
     const h = service(log(), [{ offsetSec: 0, latitude: -19.9, longitude: -43.9, elevationMeters: 800 }, { offsetSec: 9, latitude: -19.91, longitude: -43.91, elevationMeters: 801 }]);
     const r = await h.service.getRoute('u1', 'a1');
     expect(r).toMatchObject({ activityLogId: 'a1', provider: 'garmin', distanceKm: 5.06, durationSec: 1607, avgPaceSecondsKm: 318, elevationGainMeters: 36, attribution: 'Garmin Forerunner 265' });
+    expect(r.sourceLabel).toBe('Garmin Forerunner 265');
     expect(r.points).toHaveLength(2);
     expect(h.prisma.activityLog.findFirst).toHaveBeenCalledWith({ where: { id: 'a1', userId: 'u1' } });
   });
   it('Polar leva o credito da Polar; Panzeri Run e outras fontes sem credito; sem percurso devolve lista vazia sem consultar pontos', async () => {
     expect((await service(log({ provider: 'polar' })).service.getRoute('u1', 'a1')).attribution).toBe('Dados fornecidos pela Polar (Polar Flow)');
     expect((await service(log({ provider: 'panzeri_run' })).service.getRoute('u1', 'a1')).attribution).toBeNull();
+    // a fonte da coleta aparece em todo cartao de treino, de qualquer provedor
+    expect((await service(log({ provider: 'panzeri_run' })).service.getRoute('u1', 'a1')).sourceLabel).toBe('Panzeri Run');
+    expect((await service(log({ provider: 'polar' })).service.getRoute('u1', 'a1')).sourceLabel).toBe('Polar');
+    expect((await service(log({ provider: 'garmin', providerMetrics: {} })).service.getRoute('u1', 'a1')).sourceLabel).toBe('Garmin');
     const noRoute = service(log({ hasRoute: false }));
     expect((await noRoute.service.getRoute('u1', 'a1')).points).toEqual([]);
     expect(noRoute.prisma.activityTimeSeriesPoint.findMany).not.toHaveBeenCalled();

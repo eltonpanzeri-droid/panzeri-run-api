@@ -10,6 +10,12 @@ import { RouteData, cardStats, replayPosition } from './route';
 // postar onde quiser. O mapa mostra o percurso do inicio ao fim, exatamente como foi (nenhum trecho e' escondido). Credito do fabricante so' onde ele exige (Garmin: "Garmin [modelo]"; Polar), em toda imagem.
 // O "video" do trajeto e' o replay animado: a aluna grava a tela do celular para postar. Compartilhar e' um ato dela; nada e' publicado pelo Panzeri Run.
 
+// Linha de fonte do cartao de treino: "FONTE: GARMIN FORERUNNER 265" (a Garmin exige "Garmin [modelo]" em toda imagem), "FONTE: POLAR", "FONTE: PANZERI RUN"... Futuros cartoes de Evolucao (varias fontes) nao usam esta linha.
+export const sourceLine = (route: Pick<RouteData, 'sourceLabel' | 'attribution'>): string | null => {
+  const label = route.sourceLabel?.trim() || route.attribution?.trim();
+  return label ? `FONTE: ${label.toUpperCase()}` : null;
+};
+
 export type ShareSource = { activityLogId: string; route?: undefined } | { route: RouteData; activityLogId?: undefined };
 type Variant = 'map' | 'clear';
 const CARD_WIDTH = 340;
@@ -108,7 +114,7 @@ const ShareCard = React.forwardRef<View, { route: RouteData; variant: Variant; o
         <View><Text style={styles.statValue}>{stats.pace}</Text><Text style={styles.statLabel}>RITMO</Text></View>
         <View><Text style={styles.statValue}>{stats.elevation}</Text><Text style={styles.statLabel}>ELEVAÇÃO</Text></View>
       </View>
-      {route.attribution ? <Text style={styles.attribution}>{route.attribution}</Text> : null}
+      {sourceLine(route) ? <Text style={styles.attribution}>{sourceLine(route)}</Text> : null}
     </View>
   );
 });
@@ -149,7 +155,7 @@ function Replay({ route, onClose }: { route: RouteData; onClose: () => void }) {
         <View><Text style={styles.statValue}>{stats.pace}</Text><Text style={styles.statLabel}>RITMO</Text></View>
         <View><Text style={styles.statValue}>{stats.elevation}</Text><Text style={styles.statLabel}>ELEVAÇÃO</Text></View>
       </View>
-      {route.attribution ? <Text style={styles.attribution}>{route.attribution}</Text> : null}
+      {sourceLine(route) ? <Text style={styles.attribution}>{sourceLine(route)}</Text> : null}
       {!running ? (
         <View style={styles.controls}>
           <View style={styles.row}>
@@ -199,7 +205,7 @@ const styles = StyleSheet.create({
   stats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   statValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
   statLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
-  attribution: { color: '#CBD5E1', fontSize: 11, fontWeight: '600', marginTop: 2 },
+  attribution: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 2 },
   replay: { flex: 1, backgroundColor: NAVY, padding: 22, gap: 12 },
   controls: { gap: 12, alignItems: 'center' },
 });
