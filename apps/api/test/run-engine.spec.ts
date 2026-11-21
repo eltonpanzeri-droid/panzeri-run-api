@@ -5,8 +5,16 @@ import { compileWorkout } from '../../mobile/src/run/workout';
 import { prescriptionToWorkout } from '../../mobile/src/run/prescription';
 import type { TrackPoint } from '../../mobile/src/run/activity';
 import { normalizeRunActivity } from '../src/run-recording/run-activity';
+import { uploadAllPending, uploadRun } from '../../mobile/src/run/upload';
 
 // 21/11/2026 — motor do Iniciar treino, armazenamento local e corpo enviado ao servidor. Simula corridas com pontos de GPS sinteticos; nenhum aparelho e' usado. O corpo gerado passa pela MESMA validacao do servidor.
+class MemoryStore implements KeyValueStore {
+  data = new Map<string, string>();
+  async getItem(key: string) { return this.data.get(key) ?? null; }
+  async setItem(key: string, value: string) { this.data.set(key, value); }
+  async removeItem(key: string) { this.data.delete(key); }
+}
+
 const T0 = Date.parse('2026-11-21T09:00:00Z');
 const M_PER_DEG = 111_320;
 // pontos em linha reta para o norte, a `paceSec` s/km, um a cada `everySec` segundos, a partir do instante `fromSec` (distancia ja' percorrida `fromM`)
@@ -132,6 +140,46 @@ describe('etapas da prescricao e avisos', () => {
   });
 });
 
+describe('resultado medido de cada etapa (comparacao prescrito x realizado)', () => {
+  function runUntil(stopAfterSec: number) {
+    let s = startRun({ runId: 'r8', now: T0, program: rich });
+    let meters = 0;
+    for (let t = 0; t <= stopAfterSec; t += 4) {
+      s = applyPoints(s, line(t, 1, 345, { fromM: meters }), T0 + t * 1000).state;
+      meters += 4 * (1000 / 345);
+    }
+    return s;
+  }
+  it('cada etapa concluida entra no registro com o planejado, o faixa pedida e o que foi feito (ritmo medido dentro da faixa)', () => {
+    const s = runUntil(400); // programa inteiro (~950 m a 5:45/km = ~330 s)
+    expect(s.stepLog).toHaveLength(rich.length);
+    expect(s.stepLog.every((r) => r.completed)).toBe(true);
+    const first = s.stepLog[0];
+    expect(first).toMatchObject({ ordinal: 1, phase: 'continuous', plannedMeters: 500, plannedSeconds: null, targetMinSecPerKm: 330, targetMaxSecPerKm: 360, actualMeters: 500 });
+    const pace = first.actualMs / 1000 / (first.actualMeters / 1000);
+    expect(pace).toBeGreaterThan(330);
+    expect(pace).toBeLessThan(360);
+    expect(s.stepLog.map((r) => r.phase)).toEqual(['continuous', 'work', 'recovery-active', 'work', 'recovery-active']);
+  });
+  it('encerrar no meio de uma etapa registra a etapa como NAO concluida, com o que foi percorrido; sem progresso nao registra', () => {
+    const s = runUntil(60); // ~170 m: ainda na etapa 1
+    const f = finishRun(s, T0 + 62_000).state;
+    expect(f.stepLog).toHaveLength(1);
+    expect(f.stepLog[0]).toMatchObject({ completed: false, plannedMeters: 500 });
+    expect(f.stepLog[0].actualMeters).toBeGreaterThan(100);
+    expect(f.stepLog[0].actualMeters).toBeLessThan(500);
+    expect(finishRun(startRun({ runId: 'r9', now: T0, program: rich }), T0 + 5_000).state.stepLog).toEqual([]);
+  });
+  it('treino livre nao tem registro de etapas; estado salvo antes deste campo existir carrega com lista vazia', async () => {
+    const free = finishRun(applyPoints(startRun({ runId: 'r10', now: T0 }), line(0, 10, 345), T0 + 36_000).state, T0 + 40_000).state;
+    expect(free.stepLog).toEqual([]);
+    const store = new MemoryStore();
+    const { stepLog: _removed, ...legacy } = startRun({ runId: 'r11', now: T0 });
+    store.data.set('panzeri-run:run:r11:state', JSON.stringify(legacy));
+    expect((await new RunStorage(store).loadState('r11'))?.stepLog).toEqual([]);
+  });
+});
+
 describe('treino interrompido (aplicativo fechado) e corpo enviado ao servidor', () => {
   it('retomar depois de interrompido: o tempo sem pontos conta como pausa, o segmento e cortado e o treino fica marcado', () => {
     let s = startRun({ runId: 'r6', now: T0 });
@@ -183,13 +231,6 @@ describe('treino interrompido (aplicativo fechado) e corpo enviado ao servidor',
     expect(body.points[body.points.length - 1].dist).toBe(many[many.length - 1].dist);
   });
 });
-
-class MemoryStore implements KeyValueStore {
-  data = new Map<string, string>();
-  async getItem(key: string) { return this.data.get(key) ?? null; }
-  async setItem(key: string, value: string) { this.data.set(key, value); }
-  async removeItem(key: string) { this.data.delete(key); }
-}
 
 describe('armazenamento local do treino (sobrevive ao fechamento do aplicativo)', () => {
   const pts = (n: number, from = 0): RecordedPoint[] => Array.from({ length: n }, (_, i) => ({ latitude: -19.93, longitude: -44.05, altitude: null, accuracy: 5, speed: 3, timestamp: T0 + (from + i) * 4_000, dist: (from + i) * 12 }));
@@ -243,5 +284,60 @@ describe('armazenamento local do treino (sobrevive ao fechamento do aplicativo)'
     expect(await storage.listPending()).toEqual(['r2']);
     expect(await storage.getActive()).toBeNull();
     expect([...store.data.keys()].some((key) => key.includes(':r1:'))).toBe(false);
+  });
+});
+
+describe('envio ao servidor e fila de pendentes', () => {
+  const RUN_ID = '731d8bb5-de0d-4a90-92ba-09c52ce71b9e';
+  async function prepared() {
+    const storage = new RunStorage(new MemoryStore());
+    let s = startRun({ runId: RUN_ID, now: T0 });
+    const r = applyPoints(s, line(0, 30, 345), T0 + 116_000);
+    s = finishRun(r.state, T0 + 120_000).state;
+    await storage.saveState(s); await storage.appendPoints(RUN_ID, r.accepted); await storage.addPending(RUN_ID);
+    return storage;
+  }
+  const reply = (status: number, body: unknown) => (async () => ({ ok: status >= 200 && status < 300, status, json: async () => body })) as unknown as typeof fetch;
+  const input = (storage: RunStorage, fetchImpl: typeof fetch) => ({ apiUrl: 'https://api.exemplo', accessToken: 'jwt', runId: RUN_ID, storage, fetchImpl });
+
+  it('enviado: sai da fila, o corpo vai com o token e passa na validacao do servidor; os dados continuam no aparelho ate a tela de resumo fechar', async () => {
+    const storage = await prepared();
+    let sent: { url: string; init: RequestInit } | null = null;
+    const fetchImpl = (async (url: string, init: RequestInit) => { sent = { url, init }; return { ok: true, status: 201, json: async () => ({ stored: true }) }; }) as unknown as typeof fetch;
+    expect(await uploadRun(input(storage, fetchImpl))).toBe('sent');
+    expect(sent!.url).toBe('https://api.exemplo/me/run/activities');
+    expect((sent!.init.headers as Record<string, string>).Authorization).toBe('Bearer jwt');
+    expect(() => normalizeRunActivity(JSON.parse(sent!.init.body as string), new Date(T0 + 3_600_000))).not.toThrow();
+    expect(await storage.listPending()).toEqual([]);
+    expect((await storage.loadPoints(RUN_ID)).length).toBeGreaterThan(0);
+  });
+  it('sem autorizacao (403 run_consent_required): fica na fila para quando ela autorizar', async () => {
+    const storage = await prepared();
+    expect(await uploadRun(input(storage, reply(403, { code: 'run_consent_required' })))).toBe('consent_required');
+    expect(await storage.listPending()).toEqual([RUN_ID]);
+  });
+  it('sem internet ou erro do servidor: fica na fila; corpo que o servidor nunca aceita (400/413): sai da fila sem apagar os dados', async () => {
+    const storage = await prepared();
+    const offline = (async () => { throw new Error('rede'); }) as unknown as typeof fetch;
+    expect(await uploadRun(input(storage, offline))).toBe('failed');
+    expect(await uploadRun(input(storage, reply(500, {})))).toBe('failed');
+    expect(await storage.listPending()).toEqual([RUN_ID]);
+    expect(await uploadRun(input(storage, reply(400, { code: 'run_activity_invalid' })))).toBe('rejected');
+    expect(await storage.listPending()).toEqual([]);
+    expect((await storage.loadPoints(RUN_ID)).length).toBeGreaterThan(0);
+  });
+  it('treino ja excluido pela aluna no servidor conta como resolvido; treino inexistente ou ainda em andamento nao e enviado', async () => {
+    const storage = await prepared();
+    expect(await uploadRun(input(storage, reply(201, { stored: false, reason: 'excluded' })))).toBe('sent');
+    const empty = new RunStorage(new MemoryStore());
+    expect(await uploadRun(input(empty, reply(201, {})))).toBe('missing');
+    await empty.saveState(startRun({ runId: RUN_ID, now: T0 }));
+    expect(await uploadRun(input(empty, reply(201, {})))).toBe('missing');
+  });
+  it('reenvia todos os pendentes e devolve o resultado de cada um', async () => {
+    const storage = await prepared();
+    const results = await uploadAllPending({ apiUrl: 'https://api.exemplo', accessToken: 'jwt', storage, fetchImpl: reply(201, { stored: true }) });
+    expect(results).toEqual({ [RUN_ID]: 'sent' });
+    expect(await storage.listPending()).toEqual([]);
   });
 });

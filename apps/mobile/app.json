@@ -17,7 +17,11 @@
       "bundleIdentifier": "com.panzerirun.app",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "location",
+          "audio"
+        ]
       }
     },
     "android": {
@@ -75,6 +79,16 @@
       ],
       "./plugins/withAppleHealthProof",
       "expo-health-connect",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "O Panzeri Run usa a sua localização somente durante o treino que você inicia, para registrar o percurso, a distância e o ritmo.",
+          "locationAlwaysAndWhenInUsePermission": "O Panzeri Run usa a sua localização somente durante o treino que você inicia, inclusive com a tela bloqueada ou com outro aplicativo aberto. Fora do treino, a localização não é coletada.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
       [
         "expo-build-properties",
         {

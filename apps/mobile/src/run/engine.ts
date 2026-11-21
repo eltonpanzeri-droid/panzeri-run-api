@@ -8,6 +8,13 @@ import { transitionAnnouncement } from './announcements';
 
 export type RunPhase = 'recording' | 'paused' | 'finished';
 
+// Resultado MEDIDO de cada etapa do programa (para a comparacao prescrito x realizado). So' registra o que aconteceu: o que a prescricao pedia (distancia/duracao e faixa de ritmo) e o que a aluna fez.
+export type StepResult = {
+  ordinal: number; name: string; phase: string; completed: boolean;
+  plannedMeters: number | null; plannedSeconds: number | null; targetMinSecPerKm: number | null; targetMaxSecPerKm: number | null;
+  actualMeters: number; actualMs: number;
+};
+
 export type RecordedPoint = TrackPoint & { dist: number }; // dist = distancia acumulada (m) ate este ponto
 
 export interface RunState {
@@ -29,6 +36,7 @@ export interface RunState {
   stepIndex: number;
   stepStartDistanceM: number;
   stepStartTimerMs: number;
+  stepLog: StepResult[];
   lastZoneAnnouncedAt: number;
   interrupted: boolean; // o treino foi retomado depois de o aplicativo ser fechado/interrompido
 }
@@ -48,7 +56,7 @@ export function startRun(input: StartInput): RunState {
   return {
     schemaVersion: 1, runId: input.runId, prescribedSessionId: input.prescribedSessionId ?? null, program: input.program ?? [], phase: 'recording',
     startedAt: input.now, endedAt: null, pausedMs: 0, pauseStartedAt: null, lastPoint: null, recent: [], distanceM: 0, movingMs: 0, acceptedPoints: 0, rejectedPoints: 0,
-    stepIndex: 0, stepStartDistanceM: 0, stepStartTimerMs: 0, lastZoneAnnouncedAt: 0, interrupted: false,
+    stepIndex: 0, stepStartDistanceM: 0, stepStartTimerMs: 0, stepLog: [], lastZoneAnnouncedAt: 0, interrupted: false,
   };
 }
 
@@ -91,6 +99,20 @@ export function applyPoints(input: RunState, points: TrackPoint[], now: number):
   return { state, accepted, announcements };
 }
 
+function resultOf(state: RunState, step: ExecutableStep, progress: { distanceM: number; elapsedMs: number }, completed: boolean): StepResult {
+  const pace = step.targets.find((target) => target.metric === 'pace');
+  return {
+    ordinal: step.ordinal, name: step.name, phase: step.phase, completed,
+    plannedMeters: step.completion.kind === 'distance' ? step.completion.meters : null,
+    plannedSeconds: step.completion.kind === 'duration' ? step.completion.seconds : null,
+    targetMinSecPerKm: pace && pace.metric === 'pace' ? pace.minSecPerKm : null,
+    targetMaxSecPerKm: pace && pace.metric === 'pace' ? pace.maxSecPerKm : null,
+    // etapa por distancia: conta os metros da etapa (a sobra vai para a proxima); por tempo: o que foi percorrido nela
+    actualMeters: completed && step.completion.kind === 'distance' ? step.completion.meters : Math.max(0, Math.round(progress.distanceM * 10) / 10),
+    actualMs: Math.max(0, Math.round(progress.elapsedMs)),
+  };
+}
+
 // Passa para a proxima etapa quando a atual termina (por distancia ou por tempo), carregando a sobra de distancia (como no Panz Fit). Mais de uma etapa pode terminar no mesmo ponto.
 function advanceSteps(input: RunState, at: number): { state: RunState; announcements: Announcement[] } {
   let state = input;
@@ -102,7 +124,7 @@ function advanceSteps(input: RunState, at: number): { state: RunState; announcem
     const nextIndex = state.stepIndex + 1;
     const next = state.program[nextIndex] ?? null;
     state = {
-      ...state, stepIndex: nextIndex,
+      ...state, stepIndex: nextIndex, stepLog: [...state.stepLog, resultOf(state, step, progress, true)],
       stepStartDistanceM: step.completion.kind === 'distance' ? state.stepStartDistanceM + step.completion.meters : state.distanceM,
       stepStartTimerMs: step.completion.kind === 'duration' ? state.stepStartTimerMs + step.completion.seconds * 1000 : timerMs(state, at),
     };
@@ -149,7 +171,11 @@ export function resumeRun(state: RunState, now: number): RunState {
 export function finishRun(state: RunState, now: number): { state: RunState; announcements: Announcement[] } {
   if (state.phase === 'finished') return { state, announcements: [] };
   const closed = state.pauseStartedAt !== null ? { ...state, pausedMs: state.pausedMs + Math.max(0, now - state.pauseStartedAt), pauseStartedAt: null } : state;
-  return { state: { ...closed, phase: 'finished', endedAt: now }, announcements: [{ kind: 'finished', text: 'Treino encerrado.' }] };
+  // etapa em andamento no momento do fim: entra no registro como nao concluida (so' se houve deslocamento)
+  const open = closed.program[closed.stepIndex];
+  const progress = { distanceM: Math.max(0, closed.distanceM - closed.stepStartDistanceM), elapsedMs: Math.max(0, timerMs({ ...closed, endedAt: now }, now) - closed.stepStartTimerMs) };
+  const stepLog = open && progress.distanceM > 0 ? [...closed.stepLog, resultOf(closed, open, progress, false)] : closed.stepLog;
+  return { state: { ...closed, stepLog, phase: 'finished', endedAt: now }, announcements: [{ kind: 'finished', text: 'Treino encerrado.' }] };
 }
 
 // Treino retomado depois de o aplicativo ser fechado/interrompido (a aluna decide retomar): o tempo desde o ultimo ponto conhecido conta como pausa (nao como corrida), o vinculo com o ultimo ponto e' cortado e o

@@ -28,7 +28,8 @@ export class RunStorage {
   }
   async loadState(runId: string): Promise<RunState | null> {
     const state = parse<RunState | null>(await this.store.getItem(metaKey(runId)), null);
-    return state && state.schemaVersion === 1 && state.runId === runId ? state : null;
+    // estados gravados antes de stepLog existir continuam validos (lista vazia)
+    return state && state.schemaVersion === 1 && state.runId === runId ? { ...state, stepLog: state.stepLog ?? [] } : null;
   }
 
   // Acrescenta pontos aceitos: preenche o ultimo bloco e abre novos (cada bloco e' reescrito inteiro, mas tem no maximo chunkSize pontos).

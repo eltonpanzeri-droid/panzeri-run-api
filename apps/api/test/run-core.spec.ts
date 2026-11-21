@@ -1,5 +1,5 @@
 import { compileWorkout, completionReached, paceZoneFor, validateWorkout, formatMinuteSecond, parseMinuteSecond, RUN_WORKOUT_SCHEMA, type WorkoutDefinition } from '../../mobile/src/run/workout';
-import { prescriptionToWorkout } from '../../mobile/src/run/prescription';
+import { parsePaceRange, prescriptionToWorkout, structureToWorkout } from '../../mobile/src/run/prescription';
 import { transitionAnnouncement, workoutPhaseLabel } from '../../mobile/src/run/announcements';
 import { bestEfforts, gpsQuality, kilometerSplits } from '../../mobile/src/run/analysis';
 import { bearingBetween, currentSpeedMps, distanceBetween, elevationGain, formatDuration, formatPace, gpsSignal, interpolatePosition, normalizeTrack, shouldAcceptPoint, splitIntoSegments } from '../../mobile/src/run/track';
@@ -170,5 +170,55 @@ describe('parciais e melhores trechos', () => {
     const quality = gpsQuality([point(0, 0, 0), point(0, 0, 60_000), point(0, 0, 61_000)]);
     expect(quality.gaps).toBe(1);
     expect(quality.score).toBeLessThan(100);
+  });
+});
+
+// O treino da semana chega ao Panzeri Run como `session.structure` (blocos com distancia em km e faixa "m:ss a m:ss"), montado pelo servidor (training-plans.service: runDistanceBlock / intervalStep).
+describe('treino da semana (session.structure) -> etapas', () => {
+  const continuous = (over: Record<string, unknown> = {}) => ({ label: 'Principal', durationType: 'distance', distanceValue: 6, distanceUnit: 'km', paceRange: '5:30 a 6:00', ...over });
+  const interval = (over: Record<string, unknown> = {}) => ({
+    label: 'Serie intervalada', repeatCount: 4,
+    steps: [
+      { label: 'Correr forte', durationType: 'distance', distanceValue: 1, distanceUnit: 'km', paceRange: '4:30 a 4:45' },
+      { label: 'Trotar', durationType: 'distance', distanceValue: 0.4, distanceUnit: 'km', paceRange: '6:40 a 7:30' },
+    ], ...over,
+  });
+  const run = (blocks: unknown[], type = 'run') => ({ type, blocks }) as never;
+
+  it('le a faixa de ritmo escrita pelo servidor e recusa qualquer outro formato', () => {
+    expect(parsePaceRange('5:30 a 6:00')).toEqual({ minSecPerKm: 330, maxSecPerKm: 360 });
+    expect(parsePaceRange('5:05 a 5:05/km')).toEqual({ minSecPerKm: 305, maxSecPerKm: 305 });
+    expect(parsePaceRange('6:00 a 5:30')).toBeNull(); // invertida
+    expect(parsePaceRange('livre')).toBeNull();
+    expect(parsePaceRange(null)).toBeNull();
+    expect(parsePaceRange('5:75 a 6:00')).toBeNull();
+  });
+
+  it('bloco continuo vira uma etapa; intervalado vira estimulo + recuperacao x repeticoes, com o total da prescricao', () => {
+    const w = structureToWorkout({ id: 's1', title: 'Misto', structure: run([continuous({ distanceValue: 2 }), interval()]) })!;
+    const steps = compileWorkout(w);
+    expect(steps.map((s) => s.phase)).toEqual(['continuous', 'work', 'recovery-active', 'work', 'recovery-active', 'work', 'recovery-active', 'work', 'recovery-active']);
+    expect(steps[0]).toMatchObject({ completion: { kind: 'distance', meters: 2000 }, targets: [{ metric: 'pace', minSecPerKm: 330, maxSecPerKm: 360 }] });
+    expect(steps[1]).toMatchObject({ name: 'Correr forte', targets: [{ metric: 'pace', minSecPerKm: 270, maxSecPerKm: 285 }] });
+    const total = steps.reduce((sum, s) => sum + (s.completion.kind === 'distance' ? s.completion.meters : 0), 0);
+    expect(total).toBe(2000 + 4 * (1000 + 400)); // blockDistance do servidor: repeticoes x (estimulo + recuperacao)
+  });
+
+  it('distancia em metros ou texto com virgula; faixa ausente = etapa sem meta', () => {
+    const w = structureToWorkout({ id: 's', title: 't', structure: run([continuous({ distanceValue: '1,5', paceRange: null }), continuous({ distanceValue: 800, distanceUnit: 'm' })]) })!;
+    const steps = compileWorkout(w);
+    expect(steps[0]).toMatchObject({ completion: { meters: 1500 }, targets: [] });
+    expect(steps[1].completion).toEqual({ kind: 'distance', meters: 800 });
+  });
+
+  it('formato que o executor nao entende = treino nao guiado (null), nunca adivinhado', () => {
+    expect(structureToWorkout({ id: 's', title: 't', structure: null })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([], 'run') })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([continuous()], 'aerobic') })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([continuous({ durationType: 'time' })]) })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([continuous({ distanceUnit: 'mi' })]) })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([continuous({ distanceValue: 0 })]) })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([interval({ steps: [{ distanceValue: 1, distanceUnit: 'km' }] })]) })).toBeNull();
+    expect(structureToWorkout({ id: 's', title: 't', structure: run([null]) })).toBeNull();
   });
 });
