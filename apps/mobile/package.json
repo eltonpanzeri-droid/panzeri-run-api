@@ -34,6 +34,7 @@
     "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
+    "expo-sharing": "~14.0.8",
     "expo-speech": "~14.0.8",
     "expo-splash-screen": "~31.0.13",
     "expo-status-bar": "^3.0.9",
@@ -43,9 +44,11 @@
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
     "react-native-health-connect": "3.5.3",
+    "react-native-maps": "1.20.1",
     "react-native-purchases": "^10.9.0",
     "react-native-safe-area-context": "^5.6.2",
     "react-native-svg": "15.12.1",
+    "react-native-view-shot": "4.0.3",
     "react-native-web": "~0.21.2"
   },
   "devDependencies": {

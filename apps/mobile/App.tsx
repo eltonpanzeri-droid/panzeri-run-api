@@ -51,6 +51,8 @@ import { EquipmentScreen } from './src/equipment/EquipmentScreen';
 import { ProblemReportScreen } from './src/problemReport/ProblemReportScreen';
 import { NotificationPreferencesScreen } from './src/notificationPreferences/NotificationPreferencesScreen';
 import { RunScreen, type RunSessionInput } from './src/run/RunScreen';
+import { ShareActivityScreen } from './src/run/ShareActivityScreen';
+import { RecordingChoiceCard, type RecordingChoiceView } from './src/run/RecordingChoiceCard';
 import type { StoredRunStructure } from './src/run/prescription';
 import { formatCpfInput, formatPhoneInput, onlyDigits, shortSignupProblem } from './src/signup/shortSignup';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
@@ -464,6 +466,8 @@ interface WeekPlan {
   sessionReports?: Record<string, { lines: string[]; status: string; scenario: string | null }>;
   // Treinos cujo relatorio esta em atualizacao depois de uma correcao de atividade (nao e definitivo ate terminar).
   sessionReportsUpdating?: string[];
+  // "Qual gravacao vale?" (21/11/2026): por atividade realizada, quando o treino tem a gravacao do Panzeri Run e a de um relogio. Chave = activityLogId da atividade mostrada como realizada.
+  recordingChoices?: Record<string, RecordingChoiceView>;
 }
 
 interface WeekByOffsetResponse extends Partial<WeekPlan> {
@@ -5880,6 +5884,9 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                           </Pressable>
                         ) : null}
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
+                        {session.realized && plan?.recordingChoices?.[session.realized.activityLogId] ? (
+                          <RecordingChoiceCard apiUrl={API_URL} accessToken={accessToken} activityLogId={session.realized.activityLogId} choice={plan.recordingChoices[session.realized.activityLogId]} onChanged={loadPlan} />
+                        ) : null}
                         {session.realized ? <ActivityLinkControls activityLogId={session.realized.activityLogId} linked accessToken={accessToken} onChanged={loadPlan} /> : null}
                         {session.isAlternative && session.alternativeActivityLogId ? <ActivityLinkControls activityLogId={session.alternativeActivityLogId} linked={false} accessToken={accessToken} onChanged={loadPlan} /> : null}
                         <SessionPrescription
@@ -11864,12 +11871,21 @@ function ActivityDetailModal({ activityLogId, accessToken, visible, onClose }: {
 
 function ActivityDetailButton({ activityLogId, accessToken }: { activityLogId: string; accessToken: string }) {
   const [open, setOpen] = useState(false);
+  const [sharing, setSharing] = useState(false);
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }}>
-        <Text style={{ fontSize: 13, fontWeight: '700', color: '#1769AA' }}>Ver treino completo ›</Text>
-      </Pressable>
+      <View style={{ flexDirection: 'row', gap: 18, alignItems: 'center' }}>
+        <Pressable onPress={() => setOpen(true)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }}>
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#1769AA' }}>Ver treino completo ›</Text>
+        </Pressable>
+        <Pressable onPress={() => setSharing(true)} style={{ alignSelf: 'flex-start', marginTop: 8, paddingVertical: 6 }} accessibilityRole="button">
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#1769AA' }}>Compartilhar ›</Text>
+        </Pressable>
+      </View>
       <ActivityDetailModal activityLogId={activityLogId} accessToken={accessToken} visible={open} onClose={() => setOpen(false)} />
+      <Modal visible={sharing} animationType="slide" onRequestClose={() => setSharing(false)}>
+        {sharing ? <ShareActivityScreen apiUrl={API_URL} accessToken={accessToken} source={{ activityLogId }} onClose={() => setSharing(false)} /> : null}
+      </Modal>
     </>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { Text } from '../PtText';
 import { RecordedPoint, RunSnapshot, RunState, snapshotOf } from './engine';
 import { bestEfforts, gpsQuality, kilometerSplits } from './analysis';
@@ -9,6 +9,8 @@ import { StoredRunStructure, structureToWorkout } from './prescription';
 import { RunSettings, TrackingMode, beginRun, discardRun, finishCurrent, findInterruptedRun, loadRunSettings, pauseCurrent, resumeCurrent, resumeInterrupted, runStorage, saveRunSettings, subscribeRun } from './tracking';
 import { UploadOutcome, uploadAllPending, uploadRun } from './upload';
 import { RunConsentCard } from './RunConsentCard';
+import { ShareActivityScreen } from './ShareActivityScreen';
+import { routeFromRecording } from './route';
 
 // Tela do INICIAR TREINO (21/11/2026, decisao de Elton): a aluna toca em "Iniciar treino" na prescricao (ou comeca um treino livre), corre guiada e o resultado volta ao Panzeri Run. A IA prescreve; esta tela so'
 // executa e mede. A comparacao prescrito x realizado compara o medido com o que a prescricao pediu (sem julgamento). Localizacao so' durante o treino. A tela depende do aparelho (GPS) e deve ser validada no iPhone.
@@ -210,7 +212,7 @@ export function RunScreen({ apiUrl, accessToken, session, onClose }: { apiUrl: s
     );
   }
 
-  if (stage === 'summary' && summary) return <SummaryView summary={summary} upload={upload} onRetry={() => void sendNow(summary.state.runId)} onClose={closeSummary} />;
+  if (stage === 'summary' && summary) return <SummaryView apiUrl={apiUrl} accessToken={accessToken} summary={summary} upload={upload} onRetry={() => void sendNow(summary.state.runId)} onClose={closeSummary} />;
 
   // pronto para iniciar
   return (
@@ -253,8 +255,9 @@ export function RunScreen({ apiUrl, accessToken, session, onClose }: { apiUrl: s
   );
 }
 
-function SummaryView({ summary, upload, onRetry, onClose }: { summary: Summary; upload: UploadOutcome | 'sending' | null; onRetry: () => void; onClose: () => void }) {
+function SummaryView({ apiUrl, accessToken, summary, upload, onRetry, onClose }: { apiUrl: string; accessToken: string; summary: Summary; upload: UploadOutcome | 'sending' | null; onRetry: () => void; onClose: () => void }) {
   const { state, points } = summary;
+  const [sharing, setSharing] = useState(false);
   const snap = snapshotOf(state, state.endedAt ?? Date.now());
   const splits = kilometerSplits(points);
   const efforts = bestEfforts(points);
@@ -306,7 +309,11 @@ function SummaryView({ summary, upload, onRetry, onClose }: { summary: Summary; 
         </View>
       ) : null}
       <Text style={styles.hint}>Qualidade do GPS: {quality.label}{quality.gaps > 0 ? ` (${quality.gaps} lacuna${quality.gaps > 1 ? 's' : ''} de sinal)` : ''}.</Text>
+      {points.length >= 2 ? <Pressable style={styles.secondary} onPress={() => setSharing(true)} accessibilityRole="button"><Text style={styles.secondaryText}>Compartilhar treino</Text></Pressable> : null}
       <Pressable style={styles.primary} onPress={onClose}><Text style={styles.primaryText}>Fechar</Text></Pressable>
+      <Modal visible={sharing} animationType="slide" onRequestClose={() => setSharing(false)}>
+        {sharing ? <ShareActivityScreen apiUrl={apiUrl} accessToken={accessToken} source={{ route: routeFromRecording(state, points, -new Date(state.startedAt).getTimezoneOffset()) }} onClose={() => setSharing(false)} /> : null}
+      </Modal>
     </ScrollView>
   );
 }

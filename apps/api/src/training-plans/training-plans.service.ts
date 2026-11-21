@@ -6,6 +6,7 @@ import { parseStrengthSplitRecord, strengthSplitForPrompt } from '../common/stre
 import { readRoutineState, ROUTINE_ALL_REST_CODE, ROUTINE_REQUIRED_CODE } from '../common/routine-state';
 import { collapseEqualRange, runPaceHeaderLabel } from './range-display';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
+import { buildRecordingChoices, type RecordingChoice } from '../activity-execution/recording-choices';
 import { canonicalModality } from '../activity-execution/canonical-modality';
 import type { AnalysisCorrectionRecord } from '../activity-execution/analysis-validity';
 import { readPending } from '../activity-execution/pending-reevaluation';
@@ -3157,7 +3158,10 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     plan: { id: string; sessions: Array<{ id: string; modality: string; origin: string | null; completion?: unknown | null }> },
     presented: T,
     reconciliation?: WeekReconciliation,
-  ): Promise<T & { weeklyExecutionReport?: unknown; sessionReports?: unknown; sessionReportsUpdating?: string[] }> {
+  ): Promise<T & { weeklyExecutionReport?: unknown; sessionReports?: unknown; sessionReportsUpdating?: string[]; recordingChoices?: Record<string, RecordingChoice> }> {
+    // Escolha da aluna entre a gravacao do Panzeri Run e a do relogio (21/11/2026): so' aparece quando o treino tem as duas. Falha aqui nunca derruba o programa.
+    const recordingChoices = await this.recordingChoicesFor(userId, presented);
+    if (recordingChoices) presented = { ...presented, recordingChoices } as T;
     if (!this.executionAnalysis || !('sessions' in presented)) return presented;
     try {
       const analyzable = new Set(['corrida', 'esteira', 'forca', 'fortalecimento_corredores']);
@@ -3173,6 +3177,28 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     } catch (error) {
       this.logger.warn(`Relatorios de execucao indisponiveis para o programa ${plan.id}: ${error instanceof Error ? error.message : error}`);
       return presented;
+    }
+  }
+
+  private async recordingChoicesFor(userId: string, presented: object): Promise<Record<string, RecordingChoice> | null> {
+    try {
+      const sessions = (presented as { sessions?: Array<{ realized?: { activityLogId?: string } | null }> }).sessions ?? [];
+      const realizedIds = sessions.map((session) => session.realized?.activityLogId).filter((id): id is string => typeof id === 'string');
+      if (realizedIds.length === 0) return null;
+      // ai-scope: nao-ia (escolha de gravacao mostrada so' a propria aluna na tela do treino; nunca enviada a IA)
+      const shown = await this.prisma.activityLog.findMany({ where: { userId, id: { in: realizedIds }, physicalIdentityStatus: 'matched' }, select: { physicalEventId: true } });
+      const eventIds = [...new Set(shown.map((row) => row.physicalEventId).filter((id): id is string => id !== null))];
+      if (eventIds.length === 0) return null;
+      // ai-scope: nao-ia (mesma escolha de gravacao mostrada so' a aluna)
+      const members = await this.prisma.activityLog.findMany({
+        where: { userId, physicalEventId: { in: eventIds } },
+        select: { id: true, provider: true, physicalEventId: true, physicalIdentityStatus: true, physicalCanonicalActivityLogId: true, studentCanonicalChoiceAt: true, durationSec: true, distanceMeters: true, avgHeartRateBpm: true, maxHeartRateBpm: true, cadenceAvg: true, powerAvgWatts: true, elevationGainMeters: true, hasRoute: true, providerMetrics: true },
+      });
+      const choices = buildRecordingChoices(realizedIds, members);
+      return Object.keys(choices).length > 0 ? choices : null;
+    } catch (error) {
+      this.logger.warn(`Escolha de gravacao indisponivel: ${error instanceof Error ? error.message : error}`);
+      return null;
     }
   }
 

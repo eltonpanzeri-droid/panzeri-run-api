@@ -10,6 +10,15 @@ import { buildExecutionSummary } from './execution-summary';
 import { ExecutionAnalysisService } from './execution-analysis.service';
 import { renderSessionReport } from './execution-report';
 import { sourceIdOf } from './physical-canonical';
+import { recordingLabel } from './recording-choices';
+import { simplifyRoute } from './route-points';
+
+// Credito que o fabricante exige onde o dado dele aparece (tela do treino, cartao de compartilhamento): Garmin pede "Garmin [modelo do aparelho]" (so' "Garmin" se o modelo nao veio); Polar, o credito da Polar Flow.
+export function attributionFor(provider: string, providerMetrics: unknown): string | null {
+  if (provider === 'garmin') return recordingLabel('garmin', providerMetrics);
+  if (provider === 'polar') return 'Dados fornecidos pela Polar (Polar Flow)';
+  return null;
+}
 
 // "Ver treino completo" (03/10/2026): leitura de modelos canonicos apenas — ActivityLog, vinculo
 // ativo e ActivityTimeSeriesPoint. Provider aparece so' como origem. Pace e' derivado de
@@ -54,6 +63,34 @@ export class ActivityDetailService {
     })();
     this.rebuilds.set(log.id, job);
     return job;
+  }
+
+  // Percurso + resumo para o mapa e o cartao de compartilhamento (21/11/2026): qualquer atividade da PROPRIA aluna que tenha percurso (Panzeri Run ou relogio). O percurso so' existe se ela autorizou o grupo
+  // "Percurso GPS" da fonte (o servidor so' guarda coordenada autorizada). `attribution` e' o credito que o cartao precisa mostrar quando o fabricante exige (Garmin: "Garmin [modelo]"; Polar), senao null.
+  async getRoute(userId: string, activityLogId: string) {
+    const log = await this.prisma.activityLog.findFirst({ where: { id: activityLogId, userId } });
+    if (!log) throw new NotFoundException('Atividade nao encontrada.');
+    const rows = log.hasRoute
+      ? await this.prisma.activityTimeSeriesPoint.findMany({
+          where: { activityLogId, normalizationVersion: NORMALIZATION_VERSION, latitude: { not: null }, longitude: { not: null } },
+          orderBy: { offsetSec: 'asc' },
+          select: { offsetSec: true, latitude: true, longitude: true, elevationMeters: true },
+        })
+      : [];
+    const distanceKm = log.distanceMeters != null ? log.distanceMeters / 1000 : null;
+    return {
+      activityLogId: log.id,
+      provider: log.provider,
+      startedAt: log.startedAt,
+      utcOffsetMinutes: log.utcOffsetMinutes,
+      sport: log.sport,
+      distanceKm,
+      durationSec: log.durationSec ?? null,
+      avgPaceSecondsKm: distanceKm && distanceKm > 0 && log.durationSec != null ? Math.round(log.durationSec / distanceKm) : null,
+      elevationGainMeters: log.elevationGainMeters,
+      attribution: attributionFor(log.provider, log.providerMetrics),
+      points: simplifyRoute(rows),
+    };
   }
 
   async getDetail(userId: string, activityLogId: string, options: { allowEstimatedPace?: boolean } = {}) {
@@ -125,6 +162,7 @@ export class ActivityDetailService {
       startedAt: log.startedAt,
       utcOffsetMinutes: log.utcOffsetMinutes,
       sport: log.sport,
+      attribution: attributionFor(log.provider, log.providerMetrics),
       summary: {
         distanceKm,
         durationSec,

@@ -33,6 +33,12 @@ export class ActivityExecutionController {
     return this.identityConfirmation.resolveAsStudent(user.sub, body);
   }
 
+  // Percurso + resumo para o mapa e o cartao de compartilhamento (21/11/2026). Somente leitura; atividade de outra conta = 404.
+  @Get(':activityLogId/route')
+  route(@CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string) {
+    return this.activityDetailService.getRoute(user.sub, activityLogId);
+  }
+
   // "Ver treino completo" (03/10/2026): detalhe canonico da execucao — resumo, Prescrito x Realizado,
   // parciais por km e serie amostrada pra grafico. Somente leitura, sempre com checagem de posse.
   @Get(':activityLogId/detail')
