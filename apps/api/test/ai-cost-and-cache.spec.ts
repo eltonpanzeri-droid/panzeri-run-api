@@ -39,6 +39,7 @@ describe('estimateCallCost', () => {
 describe('politica de cache por agente', () => {
   it('Relator sem cache_control; os demais com TTL de 5 minutos (padrao da API, sem campo ttl)', () => {
     expect(cacheControlFor('relator')).toEqual({});
-    for (const agent of Object.keys(AI_CACHE_POLICY).filter((a) => a !== 'relator') as AiCacheAgent[]) expect(cacheControlFor(agent)).toEqual({ cache_control: { type: 'ephemeral' } });
+    expect(cacheControlFor('mulher')).toEqual({}); // Agente da Mulher (19/11/2026): uma chamada por aluna por mes, sem reaproveitamento
+    for (const agent of Object.keys(AI_CACHE_POLICY).filter((a) => a !== 'relator' && a !== 'mulher') as AiCacheAgent[]) expect(cacheControlFor(agent)).toEqual({ cache_control: { type: 'ephemeral' } });
   });
 });

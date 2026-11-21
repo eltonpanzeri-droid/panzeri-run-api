@@ -28,7 +28,7 @@ function buildService(logs: ReturnType<typeof cycleLog>[], profile: Record<strin
   const prisma = {
     menstrualCycleLog: { findMany: jest.fn().mockResolvedValue(logs), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
     menstrualProfile: { findUnique: jest.fn().mockResolvedValue(profile), upsert: jest.fn() },
-    menstrualDailyLog: { upsert: jest.fn(), findMany: jest.fn() },
+    menstrualDailyLog: { upsert: jest.fn(), findMany: jest.fn().mockResolvedValue([]) }, // sem registros diarios nestes cenarios (o resumo diario do ciclo tem teste proprio)
     // 10/11/2026: o ciclo so vai a IA com aceite vigente; estes testes validam o CONTEUDO do contexto, entao a aluna ja aceitou.
     menstrualAiConsent: { findUnique: jest.fn().mockResolvedValue({ version: CYCLE_AI_CONSENT_VERSION, textHash: cycleAiConsentHash(), acceptedAt: new Date(), revokedAt: null }) },
   };

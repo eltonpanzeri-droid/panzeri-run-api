@@ -458,7 +458,7 @@ export const PROMPT_FIELD_CLASSIFICATION: Record<string, PromptFieldClass> = {
   relatosEstruturadosDoAluno: 'independent', relatosAindaNaoInterpretadosDoAluno: 'independent', lacunasDeContexto: 'independent',
   autoavaliacaoDaSemanaPeloAluno: 'independent', hoje: 'independent', gerarAPartirDe: 'independent', dataDeCadaDiaDaSemanaSendoGerada: 'independent',
   diasDisponiveisParaCorrida: 'independent', diasDisponiveisParaForca: 'independent', catalogoExerciciosMusculacao: 'independent',
-  catalogoExerciciosFortalecimentoCorredores: 'independent', sinalDeSeguranca: 'independent', motivoDoSinalDeSeguranca: 'independent', metasDeProva: 'independent',
+  catalogoExerciciosFortalecimentoCorredores: 'independent', preferenciaDeDivisaoDaMusculacaoPorDia: 'independent', preferenciaDeDivisaoDaAlunaParaEsteDia: 'independent', sinalDeSeguranca: 'independent', motivoDoSinalDeSeguranca: 'independent', metasDeProva: 'independent',
   relatoDeDistanciasNaEntrevista: 'independent', provasAlvoNestaSemana: 'independent',
   durationMinDisponivel: 'independent', diaDeForcaParaRegenerar: 'independent',
   athleteStateContext: 'device_aggregate',

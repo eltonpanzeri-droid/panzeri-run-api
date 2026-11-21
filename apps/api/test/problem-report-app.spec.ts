@@ -50,6 +50,6 @@ describe('Relatar problema (app)', () => {
     const app = read('App.tsx');
     expect(app).toContain("id: 'problemReport', label: 'Relatar problema'");
     expect(app).toContain("activeTab === 'problemReport' && <ProblemReportScreen");
-    expect(app).toContain("| 'problemReport';");
+    expect(app).toContain("| 'problemReport'"); // a aba faz parte do tipo Tab (nao precisa ser a ultima)
   });
 });

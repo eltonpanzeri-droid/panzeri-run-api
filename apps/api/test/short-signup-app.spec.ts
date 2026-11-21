@@ -36,7 +36,7 @@ describe('cadastro curto (app × servidor)', () => {
     // o fluxo antigo (apps publicados) segue completo e o resumo pre-pagamento continua encontrando as duas perguntas
     const quick = app.slice(app.indexOf('const quickIntakeQuestions'));
     expect(quick.slice(0, 6000)).toContain('QUICK_BARRIER_QUESTION,');
-    expect(app).toContain("quickIntakeQuestions.find((q) => q.key === 'quick_main_barrier')");
+    // 19/11/2026: a tela pre-pagamento deixou de resumir as respostas (so' mostra o proximo passo); nao procura mais essas perguntas por chave.
     // a rota para o pagamento depende do marco que o servidor ja grava no cadastro curto
     expect(app).toContain('interview?.quickIntakeCompletedAt');
   });

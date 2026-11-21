@@ -155,7 +155,6 @@ describe('aguda × cronica — onde aparece', () => {
   it('o painel do treinador mostra o cartao e a tela da aluna usa a frase nos dois blocos de grafico', () => {
     const root = join(__dirname, '..', '..');
     expect(readFileSync(join(root, 'admin', 'app', 'ti', 'explorer.tsx'), 'utf8')).toContain('<AcuteChronicCard');
-    expect(readFileSync(join(root, 'mobile', 'home', 'FeelingsDetailScreen.tsx'), 'utf8')).toContain('acuteChronicSentence(snapshot');
-    expect(readFileSync(join(root, 'mobile', 'home', 'EvolutionObjective.tsx'), 'utf8')).toContain('acuteChronicSentence(snapshot');
+    // A frase saiu das telas da aluna no redesenho da Evolucao (commit "Deixa so botoes sob os graficos", 2026-11): so' o cartao do painel do treinador permanece.
   });
 });

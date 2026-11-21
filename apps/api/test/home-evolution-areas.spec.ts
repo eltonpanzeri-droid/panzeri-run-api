@@ -10,7 +10,7 @@ describe('areas da Evolucao — configuracao', () => {
 
   it('Sono do relogio: duracao e fases em horas legiveis, pontuacao e HRV com aviso de que dependem do aparelho', () => {
     const byId = Object.fromEntries(WEARABLE_SLEEP_VARIABLES.map((v) => [v.id, v]));
-    expect(Object.keys(byId)).toEqual(['wearable.sleepDurationMin', 'wearable.sleepDeepMin', 'wearable.sleepLightMin', 'wearable.sleepRemMin', 'wearable.sleepScore', 'wearable.hrvLastNightAvg']);
+    expect(Object.keys(byId)).toEqual(['wearable.sleepDurationMin', 'wearable.sleepDeepMin', 'wearable.sleepLightMin', 'wearable.sleepRemMin', 'wearable.sleepScore', 'wearable.bedtimeDeviationMin', 'wearable.wakeDeviationMin', 'wearable.hrvLastNightAvg']); // horario de dormir e de acordar entraram em 15/11/2026
     expect(byId['wearable.sleepDurationMin'].format?.(450)).toBe('7h30');
     expect(byId['wearable.sleepDeepMin'].format?.(420)).toBe('7h');
     expect(byId['wearable.sleepDeepMin'].scaleHint).toContain('estimativas');

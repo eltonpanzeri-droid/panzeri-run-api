@@ -27,9 +27,14 @@ describe('aceite do ciclo para a IA', () => {
   }
 
   it('sem aceite o servico NAO entrega o ciclo a IA (nem consulta o resto)', async () => {
-    const { service } = build(null);
-    (service as any).getProfile = jest.fn(async () => { throw new Error('nao deveria ler o perfil sem aceite'); });
+    // 19/11/2026: o perfil e' lido (e' dado da propria aluna, nao sai daqui), mas o registro manual so' entra com o aceite: a visao do ciclo e' pedida com manualAllowed=false e nenhum registro diario e' consultado.
+    const { service, prisma } = build(null);
+    prisma.menstrualDailyLog = { findMany: jest.fn() };
+    (service as any).getProfile = jest.fn(async () => null);
+    (service as any).getCycleOverview = jest.fn(async () => ({ maturity: 'none', cycles: [] }));
     expect(await service.getAgentContext('u1')).toBeNull();
+    expect((service as any).getCycleOverview).toHaveBeenCalledWith('u1', expect.objectContaining({ forAi: true, manualAllowed: false }));
+    expect(prisma.menstrualDailyLog.findMany).not.toHaveBeenCalled();
   });
 
   it('aceitar exige o texto vigente; retirar tira a autorizacao; texto antigo pede de novo', async () => {
