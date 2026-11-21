@@ -226,3 +226,6 @@ Como saber se precisa de build: o PWA (iPhone pelo Safari e navegador) recebe a 
 
 ## Cuidado fixo de todo build Android (20/11/2026): páginas de 16 KB
 Antes de enviar um `.aab` à Play, rodar `python -I apps/mobile/check-16kb-alignment.py caminho.aab`. Resultado esperado: arm64-v8a e x86_64 com 0 bibliotecas abaixo de 16 KB (32 bits podem ficar em 4 KB). Repetir ao atualizar Expo, React Native, RevenueCat, Health Connect ou o plugin do Gradle do Wear OS. Detalhes no PRONTUARIO (20/11/2026).
+
+## Iniciar treino no Panzeri Run (21/11/2026) — EXIGE BUILD NOVO (TestFlight primeiro)
+Código pronto e commitado (sub-lotes 1.1 a 1.5); servidor já pode ir no Deploy (rotas `/me/run/*` e `canonical-choice`, migração `20261121120000_student_canonical_choice`). Aplicativo: versão 1.0.6 com expo-location/speech/haptics. Validar no iPhone antes de qualquer envio às lojas. Pendências em PRONTUARIO (21/11/2026, sub-lotes 1.4b e 1.5).
