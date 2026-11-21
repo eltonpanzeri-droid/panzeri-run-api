@@ -50,6 +50,8 @@ import { AppUpdateBanner } from './src/appUpdate/AppUpdateBanner';
 import { EquipmentScreen } from './src/equipment/EquipmentScreen';
 import { ProblemReportScreen } from './src/problemReport/ProblemReportScreen';
 import { NotificationPreferencesScreen } from './src/notificationPreferences/NotificationPreferencesScreen';
+import { RunScreen, type RunSessionInput } from './src/run/RunScreen';
+import type { StoredRunStructure } from './src/run/prescription';
 import { formatCpfInput, formatPhoneInput, onlyDigits, shortSignupProblem } from './src/signup/shortSignup';
 import { LegacyAtlasConsentCard } from './src/legacyConsent/LegacyAtlasConsentCard';
 import { PolarHealthConsentCard } from './src/polarHealth/PolarHealthConsentCard';
@@ -113,7 +115,7 @@ type Screen = 'login' | 'app';
 // destinos orfaos desde que "Conta"/"Perfil" passaram a montar os mesmos componentes
 // (MeusDados/Anamnese) diretamente. 'billing' permanece: ainda e' destino de redirects reais do
 // funil de pagamento (quickIntake/billing_regularize).
-type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery' | 'problemReport' | 'notificationPreferences';
+type Tab = 'home' | 'feelings' | 'week' | 'interview' | 'quickIntake' | 'routine' | 'physicalTests' | 'progress' | 'strava' | 'billing' | 'profile' | 'conta' | 'reassessment' | 'targetRace' | 'painReport' | 'observations' | 'fixAnswers' | 'notifications' | 'history' | 'ciclo' | 'medals' | 'shoes' | 'privacy' | 'devices' | 'fontes' | 'recovery' | 'problemReport' | 'notificationPreferences' | 'run';
 // 08/11/2026: telas em que o voltar do sistema NAO tira a pessoa (etapas obrigatorias do cadastro).
 const LOCKED_BACK_TABS: readonly Tab[] = ['interview', 'quickIntake'];
 // Telas que ja tem o proprio botao Voltar (ou sao o inicio): a barra Voltar global nao aparece nelas.
@@ -1501,6 +1503,8 @@ function AppInner() {
   }, []);
   // 03/10/2026 — deep link de notificacao pra um objeto especifico da aba Treinos (sessao ou atividade).
   const [weekDeepLink, setWeekDeepLink] = useState<WeekDeepLink | null>(null);
+  // Iniciar treino (21/11/2026): treino da semana a gravar (null = treino livre). A tela cuida do GPS, das etapas e do envio.
+  const [runSession, setRunSession] = useState<RunSessionInput>(null);
   const safeAreaInsets = useSafeAreaInsets();
   // weekTabOffset: quando o calendario historico navega para uma semana especifica,
   // este valor e' passado como initialWeekOffset para o componente Week ao montar.
@@ -1967,8 +1971,11 @@ function AppInner() {
                 onOpenPainReport={() => { setPainReportFromFeedback(true); setActiveTab('painReport'); }}
                 onOpenZepp={() => { setDevicesProvider('zepp'); setActiveTab('devices'); }}
                 onOpenRoutine={() => setActiveTab('routine')}
+                // so' nos aplicativos das lojas: o GPS com a tela bloqueada nao existe no navegador (PWA)
+                onStartRun={Platform.OS === 'web' ? undefined : (session) => { setRunSession(session); setActiveTab('run'); }}
               />
             )}
+            {activeTab === 'run' && <RunScreen apiUrl={API_URL} accessToken={accessToken} session={runSession} onClose={() => setActiveTab('week')} />}
             {activeTab === 'notifications' && (
               <View style={styles.screen}>
                 <Text style={styles.formSectionTitle}>Avisos</Text>
@@ -4232,7 +4239,7 @@ function FeedbackBadgeView({ state }: { state: FeedbackBadgeState }) {
   );
 }
 
-function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, onOpenZepp, onOpenRoutine, deepLink, onDeepLinkHandled }: { accessToken: string; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onOpenZepp?: () => void; onOpenRoutine?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
+function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onOpenPainReport, onOpenZepp, onOpenRoutine, onStartRun, deepLink, onDeepLinkHandled }: { accessToken: string; onStartRun?: (session: RunSessionInput) => void; initialWeekOffset?: number; onOpenInterview: () => void; onOpenTest: () => void; onOpenPainReport?: () => void; onOpenZepp?: () => void; onOpenRoutine?: () => void; deepLink?: WeekDeepLink | null; onDeepLinkHandled?: () => void }) {
   const [plan, setPlan] = useState<WeekPlan | null>(null);
   // Alvo destacado (atividade alternativa ou pendente) vindo de deep link de notificacao.
   const [highlightActivityId, setHighlightActivityId] = useState<string | null>(null);
@@ -5867,6 +5874,11 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                         ) : null}
                         <RealizedComparisonCard realized={session.realized} prescribedDistanceKm={session.distanceKm} prescribedDurationMin={session.durationMin} />
                         <ExecutionReportCard title="Relatório do treino" lines={plan?.sessionReports?.[session.id]?.lines} updating={Boolean(plan?.sessionReportsUpdating?.includes(session.id))} />
+                        {onStartRun && isRunSession(session) && !session.isAlternative && !session.realized ? (
+                          <Pressable style={styles.secondaryOutlineButton} onPress={() => onStartRun({ id: session.id, title: session.title, structure: session.structure as unknown as StoredRunStructure })} accessibilityRole="button">
+                            <Text style={styles.secondaryOutlineButtonText}>Iniciar treino</Text>
+                          </Pressable>
+                        ) : null}
                         {session.realized ? <ActivityDetailButton activityLogId={session.realized.activityLogId} accessToken={accessToken} /> : null}
                         {session.realized ? <ActivityLinkControls activityLogId={session.realized.activityLogId} linked accessToken={accessToken} onChanged={loadPlan} /> : null}
                         {session.isAlternative && session.alternativeActivityLogId ? <ActivityLinkControls activityLogId={session.alternativeActivityLogId} linked={false} accessToken={accessToken} onChanged={loadPlan} /> : null}
@@ -5932,6 +5944,14 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
           <Text style={styles.secondaryButtonText}>Registrar treino extra</Text>
         </Pressable>
       )}
+
+      {/* Iniciar treino sem prescricao (treino livre): o Panzeri Run grava tempo, distancia, ritmo e percurso */}
+      {plan && !plan.requiresOnboarding && !plan.locked && onStartRun ? (
+        <Pressable style={[styles.secondaryButton, { marginTop: 8, alignSelf: 'center' }]} onPress={() => onStartRun(null)} accessibilityRole="button">
+          <Ionicons name="play-circle-outline" size={18} color={PRColors.ocean} />
+          <Text style={styles.secondaryButtonText}>Gravar um treino livre</Text>
+        </Pressable>
+      ) : null}
 
       {/* Modal de treino extra */}
       <Modal visible={showExtraModal} transparent animationType="slide" onRequestClose={() => setShowExtraModal(false)}>
