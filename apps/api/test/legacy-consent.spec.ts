@@ -115,7 +115,7 @@ describe('IA: regra de NAO-PERDA para Polar/Wahoo', () => {
     const e = eligibility(new Map());
     expect(await e.decide('u1', 'polar', external)).toEqual({ allowed: true, reason: 'legacy_provider_unchanged' });
     expect(await e.decide('u1', 'wahoo', external)).toEqual({ allowed: true, reason: 'legacy_provider_unchanged' });
-    expect((await e.scopeFor('u1')).blocked).toEqual(['health_connect']); // polar/wahoo nao bloqueados
+    expect((await e.scopeFor('u1')).blocked).toEqual(['health_connect', 'panzeri_run']); // polar/wahoo nao bloqueados
   });
 
   it('com resposta: autorizou => permitido; nao autorizou/retirou => bloqueado so naquele provedor; texto antigo => bloqueado', async () => {
@@ -126,7 +126,7 @@ describe('IA: regra de NAO-PERDA para Polar/Wahoo', () => {
     const e = eligibility(rows);
     expect(await e.decide('u1', 'polar', external)).toEqual({ allowed: true, reason: 'allowed' });
     expect(await e.decide('u1', 'wahoo', external)).toMatchObject({ allowed: false, reason: 'purpose_not_granted' });
-    expect((await e.scopeFor('u1')).blocked).toEqual(['health_connect', 'wahoo']);
+    expect((await e.scopeFor('u1')).blocked).toEqual(['health_connect', 'panzeri_run', 'wahoo']);
     rows.get('polar|u1').purposeConsents = { ai_external: { version: '0.9', textHash: 'antigo', grantedAt: '2026-10-01T00:00:00.000Z' } };
     expect(await e.decide('u1', 'polar', external)).toMatchObject({ allowed: false, reason: 'purpose_not_granted' });
   });

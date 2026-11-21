@@ -10,6 +10,7 @@ import { FitnessTestsModule } from './fitness-tests/fitness-tests.module';
 import { PhysiologyModule } from './physiology/physiology.module';
 import { MeModule } from './me/me.module';
 import { WearModule } from './wear/wear.module';
+import { RunRecordingModule } from './run-recording/run-recording.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StravaModule } from './strava/strava.module';
@@ -67,6 +68,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AiCostModule,
     MeModule,
     WearModule,
+    RunRecordingModule,
     NotificationsModule,
     FitnessTestsModule,
     PhysiologyModule,

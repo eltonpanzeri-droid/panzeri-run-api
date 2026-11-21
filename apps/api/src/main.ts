@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureGarminWebhookBodyParser } from './garmin/garmin-webhook-body';
 import { configureWearActivityBodyParser } from './wear/wear-body';
+import { configureRunActivityBodyParser } from './run-recording/run-body';
 
 async function bootstrap() {
   // rawBody: true - necessario pra verificar a assinatura Svix do webhook da Resend
@@ -18,6 +19,7 @@ async function bootstrap() {
   configureGarminWebhookBodyParser(app);
   // 17/11/2026: treino gravado no relogio Wear OS (um ponto por segundo) passa de 100 KB; limite maior SO' em POST /wear/activities.
   configureWearActivityBodyParser(app);
+  configureRunActivityBodyParser(app);
   const config = app.get(ConfigService);
 
   app.enableCors({

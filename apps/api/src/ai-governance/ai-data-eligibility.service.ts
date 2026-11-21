@@ -7,6 +7,7 @@ import { HEALTH_CONNECT_CONSENT, HEALTH_CONNECT_PROVIDER_ID } from '../health-co
 import { APPLE_HEALTH_CONSENT, APPLE_HEALTH_PROVIDER_ID } from '../apple-health/apple-health-consent';
 import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LEGACY_CONSENT_PROVIDERS } from '../legacy-consent/legacy-consent';
 import { grantedPolarHealthCategories, POLAR_HEALTH_PROVIDER_ID } from '../polar/polar-health-consent';
+import { PANZERI_RUN_PROVIDER_ID, RUN_RECORDING_CONSENT } from '../run-recording/run-consent';
 import { isConnectionConsentCurrent, isPurposeCurrent } from '../provider-hub/provider-consent.service';
 import { AiDestination, AiScope } from './ai-scope';
 
@@ -35,11 +36,12 @@ import { AiDestination, AiScope } from './ai-scope';
 // 'garmin' LIBERADO por Elton em 08/11/2026 (premissa de 01/11: a IA tem acesso a tudo, exceto Strava/sem consentimento): Atlas so' com a autorizacao propria da aluna e so' resumos (Politica 5D; dados Garmin
 // nunca treinam modelos). Segunda trava: GARMIN_EXTERNAL_AI_ENABLED=true no servidor.
 // 'wear_os' LIBERADO por Elton (17/11/2026): o aplicativo do relogio e' nosso; o texto de consentimento inclui a IA (e o percurso). Segunda trava: WEAR_OS_EXTERNAL_AI_ENABLED=true no servidor.
-export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect', 'coros', 'garmin', 'wear_os'];
+// 'panzeri_run' (treino gravado no proprio Panzeri Run, 21/11/2026): o texto de consentimento ja' inclui a IA e o percurso (premissa de 01/11). Segunda trava: PANZERI_RUN_EXTERNAL_AI_ENABLED=true no servidor.
+export const EXTERNAL_AI_APPROVED_PROVIDERS: readonly string[] = ['zepp', 'health_connect', 'coros', 'garmin', 'wear_os', 'panzeri_run'];
 
 // Provedores cuja conexao e' do APARELHO (sem OAuth/conector na Central) mas que tem consentimento por categoria/finalidade gravado em ProviderConnection. Para estes, o antigo atalho
 // "provedor legado = elegivel como antes" NAO vale: a IA so' recebe o que o aluno autorizou (Health Connect, 22/10/2026).
-export const DEVICE_CONSENT_PROVIDERS: Readonly<Record<string, ConsentCapability>> = { [HEALTH_CONNECT_PROVIDER_ID]: HEALTH_CONNECT_CONSENT };
+export const DEVICE_CONSENT_PROVIDERS: Readonly<Record<string, ConsentCapability>> = { [HEALTH_CONNECT_PROVIDER_ID]: HEALTH_CONNECT_CONSENT, [PANZERI_RUN_PROVIDER_ID]: RUN_RECORDING_CONSENT };
 
 // Trava dupla do envio externo, reutilizavel fora do servico de elegibilidade (ex.: tela de autorizacoes).
 export function externalAiUnlockedFor(provider: string, config: { get<T = string>(key: string): T | undefined }): boolean {

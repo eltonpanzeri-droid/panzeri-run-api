@@ -73,13 +73,13 @@ describe('Apple Health na governanca de IA', () => {
   it('escopo de IA: Apple Health revogado entra em "blocked" e as atividades dele saem do filtro das consultas; autorizado ou legado nao bloqueia; outros provedores nao mudam', async () => {
     const { eligibility, logs, connect, connections } = setup();
     logs.push({ userId: 'u1', provider: 'apple_health' }, { userId: 'u1', provider: 'polar' }, { userId: 'u1', provider: 'strava' });
-    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect']); // legado: nada muda (so' o Health Connect, que ja' exigia autorizacao)
+    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect', 'panzeri_run']); // legado: nada muda (so' o Health Connect, que ja' exigia autorizacao)
     connect();
-    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect']); // autorizado: segue elegivel
+    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect', 'panzeri_run']); // autorizado: segue elegivel
     connections[0].disconnectedAt = new Date();
     const scope = await eligibility.scopeFor('u1');
-    expect(scope.blocked).toEqual(['apple_health', 'health_connect']);
-    await runWithAiScope(scope, async () => { expect(aiActivityWhere()).toEqual({ provider: { notIn: ['apple_health', 'health_connect'] } }); });
+    expect(scope.blocked).toEqual(['apple_health', 'health_connect', 'panzeri_run']);
+    await runWithAiScope(scope, async () => { expect(aiActivityWhere()).toEqual({ provider: { notIn: ['apple_health', 'health_connect', 'panzeri_run'] } }); });
   });
   // 10/11/2026 (decisao de Elton de 01/11): pressao/glicemia e ciclo do Apple Saude alimentam a IA somente com o grupo marcado, sobre o texto vigente; nenhum outro provedor os libera.
   it('pressao, glicemia e ciclo: somente entram no escopo de IA do Apple Saude quando a aluna marcou o grupo; sem o grupo ficam bloqueados; outros provedores sempre bloqueados', async () => {

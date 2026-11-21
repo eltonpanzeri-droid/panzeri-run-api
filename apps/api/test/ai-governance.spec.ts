@@ -49,7 +49,7 @@ afterEach(() => { const approved = EXTERNAL_AI_APPROVED_PROVIDERS as string[]; c
 
 describe('trava de envio externo (tripwire)', () => {
   it('a lista de provedores liberados para IA externa so tem Zepp (21/10/2026) e Health Connect (22/10/2026), ambos liberados por Elton — liberar outro e uma decisao revisada, nao um efeito colateral', () => {
-    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect', 'coros', 'garmin', 'wear_os']); // wear_os liberado por Elton em 17/11/2026; garmin liberada por Elton em 08/11/2026 (Atlas so' com a autorizacao propria e GARMIN_EXTERNAL_AI_ENABLED)
+    expect(EXTERNAL_AI_APPROVED_PROVIDERS).toEqual(['zepp', 'health_connect', 'coros', 'garmin', 'wear_os', 'panzeri_run']); // panzeri_run liberado em 21/11/2026 (gravacao no proprio Panzeri Run, com consentimento proprio); wear_os liberado por Elton em 17/11/2026; garmin liberada por Elton em 08/11/2026 (Atlas so' com a autorizacao propria e GARMIN_EXTERNAL_AI_ENABLED)
   });
 });
 
@@ -114,15 +114,15 @@ describe('AiDataEligibility.scopeFor', () => {
     prisma.logs.push({ userId: 'u1', provider: 'polar' }, { userId: 'u1', provider: 'garmin' }, { userId: 'u2', provider: 'outro' });
     const scope = await eligibility.scopeFor('u1');
     expect(scope).toMatchObject({ userId: 'u1', destination: 'external_ai' });
-    expect(scope.blocked).toEqual(['garmin', 'health_connect', 'novo']);
-    expect((await eligibility.scopeFor('u2')).blocked).toEqual(['health_connect', 'novo', 'outro']);
+    expect(scope.blocked).toEqual(['garmin', 'health_connect', 'novo', 'panzeri_run']); // panzeri_run: consentimento proprio, bloqueado ate a aluna autorizar
+    expect((await eligibility.scopeFor('u2')).blocked).toEqual(['health_connect', 'novo', 'outro', 'panzeri_run']);
   });
 
   it('sem nenhum provedor da Central e so com legados: nada bloqueado (nenhuma mudanca de comportamento)', async () => {
     const prisma = makePrisma();
     prisma.logs.push({ userId: 'u1', provider: 'polar' }, { userId: 'u1', provider: 'wahoo' }, { userId: 'u1', provider: 'apple_health' }, { userId: 'u1', provider: 'health_connect' });
     const eligibility = new AiDataEligibility(prisma, new ConnectorRegistry(), { get: () => undefined } as unknown as ConfigService);
-    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect']); // so o Health Connect (sem autorizacao do aluno); Polar, Wahoo e Apple Health seguem como antes
+    expect((await eligibility.scopeFor('u1')).blocked).toEqual(['health_connect', 'panzeri_run']); // so o Health Connect (sem autorizacao do aluno); Polar, Wahoo e Apple Health seguem como antes
   });
 });
 
@@ -176,7 +176,7 @@ describe('AiEgressGuard', () => {
     const { guard, eligibility, connect, unlock, prisma } = setup({ NOVO_EXTERNAL_AI_ENABLED: 'true' });
     unlock(); connect();
     const scope = await eligibility.scopeFor('u1');
-    expect(scope.blocked).toEqual(['health_connect']); // Health Connect sem autorizacao do aluno (nao e mais "legado elegivel")
+    expect(scope.blocked).toEqual(['health_connect', 'panzeri_run']); // Health Connect sem autorizacao do aluno (nao e mais "legado elegivel")
     prisma.connections[0].grantedPurposes = ['history']; // aluno revoga a IA enquanto a geracao roda
     const err = await inScope(scope, () => guard.assertDeviceData('treinador_semana')).catch((e) => e);
     expect(err).toBeInstanceOf(AiEgressBlockedError);
