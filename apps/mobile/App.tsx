@@ -5841,6 +5841,7 @@ ${message}`)) void runCancelCompletion(session);
                   : {};
                 return (
                   <View ref={(node) => { sessionCardRefs.current[session.id] = node; }} style={[styles.weekSessionCard, cardStatusStyle]} key={session.id}>
+                    <SwipeMoveHandle session={session} planStartDate={plan?.startDate} onMove={rescheduleSession}>
                     <Pressable
                       style={styles.collapseHeader}
                       onPress={() => {
@@ -5901,6 +5902,7 @@ ${message}`)) void runCancelCompletion(session);
                       </View>
                       <Ionicons name={sessionExpanded ? 'chevron-up' : 'chevron-down'} size={22} color={PRColors.ocean} />
                     </Pressable>
+                    </SwipeMoveHandle>
 
                     {sessionExpanded ? (
                       <View style={[styles.formSection, { borderLeftWidth: 4, borderLeftColor: modalityAccentColor(session.modality) }]}>
@@ -13705,6 +13707,49 @@ function dayToWeekday(day: string) {
   if (normalized.startsWith('sex')) return 5;
   if (normalized.startsWith('sab')) return 6;
   return 0;
+}
+
+// Arrastar o treino para o lado mostra as setas para mudar o dia (22/11/2026, pedido de Elton): ▲ dia anterior, ▼ dia seguinte; vale as mesmas regras do botao "Reagendar" (mesma semana, nao
+// para dia que ja passou, treino ja registrado nao se move — o servidor confere e responde). No PWA funciona com o mouse ou o dedo; o botao "Reagendar" continua existindo.
+function SwipeMoveHandle({ session, planStartDate, onMove, children }: { session: WeekPlanSession; planStartDate?: string; onMove: (sessionId: string, targetWeekday: number) => void; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const responder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 18 && Math.abs(g.dy) < 12,
+    onPanResponderRelease: (_, g) => { if (Math.abs(g.dx) > 40) setOpen((current) => !current); },
+  }), []);
+  const movable = Boolean(session.isoDate) && !session.isAlternative && !session.completion && Boolean(planStartDate);
+  const step = (days: number) => {
+    if (!session.isoDate || !planStartDate) return null;
+    const date = new Date(`${session.isoDate}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    const monday = new Date(`${planStartDate.slice(0, 10)}T12:00:00Z`);
+    const sunday = new Date(monday);
+    sunday.setUTCDate(monday.getUTCDate() + 6);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const local = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+    const inWeek = date.getTime() >= monday.getTime() && date.getTime() <= sunday.getTime();
+    return { weekday: date.getUTCDay(), label: `${weekdayShortLabel(date.getUTCDay())} ${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}`, disabled: !inWeek || local.getTime() < today.getTime() };
+  };
+  if (!movable) return <>{children}</>;
+  const before = step(-1);
+  const after = step(1);
+  return (
+    <View>
+      <View {...responder.panHandlers}>{children}</View>
+      {open ? (
+        <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingBottom: 8 }}>
+          {[{ item: before, icon: 'chevron-up' as const, text: 'Dia anterior' }, { item: after, icon: 'chevron-down' as const, text: 'Dia seguinte' }].map(({ item, icon, text }) => (
+            <Pressable key={text} disabled={!item || item.disabled} style={[styles.secondaryButton, { flex: 1, flexDirection: 'row', justifyContent: 'center', gap: 6 }, (!item || item.disabled) && styles.disabledButton]}
+              onPress={() => { if (item) { setOpen(false); onMove(session.id, item.weekday); } }} accessibilityRole="button">
+              <Ionicons name={icon} size={16} color={PRColors.ocean} />
+              <Text style={styles.secondaryButtonText}>{text}{item ? ` (${item.label})` : ''}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
 function weekdayShortLabel(weekday: number) {
