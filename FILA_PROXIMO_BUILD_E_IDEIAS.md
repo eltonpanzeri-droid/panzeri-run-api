@@ -229,3 +229,24 @@ Antes de enviar um `.aab` à Play, rodar `python -I apps/mobile/check-16kb-align
 
 ## Iniciar treino no Panzeri Run (21/11/2026) — EXIGE BUILD NOVO (TestFlight primeiro)
 Código pronto e commitado (sub-lotes 1.1 a 1.5); servidor já pode ir no Deploy (rotas `/me/run/*` e `canonical-choice`, migração `20261121120000_student_canonical_choice`). Aplicativo: versão 1.0.6 com expo-location/speech/haptics. Validar no iPhone antes de qualquer envio às lojas. Pendências em PRONTUARIO (21/11/2026, sub-lotes 1.4b e 1.5).
+
+## 22/11/2026 — O QUE FICA PARA O PRÓXIMO BUILD (iPhone: build 24; Android: 1.0.6) — conferido contra o código
+**Estado dos builds hoje:** iPhone, build **23** (1.0.6) = Iniciar treino + linha "FONTE" + correção do PWA; está em revisão externa do TestFlight (Juliana e Lucelane). **Não está na 23** nada do que vem abaixo. Android: produção é a 1.0.5; o Android 1.0.6 ainda NÃO foi gerado (Iniciar treino e tudo abaixo entram nele).
+
+**Entra no build 24 / Android 1.0.6 (telas, `apps/mobile`):**
+1. **Cancelar feedback** — botão "Cancelar feedback" ao lado de "Alterar feedback" (`App.tsx`: `cancelCompletion`/`runCancelCompletion`, prop `onCancelFeedback` do `CompletionForm`). Valida: cancelar um feedback salvo, ver o treino voltar a "sem registro", e que o texto antigo some da tela (fica guardado no servidor).
+2. **Data realizada prevalece** — texto "Este treino foi prescrito para ser realizado em DD/MM." no cartão (`prescribedIsoDate`); pergunta de conflito ao vincular (`date_conflict` → reenvia com `confirmMove`); avisos novos nas telas "Vincular atividade" e "Desfazer vínculo". Valida: vincular uma atividade feita em outro dia e ver o treino mudar de dia; desfazer e ver voltar; conflito com outra corrida no mesmo dia.
+3. **Arrastar para reagendar** — `SwipeMoveHandle` (arrastar o cartão para o lado mostra ▲ dia anterior / ▼ dia seguinte). **Não validado em aparelho nem no PWA**; conferir se não atrapalha a rolagem vertical.
+- **Observação de compatibilidade:** com o servidor novo e o app ANTIGO (1.0.5 em produção), vincular continua funcionando; só no caso raro de conflito (outra corrida no mesmo dia) o app antigo mostra a mensagem e não oferece "mover mesmo assim". Não quebra nada.
+
+**NÃO exige build (só Deploy):**
+- **API:** regra de mover/devolver o treino, `DELETE /workout-completions/:id`, `confirmMove`, e-mail novo. **A migração `20261122120000_session_prescribed_date` roda no Deploy da API** (coluna nova; rollback `DROP COLUMN`). Fazer o Deploy da API ANTES de qualquer teste das telas novas.
+- **E-mail do programa da semana** (HTML com cartões e barras): vale na próxima geração de programa após o Deploy da API. Conferir o e-mail real recebido.
+- **PWA (panzeri-run-app):** o Deploy do web leva as telas 1 a 3 ao PWA e também corrige o deploy que estava falhando (mapa nativo separado). Quem usa o PWA precisa reinstalar/atualizar o ícone para ver.
+- **Reparo dos dados do Elton (sexta 20/11 × sábado 21/11):** comando `executed-date-repair` (por padrão só mostra), rodar DEPOIS do Deploy da API, com o e-mail da conta, um passo por vez no chat.
+
+**Segue no build (já estava na fila):** tudo da seção "Iniciar treino no Panzeri Run (21/11/2026)" e o aviso do Google de página de 16 KB (rodar o script antes de subir o `.aab`).
+
+**Pendência de abril/2027 (aviso da Apple ITMS-90725):** a partir de abril/2027 só entram builds feitos com o SDK do iOS 27 (Xcode 27). Atualizar o Expo/imagem de build em março/2027, como tarefa própria com teste.
+
+**Ideias NÃO feitas (não fazer sem ordem):** cartões de Evolução para compartilhar (sem a linha "FONTE" no início, decisão de 21/11); mapa 3D (Mapbox); chave do mapa do Android (hoje só o desenho do trajeto); e-mail com gráfico mais rico/interativo só dentro do aplicativo.
