@@ -155,9 +155,10 @@ describe('Zepp: conector (nada de recebimento de dados ativado)', () => {
   });
 
   it('Polar, Wahoo, Strava e o pipeline de atividades nao dependem da Zepp nem da conexao generica', () => {
+    // 22/11/2026: recording-choices.ts so' traz o NOME de exibicao de cada fonte ("Zepp/Amazfit") para a tela "qual gravacao vale"; nao le nem grava nada da Zepp.
     for (const d of ['polar', 'wahoo', 'strava', 'activity-execution', 'apple-health', 'health-connect']) {
       const base = join(__dirname, '..', 'src', d);
-      for (const file of readdirSync(base).filter((f) => f.endsWith('.ts') && !(d === 'polar' && /^polar-activity-ingestion\.service/.test(f)) && !(d === 'health-connect' && /^(health-connect-(consent|health)|health-record-persist)/.test(f)) && !(d === 'apple-health' && /^apple-health-(consent|records)/.test(f)) && !(d === 'polar' && /^polar-health/.test(f)))) {
+      for (const file of readdirSync(base).filter((f) => f.endsWith('.ts') && !(d === 'polar' && /^polar-activity-ingestion\.service/.test(f)) && !(d === 'health-connect' && /^(health-connect-(consent|health)|health-record-persist)/.test(f)) && !(d === 'apple-health' && /^apple-health-(consent|records)/.test(f)) && !(d === 'polar' && /^polar-health/.test(f)) && !(d === 'activity-execution' && f === 'recording-choices.ts'))) {
         expect(readFileSync(join(base, file), 'utf8')).not.toMatch(/zepp|ProviderConnection\b|provider-connection/i);
       }
     }
