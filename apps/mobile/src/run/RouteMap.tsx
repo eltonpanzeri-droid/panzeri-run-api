@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
-import MapView, { Marker, Polyline } from 'react-native-maps';
+import { NativeMap } from './NativeMap';
 import Svg, { Circle, Polyline as SvgPolyline } from 'react-native-svg';
 import { RoutePoint, projectToBox } from './route';
 
@@ -27,28 +27,6 @@ export function RouteMap({ points, height, upTo = 1, marker = null, onReady, for
   return <NativeMap points={points} drawn={drawn} marker={marker} height={height} lineColor={lineColor} onReady={onReady} />;
 }
 
-function NativeMap({ points, drawn, marker, height, lineColor, onReady }: { points: RoutePoint[]; drawn: RoutePoint[]; marker: { lat: number; lon: number } | null; height: number; lineColor: string; onReady?: () => void }) {
-  const ref = useRef<MapView>(null);
-  const coordinates = useMemo(() => points.map((p) => ({ latitude: p.lat, longitude: p.lon })), [points]);
-  const drawnCoordinates = useMemo(() => drawn.map((p) => ({ latitude: p.lat, longitude: p.lon })), [drawn]);
-  const fit = useCallback(() => {
-    ref.current?.fitToCoordinates(coordinates, { edgePadding: { top: 40, right: 40, bottom: 40, left: 40 }, animated: false });
-  }, [coordinates]);
-  useEffect(() => { fit(); }, [fit]);
-  return (
-    <View style={{ height, borderRadius: 16, overflow: 'hidden' }} pointerEvents="none" collapsable={false}>
-      <MapView
-        ref={ref} style={StyleSheet.absoluteFill} mapType="standard" userInterfaceStyle="dark" scrollEnabled={false} zoomEnabled={false} rotateEnabled={false} pitchEnabled={false} toolbarEnabled={false}
-        showsUserLocation={false} onMapReady={fit} onMapLoaded={() => { fit(); setTimeout(() => onReady?.(), 500); }}
-        initialRegion={{ latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
-      >
-        <Polyline coordinates={drawnCoordinates} strokeColor={lineColor} strokeWidth={5} lineCap="round" lineJoin="round" />
-        {marker ? <Marker coordinate={{ latitude: marker.lat, longitude: marker.lon }} anchor={{ x: 0.5, y: 0.5 }}><View style={styles.dot} /></Marker> : null}
-      </MapView>
-    </View>
-  );
-}
-
 function Sketch({ points, drawn, marker, height, lineColor, onReady }: { points: RoutePoint[]; drawn: RoutePoint[]; marker: { lat: number; lon: number } | null; height: number; lineColor: string; onReady?: () => void }) {
   const width = 320;
   const all = useMemo(() => projectToBox([...points, ...(marker ? [{ lat: marker.lat, lon: marker.lon }] : [])], width, height, 16), [points, marker, height]);
@@ -70,5 +48,4 @@ function Sketch({ points, drawn, marker, height, lineColor, onReady }: { points:
 
 const styles = StyleSheet.create({
   empty: { backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16 },
-  dot: { width: 16, height: 16, borderRadius: 8, backgroundColor: ROUTE_COLOR, borderWidth: 3, borderColor: '#FFFFFF' },
 });
