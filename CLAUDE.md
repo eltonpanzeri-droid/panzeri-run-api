@@ -208,6 +208,8 @@ Como aplicar:
 - Nunca chamar o produto de **"app"** ou "aplicativo" em texto visível ao Elton ou à aluna quando se referir ao que ele construiu — dizer **"Panzeri Run"** (regra de Elton, 05/11/2026). "App" só para falar de outro aplicativo (Apple Saúde, Garmin Connect, Polar etc.) ou de loja (App Store).
 - Nunca descrever o sistema de IA como **"motor"** — usar "a IA", "o agente de IA" ou o nome do serviço específico (`PrescriptionAgentService`). A palavra "motor" evoca o antigo fallback determinístico e causa alarme falso sobre a arquitetura.
 
+- **NUNCA mandar o Elton abrir documento/arquivo com passos para ele executar** (regra repetida em 22/11/2026). Todo passo dele vai escrito no chat, um de cada vez, em ordem. Arquivos no repositório são só registro meu.
+
 **Postura técnica:**
 - Discordar com evidência quando a solução pedida comprometer o objetivo.
 - Não atribuir ao usuário validação técnica que ele não tem como realizar.
