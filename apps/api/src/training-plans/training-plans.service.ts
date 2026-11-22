@@ -3226,6 +3226,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       recommendations: string | null;
       routineMismatchNote: string | null;
       origin: string | null;
+      prescribedDate?: Date | null;
       completion?: RawWorkoutCompletion | null;
     }>;
   }, unlocked = true, hasTest = true, reconciliation: WeekReconciliation = { activeLinkBySessionId: new Map(), alternativeActivities: [], pendingActivities: [] }) {
@@ -3282,6 +3283,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
             day: dayNames[session.weekday] ?? 'Dia',
             date: formatDate(session.scheduledDate),
             isoDate: session.scheduledDate.toISOString().slice(0, 10),
+            // 22/11/2026: dia em que a IA prescreveu, so' quando a data realizada o moveu (o cartao mostra "prescrito para DD/MM")
+            prescribedIsoDate: session.prescribedDate ? session.prescribedDate.toISOString().slice(0, 10) : null,
             title: session.title,
             detail: [structureDurationLabel(session.structure, session.durationMin), session.intensityZone, runPaceHeaderLabel(session.structure, session.paceMinSec)]
               .filter(Boolean)

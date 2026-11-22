@@ -58,16 +58,18 @@ export class ActivityExecutionController {
   }
 
   // Conciliacao (30/10/2026): body { trainingSessionId, confirmIncompatible?, role?: 'primary'|'part', keepFeedback?: 'session'|'activity' }.
-  // 400 com code 'needs_confirmation' (dados parecem diferentes: o app mostra os motivos e reenvia com confirmIncompatible) ou 'feedback_choice_required'.
+  // 400 com code 'needs_confirmation' (dados parecem diferentes: o app mostra os motivos e reenvia com confirmIncompatible), 'feedback_choice_required' ou 'date_conflict'
+  // (ja' existe treino da mesma modalidade no dia da execucao: o app pergunta e reenvia com confirmMove).
   @Post(':activityLogId/link')
   link(
     @CurrentUser() user: CurrentUserPayload, @Param('activityLogId') activityLogId: string, @Body('trainingSessionId') trainingSessionId: string,
-    @Body('confirmIncompatible') confirmIncompatible?: boolean, @Body('role') role?: string, @Body('keepFeedback') keepFeedback?: string,
+    @Body('confirmIncompatible') confirmIncompatible?: boolean, @Body('role') role?: string, @Body('keepFeedback') keepFeedback?: string, @Body('confirmMove') confirmMove?: boolean,
   ) {
     return this.sessionExecutionLinkService.linkActivityToSessionAsStudent(user.sub, activityLogId, String(trainingSessionId ?? ''), {
       confirmIncompatible: confirmIncompatible === true,
       role: role === 'part' ? 'part' : 'primary',
       keepFeedback: keepFeedback === 'session' || keepFeedback === 'activity' ? keepFeedback : undefined,
+      confirmMove: confirmMove === true,
     });
   }
 

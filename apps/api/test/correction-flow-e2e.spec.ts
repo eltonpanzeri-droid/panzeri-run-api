@@ -40,11 +40,13 @@ function build() {
       findMany: jest.fn(async ({ where }: any) => [...links.values()].filter((l) => (where.userId === undefined || l.userId === where.userId) && inList(l.activityLogId, where.activityLogId) && inList(l.trainingSessionId, where.trainingSessionId)
         && (where.status === undefined || inList(l.status, where.status))
         && (!where.OR || where.OR.some((c: any) => (c.createdAt && l.createdAt >= c.createdAt.gte) || (c.revokedAt && l.revokedAt && l.revokedAt >= c.revokedAt.gte))))),
+      count: jest.fn(async ({ where }: any) => [...links.values()].filter((l) => (where.trainingSessionId === undefined || l.trainingSessionId === where.trainingSessionId) && (where.status === undefined || inList(l.status, where.status))).length),
       update: jest.fn(async ({ where, data }: any) => { Object.assign(links.get(where.id)!, data); return links.get(where.id); }),
       create: jest.fn(async ({ data }: any) => { const row = { id: `l${links.size + 1}`, revokedAt: null, ...data }; links.set(row.id, row); return row; }),
     },
     trainingSession: {
       findFirst: jest.fn(async () => null),
+      findUnique: jest.fn(async ({ where }: any) => sessions.get(where.id) ?? null),
       findMany: jest.fn(async ({ where }: any) => [...sessions.values()].map((s): Row => ({ ...s, executionLinks: [...links.values()].filter((l) => l.trainingSessionId === s.id && l.status === 'active') }))
         .filter((s) => inList(s.id, where.id) && (where.userId === undefined || s.userId === where.userId))),
     },

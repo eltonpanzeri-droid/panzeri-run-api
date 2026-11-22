@@ -43,6 +43,7 @@ function fakePrisma(seed: { activities?: Row[]; sessions?: Row[]; links?: Row[];
     },
     sessionExecutionLink: {
       findMany: jest.fn(async ({ where }: any) => [...links.values()].filter((l) => linkMatches(l, where))),
+      count: jest.fn(async ({ where }: any) => [...links.values()].filter((l) => linkMatches(l, where)).length),
       update: jest.fn(async ({ where, data }: any) => { const next = { ...links.get(where.id), ...data }; links.set(where.id, next); return next; }),
     },
     trainingSession: {

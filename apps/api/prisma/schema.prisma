@@ -672,6 +672,9 @@ model TrainingSession {
   // distanceKm, paceMinSec, structure}. Null/vazio quando a sessao nunca foi editada apos ter
   // completion. NAO e' um sistema de auditoria generico — so' existe pra esse caso especifico.
   prescriptionHistory Json?
+  // 22/11/2026 (ordem de Elton: a data REALIZADA prevalece): quando a aluna vincula uma atividade feita em outro dia a este treino prescrito, `scheduledDate` passa a ser o dia
+  // da execucao e o dia em que a IA prescreveu fica guardado AQUI (so' preenchido quando houve essa mudanca; null = nunca foi movido pelo vinculo). Desvincular devolve o treino a este dia.
+  prescribedDate      DateTime?
   updatedAt           DateTime           @updatedAt
   completion          WorkoutCompletion?
 

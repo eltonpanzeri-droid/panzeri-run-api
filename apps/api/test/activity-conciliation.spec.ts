@@ -52,6 +52,9 @@ function build() {
       findMany: async ({ where }: any) => [...sessions.values()].filter((s) => m(s, where)).map(withRelations),
       create: async ({ data }: any) => { const row = { id: id('s'), ...data }; sessions.set(row.id, row); return withRelations(row); },
       delete: async ({ where }: any) => { sessions.delete(where.id); },
+      // 22/11/2026: a data realizada prevalece (executed-date-move.ts)
+      findFirst: async () => null,
+      update: async ({ where, data }: any) => { Object.assign(sessions.get(where.id)!, data); return withRelations(sessions.get(where.id)!); },
     },
     sessionExecutionLink: {
       findMany: async ({ where }: any) => [...links.values()].filter((l) => m(l, where)),
@@ -68,7 +71,10 @@ function build() {
     workoutFeedbackVersion: { create: async ({ data }: any) => { versions.push({ id: id('v'), ...data }); } },
     sessionExecutionAnalysis: { deleteMany: async () => ({ count: 0 }) },
     trainingAnalysis: { deleteMany: async () => ({ count: 0 }) },
-    trainingPlan: { findFirst: async ({ where, orderBy }: any) => sorted([...plans.values()].filter((p) => m(p, where)), orderBy)[0] ?? null },
+    trainingPlan: {
+      findFirst: async ({ where, orderBy }: any) => sorted([...plans.values()].filter((p) => m(p, where)), orderBy)[0] ?? null,
+      findMany: async ({ where }: any) => [...plans.values()].filter((p) => p.userId === where.userId && p.startDate <= where.startDate.lte && p.startDate > where.startDate.gt),
+    },
     weeklyExecutionReport: {
       findMany: async ({ where }: any) => [...reports.values()].filter((r) => m(r, where)),
       update: async ({ where, data }: any) => { Object.assign(reports.get(where.id)!, data); return reports.get(where.id); },
@@ -411,5 +417,36 @@ describe('atividades em lote: relatorio atualizado uma vez', () => {
       expect(refresher).toHaveBeenCalledTimes(1);
       expect(refresher).toHaveBeenCalledWith(USER, ['2026-10-20', '2026-10-21', '2026-10-22']);
     } finally { weeklyReportRefresh.set(null); jest.useRealTimers(); }
+  });
+});
+
+// 22/11/2026 (ordem de Elton): a data REALIZADA prevalece. Fluxo completo pelo servico (a regra pura esta em executed-date-move.spec.ts).
+describe('data realizada prevalece no vinculo manual do aluno', () => {
+  const withPlan = () => {
+    const t = build();
+    t.plans.set('p47', { id: 'p47', userId: USER, status: 'active', startDate: day('2026-11-16'), createdAt: new Date() });
+    const sat = t.addSession({ id: 'sab', planId: 'p47', weekday: 5, modality: 'corrida', title: 'Longão', scheduledDate: day('2026-11-21'), distanceKm: 16, durationMin: 100 });
+    const fri = t.addActivity({ id: 'act-sex', sport: 'corrida', startedAt: new Date('2026-11-20T11:00:00Z'), distanceMeters: 16000, durationSec: 6000 });
+    return { t, sat, fri };
+  };
+
+  it('treino prescrito de sabado, feito na sexta: o vinculo o move para a sexta e guarda o sabado; desvincular o devolve', async () => {
+    const { t, sat, fri } = withPlan();
+    const out = await t.service.linkActivityToSessionAsStudent(USER, fri.id, sat.id);
+    expect(out.dateMove).toEqual({ moved: true, reason: 'moved', from: '2026-11-21', to: '2026-11-20' });
+    expect(t.sessions.get('sab')).toMatchObject({ scheduledDate: day('2026-11-20'), weekday: 4, prescribedDate: day('2026-11-21') });
+    await t.service.unlinkActivityAsStudent(USER, fri.id);
+    expect(t.sessions.get('sab')).toMatchObject({ scheduledDate: day('2026-11-21'), weekday: 5, prescribedDate: null });
+  });
+
+  it('ja existe corrida prescrita na sexta: 400 date_conflict e NADA e movido nem vinculado; com a autorizacao (confirmMove) move', async () => {
+    const { t, sat, fri } = withPlan();
+    t.addSession({ id: 'sex', planId: 'p47', weekday: 4, modality: 'corrida', title: 'Rodagem', scheduledDate: day('2026-11-20') });
+    t.prisma.trainingSession.findFirst = async ({ where }: any) => [...t.sessions.values()].find((s) => s.planId === where.planId && s.weekday === where.weekday && s.modality === where.modality && s.id !== where.id.not) ?? null;
+    await expect(t.service.linkActivityToSessionAsStudent(USER, fri.id, sat.id)).rejects.toMatchObject({ response: { code: 'date_conflict', existingTitle: 'Rodagem' } });
+    expect(t.sessions.get('sab')!.scheduledDate).toEqual(day('2026-11-21'));
+    const ok = await t.service.linkActivityToSessionAsStudent(USER, fri.id, sat.id, { confirmMove: true });
+    expect(ok.dateMove.moved).toBe(true);
+    expect(t.sessions.get('sab')!.scheduledDate).toEqual(day('2026-11-20'));
   });
 });

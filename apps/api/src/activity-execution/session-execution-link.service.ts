@@ -11,6 +11,7 @@ import { DEFAULT_SYNC_LIMIT, processPendingReevaluation, readPending } from './p
 import { CorrectionKind, CorrectionOrigin, LinkChange, SessionEditChange, correctionHooks, scheduleWeeklyReportRefresh, weeklyReportRefresh } from './correction-hooks';
 import { assessCompatibility, modalitiesCompatible, weakForceCompatible, type CompatibilityAssessment } from './activity-compatibility';
 import { includeExcludedActivities } from '../prisma/activity-exclusion-scope';
+import { moveSessionToExecutedDate, restorePrescribedDate } from './executed-date-move';
 import { ExclusionMode, ExclusionReason, exclusionProfileNote, isExclusionMode, isExclusionReason, tombstoneMetricsPatch } from './activity-exclusion';
 
 // Opcoes do ponto central pos-correcao: o que o chamador sabe sobre a correcao (quem, de que tipo, o que mais foi afetado).
@@ -269,6 +270,8 @@ export interface LinkOptions {
   role?: 'primary' | 'part';
   // quando o treino e a atividade ja' tem feedback: qual fica como principal (o outro e' preservado como versao)
   keepFeedback?: 'session' | 'activity';
+  // 22/11/2026: a aluna autorizou mover o treino para um dia que ja' tem outro treino da mesma modalidade (a data realizada prevalece)
+  confirmMove?: boolean;
 }
 
 function feedbackSummary(completion: Record<string, unknown>): Record<string, unknown> {
@@ -1354,7 +1357,7 @@ export class SessionExecutionLinkService {
     // Vinculo e atualizacao da marcacao ('nao feito' -> 'realizado', se for o caso) na MESMA transacao.
     const { flipped, ...result } = await this.withUserLock(userId, async (service) => ({ ...(await service.linkActivityToSessionLocked(activityLogId, trainingSessionId, options)), flipped: await service.markDoneAfterStudentConfirmation(trainingSessionId) }));
     // Atividade que ja tinha treino extra registrado: o registro de feedback dessa sessao foi movido ou preservado (contagens de medalhas podem mudar).
-    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', completionsChanged: result.syntheticRemoved || flipped });
+    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', completionsChanged: result.syntheticRemoved || flipped, affectedDates: [result.dateMove.from, result.dateMove.to].filter((d): d is string => Boolean(d)) });
     return { ...result, compatibility: assessment };
   }
 
@@ -1429,7 +1432,9 @@ export class SessionExecutionLinkService {
       trainingSessionId: session.id, activityLogId: canonical.id, origin: 'student', matchMethod: asPart ? 'student_link_part' : 'student_link',
       evidence: buildEvidence(session, canonical), note: asPart ? 'Vinculado pelo aluno como parte da mesma sessao.' : 'Vinculado pelo aluno.', role: asPart ? 'part' : null,
     });
-    return { linkId: link.id, activityLogId: canonical.id, trainingSessionId: session.id, replacedActivityLogIds: replaced, feedbackMovedFromExtraSession: feedbackMoved, keptFeedback, syntheticRemoved, role: asPart ? ('part' as const) : ('primary' as const) };
+    // 22/11/2026 (ordem de Elton): a data REALIZADA prevalece — o treino prescrito passa para o dia em que a atividade foi feita (qualquer semana); o dia prescrito fica guardado.
+    const dateMove = await moveSessionToExecutedDate(this.prisma, { sessionId: session.id, executedIso: localCalendarDate(canonical.startedAt, canonical.utcOffsetMinutes), confirmConflict: options.confirmMove === true });
+    return { linkId: link.id, activityLogId: canonical.id, trainingSessionId: session.id, replacedActivityLogIds: replaced, feedbackMovedFromExtraSession: feedbackMoved, keptFeedback, syntheticRemoved, role: asPart ? ('part' as const) : ('primary' as const), dateMove };
   }
 
   // Treinos prescritos que o aluno pode escolher para esta atividade. TODOS os treinos prescritos de uma janela larga (qualquer semana), sem filtro de modalidade:
@@ -1502,9 +1507,16 @@ export class SessionExecutionLinkService {
       }
       for (const link of links) await service.markExtra({ activityLogId: link.activityLogId, origin: 'student', note: note ?? 'student_unlinked' });
       if (!links.some((l) => l.activityLogId === canonical.id)) await service.markExtra({ activityLogId: canonical.id, origin: 'student', note: note ?? 'student_unlinked' });
-      return { activityLogId: canonical.id, classification: 'alternative' as const, revokedLinkIds: links.map((l) => l.id) };
+      // 22/11/2026: o treino que o vinculo tinha movido para o dia da execucao volta ao dia prescrito (so' se nao sobrou outra atividade vinculada a ele).
+      const restoredDates: string[] = [];
+      for (const sessionId of new Set(links.map((l) => l.trainingSessionId))) {
+        if ((await service.prisma.sessionExecutionLink.count({ where: { trainingSessionId: sessionId, status: 'active' } })) > 0) continue;
+        const back = await restorePrescribedDate(service.prisma, sessionId);
+        if (back.moved && back.from && back.to) restoredDates.push(back.from, back.to);
+      }
+      return { activityLogId: canonical.id, classification: 'alternative' as const, revokedLinkIds: links.map((l) => l.id), restoredDates };
     });
-    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction' });
+    await this.recomputeAfterCorrection(userId, since, { origin: 'student', actorId: userId, kind: 'link_correction', affectedDates: 'restoredDates' in result ? result.restoredDates : undefined });
     return result;
   }
 

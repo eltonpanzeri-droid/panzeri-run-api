@@ -243,6 +243,8 @@ interface WeekPlanSession {
   day: string;
   date: string;
   isoDate?: string; // 'YYYY-MM-DD' para comparacoes de data; date e 'DD/MM' apenas para exibicao
+  // 22/11/2026: dia em que a IA prescreveu, so' quando a data realizada moveu o treino (a data realizada prevalece)
+  prescribedIsoDate?: string | null;
   title: string;
   detail: string;
   modality: string;
@@ -5905,6 +5907,7 @@ ${message}`)) void runCancelCompletion(session);
                         <View style={styles.weekSessionHeader}>
                           <View style={styles.weekSessionTitleBlock}>
                             <Text style={styles.sessionDetail}>{session.detail}</Text>
+                            {session.prescribedIsoDate ? <Text style={styles.sessionDetail}>Este treino foi prescrito para ser realizado em {session.prescribedIsoDate.split('-').reverse().join('/')}.</Text> : null}
                           </View>
                         </View>
                         {/* 04/09: aviso de desvio de rotina util so pro treinador (vai pro Telegram) —
@@ -11553,7 +11556,7 @@ type LinkOption = {
   id: string; title: string; modality: string; isoDate: string; durationMin: number | null; distanceKm: number | null; hasFeedback: boolean;
   linkedToThisActivity: boolean; linkedToAnotherActivity: boolean; compatibility: { needsConfirmation: boolean; reasons: string[] };
 };
-type LinkExtra = { role?: 'part'; confirmIncompatible?: boolean; keepFeedback?: 'session' | 'activity' };
+type LinkExtra = { role?: 'part'; confirmIncompatible?: boolean; keepFeedback?: 'session' | 'activity'; confirmMove?: boolean };
 
 // Conciliacao (30/10/2026): TODA atividade tem a opcao de vincular, a qualquer treino prescrito de qualquer semana. Quando os dados nao parecem compativeis o app
 // mostra o aviso e a aluna confirma; quando o treino e a atividade ja tem feedback, ela escolhe qual manter (o outro fica guardado). Nunca apaga nada.
@@ -11632,6 +11635,11 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
       if (confirmed) await link(option, { ...extra, confirmIncompatible: true });
       return;
     }
+    if (payload?.code === 'date_conflict') {
+      const confirmed = await ask('Já existe um treino nesse dia', payload.message ?? 'Já existe um treino da mesma modalidade no dia em que você fez. Quer mover mesmo assim?');
+      if (confirmed) await link(option, { ...extra, confirmMove: true });
+      return;
+    }
     if (payload?.code === 'feedback_choice_required') { setFeedbackChoice({ option, extra }); return; }
     setMessage(payload?.message ?? 'Não foi possível salvar agora.');
   }
@@ -11639,12 +11647,12 @@ function ActivityLinkControls({ activityLogId, linked, accessToken, onChanged }:
   async function choose(option: LinkOption, extra: LinkExtra = {}) {
     const title = extra.role === 'part' ? 'Adicionar como parte do treino' : 'Vincular atividade';
     const replaces = extra.role !== 'part' && option.linkedToAnotherActivity ? '\n\nEsse treino já tinha outra atividade vinculada; ela passará a ser uma atividade extra.' : '';
-    const ok = await ask(title, `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback será mantido.${replaces}`);
+    const ok = await ask(title, `Confirma que esta atividade foi o treino "${option.title}" de ${option.isoDate.split('-').reverse().join('/')}? O seu feedback será mantido. Se você fez em outro dia, o treino passa para o dia em que você realmente fez.${replaces}`);
     if (ok) await link(option, extra);
   }
 
   async function unlink() {
-    const ok = await ask('Desfazer vínculo', 'Esta atividade deixará de ser contada como esse treino e passará a ser uma atividade extra. O feedback do treino será mantido.');
+    const ok = await ask('Desfazer vínculo', 'Esta atividade deixará de ser contada como esse treino e passará a ser uma atividade extra. O feedback do treino será mantido. Se o treino tinha sido movido para o dia em que você fez, ele volta ao dia prescrito.');
     if (ok) await post('unlink', {});
   }
 
