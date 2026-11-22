@@ -11,6 +11,7 @@ import { normalizeReviewEmail, refreshReviewContent, reviewAccountStatus, review
 //   node dist/app-review/cli.js refresh                (renova o conteudo se a semana virou; a API ja faz isso sozinha todo dia as 4h)
 // Variaveis (nunca gravadas em arquivo nem impressas): REVIEW_ACTIVE_EMAIL, REVIEW_ACTIVE_PASSWORD, REVIEW_EXPIRED_EMAIL, REVIEW_EXPIRED_PASSWORD.
 // E-mails precisam comecar com "revisao-apple-". Nenhuma chamada de IA, cobranca ou escrita no RevenueCat/Apple.
+// TestFlight (21/11/2026): `seed-testflight --yes`; variaveis REVIEW_TESTFLIGHT_EMAIL (comeca com "revisao-apple-", diferente das contas A/B) e REVIEW_TESTFLIGHT_PASSWORD (12+ caracteres, nunca em arquivo).
 // Google Play (03/11/2026): `status-google` (somente leitura) e `seed-google --yes [--reset-access]`; variaveis REVIEW_GOOGLE_EMAIL (precisa comecar com "revisao-google-") e REVIEW_GOOGLE_PASSWORD (12+ caracteres, nunca em arquivo).
 // A conta do Google tem acesso ativo e 35 dias de dados SINTETICOS de recuperacao (sono, VFC, FC de repouso, passos, calorias ativas, VO2 max), renovados todo dia as 4h junto com o conteudo.
 
@@ -48,6 +49,14 @@ async function main() {
     if (command === 'refresh') { console.log(JSON.stringify(await refreshReviewContent(prisma))); return; }
     // Conta de revisao do GOOGLE (03/11/2026): comandos proprios, com variaveis proprias; nao exigem (nem tocam) as variaveis nem as contas da Apple.
     if (command === 'status-google') { console.log(JSON.stringify(await reviewAccountStatus(prisma, [normalizeReviewEmail(env('REVIEW_GOOGLE_EMAIL'))]), null, 2)); return; }
+    // Conta extra para TESTFLIGHT/revisao beta (21/11/2026): ativa, e-mail proprio "revisao-apple-...", NAO toca nas contas A/B nem nas senhas ja entregues a Apple/Google.
+    if (command === 'seed-testflight') {
+      if (!process.argv.includes('--yes')) throw new Error('Confirme com --yes (cria/restaura a conta de revisao do TestFlight).');
+      const email = normalizeReviewEmail(env('REVIEW_TESTFLIGHT_EMAIL'));
+      const result = await seedReviewAccount(prisma, { kind: 'active', email, password: env('REVIEW_TESTFLIGHT_PASSWORD') }, new Date(), { resetAccess: true });
+      console.log(`${result.kind}: ${result.created ? 'criada' : 'restaurada'} (${result.email})`);
+      return;
+    }
     if (command === 'seed-google') {
       if (!process.argv.includes('--yes')) throw new Error('Confirme com --yes (cria/restaura a conta de revisao do Google).');
       const googleEmail = normalizeReviewEmail(env('REVIEW_GOOGLE_EMAIL'));
