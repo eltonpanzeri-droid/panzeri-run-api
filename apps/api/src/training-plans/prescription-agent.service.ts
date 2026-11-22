@@ -141,7 +141,10 @@ const AiSessionSchema = z.object({
   // e corrigido em codigo (ver o Math.max ao montar `result` abaixo) em vez de derrubar a semana
   // inteira. Nunca aconteceu de precisar rejeitar a resposta toda por isso ate hoje ser pior que
   // aceitar e corrigir.
-  durationMin: z.number().int().min(1).max(240),
+  // 22/11/2026: teto era 240 e derrubou a semana inteira da Andreia (rotina com longao de 270 min para
+  // ultramaratona; a IA seguiu a rotina e o formato recusou). Agora e' so' um teto de impossibilidade
+  // (12h); o desvio contra a rotina continua sendo checado por durationMismatches (20%).
+  durationMin: z.number().int().min(1).max(720),
   // A sequencia de partes que forma este treino, na ordem em que acontecem de verdade (ver
   // AiSessionPartSchema acima). A soma de todas as partes e que vira a distancia/duracao total
   // exibida pro aluno — nao existe mais nenhum campo "resumo" separado, o total e sempre a soma
