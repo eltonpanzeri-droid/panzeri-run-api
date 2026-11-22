@@ -48,6 +48,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { MessagingService } from '../messaging/messaging.service';
 import { planGeneratedEmail, planGeneratedPush } from './plan-generated-notice';
+import { collectWeeklyEmailData } from './weekly-email-data';
 import { WeeklyCheckInService } from './weekly-checkin.service';
 import { executionWeekStart, weekStartOfDate as getWeekStartFromDate } from '../common/weekly-volume';
 import { StudentProfileService, ProfileEventCode } from './student-profile.service';
@@ -1866,9 +1867,11 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       const push = planGeneratedPush(notifMessage, usesAppleWatch);
       await this.notifications.notifyUser(userId, { title: push.title, message: push.message, type: 'info' });
       // 18/11/2026 (Elton): todo programa gerado tambem vai por e-mail, qualquer que seja a marca do relogio. Melhor esforco: falha do e-mail nunca derruba a geracao.
+      // 22/11/2026 (Elton): e-mail rico (resumo da semana passada + o que vem, em cartoes e barras). Se os dados falharem, sai o texto simples de antes.
+      const weekly = await collectWeeklyEmailData(this.prisma, { userId, weekStart, sessions: sessionsToCreate, goal: user.preferences?.mainGoal ?? null, appUrl: 'https://panzerirun.eltonpanzeripersonal.com.br' });
       try {
-        const email = planGeneratedEmail({ name: user.name, baseMessage: notifMessage, usesAppleWatch });
-        await this.messaging?.sendEmail(userId, { trigger: 'plan_generated', subject: email.subject, content: email.content });
+        const email = planGeneratedEmail({ name: user.name, baseMessage: notifMessage, usesAppleWatch, weekly });
+        await this.messaging?.sendEmail(userId, { trigger: 'plan_generated', subject: email.subject, content: email.content, ...(email.html ? { html: email.html } : {}) });
       } catch (error) {
         this.logger.warn(`E-mail de programa gerado nao enviado (${userId}): ${(error as Error).message}`);
       }
