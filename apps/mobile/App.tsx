@@ -5191,6 +5191,44 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     }
   }
 
+  // "Cancelar feedback" (22/11/2026): desfaz o registro do treino (volta a "sem registro"); o texto fica guardado no servidor. Confirmacao antes (um toque nao apaga).
+  async function runCancelCompletion(session: WeekPlanSession): Promise<boolean> {
+    setCompletionMessages((current) => ({ ...current, [session.id]: 'Cancelando o feedback...' }));
+    try {
+      const response = await fetch(`${API_URL}/workout-completions/${session.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        const message = Array.isArray(data.message) ? data.message[0] : data.message;
+        setCompletionMessages((current) => ({ ...current, [session.id]: message ?? 'Não consegui cancelar agora. Tente de novo.' }));
+        return false;
+      }
+      setPlan((current) => current ? { ...current, sessions: current.sessions.map((item) => item.id === session.id ? { ...item, completion: undefined } : item) } : current);
+      dirtyDraftIds.current.delete(session.id);
+      void clearCompletionDraft(session.id);
+      setCompletionMessages((current) => ({ ...current, [session.id]: 'Feedback cancelado. O treino voltou a ficar sem registro.' }));
+      void loadPlan();
+      return true;
+    } catch {
+      setCompletionMessages((current) => ({ ...current, [session.id]: 'Sem conexão. Tente cancelar novamente.' }));
+      return false;
+    }
+  }
+
+  function cancelCompletion(session: WeekPlanSession) {
+    const title = 'Cancelar o feedback?';
+    const message = 'O treino volta a ficar sem registro. O que você escreveu fica guardado no seu histórico. Se o relógio gravou este treino, ele continua vinculado.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${title}
+
+${message}`)) void runCancelCompletion(session);
+      return;
+    }
+    Alert.alert(title, message, [
+      { text: 'Voltar', style: 'cancel' },
+      { text: 'Cancelar feedback', style: 'destructive', onPress: () => { void runCancelCompletion(session); } },
+    ]);
+  }
+
   async function openSubscriptionCheckout() {
     // Mesma trava contra cliques repetidos do Billing (ver comentario la): sem isso, cada toque
     // gerava uma cobranca nova no Asaas e um aviso novo no Telegram, mesmo com a tentativa
@@ -5909,6 +5947,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
                           draft={getSessionDraft(session)}
                           onChange={(patch) => updateCompletionDraft(session, patch)}
                           onSave={() => saveCompletion(session)}
+                          onCancelFeedback={session.isAlternative ? undefined : () => cancelCompletion(session)}
                           message={completionMessages[session.id]}
                           onOpenPainReport={onOpenPainReport}
                           onCollapse={() => setExpandedDays((cur) => ({ ...cur, [session.id]: false }))}
@@ -12769,6 +12808,7 @@ function CompletionForm({
   draft,
   onChange,
   onSave,
+  onCancelFeedback,
   message,
   onOpenPainReport,
   onCollapse,
@@ -12780,6 +12820,8 @@ function CompletionForm({
   draft: CompletionDraft;
   onChange: (patch: Partial<CompletionDraft>) => void;
   onSave: () => Promise<boolean>;
+  // Cancelar o feedback (22/11/2026): so' quando o treino tem registro salvo e nao e' atividade extra.
+  onCancelFeedback?: () => void;
   message?: string;
   onOpenPainReport?: () => void;
   onCollapse?: () => void;
@@ -13341,9 +13383,16 @@ function CompletionForm({
 
       {/* Botoes de salvar */}
       {locked ? (
-        <Pressable style={styles.secondaryButton} onPress={() => { setIsEditing(true); }}>
-          <Text style={styles.secondaryButtonText}>Alterar feedback</Text>
-        </Pressable>
+        <>
+          <Pressable style={styles.secondaryButton} onPress={() => { setIsEditing(true); }}>
+            <Text style={styles.secondaryButtonText}>Alterar feedback</Text>
+          </Pressable>
+          {isSavedOnServer && onCancelFeedback ? (
+            <Pressable style={[styles.secondaryButton, { marginTop: 8 }]} onPress={onCancelFeedback} accessibilityRole="button">
+              <Text style={styles.secondaryButtonText}>Cancelar feedback</Text>
+            </Pressable>
+          ) : null}
+        </>
       ) : (
         <>
           {/* 12/09: Salvar aparece sempre (formulario unico) — antes so aparecia no bloco 3 */}

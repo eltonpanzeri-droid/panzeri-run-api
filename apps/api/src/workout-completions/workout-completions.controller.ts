@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { CurrentUser, CurrentUserPayload } from '../common/current-user';
 import { UpsertWorkoutCompletionDto } from './dto/upsert-workout-completion.dto';
@@ -30,6 +30,12 @@ export class WorkoutCompletionsController {
   @Get('stress-recent')
   getStressRecent(@CurrentUser() user: CurrentUserPayload) {
     return this.workoutCompletionsService.getRecentStressCheckin(user.sub);
+  }
+
+  // Cancelar o feedback de um treino (22/11/2026): so' o dono; o texto fica guardado como versao.
+  @Delete(':sessionId')
+  cancel(@CurrentUser() user: CurrentUserPayload, @Param('sessionId') sessionId: string) {
+    return this.workoutCompletionsService.cancel(user.sub, sessionId);
   }
 
   @Post(':sessionId/viewed')

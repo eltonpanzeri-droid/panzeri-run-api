@@ -12,7 +12,7 @@ import { STUDENT_REPORT_SOURCE_TYPES } from '../reporter/report-timeline.constan
 import { MedalEvaluationService } from '../medals/medal-evaluation.service';
 import { describeSessionShape, pacingModeLabel } from '../training-plans/agent-context-format';
 import { ShoesService, RUNNING_MODALITIES } from '../shoes/shoes.service';
-import { SessionExecutionLinkService } from '../activity-execution/session-execution-link.service';
+import { SessionExecutionLinkService, completionHasStudentContent } from '../activity-execution/session-execution-link.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { isRunModality } from '../activity-execution/canonical-modality';
 import { formatPaceText, isImpossiblePace, paceFromEntry } from '../training-intelligence/pace-plausibility';
@@ -588,6 +588,33 @@ export class WorkoutCompletionsService {
     void this.medalEvaluation?.evaluateForUser(userId, 'week_closed').catch(() => undefined);
 
     return completion;
+  }
+
+  // "Cancelar feedback" (22/11/2026, ordem de Elton): desfaz o registro do treino (o treino volta a "sem registro"), diferente de "Alterar feedback" (que exige dizer feito/nao feito).
+  // O que a aluna escreveu fica guardado como versao (nunca apagado); o vinculo com a atividade do relogio NAO muda (quem desvincula e' outra acao). Treino extra criado
+  // pelo relogio/aluna nao tem esta opcao (o registro dele e' da atividade: use "Desfazer vinculo" ou excluir a atividade).
+  async cancel(userId: string, sessionId: string) {
+    const session = await this.prisma.trainingSession.findFirst({ where: { id: sessionId, userId }, include: { completion: true } });
+    if (!session) throw new NotFoundException('Treino nao encontrado.');
+    if (['device_extra', 'student_extra'].includes(session.origin ?? '')) {
+      throw new BadRequestException('Este treino extra nasce da atividade; para retirar, desfaça o vínculo ou exclua a atividade.');
+    }
+    const completion = session.completion;
+    if (!completion) throw new NotFoundException('Este treino nao tem feedback para cancelar.');
+    const since = new Date();
+    const payload = JSON.parse(JSON.stringify(completion)) as Prisma.InputJsonValue;
+    const keep = completionHasStudentContent(completion as unknown as Record<string, unknown>);
+    await this.prisma.$transaction(async (tx) => {
+      if (keep) await tx.workoutFeedbackVersion.create({ data: { userId, sessionId: session.id, payload, reason: 'cancelled_by_student' } });
+      await tx.shoeUsage.deleteMany({ where: { workoutCompletionId: completion.id } });
+      await tx.workoutCompletion.delete({ where: { id: completion.id } });
+    });
+    // mesmas consequencias de qualquer correcao: analise do treino, relatorio semanal e medalhas sao refeitos sem este feedback
+    await this.sessionExecutionLink?.recomputeAfterCorrection(userId, since, {
+      sessionIds: [session.id], forceSessionIds: [session.id], kind: 'link_correction', origin: 'student', actorId: userId, completionsChanged: true,
+      affectedDates: [session.scheduledDate.toISOString().slice(0, 10)],
+    });
+    return { cancelled: true, sessionId: session.id, preservedAsVersion: keep };
   }
 
   async recordFirstViewed(userId: string, sessionId: string) {
