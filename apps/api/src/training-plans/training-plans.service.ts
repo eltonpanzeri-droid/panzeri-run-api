@@ -1438,7 +1438,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         // entao aqui basta confiar no valor ja validado, sem checar de novo se existe "alguma"
         // diretriz ativa (checagem antiga que liberava o teto pra TODOS os dias so por existir
         // qualquer diretriz, mesmo sem relacao com aquele dia especifico — removida).
-        const durationMin = runDecision ? runDecision.durationMin : Math.min(requestedDuration, template.durationMin);
+        // Forca/fortalecimento (22/11/2026): sem teto fixo. Vale a estimativa da IA (ja limitada ao tempo da rotina em validateStrengthSessions) ou, se ela nao declarou, o tempo reservado na rotina. Antes, Math.min com o modelo de 45 min cortava toda musculacao em 45.
+        const durationMin = runDecision ? runDecision.durationMin : (strengthDecision ? (strengthDecision.durationMin ?? requestedDuration) : Math.min(requestedDuration, template.durationMin));
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         if (isStrength && !strengthDecision) {
           // A validacao do agente de IA (validateStrengthSessions) exige cobertura exata dos
@@ -2391,10 +2392,13 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         painTier: painSafety.tier,
         painReason: painSafety.reason,
       };
+      // Limite = tempo que a aluna reservou na rotina para este dia/modalidade (22/11/2026); sem rotina legivel, o tempo que a sessao ja tinha.
+      const routineDay = routineForSplit?.activeDays.find((day) => day.weekday === session.weekday);
+      const routineLimit = normalizeModalityDurations(routineDay?.modalityDurations)?.[session.modality] ?? routineDay?.availableMin ?? durationMin;
       const strengthDecision = await this.prescriptionAgent.proposeStrengthSession(methodologyInput, {
         weekday: session.weekday,
         modality: session.modality as 'forca' | 'fortalecimento_corredores',
-        durationMin,
+        durationMin: routineLimit,
       }, dayAgentTrace);
       if (!strengthDecision) {
         this.logger.error(`Falha ao gerar decisao de forca avulsa com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
@@ -2403,7 +2407,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         );
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
-      prescription = this.strengthPrescription(durationMin, strengthDecision);
+      prescription = this.strengthPrescription(strengthDecision.durationMin ?? routineLimit, strengthDecision);
       strengthNotesUpdate = strengthDecision.notes;
       dayDeclared = strengthDecision.declared;
     } else {
@@ -2451,6 +2455,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
           : null,
         structure: prescription as unknown as Prisma.InputJsonObject,
         ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
+        // Forca: o tempo estimado pela IA (22/11/2026) tambem vai para a coluna, para o card/e-mail/resumos nao mostrarem o valor antigo.
+        ...(isStrength && prescription.durationMin ? { durationMin: prescription.durationMin } : {}),
         origin: 'agent',
       },
     } as const;
@@ -3095,12 +3101,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         reps: decision.reps,
         intensity: decision.intensity,
         restSeconds: decision.restSeconds,
-        // So faz sentido recomendar cadencia especifica em musculacao, onde e so uma forma de
-        // variar o estimulo (nao muda ganho de forca nem hipertrofia — controlado ou explosivo dao
-        // no mesmo pra isso). Em fortalecimento para corredores o objetivo e outro (pliometria,
-        // stiffness, coordenacao, potencia) e uma instrucao de cadencia lenta ali contradiz o
-        // proprio exercicio — por isso nunca aparece pra essa categoria.
-        cadence: isRunnerStrength ? null : ('group' in exercise && exercise.group === 'core' ? 'Execucao lenta e controlada' : '2s na fase excentrica / subida controlada'),
+        // 22/11/2026, ordem do treinador: a Panzeri Run nao prescreve cadencia (fica livre). Campo mantido (null) por compatibilidade com treinos antigos e com a edicao manual no painel.
+        cadence: null,
         loadField: !isRunnerStrength && 'group' in exercise && exercise.group !== 'core',
       })),
       reportFields: isRunnerStrength

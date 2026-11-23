@@ -126,6 +126,11 @@ export const AiReasoningSchema = z.object({
   basis: z.array(z.object({ source: z.string().describe('Um destes valores: ' + BASIS_SOURCES.join(', ')), note: z.string(), decides: z.string().nullish().describe('Um destes valores: ' + DECISION_VARIABLES.join(', ') + ', ou null') })),
 });
 
+// 22/11/2026 (ordens do treinador): tempo da musculacao/fortalecimento e cadencia. Sem trava no codigo: o tempo da rotina e' o limite que a IA respeita (pode usar menos, por julgamento); cadencia nao se prescreve.
+export const STRENGTH_TIME_INSTRUCTION = '- TEMPO DA FORCA/FORTALECIMENTO: o campo durationMin de cada item de diasDisponiveisParaForca e o tempo que a ALUNA reservou na rotina dela para aquele dia — e o LIMITE: nunca exceda. Em cada sessao preencha durationMin com a SUA estimativa do tempo que o treino ocupa (aquecimento, series, descansos, troca de aparelho), sempre menor ou igual ao limite. Por padrao procure usar o tempo reservado; use menos somente se, pelo contexto atual da aluna (carga recente, fadiga, dor, fase da preparacao), voce julgar que nao precisa ou nao deve usar tudo. O tempo de musculacao e dificil de prever (academia cheia, espera por aparelho, ritmo de cada pessoa): se nos feedbacks a aluna disser que o treino ficou longo ou curto demais, ajuste as proximas prescricoes (quantidade de exercicios, series, descanso) — um relato isolado nao vira regra. Nao explique isso no texto que a aluna le.';
+export const STRENGTH_TIME_INSTRUCTION_SINGLE_DAY = STRENGTH_TIME_INSTRUCTION.replace('diasDisponiveisParaForca', 'diaDeForcaParaRegenerar');
+export const NO_CADENCE_INSTRUCTION = '- NAO prescreva cadencia/tempo de execucao dos movimentos na forca (nada de "3 segundos na descida", "controle na descida", "2-0-2", "execucao lenta" etc.), nem em notes nem em reps: deixe livre, sem dizer que e livre — simplesmente nao fale disso.';
+
 // Corpo da decisao de UM dia de corrida (regeneracao isolada): partes + raciocinio declarado.
 export const AiRunDaySchema = z.object({ parts: AiSessionPartsSchema, reasoning: AiReasoningSchema.nullable() });
 
@@ -186,6 +191,8 @@ export const AiStrengthSessionSchema = z.object({
   exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
   sets: z.number().int().min(2).max(5),
   reps: z.string().min(1),
+  // 22/11/2026 (caso Juliana: rotina 75/90 min, tudo saia 45 por uma trava no codigo): estimativa DA IA do tempo que a sessao ocupa, <= tempo que a aluna reservou na rotina. nullish de proposito: omitir nao derruba a semana (usa-se o tempo da rotina).
+  durationMin: z.number().int().min(1).max(720).nullish(),
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
   // Sem .min(1) de proposito (bug real 16/08 — aluno Elton/f757cd0a): a IA as vezes devolve
@@ -881,10 +888,18 @@ export class PrescriptionAgentService {
       // sessao (strengthPrescription em training-plans.service.ts) exibe o nome literal que a IA
       // escreveu quando o id nao bate com nenhum exercicio catalogado, so sem video/descricao.
 
+      // O tempo que a aluna reservou na rotina e' o LIMITE (ordem do treinador, 22/11/2026): a IA pode usar menos, nunca mais. Se passar, fica o limite (e registra no log); nunca se sobe o tempo.
+      const routineLimit = slotByKey.get(key)?.durationMin ?? null;
+      let declaredDuration: number | null = session.durationMin ?? null;
+      if (declaredDuration != null && routineLimit != null && declaredDuration > routineLimit) {
+        this.logger.warn(`IA declarou ${declaredDuration}min para a forca ${key}, acima dos ${routineLimit}min da rotina — mantido o limite da rotina.`);
+        declaredDuration = routineLimit;
+      }
       result.push({
         weekday: session.weekday,
         modality: session.modality,
         title: session.title,
+        durationMin: declaredDuration,
         exerciseIds: session.exerciseIds,
         sets: session.sets,
         reps: truncateText(session.reps, 120),
@@ -1025,6 +1040,8 @@ export class PrescriptionAgentService {
       '- OBRIGATORIO: retorne EXATAMENTE uma sessao em strengthSessions para CADA item listado em diasDisponiveisParaForca, usando o mesmo weekday e a mesma modalidade daquele item (modality "forca" = musculacao geral, "fortalecimento_corredores" = circuito especifico para corredores). O mesmo weekday pode aparecer mais de uma vez na lista, uma para cada modalidade — retorne uma sessao pra cada item nesse caso, isso e o dado real da rotina do aluno, nao um erro. Se diasDisponiveisParaForca tiver 3 itens, strengthSessions tem que ter 3 sessoes — nunca deixe esse campo vazio ou incompleto quando diasDisponiveisParaForca nao estiver vazio: a resposta inteira e descartada quando isso acontece, desperdicando todo o raciocinio que voce fez pros dias de corrida.',
       '- A modalidade de cada item em diasDisponiveisParaForca vem da rotina real do aluno e normalmente nao muda — copie o campo modality literalmente. Uma diretriz sobre forca/fortalecimento normalmente muda foco/exercicios/intensidade daquele dia, nao a modalidade em si; so mude a modalidade se a diretriz pedir isso explicitamente.',
       '- exerciseIds normalmente vem de catalogoExerciciosMusculacao (modality "forca") ou catalogoExerciciosFortalecimentoCorredores (modality "fortalecimento_corredores") — prefira sempre o catalogo, que ja tem video/descricao prontos pro aluno. Só cite um exercicio fora do catalogo se uma diretriz especifica do treinador pedir aquele exercicio por nome; nesse caso ele aparece pro aluno so como texto, sem video. Escolha entre 3 e 10 exercicios conforme o tempo disponivel do dia.',
+      STRENGTH_TIME_INSTRUCTION,
+      NO_CADENCE_INSTRUCTION,
       SPLIT_PREFERENCE_INSTRUCTION,
       '- Se diretrizesEspecificasDoTreinadorParaEsteAluno pedir um FOCO especifico para um dia de forca (ex: "segunda e dia de perna" ou uma lista de exercicios), aplique literalmente usando o campo "group"/"focus" do catalogo pra filtrar, ou os exercicios citados pelo nome. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Nivel dos exercicios (campo "level"): prefira "base" para alunos iniciantes ou com sinalDeSeguranca ativo; "intermediate"/"advanced" para alunos com mais experiencia. Julgamento seu.',
@@ -1265,6 +1282,8 @@ export class PrescriptionAgentService {
       '- observacoesRegistradasPeloProprioAluno sao anotacoes informais do proprio aluno, nao uma ordem — considere quando fizer sentido, sem sacrificar seguranca.',
       '- INFORMACOES DO ALUNO POR TEXTO (equipamento da academia, aparelhos que nao existem, limitacoes fisicas sao RESTRICOES REAIS para a escolha dos exercicios): relatosEstruturadosDoAluno (relatos do proprio aluno ja interpretados, cronologicos, o mais recente por ultimo — o mais recente prevalece sobre o mais antigo no mesmo assunto; RESOLVIDO encerra uma restricao anterior; PERSISTENTE_ATE_CONTRARIO vale ate um relato posterior dizer o contrario), relatosAindaNaoInterpretadosDoAluno e eventosDoProntuarioAindaNaoCondensados (texto bruto ainda nao interpretado: leia e nao ignore). Respeite RESTRICOES REAIS (equipamento, limite da esteira, local, saude); preferencias podem ser acomodadas sem sacrificar seguranca; dificuldade de execucao relatada e evidencia a ponderar. Um relato isolado nao vira regra permanente. lacunasDeContexto lista o que nao pode ser recuperado: a ausencia nao significa normalidade, seja conservador onde a parte faltante seria decisiva.',
       '- exerciseIds normalmente vem do catalogo informado (catalogoExerciciosMusculacao para modality "forca", catalogoExerciciosFortalecimentoCorredores para "fortalecimento_corredores"), que ja tem video/descricao prontos. So cite um exercicio fora do catalogo se uma diretriz especifica pedir aquele exercicio por nome (aparece pro aluno so como texto, sem video). Escolha entre 3 e 10 exercicios conforme a duracao do dia.',
+      STRENGTH_TIME_INSTRUCTION_SINGLE_DAY,
+      NO_CADENCE_INSTRUCTION,
       SPLIT_PREFERENCE_INSTRUCTION_SINGLE_DAY,
       '- Se houver diretriz de foco muscular para este dia especifico (ex: "so perna hoje") ou lista explicita de exercicios, aplique literalmente usando o campo "group"/"focus" do catalogo para filtrar. Sem diretriz, monte uma sessao equilibrada e variada.',
       '- Prefira exercicios de nivel "base" para alunos iniciantes ou com sinalDeSeguranca ativo.',

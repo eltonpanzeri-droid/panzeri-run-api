@@ -383,6 +383,8 @@ export interface StrengthSessionDecision {
   weekday: number;
   modality: StrengthModality;
   title: string;
+  // Estimativa da IA (<= tempo da rotina). Ausente/null: usa-se o tempo da rotina.
+  durationMin?: number | null;
   exerciseIds: string[];
   sets: number;
   reps: string;
