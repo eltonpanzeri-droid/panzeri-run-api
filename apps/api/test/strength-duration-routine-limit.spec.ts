@@ -32,3 +32,12 @@ describe('codigo: sem teto de 45 nem cadencia', () => {
     expect(agent).toContain('nunca exceda');
   });
 });
+
+describe('direcao da musculacao (23/11/2026)', () => {
+  const agent = readFileSync(join(__dirname, '../src/training-plans/prescription-agent.service.ts'), 'utf8');
+  it('esta nos dois prompts de forca (semana e dia avulso) e a pausa de 90s+ cabe no schema', () => {
+    expect((agent.match(/STRENGTH_INTENSITY_DIRECTION/g) ?? []).length).toBeGreaterThanOrEqual(3);
+    expect(AiStrengthSessionSchema.shape.restSeconds.safeParse(240).success).toBe(true);
+    expect(agent).not.toContain('60 a 90s de descanso para musculacao');
+  });
+});

@@ -4664,3 +4664,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Causa: o campo `durationMin` (nullish) que adicionei em `AiStrengthSessionSchema` (commit 2547e40) aumentou a gramática do schema semanal acima do limite da Anthropic -> 400 em todas as gerações semanais (Lucelane, Lorena e outras).
 - Correção: campo removido; a IA não declara tempo de força; o tempo vem da rotina (limite). Teste novo guarda que o schema não tem o campo e continua serializável. Regra: NUNCA adicionar campo ao schema da IA sem testar uma chamada real (teste unitário não pega esse erro).
 - Pendente: reintroduzir estimativa de tempo da IA só se houver espaço na gramática (testar com chamada real).
+
+### 23/11/2026 — Direção da musculação no prompt da IA (ordem de Elton)
+- Novo bloco `STRENGTH_INTENSITY_DIRECTION` nos prompts de força (semana e dia avulso): direção de longo prazo para mais intensidade, 1–5 repetições, pausas ≥ 90 s, mais descanso que execução, intenção de velocidade e amplitude máxima (sem escrever cadência para a aluna); fases; dor/dificuldade/inexperiência afastam da direção; predominância de multiarticulares; ~1 s por repetição só como base interna para estimar o tempo; fortalecimento para corredores segue o mesmo raciocínio, com repetições decididas pela descrição de cada exercício.
+- A linha antiga "3×8–12, 60–90 s" foi reescrita; `restSeconds` do schema subiu de 150 para 300 (limite numérico não altera a gramática; nenhum campo novo). Hash `stable` refeito no teste.
+- Não foi testado com chamada real à IA: validar a primeira geração após o deploy.
