@@ -250,7 +250,6 @@ export const LANDING_PAGE_HTML = `<!doctype html>
       </div>
       <article class="price-card reveal"><span class="plan-label">PANZERI RUN</span><div class="price"><small>R$</small><strong>${priceNumber}</strong><span>/mês</span></div><p>Tudo o que sustenta uma evolução possível, segura e verdadeiramente sua.</p><ul><li>Treinos com segurança</li><li>Evolução dentro do que você é capaz</li><li>Treinamento individualizado</li><li>Acompanhamento da evolução</li><li>Feedback após os treinos</li><li>Histórico organizado</li><li>Metodologia Elton Panzeri</li></ul>
       ${storeButtons(false)}
-      <a class="web-link" href="${CHECKOUT_URL}" data-checkout data-track="pricing_web_click">Ou acesse pela versão web →</a>
       <small class="price-foot">Cancele quando quiser. Consulte os termos da assinatura.</small></article>
     </section>
 
@@ -267,7 +266,6 @@ export const LANDING_PAGE_HTML = `<!doctype html>
 
     <section class="final-cta"><div class="reveal"><span class="eyebrow">SUA PRÓXIMA CONQUISTA</span><h2>Você escolhe onde quer chegar.<br>O Panzeri Run ajuda a construir o caminho.</h2>
       ${storeButtons(true)}
-      <a class="final-web-link" href="${CHECKOUT_URL}" data-checkout data-track="final_web_click">Acessar pela web</a>
     </div></section>
   </main>
 
@@ -280,7 +278,6 @@ export const LANDING_PAGE_HTML = `<!doctype html>
       <h3 id="store-modal-title">Baixe o Panzeri Run</h3>
       <p>Escolha onde quer continuar.</p>
       ${storeButtons(true)}
-      <a class="web-link" href="${CHECKOUT_URL}" data-checkout data-track="modal_web_click">Ou acesse pela versão web →</a>
     </div>
   </div>
 
