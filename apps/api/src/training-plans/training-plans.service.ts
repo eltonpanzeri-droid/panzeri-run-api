@@ -125,10 +125,7 @@ const PAIN_ALERT_COOLDOWN_MS = 12 * 60 * 60 * 1000;
 // da atual (a primeira geracao, generateFirstWeekIfNeeded, nao usa mais essa constante — ver
 // comentario la, o adiamento pra "domingo" foi removido por deixar alunas presas sem programa).
 const WEEKLY_RELEASE_HOUR = 12;
-// Corte pra decidir se "hoje" ainda conta como dia valido pra gerar treino quando a aluna toca o
-// botao — depois dessa hora nao faz sentido pratico gerar o treino de um dia que ja nao tem mais
-// tempo real de ser feito; nesse caso a geracao comeca no dia seguinte. Ajustavel livremente.
-const TODAY_INCLUSION_CUTOFF_HOUR = 22;
+
 // Limite de tentativas do proprio aluno gerando a semana pelo botao (pedido explicito do
 // treinador 16/08 — nao ligar a IA de novo automaticamente a cada toque de botao, custo real e
 // decisao dele). Base de 2 tentativas por semana (reseta sozinho quando a semana-alvo muda);
@@ -2086,7 +2083,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       data: { generationAttemptsUsed: attemptsUsed, lastGenerationAttemptAt: new Date() },
     });
 
-    const allowToday = hour < TODAY_INCLUSION_CUTOFF_HOUR;
+    // 23/11/2026 (ordem de Elton): o sistema NUNCA decide por horario. O dia vale ate 23:59; quem decide e a pergunta "Incluir o treino de hoje?" — SIM cria o treino de hoje, NAO nao cria (includeToday=false). Antes havia um corte as 22h que excluia hoje sem perguntar.
+    const allowToday = includeToday !== false;
     // includeToday=false: aluno escolheu "Nao, a partir de amanha" no dialogo do app — repassa
     // pra generateWeek, que injeta generateFrom no methodologyInput da IA. undefined/true = normal.
     const generateFrom = includeToday === false

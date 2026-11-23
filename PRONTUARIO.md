@@ -4673,3 +4673,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 ### 23/11/2026 (tarde) — Falha "Decisão de força ausente" (caso Mariana)
 - Causa: gerar depois que um dia de musculação da semana já passou (ex.: segunda à tarde). Desde 09/11 o agente não exige esse dia, mas a montagem final (`training-plans.service.ts`) ainda lançava erro por falta de decisão e derrubava a semana toda. Defeito de julho/2026, exposto agora; não veio das mudanças de 22–23/11.
 - Correção: dia de força sem decisão é pulado (como a corrida), com aviso no log. Teste de guarda adicionado.
+
+### 23/11/2026 (tarde) — Hoje vale até 23:59; só a pergunta decide (ordem de Elton)
+- Removido o corte das 22h (`TODAY_INCLUSION_CUTOFF_HOUR`) que excluía o treino de hoje sem perguntar. Agora `allowToday = includeToday !== false`: SIM cria o treino de hoje (qualquer modalidade), NÃO não cria.
+- Limitação conhecida (não alterada): se hoje for o ÚLTIMO dia da rotina na semana, `anyAvailableDayIsFuture` (só dias > hoje) manda a geração para a semana seguinte antes da pergunta ter efeito. Precisa de decisão/ajuste próprio (envolve `current()` e rolagem de semana).

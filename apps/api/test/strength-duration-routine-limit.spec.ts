@@ -49,3 +49,11 @@ describe('dia de forca sem decisao (caso Mariana, 23/11/2026)', () => {
     expect(plans).toContain('Dia de forca sem decisao da IA');
   });
 });
+
+describe('hoje: quem decide e a pergunta, nunca o horario (23/11/2026)', () => {
+  const plans = readFileSync(join(__dirname, '../src/training-plans/training-plans.service.ts'), 'utf8');
+  it('sem corte por hora; SIM cria hoje, NAO (includeToday=false) nao cria', () => {
+    expect(plans).not.toContain('TODAY_INCLUSION_CUTOFF_HOUR');
+    expect(plans).toContain('const allowToday = includeToday !== false;');
+  });
+});
