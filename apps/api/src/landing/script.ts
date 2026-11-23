@@ -5,7 +5,9 @@ export const script = `
 (()=>{'use strict';
 const config=JSON.parse(document.getElementById('landing-config').textContent);
 window.dataLayer=window.dataLayer||[];
-const trackEvent=(event,params={})=>window.dataLayer.push({event,...params});
+// gtag.js (sem Tag Manager) só processa eventos disparados por gtag('event',...) — um
+// dataLayer.push({event,...}) direto (convenção do GTM) é silenciosamente ignorado por ele.
+const trackEvent=(event,params={})=>{try{if(typeof gtag==='function')gtag('event',event,params)}catch{}};
 const keys=['utm_source','utm_medium','utm_campaign','utm_content','utm_term','fbclid','gclid'];
 let attribution={};try{const saved=JSON.parse(sessionStorage.getItem('panzeri_attribution')||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))attribution=saved}catch{}
 const params=new URLSearchParams(location.search);keys.forEach(key=>{const value=params.get(key);if(value)attribution[key]=value});
