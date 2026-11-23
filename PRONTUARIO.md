@@ -4669,3 +4669,7 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - Novo bloco `STRENGTH_INTENSITY_DIRECTION` nos prompts de força (semana e dia avulso): direção de longo prazo para mais intensidade, 1–5 repetições, pausas ≥ 90 s, mais descanso que execução, intenção de velocidade e amplitude máxima (sem escrever cadência para a aluna); fases; dor/dificuldade/inexperiência afastam da direção; predominância de multiarticulares; ~1 s por repetição só como base interna para estimar o tempo; fortalecimento para corredores segue o mesmo raciocínio, com repetições decididas pela descrição de cada exercício.
 - A linha antiga "3×8–12, 60–90 s" foi reescrita; `restSeconds` do schema subiu de 150 para 300 (limite numérico não altera a gramática; nenhum campo novo). Hash `stable` refeito no teste.
 - Não foi testado com chamada real à IA: validar a primeira geração após o deploy.
+
+### 23/11/2026 (tarde) — Falha "Decisão de força ausente" (caso Mariana)
+- Causa: gerar depois que um dia de musculação da semana já passou (ex.: segunda à tarde). Desde 09/11 o agente não exige esse dia, mas a montagem final (`training-plans.service.ts`) ainda lançava erro por falta de decisão e derrubava a semana toda. Defeito de julho/2026, exposto agora; não veio das mudanças de 22–23/11.
+- Correção: dia de força sem decisão é pulado (como a corrida), com aviso no log. Teste de guarda adicionado.

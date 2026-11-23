@@ -41,3 +41,11 @@ describe('direcao da musculacao (23/11/2026)', () => {
     expect(agent).not.toContain('60 a 90s de descanso para musculacao');
   });
 });
+
+describe('dia de forca sem decisao (caso Mariana, 23/11/2026)', () => {
+  const plans = readFileSync(join(__dirname, '../src/training-plans/training-plans.service.ts'), 'utf8');
+  it('dia de forca anterior ao inicio da geracao e pulado, nao derruba a semana', () => {
+    expect(plans).not.toContain('Decisao de forca ausente do agente de IA');
+    expect(plans).toContain('Dia de forca sem decisao da IA');
+  });
+});

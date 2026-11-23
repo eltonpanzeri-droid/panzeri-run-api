@@ -1442,10 +1442,13 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         const durationMin = runDecision ? runDecision.durationMin : (strengthDecision ? (strengthDecision.durationMin ?? requestedDuration) : Math.min(requestedDuration, template.durationMin));
         const isStrength = modality === 'forca' || modality === 'fortalecimento_corredores';
         if (isStrength && !strengthDecision) {
-          // A validacao do agente de IA (validateStrengthSessions) exige cobertura exata dos
-          // dias de forca/fortalecimento — chegar aqui sem decisao e um bug de sincronizacao
-          // entre a disponibilidade usada no prompt e a usada aqui, nao um caso esperado.
-          throw new InternalServerErrorException(`Decisao de forca ausente do agente de IA para o dia ${day.weekday} (${modality}).`);
+          // 23/11/2026 (caso Mariana, gerou na segunda a tarde): o agente exige cobertura dos dias de
+          // forca/fortalecimento, EXCETO os anteriores a "gerar a partir de" (requiredStrengthSlots,
+          // 09/11) — esses dias nao tem decisao de proposito. Lancar erro aqui derrubava a semana
+          // inteira; igual a corrida, o dia sem decisao e' simplesmente pulado. Dia exigido e
+          // ausente ja foi reparado ou rejeitado dentro do agente, antes de chegar aqui.
+          this.logger.warn(`Dia de forca sem decisao da IA (weekday ${day.weekday}, ${modality}) — pulado (dia anterior ao inicio da geracao).`);
+          return [];
         }
         const prescription =
           strengthDecision
