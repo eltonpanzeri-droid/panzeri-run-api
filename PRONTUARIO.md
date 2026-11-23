@@ -4659,3 +4659,8 @@ Fecha as áreas que faltavam da lista de Elton (exceto o que está em "NÃO feit
 - **Cadência:** a Panzeri Run não prescreve mais cadência na musculação (campo `cadence` agora null; IA proibida de citar). Treinos já gerados mantêm o texto antigo.
 - **Testes:** `strength-duration-routine-limit.spec.ts`, `ai-session-duration-ceiling.spec.ts`; `prescription-trace.spec.ts` ajustado (blocos novos removíveis).
 - **Pendente:** Deploy da API; conferir na próxima geração da Juliana se a IA usa 75/90 min e se o treino parece adequado; dia de rotina com várias modalidades e só o total do dia (sem tempo por modalidade) usa o total como limite da força.
+
+### 22/11/2026 (23h) — INCIDENTE: "compiled grammar is too large" derrubou a geração (erro meu)
+- Causa: o campo `durationMin` (nullish) que adicionei em `AiStrengthSessionSchema` (commit 2547e40) aumentou a gramática do schema semanal acima do limite da Anthropic -> 400 em todas as gerações semanais (Lucelane, Lorena e outras).
+- Correção: campo removido; a IA não declara tempo de força; o tempo vem da rotina (limite). Teste novo guarda que o schema não tem o campo e continua serializável. Regra: NUNCA adicionar campo ao schema da IA sem testar uma chamada real (teste unitário não pega esse erro).
+- Pendente: reintroduzir estimativa de tempo da IA só se houver espaço na gramática (testar com chamada real).

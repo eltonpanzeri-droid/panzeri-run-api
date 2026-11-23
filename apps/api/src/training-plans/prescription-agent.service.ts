@@ -127,7 +127,7 @@ export const AiReasoningSchema = z.object({
 });
 
 // 22/11/2026 (ordens do treinador): tempo da musculacao/fortalecimento e cadencia. Sem trava no codigo: o tempo da rotina e' o limite que a IA respeita (pode usar menos, por julgamento); cadencia nao se prescreve.
-export const STRENGTH_TIME_INSTRUCTION = '- TEMPO DA FORCA/FORTALECIMENTO: o campo durationMin de cada item de diasDisponiveisParaForca e o tempo que a ALUNA reservou na rotina dela para aquele dia — e o LIMITE: nunca exceda. Em cada sessao preencha durationMin com a SUA estimativa do tempo que o treino ocupa (aquecimento, series, descansos, troca de aparelho), sempre menor ou igual ao limite. Por padrao procure usar o tempo reservado; use menos somente se, pelo contexto atual da aluna (carga recente, fadiga, dor, fase da preparacao), voce julgar que nao precisa ou nao deve usar tudo. O tempo de musculacao e dificil de prever (academia cheia, espera por aparelho, ritmo de cada pessoa): se nos feedbacks a aluna disser que o treino ficou longo ou curto demais, ajuste as proximas prescricoes (quantidade de exercicios, series, descanso) — um relato isolado nao vira regra. Nao explique isso no texto que a aluna le.';
+export const STRENGTH_TIME_INSTRUCTION = '- TEMPO DA FORCA/FORTALECIMENTO: o campo durationMin de cada item de diasDisponiveisParaForca e o tempo que a ALUNA reservou na rotina dela para aquele dia — e o LIMITE: nunca exceda. Dimensione exercicios, series e descansos estimando o tempo que o treino ocupa (aquecimento, series, descansos, troca de aparelho), sempre menor ou igual ao limite. Por padrao procure aproveitar o tempo reservado; use menos somente se, pelo contexto atual da aluna (carga recente, fadiga, dor, fase da preparacao), voce julgar que nao precisa ou nao deve usar tudo. O tempo de musculacao e dificil de prever (academia cheia, espera por aparelho, ritmo de cada pessoa): se nos feedbacks a aluna disser que o treino ficou longo ou curto demais, ajuste as proximas prescricoes (quantidade de exercicios, series, descanso) — um relato isolado nao vira regra. Nao explique isso no texto que a aluna le.';
 export const STRENGTH_TIME_INSTRUCTION_SINGLE_DAY = STRENGTH_TIME_INSTRUCTION.replace('diasDisponiveisParaForca', 'diaDeForcaParaRegenerar');
 export const NO_CADENCE_INSTRUCTION = '- NAO prescreva cadencia/tempo de execucao dos movimentos na forca (nada de "3 segundos na descida", "controle na descida", "2-0-2", "execucao lenta" etc.), nem em notes nem em reps: deixe livre, sem dizer que e livre — simplesmente nao fale disso.';
 
@@ -191,8 +191,7 @@ export const AiStrengthSessionSchema = z.object({
   exerciseIds: z.array(z.string().min(1).max(60)).min(3).max(10),
   sets: z.number().int().min(2).max(5),
   reps: z.string().min(1),
-  // 22/11/2026 (caso Juliana: rotina 75/90 min, tudo saia 45 por uma trava no codigo): estimativa DA IA do tempo que a sessao ocupa, <= tempo que a aluna reservou na rotina. nullish de proposito: omitir nao derruba a semana (usa-se o tempo da rotina).
-  durationMin: z.number().int().min(1).max(720).nullish(),
+  // 22/11/2026: NAO adicionar campos a este schema sem testar contra a API — um durationMin nullish aqui estourou o limite de "compiled grammar" da Anthropic (400) e derrubou a geracao de varias alunas. O tempo da forca vem da rotina (validateStrengthSessions/montagem), a IA so respeita o limite pela instrucao.
   restSeconds: z.number().int().min(20).max(150),
   intensity: z.enum(['Leve', 'Moderada', 'Forte']),
   // Sem .min(1) de proposito (bug real 16/08 — aluno Elton/f757cd0a): a IA as vezes devolve
@@ -888,13 +887,8 @@ export class PrescriptionAgentService {
       // sessao (strengthPrescription em training-plans.service.ts) exibe o nome literal que a IA
       // escreveu quando o id nao bate com nenhum exercicio catalogado, so sem video/descricao.
 
-      // O tempo que a aluna reservou na rotina e' o LIMITE (ordem do treinador, 22/11/2026): a IA pode usar menos, nunca mais. Se passar, fica o limite (e registra no log); nunca se sobe o tempo.
-      const routineLimit = slotByKey.get(key)?.durationMin ?? null;
-      let declaredDuration: number | null = session.durationMin ?? null;
-      if (declaredDuration != null && routineLimit != null && declaredDuration > routineLimit) {
-        this.logger.warn(`IA declarou ${declaredDuration}min para a forca ${key}, acima dos ${routineLimit}min da rotina — mantido o limite da rotina.`);
-        declaredDuration = routineLimit;
-      }
+      // 22/11/2026: a IA nao declara tempo (campo no schema estourou a gramatica); a montagem usa o tempo da rotina (limite).
+      const declaredDuration: number | null = null;
       result.push({
         weekday: session.weekday,
         modality: session.modality,
