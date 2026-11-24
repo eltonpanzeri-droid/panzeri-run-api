@@ -250,3 +250,13 @@ Código pronto e commitado (sub-lotes 1.1 a 1.5); servidor já pode ir no Deploy
 **Pendência de abril/2027 (aviso da Apple ITMS-90725):** a partir de abril/2027 só entram builds feitos com o SDK do iOS 27 (Xcode 27). Atualizar o Expo/imagem de build em março/2027, como tarefa própria com teste.
 
 **Ideias NÃO feitas (não fazer sem ordem):** cartões de Evolução para compartilhar (sem a linha "FONTE" no início, decisão de 21/11); mapa 3D (Mapbox); chave do mapa do Android (hoje só o desenho do trajeto); e-mail com gráfico mais rico/interativo só dentro do aplicativo.
+
+## Observações do teste de "Iniciar treino" (24/11/2026, Elton testou numa corrida real) — a implementar no build 24
+Elton avisou que mandará mais temas em mensagens separadas; esta seção cresce. NADA implementado ainda.
+1. Contagem regressiva OU progressiva: o aluno escolhe (hoje só mostra "FALTAM ...").
+2. Mostrar em **km**, não em metros: "FALTAM 10,55 km" / "FALTAM 0,25 km" (hoje "FALTAM 10761 m").
+3. **Tela bloqueada:** sinal sonoro e vibração não funcionam. (Investigar: limite do sistema no iPhone com a tela bloqueada x o que o aplicativo pode fazer em segundo plano.)
+4. Com outros aplicativos abertos (inclusive câmera) funcionou; o aluno NÃO fechou o Panzeri Run, como recomendado.
+5. Treino contínuo, mas treino com fases/partes deveria ser **mais descrito** na tela de gravação.
+6. **Botões de áudio e de vibração dentro da gravação** (pode ser um "x"/liga-desliga), para o aluno mudar de ideia durante a corrida.
+7. Ao passar dos 10,8 km planejados, mostrou "treino cumprido" e **continuou registrando** (comportamento certo — manter).
