@@ -260,3 +260,4 @@ Elton avisou que mandará mais temas em mensagens separadas; esta seção cresce
 5. Treino contínuo, mas treino com fases/partes deveria ser **mais descrito** na tela de gravação.
 6. **Botões de áudio e de vibração dentro da gravação** (pode ser um "x"/liga-desliga), para o aluno mudar de ideia durante a corrida.
 7. Ao passar dos 10,8 km planejados, mostrou "treino cumprido" e **continuou registrando** (comportamento certo — manter).
+8. **Contagem regressiva de 3 s ao iniciar:** Elton tocou em "Iniciar treino", o aplicativo fez perguntas (permissões do sistema, ele não lembra quais) com o treino já rodando e ele levou ~7 s para responder e começar a correr. Fazer: pedir as permissões ANTES de gravar e só começar a gravar após uma contagem de 3 s. Investigar quais perguntas apareceram (localização? notificações? movimento?).
