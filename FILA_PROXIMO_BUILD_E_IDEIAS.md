@@ -261,3 +261,17 @@ Elton avisou que mandará mais temas em mensagens separadas; esta seção cresce
 6. **Botões de áudio e de vibração dentro da gravação** (pode ser um "x"/liga-desliga), para o aluno mudar de ideia durante a corrida.
 7. Ao passar dos 10,8 km planejados, mostrou "treino cumprido" e **continuou registrando** (comportamento certo — manter).
 8. **Contagem regressiva de 3 s ao iniciar:** Elton tocou em "Iniciar treino", o aplicativo fez perguntas (permissões do sistema, ele não lembra quais) com o treino já rodando e ele levou ~7 s para responder e começar a correr. Fazer: pedir as permissões ANTES de gravar e só começar a gravar após uma contagem de 3 s. Investigar quais perguntas apareceram (localização? notificações? movimento?).
+
+## Compartilhar treino (24/11/2026, teste do Elton) — observações e ideia dos cartões
+**Defeitos do que já existe (corrigir no build 24):**
+9. **"Com fundo" ficou carregando para sempre** ("Carregando o mapa...") e nunca terminou; "Sem fundo" funcionou. Investigar a geração do mapa (imagem do mapa não chegando/sem tempo limite) e colocar tempo limite com mensagem e alternativa.
+10. **Tela do compartilhar sobe demais:** o cartão não ocupa a tela direito, fica colado em cima e o relógio/barra do iPhone cobre os botões "Com fundo / Sem fundo", atrapalhando o toque. Respeitar a área segura e centralizar.
+11. **Cinzas da figurinha sem fundo** (texto "TEMPO/RITMO/ELEVAÇÃO" e afins) estão apagados demais: reforçar o contraste. O restante da figurinha sem fundo "ficou excelente" — manter.
+
+**Ideia (NÃO feita, aguardando ordem): vários modelos de cartão para o aluno escolher** (o Strava lançou vários novos). Diretrizes do Elton:
+- Usar as nossas métricas; diferencial: além de coletar, **comparamos com o prescrito** (prescrito × realizado). Alguns modelos com a comparação, outros sem.
+- Disponível também para treinos **registrados por relógios** (integrações), não só gravados no Panzeri Run.
+- **Musculação:** cartão com um **corpo (frente/costas) com os músculos trabalhados destacados** nos treinos assinalados, e dados do treino/exercícios.
+- **Fortalecimento para corredores:** cartão com uma **silhueta fazendo afundo** (ou outro exercício) e os dados do treino.
+- Sempre gerar algumas opções criativas, que deixem o aluno com vontade de compartilhar.
+- Cuidado: criar modelos ORIGINAIS do Panzeri Run (não copiar a arte do Strava).
