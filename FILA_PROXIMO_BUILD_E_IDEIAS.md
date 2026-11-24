@@ -275,3 +275,6 @@ Elton avisou que mandará mais temas em mensagens separadas; esta seção cresce
 - **Fortalecimento para corredores:** cartão com uma **silhueta fazendo afundo** (ou outro exercício) e os dados do treino.
 - Sempre gerar algumas opções criativas, que deixem o aluno com vontade de compartilhar.
 - Cuidado: criar modelos ORIGINAIS do Panzeri Run (não copiar a arte do Strava).
+- **Reaproveitar a tela "Treino completo" nos cartões (Elton, 24/11):** o gráfico de ritmo com a faixa prescrita (laranja) e o texto do relatório ("permaneceu X% dentro da faixa, Y% mais lento, Z% mais rápido") ficaram muito bons e devem virar modelos de cartão. **Atenção: a versão sem fundo (transparente) precisa funcionar** — gráfico e texto legíveis sobre qualquer foto/vídeo (traços e textos claros com contorno/sombra, sem depender de fundo escuro).
+- **Músculos dos cartões de musculação:** a origem pode ser a descrição de cada exercício do catálogo (já existe lá). Além disso, o **aluno poderia corrigir ou assinalar os músculos ele mesmo**, principalmente em **treino extra** que resolveu fazer — dá flexibilidade e autonomia/responsabilidade. (Conferir como a descrição do catálogo traz os músculos; sem implementar.)
+- Observação do Elton: a tela "Treino completo" também ajuda o agente de IA a entender como a aluna **sem relógio** executa o treino.
