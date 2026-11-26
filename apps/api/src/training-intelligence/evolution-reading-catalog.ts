@@ -44,6 +44,10 @@ export interface IndicatorReading {
   wearable?: boolean;
   /** O que a TENDÊNCIA da aluna representa (voz de professor), para indicadores sem "bom/ruim": above = valores subindo, below = caindo, stable = sem mudança relevante. */
   trendMeaning?: { above: string; below: string; stable: string };
+  /** 26/11/2026 (ordem de Elton): indicador SEM bom/ruim no nível, mas cuja DIREÇÃO em relação ao padrão da PRÓPRIA aluna tem leitura: para que lado da mudança é bom sinal ou merece atenção (ex.: HRV subindo = bom sinal). */
+  trendJudge?: { above: 'good' | 'attention'; below: 'good' | 'attention' };
+  /** 26/11/2026: o que se julga é a REGULARIDADE (desvio em relação ao padrão, para os dois lados). regularWithin = média dos desvios absolutos até a qual está regular (mesma unidade do indicador). */
+  regularity?: { regularWithin: number; regularMeaning: string; irregularMeaning: string };
   /** Frase do padrão de longo prazo (substitui "O seu caso mostra uma média de..."). */
   habitualTemplate?: (mean: string, n: number) => string;
 }
@@ -236,25 +240,25 @@ export const READING_CATALOG: IndicatorReading[] = [
   },
   // ------------------------------------------------------------------ Sono: horário de dormir e de acordar (relato e relógio; 15/11/2026)
   {
-    variableId: 'workout.bedtimeShiftScore', area: 'sleep', name: 'horário de dormir (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
+    variableId: 'workout.bedtimeShiftScore', area: 'sleep', regularity: { regularWithin: 1, regularMeaning: "A regularidade do horário ajuda a qualidade do sono e, com isso, a prontidão, a recuperação e a resposta aos treinos.", irregularMeaning: "A irregularidade tende a piorar a qualidade do sono e, com isso, atrapalhar a prontidão, a recuperação e a resposta aos treinos." }, name: 'horário de dormir (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (horário de dormir em relação ao seu habitual, de −3 a +3), números positivos significam que você foi dormir mais cedo e negativos, mais tarde; 3 é mais de 1 hora antes do habitual.',
     why: 'Mostra a regularidade do seu horário de dormir, do ponto de vista de quem relata.',
     meaning: {}, phrases: { above: 'dormir mais cedo', below: 'dormir mais tarde' },
   },
   {
-    variableId: 'workout.wakeTimeShiftScore', area: 'sleep', name: 'horário de acordar (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
+    variableId: 'workout.wakeTimeShiftScore', area: 'sleep', regularity: { regularWithin: 1, regularMeaning: "A regularidade do horário ajuda a qualidade do sono e, com isso, a prontidão, a recuperação e a resposta aos treinos.", irregularMeaning: "A irregularidade tende a piorar a qualidade do sono e, com isso, atrapalhar a prontidão, a recuperação e a resposta aos treinos." }, name: 'horário de acordar (seu relato)', levelGoodWhen: null, trendGoodWhen: null,
     scaleText: 'Nesse quesito (horário de acordar em relação ao seu habitual, de −3 a +3), números positivos significam que você acordou mais cedo e negativos, mais tarde; 3 é mais de 1 hora antes do habitual.',
     why: 'Mostra a regularidade do seu horário de acordar, do ponto de vista de quem relata.',
     meaning: {}, phrases: { above: 'acordar mais cedo', below: 'acordar mais tarde' },
   },
   {
-    variableId: 'wearable.bedtimeDeviationMin', area: 'sleep', name: 'horário de dormir (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
+    variableId: 'wearable.bedtimeDeviationMin', area: 'sleep', regularity: { regularWithin: 30, regularMeaning: "A regularidade do horário ajuda a qualidade do sono e, com isso, a prontidão, a recuperação e a resposta aos treinos.", irregularMeaning: "A irregularidade tende a piorar a qualidade do sono e, com isso, atrapalhar a prontidão, a recuperação e a resposta aos treinos." }, name: 'horário de dormir (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
     scaleText: 'Nesse quesito (horário de dormir em relação ao seu padrão, medido pelo relógio, em minutos), números positivos significam que você dormiu mais cedo que o seu padrão e negativos, mais tarde.',
     why: 'Mostra, com precisão, a regularidade do seu horário de dormir.',
     meaning: {}, phrases: { above: 'dormir mais cedo', below: 'dormir mais tarde' },
   },
   {
-    variableId: 'wearable.wakeDeviationMin', area: 'sleep', name: 'horário de acordar (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
+    variableId: 'wearable.wakeDeviationMin', area: 'sleep', regularity: { regularWithin: 30, regularMeaning: "A regularidade do horário ajuda a qualidade do sono e, com isso, a prontidão, a recuperação e a resposta aos treinos.", irregularMeaning: "A irregularidade tende a piorar a qualidade do sono e, com isso, atrapalhar a prontidão, a recuperação e a resposta aos treinos." }, name: 'horário de acordar (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true,
     scaleText: 'Nesse quesito (horário de acordar em relação ao seu padrão, medido pelo relógio, em minutos), números positivos significam que você acordou mais cedo que o seu padrão e negativos, mais tarde.',
     why: 'Mostra, com precisão, a regularidade do seu horário de acordar.',
     meaning: {}, phrases: { above: 'acordar mais cedo', below: 'acordar mais tarde' },
@@ -280,7 +284,7 @@ export const READING_CATALOG: IndicatorReading[] = [
     },
   },
   {
-    variableId: 'workout.sleepDurationHoursEstimate', area: 'sleep', name: 'duração estimada do sono', levelGoodWhen: null, trendGoodWhen: null, relativeChange: true,
+    variableId: 'workout.sleepDurationHoursEstimate', area: 'sleep', trendJudge: { above: 'good', below: 'attention' }, name: 'duração estimada do sono', levelGoodWhen: null, trendGoodWhen: null, relativeChange: true,
     scaleText: 'Nesse quesito (duração estimada do sono, em horas), números maiores significam noites mais longas.',
     why: 'É a sua estimativa de quanto você dormiu; o relógio, quando existe, mede com mais precisão.',
     meaning: {}, phrases: { above: 'noites mais longas', below: 'noites mais curtas' },
@@ -292,7 +296,7 @@ export const READING_CATALOG: IndicatorReading[] = [
     meaning: {}, phrases: { above: 'mais sono leve', below: 'menos sono leve' },
   },
   {
-    variableId: 'wearable.sleepScore', area: 'sleep', name: 'pontuação do sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    variableId: 'wearable.sleepScore', area: 'sleep', trendJudge: { above: 'good', below: 'attention' }, name: 'pontuação do sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
     scaleText: 'Nesse quesito (pontuação do sono calculada pelo fabricante do relógio, de 0 a 100), números maiores significam uma pontuação maior na escala daquela marca.',
     why: 'É a pontuação do fabricante, não uma medida do Panzeri Run; cada marca calcula a sua.',
     meaning: {}, phrases: { above: 'pontuação do sono mais alta', below: 'pontuação do sono mais baixa' },
@@ -398,7 +402,7 @@ export const READING_CATALOG: IndicatorReading[] = [
   },
   // ------------------------------------------------------------------ Sono e recuperação medidos pelo RELÓGIO (14/11/2026: números objetivos + a nossa matemática; só tendência, sem julgar o nível)
   {
-    variableId: 'wearable.sleepDurationMin', area: 'sleep', name: 'tempo total de sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    variableId: 'wearable.sleepDurationMin', area: 'sleep', trendJudge: { above: 'good', below: 'attention' }, name: 'tempo total de sono (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
     scaleText: 'Nesse quesito (tempo total de sono medido pelo relógio, em horas), números maiores significam mais horas dormidas por noite.',
     why: 'O tempo de sono é a base da recuperação entre os treinos. O relógio estima esse tempo, então usamos o seu próprio padrão como referência.',
     meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento do tempo de sono', below: 'queda do tempo de sono' },
@@ -416,13 +420,13 @@ export const READING_CATALOG: IndicatorReading[] = [
     meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento do sono REM', below: 'queda do sono REM' },
   },
   {
-    variableId: 'wearable.hrvLastNightAvg', area: 'sleep', name: 'variabilidade da frequência cardíaca (HRV) da noite', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    variableId: 'wearable.hrvLastNightAvg', area: 'sleep', trendJudge: { above: 'good', below: 'attention' }, name: 'variabilidade da frequência cardíaca (HRV) da noite', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
     scaleText: 'Nesse quesito (variabilidade da frequência cardíaca, HRV, medida pelo relógio durante a noite), a unidade e o método dependem do aparelho, por isso só comparamos com o seu próprio padrão.',
     why: 'A HRV mostra o quanto o intervalo entre os batimentos varia. Em geral, valores acima do seu normal costumam acompanhar boa recuperação, e valores abaixo podem acompanhar cansaço, estresse ou sono ruim, entre outras causas.',
     meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento da HRV', below: 'queda da HRV' },
   },
   {
-    variableId: 'wearable.restingHeartRateBpm', area: 'sleep', name: 'frequência cardíaca de repouso (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
+    variableId: 'wearable.restingHeartRateBpm', area: 'sleep', trendJudge: { above: 'attention', below: 'good' }, name: 'frequência cardíaca de repouso (relógio)', levelGoodWhen: null, trendGoodWhen: null, wearable: true, relativeChange: true,
     scaleText: 'Nesse quesito (frequência cardíaca de repouso medida pelo relógio, em batimentos por minuto), números menores significam um coração batendo mais devagar em repouso.',
     why: 'Em geral, a frequência de repouso cai com o melhor condicionamento e com boa recuperação; valores acima do seu normal podem acompanhar cansaço, estresse ou sono ruim, entre outras causas.',
     meaning: { neutral: WATCH_FOOTER }, phrases: { above: 'aumento da frequência de repouso', below: 'queda da frequência de repouso' },
@@ -486,6 +490,16 @@ const TREND_MEANING: Record<string, { above: string; below: string; stable: stri
     above: 'Você vem tendo mais sono REM do que o seu habitual, fase ligada à recuperação mental.',
     below: 'Você vem tendo menos sono REM do que o seu habitual, fase ligada à recuperação mental.',
     stable: 'O seu sono REM está estável, parecido com o seu habitual.',
+  },
+  'wearable.sleepScore': {
+    above: 'A pontuação do seu sono vem subindo em relação ao seu padrão, sinal de que o descanso está melhorando.',
+    below: 'A pontuação do seu sono vem caindo em relação ao seu padrão: um descanso pior pode reduzir a prontidão e a recuperação.',
+    stable: 'A pontuação do seu sono está estável, parecida com o seu padrão.',
+  },
+  'workout.sleepDurationHoursEstimate': {
+    above: 'Você vem dormindo mais horas do que o seu habitual. Em geral, mais tempo de sono favorece a recuperação.',
+    below: 'Você vem dormindo menos horas do que o seu habitual. Em geral, dormir menos reduz a recuperação e a prontidão para treinar.',
+    stable: 'A sua duração de sono está estável, parecida com o seu habitual.',
   },
   'wearable.hrvLastNightAvg': {
     above: 'A sua HRV está acima do seu normal, o que costuma acompanhar boa recuperação.',

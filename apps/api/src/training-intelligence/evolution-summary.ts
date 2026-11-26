@@ -25,6 +25,9 @@ export const POOR_FRACTION = 0.375;
 export type Level = 'good' | 'middle' | 'poor';
 export type Verdict = 'improved' | 'worsened' | 'stable' | 'above' | 'below';
 export type Bucket = 'good' | 'steady' | 'attention' | 'tracked' | 'insufficient';
+// 26/11/2026 (ordem de Elton): a aluna quer saber se esta bem em CADA indicador, como esta ficando e o que isso representa. Tom = a leitura em linguagem de aluna (bom / intermediario ou estavel / merece atencao / apenas acompanhado).
+export type Tone = 'good' | 'steady' | 'attention' | 'neutral';
+const TONE_OF_BUCKET: Record<Bucket, Tone> = { good: 'good', steady: 'steady', attention: 'attention', tracked: 'neutral', insufficient: 'neutral' };
 
 export interface TrendReading { verdict: Verdict; delta: number }
 
@@ -46,6 +49,11 @@ export interface IndicatorResult {
   longLevel: Level | null;
   texts: { whatItMeasures: string; habitual: string; trend: string | null; meaning: string | null };
   guide: IndicatorGuide;
+  /** Leitura em linguagem de aluna deste indicador (ver Tone) e a frase de situacao ("esta bom e estavel"). Opcionais para nao quebrar quem monta resultados a mao. */
+  tone?: Tone;
+  headline?: string;
+  /** Valor mostrado na linha do card da area quando a media assinada confunde (regularidade: variacao media em minutos/pontos). */
+  valueText?: string;
 }
 
 const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
@@ -188,6 +196,18 @@ function limitationsFor(entry: IndicatorReading, n: number, extra: { weekly: boo
   return out;
 }
 
+// Frase de SITUACAO do indicador (26/11/2026): comeca em minuscula para servir depois de "Em resumo:" e de "Nome (media):".
+const unitOf = (definition: Pick<VariableDefinition, 'scale'>): string | undefined => (definition.scale && 'unit' in definition.scale ? (definition.scale as { unit?: string }).unit : undefined);
+export function headlineOf(entry: Pick<IndicatorReading, 'phrases'>, tone: Tone, trendVerdict: Verdict | undefined, regular: boolean | null): string {
+  const move = trendVerdict === 'improved' ? 'melhorando' : trendVerdict === 'worsened' ? 'em tendência de piora' : trendVerdict === 'stable' ? 'estável' : null;
+  const dir = trendVerdict === 'above' ? (entry.phrases?.above ?? 'valores mais altos') : trendVerdict === 'below' ? (entry.phrases?.below ?? 'valores mais baixos') : null;
+  if (regular !== null) return regular ? 'você está regular, e isso é bom.' : 'você tem variado bastante, e isso merece atenção.';
+  if (tone === 'good') return `está bom${move ? ` e ${move}` : dir ? ` (com tendência de ${dir})` : ''}.`;
+  if (tone === 'attention') return `merece atenção${trendVerdict === 'worsened' ? ': está em tendência de piora' : dir ? `: tendência de ${dir}` : ''}.`;
+  if (tone === 'steady') return `está num nível intermediário ou estável${move && move !== 'estável' ? `, ${move}` : ''}.`;
+  return dir ? `é apenas acompanhado (sem bom ou ruim por si só): tendência de ${dir}.` : 'é apenas acompanhado (sem bom ou ruim por si só): sem mudança relevante.';
+}
+
 // "Como você está?" no molde de Elton (15/11/2026): média, padrão de longo prazo, padrão de curto prazo, tendência de mudança e a última sessão contra as duas tendências. Só descreve; nunca qualifica.
 function relativeTo(value: number, base: number): 'dentro' | 'acima' | 'abaixo' {
   const threshold = Math.abs(base) * CHANGE_FRACTION;
@@ -241,7 +261,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   if (recent.length < MIN_OBSERVATIONS) {
     const lastPoint = recent[recent.length - 1];
     return { variableId: entry.variableId, name: entry.name, status: 'insufficient', bucket: 'insufficient', level: null, mean: null, n: recent.length, short: null, long: null, shortLevel: null, longLevel: null,
-      texts: { whatItMeasures, habitual: 'Ainda não há registros suficientes para mostrar o seu padrão neste indicador.', trend: null, meaning: null },
+      texts: { whatItMeasures, habitual: 'Ainda não há registros suficientes para mostrar o seu padrão neste indicador.', trend: null, meaning: null }, tone: 'neutral', headline: '',
       guide: {
         whatIs: override ? override.whatIs.join('\n\n') : whatItMeasures,
         howToRead: override ? override.howToRead.join('\n\n') : howToReadText(entry, definition.scale, !!entry.weekly),
@@ -282,7 +302,16 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
   // a mudança mais recente, se houve; senão a de longo prazo; senão "estável" (se houve leitura)
   const trendVerdict = short && short.verdict !== 'stable' ? short.verdict : long && long.verdict !== 'stable' ? long.verdict : (short ?? long)?.verdict;
   const trendKey = trendVerdict === 'above' ? 'above' : trendVerdict === 'below' ? 'below' : trendVerdict === 'stable' ? 'stable' : null;
-  const levelText = level ? (entry.meaning[level] ?? null) : band && entry.positionMeaning ? entry.positionMeaning[band] : null;
+  const regular = entry.regularity ? mean(recent.map((p) => Math.abs(p.value))) <= entry.regularity.regularWithin : null;
+  let tone: Tone = TONE_OF_BUCKET[bucket];
+  if (regular !== null) tone = regular ? 'good' : 'attention';
+  else if (entry.trendJudge && (trendKey === 'above' || trendKey === 'below')) tone = entry.trendJudge[trendKey];
+  else if (entry.trendJudge && trendKey === 'stable') tone = 'steady';
+  const regularText = entry.regularity && regular !== null ? (regular ? entry.regularity.regularMeaning : entry.regularity.irregularMeaning) : null;
+  const headline = headlineOf(entry, tone, trendVerdict, regular);
+  const regularityValue = entry.regularity ? mean(recent.map((p) => Math.abs(p.value))) : null;
+  const valueText = regularityValue == null ? undefined : (unitOf(definition) === 'min' ? `variação média de ${Math.round(regularityValue)} min` : `variação média de ${fmtNum(regularityValue)} ${regularityValue === 1 ? 'ponto' : 'pontos'}`);
+  const levelText = level ? (entry.meaning[level] ?? null) : band && entry.positionMeaning ? entry.positionMeaning[band] : regularText;
   const meaningParts = [levelText, trendKey && entry.trendMeaning ? entry.trendMeaning[trendKey] : null].filter((part): part is string => !!part);
   const meaning = meaningParts.length > 0 ? meaningParts.join(' ') : null;
   const unit = scale && 'unit' in scale ? (scale as { unit?: string }).unit : undefined;
@@ -322,7 +351,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
     : `Para onde você está indo: ainda não há registros suficientes para comparar o curto e o longo prazo.${trendText ? ` ${trendText}` : ''}`;
   const lastVsMean = compareWord(lastPoint.value, overall);
   const lastLine = `O seu último registro foi ${fmt(lastPoint.value)} (${dateBr(lastPoint.timestamp)}), ${lastVsMean === 'praticamente igual' ? 'em linha com a sua média' : `${lastVsMean} da sua média`}.`;
-  const howYouAreDefault = [where, going, ...(meaning ? [meaning] : []), lastLine, 'Esse é um dos dados que cruzamos com os demais para ajustar os seus treinos.'];
+  const howYouAreDefault = [`Em resumo: ${headline}`, where, going, ...(meaning ? [meaning] : []), lastLine, 'Esse é um dos dados que cruzamos com os demais para ajustar os seus treinos.'];
   const howYouAre = !override ? howYouAreDefault
     : override.howYouAre === 'prescribed'
       ? [prescribedHowYouAre({ meanText, chronic: chronicOk ? (ac.chronic.value as number) : null, acute: acuteOk ? (ac.acute.value as number) : null, fmt, verdict: trendVerdict })]
@@ -330,6 +359,7 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
 
   return {
     variableId: entry.variableId, name: entry.name, status: 'ok', bucket, level, mean: overall, n: recent.length, short, long,
+    tone, headline, ...(valueText ? { valueText } : {}),
     shortLevel: acuteOk ? levelOf(ac.acute.value as number, scale, entry.levelGoodWhen) : null,
     longLevel: chronicOk ? levelOf(ac.chronic.value as number, scale, entry.levelGoodWhen) : null,
     texts: { whatItMeasures, habitual, trend: trendText, meaning },
@@ -356,6 +386,27 @@ export interface AreaSummary {
 
 const joinNames = (names: string[]) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`);
 
+// Uma linha por indicador (26/11/2026, ordem de Elton): nome (media): situacao em uma frase + o que isso representa para a aluna. Agrupado por tom, comecando pelo que merece atencao.
+function indicatorLine(indicator: IndicatorResult): string {
+  const meaning = indicator.texts.meaning;
+  return `${cap(indicator.name)} (${indicator.valueText ?? indicator.guide.numbers[0].value}): ${indicator.headline ?? ''}${meaning ? ` ${meaning}` : ''}`.replace(/\s+/g, ' ').trim();
+}
+const TONE_GROUP_LABEL: Record<Tone, string> = {
+  attention: 'Merecem atenção:',
+  steady: 'Em nível intermediário ou estável:',
+  good: 'Estão bons:',
+  neutral: 'Apenas acompanhados (não são bons nem ruins por si só):',
+};
+export function groupedIndicatorLines(indicators: IndicatorResult[]): string[] {
+  const lines: string[] = [];
+  for (const tone of ['attention', 'steady', 'good', 'neutral'] as Tone[]) {
+    const group = indicators.filter((indicator) => (indicator.tone ?? TONE_OF_BUCKET[indicator.bucket]) === tone);
+    if (group.length === 0) continue;
+    lines.push(TONE_GROUP_LABEL[tone], ...group.map(indicatorLine));
+  }
+  return lines;
+}
+
 // Card da ÁREA (14/11/2026, desenho de Elton): "O que é?", "Como interpretar?", "Quais são os seus números?", "Como você está?" (análise detalhada e CRUZADA dos indicadores) e "Limitações".
 function buildAreaGuide(id: AreaId, allIndicators: IndicatorResult[], text: string, meaning: string | null, counts: AreaSummary['counts']): AreaGuide {
   const info = AREA_INFO[id];
@@ -377,11 +428,7 @@ function buildAreaGuide(id: AreaId, allIndicators: IndicatorResult[], text: stri
   const tracked = ok.filter((indicator) => indicator.bucket === 'tracked');
   const missing = indicators.filter((indicator) => indicator.status !== 'ok').map((indicator) => indicator.name);
 
-  const howYouAre: string[] = [text];
-  for (const indicator of ok) {
-    const lead = indicator.texts.meaning ?? indicator.texts.trend ?? indicator.texts.habitual;
-    howYouAre.push(`${cap(indicator.name)} (${indicator.guide.numbers[0].value}): ${lead}`);
-  }
+  const howYouAre: string[] = [text, ...groupedIndicatorLines(ok)];
   // cruzamento entre indicadores (regra): o que vários sinais juntos dizem
   if (counts.evaluated >= 2 && attention.length >= 2) {
     howYouAre.push(`Lendo em conjunto: ${joinNames(attention)} apontam para a mesma direção de atenção. Quando mais de um sinal aponta para o mesmo lado, a leitura ganha peso: não é um número isolado, é um padrão.`);
@@ -391,13 +438,6 @@ function buildAreaGuide(id: AreaId, allIndicators: IndicatorResult[], text: stri
     howYouAre.push(`Lendo em conjunto: ${joinNames(good)} vão bem, enquanto ${joinNames(attention)} pedem atenção. A sua situação tem pontos fortes e pontos a cuidar, e é esse cruzamento que usamos para decidir onde ajustar.`);
   } else if (steady.length > 0 && attention.length === 0 && good.length === 0) {
     howYouAre.push(`Lendo em conjunto: ${joinNames(steady)} estão num nível intermediário ou estável, sem sinal forte para nenhum dos lados neste momento.`);
-  }
-  const worsening = tracked.filter((indicator) => indicator.short?.verdict === 'above' || indicator.short?.verdict === 'below' || indicator.long?.verdict === 'above' || indicator.long?.verdict === 'below');
-  if (tracked.length > 0) {
-    const moving = worsening.map((indicator) => `${indicator.name} (${indicator.texts.trend?.replace(/^A tendência (mostra )?/, '').replace(/\.$/, '') ?? 'em mudança'})`);
-    howYouAre.push(moving.length > 0
-      ? `Entre os indicadores que apenas acompanhamos, há mudança em: ${joinNames(moving)}. Eles não são bons nem ruins por si só, mas ajudam a entender o contexto dos demais.`
-      : `Os indicadores que apenas acompanhamos (${joinNames(tracked.map((indicator) => indicator.name))}) estão estáveis, o que ajuda a dar contexto aos demais.`);
   }
   if (missing.length > 0) howYouAre.push(`Ainda sem leitura por falta de registros: ${joinNames(missing)}.`);
   if (meaning) howYouAre.push(meaning);
@@ -464,6 +504,7 @@ function buildCustomAreaGuide(
   indicators: IndicatorResult[], numbers: GuideRow[], missing: string[],
 ): AreaGuide {
   const howYouAre = trainingHowYouAre(indicators);
+  howYouAre.push(...groupedIndicatorLines(indicators.filter((indicator) => indicator.status === 'ok')));
   if (closings && indicators.some((indicator) => indicator.status === 'ok')) {
     const worse = indicators.some((indicator) => indicator.status === 'ok' && (indicator.bucket === 'attention' || indicator.short?.verdict === 'worsened' || indicator.short?.verdict === 'above'));
     howYouAre.push(worse ? closings.closingWorse : closings.closingOk);
