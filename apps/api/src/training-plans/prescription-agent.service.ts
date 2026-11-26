@@ -324,6 +324,9 @@ export interface RunSessionParams {
   trainingAnalysis?: Record<string, unknown> | null;
   // Lote 4: referencia fisiologica operacional atual (Testes fisicos); null/ausente = aluno sem avaliacao.
   physiologicalReference?: AgentReferenceView | null;
+  // 26/11/2026: quando presentes, o dia e decidido pelo MESMO agente da semana (ver proposeRunSession): entrada completa da semana restrita a este dia.
+  weeklyInput?: MethodologyInput;
+  weekday?: number;
 }
 
 export interface PaceEvidence {
@@ -383,7 +386,8 @@ export class PrescriptionAgentService {
 
     const runSlots = computeRunSlots(input.availability);
     // 19/11/2026 (Elton): a prova NUNCA trava a geracao. Rotina sem dia de corrida mas com prova na semana (dia livre ou so outra modalidade): a prova entra no calendario como treino de corrida e a semana e gerada normalmente.
-    if (!runSlots.length && !input.availability.some((day) => day.raceDay === true)) {
+    // 26/11/2026: regenerar um dia de OUTRA modalidade (musculacao/fortalecimento) usa este mesmo agente sem dia de corrida; so a geracao da semana exige corrida.
+    if (!runSlots.length && !input.availability.some((day) => day.raceDay === true) && !input.singleDayRegeneration) {
       if (failure) failure.reason = 'a rotina salva nao tem nenhum dia de corrida';
       return null;
     }
@@ -405,6 +409,11 @@ export class PrescriptionAgentService {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o dia de forca avulso.');
       return null;
     }
+    // 26/11/2026 (ordem de Elton): regenerar um dia segue a MESMA logica da geracao da semana (mesmo agente, mesmas informacoes), qualquer modalidade.
+    if (input.singleDayRegeneration) {
+      const weekly = await this.proposeWeeklyDecision(input, {}, trace);
+      return weekly?.strengthSessions?.find((session) => session.weekday === slot.weekday && session.modality === slot.modality) ?? null;
+    }
     const attempt = () => this.attemptStrengthSessionDecision(input, slot, trace);
     return (await attempt()) ?? (await attempt());
   }
@@ -414,10 +423,16 @@ export class PrescriptionAgentService {
   // chamada — distancia, pace e estrutura, na forma que fizer sentido pra ela (ver AiSessionSchema)
   // — com o mesmo contexto (diretivas, observacoes, sinal de dor) que a geracao semanal usa, nunca
   // uma formula ou um numero reaproveitado de outro dia.
-  async proposeRunSession(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: z.infer<typeof AiSessionPartsSchema>; declared?: DeclaredReasoning | null } | null> {
+  async proposeRunSession(params: RunSessionParams, trace?: AgentCallTrace[]): Promise<{ parts: SessionPartDecision[]; declared?: DeclaredReasoning | null; decision?: RunSessionDecision } | null> {
     if (!this.client) {
       this.logger.error('ANTHROPIC_API_KEY nao configurada — o agente de IA nao pode ser chamado para o treino avulso.');
       return null;
+    }
+    // 26/11/2026 (ordem de Elton): regenerar um dia segue a MESMA logica da geracao da semana: mesmo agente, mesmas informacoes, duracao decidida por ele (nao travada na da sessao antiga).
+    if (params.weeklyInput && params.weekday != null) {
+      const weekly = await this.proposeWeeklyDecision(params.weeklyInput, params.evidence, trace);
+      const decision = weekly?.sessions.find((session) => session.weekday === params.weekday) ?? null;
+      return decision ? { parts: decision.parts, declared: decision.declared ?? null, decision } : null;
     }
     const attempt = () => this.attemptRunSessionDecision(params, trace);
     return (await attempt()) ?? (await attempt());
@@ -1230,6 +1245,8 @@ export class PrescriptionAgentService {
         // TargetRacesService.activeGoals e a regra correspondente no prompt de sistema). Pode vir
         // vazio (sem nenhuma prova marcada) ou com mais de uma prova simultanea.
         // 09/11/2026: provas alvo que caem NESTA semana, com o id que a IA devolve em provasAlvo (ver RACE_STRATEGY_INSTRUCTION). Vazio sem prova na semana.
+        // 26/11/2026: so presente ao regenerar UM dia (nunca na geracao da semana).
+        ...(input.singleDayRegeneration ? { regeneracaoDeUmDiaSomente: { aviso: `Este pedido e APENAS para decidir de novo UM dia (weekday ${input.singleDayRegeneration.weekday}, modalidade ${input.singleDayRegeneration.modality ?? 'corrida'}). Devolva uma unica sessao para ele (em sessions se for corrida; em strengthSessions se for forca/fortalecimento, deixando o outro vazio), com a duracao que voce julgar adequada dentro do tempo reservado na rotina. Os demais dias da semana ja existem (lista abaixo) e nao devem ser alterados; use-os para pensar a carga da semana.`, outrasSessoesDaSemana: input.singleDayRegeneration.otherSessionsThisWeek } } : {}),
         provasAlvoNestaSemana: racesInWeek(input.targetRaces, input.weekDates).map((race) => ({
           id: race.id,
           nome: race.name,

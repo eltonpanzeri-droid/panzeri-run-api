@@ -14,6 +14,7 @@ import { sleepDurationHoursEstimate } from '../workout-completions/workout-compl
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import {
+  MethodologyAvailability,
   MethodologyInput,
   RunSessionDecision,
   StrengthSessionDecision,
@@ -2246,6 +2247,162 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     return { rescheduled: true };
   }
 
+  // 26/11/2026 (ordem de Elton): regenerar um dia de corrida recebe as MESMAS informacoes da geracao da semana (provas alvo, historico semanal, estado do atleta, recorde, relatorio da
+  // semana anterior...), restritas a este dia. As leituras abaixo repetem as da geracao semanal (mesmas funcoes, mesmo escopo de IA); falha de qualquer uma vira lacuna informativa e nunca bloqueia.
+  private async loadDayWeeklyContext(userId: string, session: { id: string; planId: string; weekday: number; modality: string; scheduledDate: Date; durationMin: number | null }, answers: Record<string, unknown>) {
+    const contextGaps: ContextGap[] = [];
+    const weekStart = startOfWeek(session.scheduledDate);
+    const [targetRaces, longestRunSessionRaw, routine, previousPlansRaw, weekSessions] = await Promise.all([
+      this.targetRaces.activeGoals(userId),
+      this.prisma.trainingSession.findFirst({
+        where: { userId, modality: { in: ['corrida', 'esteira'] }, completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } } },
+        orderBy: { completion: { distanceKm: 'desc' } },
+        select: RECORD_RUN_SELECT,
+      }),
+      readRoutineState(this.prisma, userId),
+      this.prisma.trainingPlan.findMany({
+        where: { userId, startDate: { lt: weekStart } },
+        orderBy: [{ startDate: 'desc' }, { createdAt: 'desc' }],
+        take: 24,
+        include: { sessions: { include: { completion: { include: { shoeUsage: true } }, executionLinks: { where: { status: 'active' }, select: { activityLog: { select: { provider: true, startedAt: true, distanceMeters: true, durationSec: true, avgHeartRateBpm: true, maxHeartRateBpm: true } } } } } } },
+      }),
+      this.prisma.trainingSession.findMany({
+        where: { planId: session.planId, id: { not: session.id } },
+        orderBy: [{ scheduledDate: 'asc' }],
+        select: { weekday: true, modality: true, durationMin: true, distanceKm: true, completion: { select: { id: true } } },
+      }),
+    ]);
+    const longestRunSession = aiBlockedProviders().length === 0
+      ? longestRunSessionRaw
+      : this.firstWithDistanceForAi(longestRunSessionRaw, await this.prisma.trainingSession.findMany({
+        where: { userId, modality: { in: ['corrida', 'esteira'] }, completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { not: null } } },
+        orderBy: { completion: { distanceKm: 'desc' } },
+        take: 25,
+        select: RECORD_RUN_SELECT,
+      }));
+    const previousPlans = neutralizePlansForAi(previousPlansRaw);
+    const historyWeeks = selectHistoryWeeks(previousPlans, 4);
+    const history = historyWeeks.map((historyPlan) => {
+      const runSessions = historyPlan.sessions.filter((s) => isRunningModality(s.modality));
+      const completedRuns = runSessions.filter((s) => s.completion?.status === 'done' || s.completion?.status === 'adjusted');
+      const longestRun = completedRuns.reduce<(typeof completedRuns)[number] | null>((longest, s) => {
+        const durationMin = s.completion?.durationMin ?? s.durationMin ?? 0;
+        const longestDurationMin = longest ? (longest.completion?.durationMin ?? longest.durationMin ?? 0) : -1;
+        return durationMin > longestDurationMin ? s : longest;
+      }, null);
+      return {
+        runMinutes: runSessions.reduce((total, s) => total + (s.durationMin ?? 0), 0),
+        completedRunMinutes: completedRuns.reduce((total, s) => total + (s.completion?.durationMin ?? s.durationMin ?? 0), 0),
+        longestRunMinutes: Math.max(0, ...completedRuns.map((s) => s.completion?.durationMin ?? s.durationMin ?? 0)),
+        prescribedSessions: historyPlan.sessions.length,
+        completedSessions: historyPlan.sessions.filter((s) => s.completion?.status === 'done' || s.completion?.status === 'adjusted').length,
+        unregisteredSessions: historyPlan.sessions.filter((s) => s.completion === null).length,
+        weekStartDate: historyPlan.startDate.toISOString().slice(0, 10),
+        longestRunDate: longestRun ? longestRun.scheduledDate.toISOString().slice(0, 10) : null,
+        recordedSessions: recordedSessionsOf(historyPlan).map((s) => formatRecordedSession(s)),
+      };
+    });
+    // Relatorio de execucao da semana anterior (indicadores deterministicos, sem IA) — mesma chamada da geracao semanal.
+    let weeklyExecution: WeeklyReportDraft | null = null;
+    const previousWeekStart = addDays(weekStart, -7);
+    const previousWeekPlan = historyWeeks.find((plan) => plan.startDate.getTime() === previousWeekStart.getTime());
+    if (this.executionAnalysis && previousWeekPlan) {
+      try {
+        weeklyExecution = await this.executionAnalysis.prepareWeeklyReport(userId, {
+          startDate: previousWeekStart, planId: previousWeekPlan.planId,
+          sessionIds: previousWeekPlan.sessions.filter((s) => !['device_extra', 'student_extra'].includes(s.origin ?? '') && ['corrida', 'esteira', 'forca', 'fortalecimento_corredores'].includes(s.modality)).map((s) => s.id),
+        });
+      } catch (error) {
+        contextGaps.push({ source: 'execucao_da_semana', severity: 'informativo', reason: describeError(error), effect: 'O relatorio matematico da semana anterior NAO pode ser calculado; decida pelo historicoSemanal.' });
+      }
+    }
+    const recordDistanceKm = longestRunSession?.completion?.distanceKm ?? null;
+    const recentSessionsNearRecordRaw = recordDistanceKm != null && recordDistanceKm >= 8
+      ? await this.prisma.trainingSession.findMany({
+          where: {
+            userId,
+            modality: { in: ['corrida', 'esteira'] },
+            completion: { status: { in: ['done', 'adjusted'] }, distanceKm: { gte: recordDistanceKm * 0.5 } },
+            scheduledDate: { gte: addDays(startOfWeek(new Date()), -70) },
+          },
+          orderBy: { completion: { distanceKm: 'desc' } },
+          take: aiBlockedProviders().length > 0 ? 25 : 5,
+          select: NEAR_RECORD_SELECT,
+        })
+      : [];
+    const recentSessionsNearRecord = aiBlockedProviders().length === 0
+      ? recentSessionsNearRecordRaw
+      : neutralizeSessionsForAi(recentSessionsNearRecordRaw).filter((s) => s.completion?.distanceKm != null).slice(0, 5);
+    const nearRecordSessions = recentSessionsNearRecord.filter((s): s is typeof s & { completion: { distanceKm: number; details: unknown } } => s.completion?.distanceKm != null);
+    const menstrualCycleContext = await this.menstrualCycle.getAgentContext(userId).catch(() => null);
+    const athleteStateContextBase = await this.athleteStateSnapshot
+      .getSnapshot(userId)
+      .then((snapshot) => {
+        const limited = limitCompactAgentContext(buildCompactAgentContext(snapshot));
+        if (limited.integrationDataOmitted) {
+          contextGaps.push({ source: 'dados_das_integracoes', severity: 'degradado', reason: `contexto com ${limited.sizeChars} caracteres, acima do teto de ${limited.maxChars}`, effect: 'Os dados vindos de relogios e integracoes (sono, HRV, FC de repouso, atividade diaria medidos pelo aparelho) NAO foram lidos nesta geracao; decida com os demais dados (entrevista, historico, registros, check-in) e NAO cite nem suponha valores do aparelho.' });
+        }
+        return limited.context;
+      })
+      .catch((error) => {
+        this.logger.warn(`Falha ao gerar Athlete State Snapshot (dia) para ${userId}, seguindo sem ele: ${error instanceof Error ? error.message : error}`);
+        contextGaps.push({ source: 'estado_do_atleta', severity: 'degradado', reason: describeError(error), effect: 'O estado longitudinal do atleta (sono, fadiga, recuperacao, carga, dor) NAO pode ser recuperado; decida com cautela sobre a progressao.' });
+        return null;
+      });
+    const healthIndicatorsContext = this.healthIndicators ? await this.healthIndicators.summary(userId).catch(() => null) : null;
+    const athleteStateContext = athleteStateContextBase
+      ? { ...athleteStateContextBase, menstrualCycle: menstrualCycleContext ?? undefined, ...(healthIndicatorsContext ? { indicadoresDeSaudeAutorizados: healthIndicatorsContext } : {}) }
+      : null;
+
+    const routineDay = routine.activeDays.find((day) => day.weekday === session.weekday);
+    const availability: MethodologyAvailability[] = [{
+      weekday: session.weekday,
+      modalities: [session.modality],
+      availableMin: routineDay?.availableMin ?? session.durationMin,
+      modalityDurations: normalizeModalityDurations(routineDay?.modalityDurations),
+    }];
+    return {
+      contextGaps,
+      availability,
+      history,
+      weeklyExecutionReport: weeklyExecution?.promptIndicators ?? null,
+      athleteStateContext,
+      weekDates: [{ weekday: session.weekday, date: session.scheduledDate.toISOString().slice(0, 10) }],
+      singleDayRegeneration: {
+        weekday: session.weekday,
+        modality: session.modality,
+        otherSessionsThisWeek: weekSessions.map((s) => ({ weekday: s.weekday, modality: s.modality, durationMin: s.durationMin, distanceKm: s.distanceKm, status: s.completion ? 'executada' as const : 'prescrita' as const })),
+      },
+      targetRaces: targetRaces.map((race) => ({
+        id: race.id, targetSeconds: race.targetSeconds ?? null, city: race.city ?? null, state: race.state ?? null, startTime: race.startTime ?? null,
+        name: race.name, raceDate: race.raceDate.toISOString(), distanceKm: race.distanceKm, paceSecondsPerKm: race.paceSecondsPerKm,
+        performanceIntent: race.performanceIntent, socialIntent: race.socialIntent, personalImportance: race.personalImportance, perceivedDifficulty: race.perceivedDifficulty,
+        dedicationWillingness: race.dedicationWillingness, achievementSatisfaction: race.achievementSatisfaction, confidenceLevel: race.confidenceLevel,
+        injuryConcern: race.injuryConcern, adjustmentOpenness: race.adjustmentOpenness, anxietyLevel: race.anxietyLevel, isFirstTimeAtDistance: race.isFirstTimeAtDistance,
+      })),
+      selfReportedLongRuns: selfReportedRuns(answers).map((run) => ({ position: run.rank, distanceKm: run.distanceKm, distanceRaw: run.distanceRaw, timesRun: run.timesRun, timeSeconds: run.timeSeconds })),
+      longestRunEver: longestRunSession?.completion?.distanceKm != null ? {
+        distanceKm: longestRunSession.completion.distanceKm,
+        date: longestRunSession.scheduledDate.toISOString().slice(0, 10),
+        satisfaction: longestRunSession.completion.satisfaction,
+        pacingMode: (() => { const value = jsonObject(longestRunSession.completion.details).pacingMode; return typeof value === 'string' ? value : null; })(),
+      } : null,
+      traceInputs: {
+        executionWeeks: historyWeeks.map((historyPlan) => ({ weekStartDate: historyPlan.startDate.toISOString().slice(0, 10), sessions: historyPlan.sessions as unknown[], recorded: recordedSessionsOf(historyPlan) as unknown[] })),
+        longestRun: longestRunSession ?? null,
+        nearRecord: nearRecordSessions,
+        historyWeeks: historyWeeks.map((w) => ({ startDate: w.startDate, planId: w.planId })),
+        weeklyExecutionProviders: weeklyExecution?.promptProviders ?? [],
+        targetRaceRefs: targetRaces.map((race) => ({ id: race.id, name: race.name })),
+      },
+      recentSessionsNearRecord: nearRecordSessions.map((s) => ({
+        distanceKm: s.completion.distanceKm,
+        date: s.scheduledDate.toISOString().slice(0, 10),
+        pacingMode: (() => { const value = jsonObject(s.completion.details).pacingMode; return typeof value === 'string' ? value : null; })(),
+      })),
+    };
+  }
+
   async regenerateSession(userId: string, sessionId: string, options?: { allowToday?: boolean }) {
     const regenerated = await this.withAiScope(userId, () => this.regenerateSessionInner(userId, sessionId, options));
     requestZeppWorkoutSync(userId, 'session_regenerated');
@@ -2286,7 +2443,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       });
     }
 
-    // (26/10/2026) Refazer o CONTEUDO de um treino mantem o dia e a duracao da sessao; nao adapta a programacao a uma rotina nova. Se a rotina mudou e este dia/modalidade
+    // (26/10/2026) Refazer o CONTEUDO de um treino mantem o dia; nao adapta a programacao a uma rotina nova. (26/11/2026: a DURACAO do dia de corrida agora e' decidida pelo agente, dentro do tempo da rotina.) Se a rotina mudou e este dia/modalidade
     // nao esta mais disponivel (e nenhuma diretriz ativa autoriza explicitamente), regenerar so' perpetuaria o dia antigo: o caminho certo e' "Refazer nova semana".
     // Treinos que o proprio aluno/dispositivo/treinador criou fora da prescricao (origin diferente de 'agent') nao dependem da rotina.
     if (session.origin === 'agent' || session.origin == null) {
@@ -2350,8 +2507,73 @@ export class TrainingPlansService implements OnApplicationBootstrap {
     // explicito do treinador 03/08 — sem titulos "criativos").
     let strengthNotesUpdate: string | undefined;
     let dayDeclared: DeclaredReasoning | null | undefined;
+    let runUpdate: { durationMin: number; sessionType: string | null; notes: string } | null = null;
+    let dayWeeklyInput: MethodologyInput | null = null;
+    let dayTraceInputs: Awaited<ReturnType<TrainingPlansService['loadDayWeeklyContext']>>['traceInputs'] | null = null;
     const dayAgentTrace: AgentCallTrace[] = [];
 
+    // 26/11/2026 (ordem de Elton): o dia segue a MESMA logica da semana — mesmo agente, mesmas informacoes, e a duracao e' decidida por ele (o tempo da rotina e' so' o limite).
+    // Falha ao ler o contexto da semana NUNCA bloqueia a regeneracao: vira lacuna "degradado" explicita (o agente decide com cautela) — mesma regra da geracao semanal.
+    const dayContext = await this.loadDayWeeklyContext(userId, session, answers).catch((error) => {
+      this.logger.warn(`Contexto da semana indisponivel para regenerar o dia (${sessionId}): ${describeError(error)}`);
+      return {
+        contextGaps: [{ source: 'historico_semanal' as const, severity: 'degradado' as const, reason: describeError(error), effect: 'As informacoes da semana (provas alvo, historico semanal, estado do atleta, recorde) NAO puderam ser lidas para este dia; decida com cautela e NAO presuma que nao existem.' }] as ContextGap[],
+        availability: [{ weekday: session.weekday, modalities: [session.modality], availableMin: session.durationMin }] as MethodologyAvailability[],
+        history: [] as MethodologyInput['history'],
+        weeklyExecutionReport: null as MethodologyInput['weeklyExecutionReport'],
+        athleteStateContext: null as MethodologyInput['athleteStateContext'],
+        weekDates: [{ weekday: session.weekday, date: session.scheduledDate.toISOString().slice(0, 10) }],
+        singleDayRegeneration: { weekday: session.weekday, otherSessionsThisWeek: [] },
+        targetRaces: [] as NonNullable<MethodologyInput['targetRaces']>,
+        selfReportedLongRuns: [] as NonNullable<MethodologyInput['selfReportedLongRuns']>,
+        longestRunEver: null as MethodologyInput['longestRunEver'],
+        recentSessionsNearRecord: [] as NonNullable<MethodologyInput['recentSessionsNearRecord']>,
+        traceInputs: { executionWeeks: [] as Array<{ weekStartDate: string; sessions: unknown[]; recorded: unknown[] }>, longestRun: null, nearRecord: [], historyWeeks: [] as Array<{ startDate: Date; planId: string }>, weeklyExecutionProviders: [] as string[], targetRaceRefs: [] as Array<{ id: string; name: string }> },
+      };
+    });
+    const weeklyInput: MethodologyInput = {
+      goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
+      physiologicalReference: await this.referenceForAgents(userId),
+      experience: user.preferences?.experienceLevel ?? '',
+      answers,
+      availability: dayContext.availability,
+      history: dayContext.history,
+      studentDirectives: activeDirectives.map(formatDirectiveForAgent),
+      activeObservations: activeObservations.map(formatObservationForAgent),
+      studentProfileSummary: dayInformationContext.studentProfileSummary,
+      studentReports: dayInformationContext.studentReports,
+      pendingStudentReports: dayInformationContext.pendingStudentReports,
+      pendingProfileEvents: dayInformationContext.pendingProfileEvents,
+      contextGaps: [...dayInformationContext.gaps, ...dayContext.contextGaps],
+      weeklyExecutionReport: dayContext.weeklyExecutionReport,
+      trainingAnalysis: dayAnalysis?.promptEvidence ?? null,
+      athleteStateContext: dayContext.athleteStateContext,
+      todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
+      weekDates: dayContext.weekDates,
+      singleDayRegeneration: dayContext.singleDayRegeneration,
+      recentReassessment: latestReassessment ? {
+        completedAt: latestReassessment.completedAt!.toISOString(),
+        answers: sanitizeInterviewAnswers(jsonObject(latestReassessment.answers)),
+        evolutionSummary: latestReassessment.evolutionSummary,
+        evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
+        evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
+      } : null,
+      evolutionReport: latestEvolutionReport ? {
+        generatedAt: latestEvolutionReport.createdAt.toISOString(),
+        summary: latestEvolutionReport.summary,
+        wins: Array.isArray(latestEvolutionReport.wins) ? latestEvolutionReport.wins as string[] : [],
+        concerns: Array.isArray(latestEvolutionReport.concerns) ? latestEvolutionReport.concerns as string[] : [],
+        domainObservations: latestEvolutionReport.domainObservations as Record<string, string> | null,
+      } : null,
+      painTier: painSafety.tier,
+      painReason: painSafety.reason,
+      targetRaces: dayContext.targetRaces,
+      selfReportedLongRuns: dayContext.selfReportedLongRuns,
+      longestRunEver: dayContext.longestRunEver,
+      recentSessionsNearRecord: dayContext.recentSessionsNearRecord,
+    };
+    dayWeeklyInput = weeklyInput;
+    dayTraceInputs = dayContext.traceInputs;
     let prescription;
     if (isStrength) {
       // Preferencia de divisao da musculacao (16/11/2026): mesma regra da semana inteira (so' a resposta da rotina atual; leitura nunca bloqueia).
@@ -2361,38 +2583,8 @@ export class TrainingPlansService implements OnApplicationBootstrap {
           .then((state) => strengthSplitForPrompt(parseStrengthSplitRecord(state?.strengthSplit), routineForSplit.revision, routineForSplit.activeDays.filter((day) => day.modalities.includes('forca')).map((day) => day.weekday)))
           .catch(() => null)
         : null;
-      const methodologyInput: MethodologyInput = {
-        goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia',
-        experience: user.preferences?.experienceLevel ?? '',
-        answers,
-        availability: [],
-        history: [],
-        strengthSplitPreference,
-        studentDirectives: activeDirectives.map(formatDirectiveForAgent),
-        activeObservations: activeObservations.map(formatObservationForAgent),
-        studentProfileSummary: dayInformationContext.studentProfileSummary,
-        studentReports: dayInformationContext.studentReports,
-        pendingStudentReports: dayInformationContext.pendingStudentReports,
-        pendingProfileEvents: dayInformationContext.pendingProfileEvents,
-        contextGaps: dayInformationContext.gaps,
-        todayDate: todayInSaoPaulo().toISOString().slice(0, 10),
-        recentReassessment: latestReassessment ? {
-          completedAt: latestReassessment.completedAt!.toISOString(),
-          answers: sanitizeInterviewAnswers(jsonObject(latestReassessment.answers)),
-          evolutionSummary: latestReassessment.evolutionSummary,
-          evolutionWins: Array.isArray(latestReassessment.evolutionWins) ? latestReassessment.evolutionWins as string[] : [],
-          evolutionConcerns: Array.isArray(latestReassessment.evolutionConcerns) ? latestReassessment.evolutionConcerns as string[] : [],
-        } : null,
-        evolutionReport: latestEvolutionReport ? {
-          generatedAt: latestEvolutionReport.createdAt.toISOString(),
-          summary: latestEvolutionReport.summary,
-          wins: Array.isArray(latestEvolutionReport.wins) ? latestEvolutionReport.wins as string[] : [],
-          concerns: Array.isArray(latestEvolutionReport.concerns) ? latestEvolutionReport.concerns as string[] : [],
-          domainObservations: latestEvolutionReport.domainObservations as Record<string, string> | null,
-        } : null,
-        painTier: painSafety.tier,
-        painReason: painSafety.reason,
-      };
+      // 26/11/2026 (ordem de Elton): musculacao e fortalecimento tambem seguem a logica da semana — mesmas informacoes (provas, historico, estado do atleta...) e o mesmo agente.
+      const methodologyInput: MethodologyInput = { ...weeklyInput, strengthSplitPreference };
       // Limite = tempo que a aluna reservou na rotina para este dia/modalidade (22/11/2026); sem rotina legivel, o tempo que a sessao ja tinha.
       const routineDay = routineForSplit?.activeDays.find((day) => day.weekday === session.weekday);
       const routineLimit = normalizeModalityDurations(routineDay?.modalityDurations)?.[session.modality] ?? routineDay?.availableMin ?? durationMin;
@@ -2423,7 +2615,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       const runDecision = await this.prescriptionAgent.proposeRunSession({
         durationMin,
         evidence: paceEvidence,
-        physiologicalReference: await this.referenceForAgents(userId),
+        physiologicalReference: weeklyInput.physiologicalReference,
         studentDirectives: activeDirectives.map(formatDirectiveForAgent),
         activeObservations: activeObservations.map(formatObservationForAgent),
         painTier: painSafety.tier,
@@ -2435,16 +2627,31 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         pendingProfileEvents: dayInformationContext.pendingProfileEvents,
         contextGaps: dayInformationContext.gaps,
         trainingAnalysis: dayAnalysis?.promptEvidence ?? null,
+        weeklyInput,
+        weekday: session.weekday,
       }, dayAgentTrace);
       if (!runDecision) {
         this.logger.error(`Falha ao gerar treino de corrida avulso com IA para o aluno ${userId}, sessao ${sessionId} — treino nao foi alterado.`);
         await this.telegram.notifyCoach(
-          `⚠️ Falha ao gerar treino avulso com IA.\nAluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})\nO treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
+          `⚠️ Falha ao gerar treino avulso com IA.
+Aluno: ${user.name} (Cod. ${formatStudentCode(user.studentCode)})
+O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo painel.`,
         );
         throw new InternalServerErrorException('Nao foi possivel gerar o treino com o agente de IA no momento. O treinador ja foi avisado.');
       }
-      prescription = this.runPrescription(durationMin, session.modality, runDecision);
+      const decidedDurationMin = runDecision.decision?.durationMin ?? durationMin;
+      prescription = this.runPrescription(decidedDurationMin, session.modality, runDecision);
       dayDeclared = runDecision.declared;
+      // Duracao, texto da aluna e rotulo do treino passam a ser atualizados junto (antes ficavam os da sessao antiga e o cartao mostrava tempo e texto desatualizados).
+      if (runDecision.decision) {
+        runUpdate = {
+          durationMin: prescription.durationMin ?? decidedDurationMin,
+          sessionType: this.deriveSessionTypeLabel(runDecision.decision),
+          notes: this.shouldSkipStandardWarmupCooldown(runDecision.decision.parts)
+            ? runDecision.decision.notes
+            : `${runDecision.decision.notes} ${STANDARD_WARMUP_COOLDOWN_TEXT}`,
+        };
+      }
     }
 
     const updateArgs = {
@@ -2458,6 +2665,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
         ...(strengthNotesUpdate ? { notes: strengthNotesUpdate } : {}),
         // Forca: o tempo estimado pela IA (22/11/2026) tambem vai para a coluna, para o card/e-mail/resumos nao mostrarem o valor antigo.
         ...(isStrength && prescription.durationMin ? { durationMin: prescription.durationMin } : {}),
+        ...(runUpdate ? { durationMin: runUpdate.durationMin, notes: runUpdate.notes, sessionType: runUpdate.sessionType } : {}),
         origin: 'agent',
       },
     } as const;
@@ -2466,7 +2674,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       id: row.id, weekday: row.weekday, modality: row.modality, title: row.title, notes: row.notes, sessionType: row.sessionType, durationMin: row.durationMin,
       distanceKm: row.distanceKm, paceMinSec: row.paceMinSec, structure: row.structure,
     });
-    const dayEvidenceInput: MethodologyInput = {
+    const dayEvidenceInput: MethodologyInput = dayWeeklyInput ?? {
       goal: user.preferences?.mainGoal ?? 'Evoluir com consistencia', experience: '', answers, availability: [], history: [],
       studentDirectives: activeDirectives.map(formatDirectiveForAgent), activeObservations: activeObservations.map(formatObservationForAgent),
       studentProfileSummary: dayInformationContext.studentProfileSummary, studentReports: dayInformationContext.studentReports,
@@ -2490,12 +2698,13 @@ export class TrainingPlansService implements OnApplicationBootstrap {
       const dayExecution = {
         ...(await trace.collectExecutionProvenance(
           tx, userId,
-          { weeks: [], longestRun: null, nearRecord: [], profile: { summaryMayCarryEvolutionNarrative: dayInformationContext.profileNarrativeDerived, pendingEventCodes: dayInformationContext.pendingProfileEventCodes } },
+          { weeks: dayTraceInputs?.executionWeeks ?? [], longestRun: dayTraceInputs?.longestRun ?? null, nearRecord: dayTraceInputs?.nearRecord ?? [], profile: { summaryMayCarryEvolutionNarrative: dayInformationContext.profileNarrativeDerived, pendingEventCodes: dayInformationContext.pendingProfileEventCodes } },
           dayProvenance,
         )),
         evolutionReport: [] as string[],
         reassessmentEvolution: [] as string[],
         trainingAnalysis: dayAnalysis?.providers ?? [],
+        weeklyExecutionReport: dayTraceInputs?.weeklyExecutionProviders ?? [],
       };
       await trace.persistDayRegeneration(tx, {
         userId, planId: updated.planId, methodologyVersion: PANZERI_METHODOLOGY_VERSION,
@@ -2508,7 +2717,7 @@ export class TrainingPlansService implements OnApplicationBootstrap {
           interpretedReportIds: dayInformationContext.interpretedReportIds,
           pendingReportIds: dayInformationContext.pendingReportIds,
           pendingProfileEventIds: dayInformationContext.pendingProfileEventIds,
-          historyWeeks: [], checkIn: null, targetRaces: [],
+          historyWeeks: dayTraceInputs?.historyWeeks ?? [], checkIn: null, targetRaces: dayTraceInputs?.targetRaceRefs ?? [],
           reassessment: latestReassessment ? { id: latestReassessment.id, completedAt: latestReassessment.completedAt } : null,
           evolutionReport: latestEvolutionReport ? { id: latestEvolutionReport.id, createdAt: latestEvolutionReport.createdAt } : null,
           interviewCompletedAt: null, paceSource: null, contextGaps: dayInformationContext.gaps,

@@ -155,6 +155,8 @@ export interface MethodologyInput {
   physiologicalReference?: import('../physiology/operational-reference').AgentReferenceView | null;
   todayDate?: string;
   weekDates?: Array<{ weekday: number; date: string }>;
+  // 26/11/2026: regeneracao de UM dia de corrida pelo MESMO agente da semana (mesmo prompt, mesmo schema, mesma validacao), restrito a um dia. Ausente na geracao da semana.
+  singleDayRegeneration?: { weekday: number; modality?: string; otherSessionsThisWeek: Array<{ weekday: number; modality: string; durationMin: number | null; distanceKm: number | null; status: 'executada' | 'prescrita' }> } | null;
   // Data a partir da qual gerar treinos (YYYY-MM-DD, exclusive das datas anteriores). Definida
   // quando o aluno escolheu "gerar a partir de amanha" no dialogo do app. Null = incluir todos
   // os dias da rotina da semana, incluindo hoje (comportamento padrao e caso do domingo).
