@@ -307,3 +307,13 @@ Dados: Polar 10,833 km em 54:28,9 (ritmo médio ~5:02/km); Panzeri Run 11,037 km
 - Títulos com tom de recomendação de saúde ("o que a ciência recomenda", quanto carboidrato consumir) pedem revisão de redação/jurídico.
 - Pergunta aberta ao Elton: onde ficam os conteúdos (Instagram, YouTube, blog)? Quem publica e atualiza?
 - Mockup visual do carrossel (26/11, imagem do Elton): cada cartão traz ícones de plataforma (Instagram, YouTube, site) e um ícone de SALVAR (marcador). Implica: um conteúdo pode ter até 3 links (um por plataforma) e a aluna pode salvar. Decidir com o Elton se "salvar" entra na v1. Fotos do mockup são geradas por IA: não usar; imagens reais do Elton. Cuidado: ícones pequenos precisam de área de toque mínima (~44 px); a linha "Sua semana" não mostra a letra do dia nos dias feitos.
+
+## VISÃO ESTRATÉGICA (26/11/2026, documento do Elton; NADA implementado, sem projeto técnico definitivo)
+Ecossistema em 4 pilares: (1) **Panzeri Knowledge** (biblioteca de conteúdos do Elton: título, descrição, categoria, capa, texto/transcrição e links Instagram/YouTube/Substack/Blogspot; esteira "Conhecimento para evoluir" na tela inicial); (2) **Registro esportivo gratuito** (GPS, treinos intervalados, histórico, indicadores básicos, conteúdos; porta de entrada para o plano pago); (3) **Panzeri MCP** (conhecimento e ferramentas gratuitas — calculadoras, simuladores — para o ChatGPT; canal de aquisição, a validar); (4) **Premium** (plano individualizado, readequação, análises, acompanhamento).
+Pontos de atenção levantados por mim (26/11):
+- **Plano gratuito mexe em dado compartilhado:** hoje o acesso depende de SubscriptionStatus. Um estado "gratuito" tocaria cobrança, crons de sincronização, avisos, painel do treinador, funil e geração de treino. Regra do projeto: listar todos os consumidores e escritores ANTES de alterar. Definir o que o usuário gratuito é (não é aluno nem prospecto) e mantê-lo fora das métricas de alunos.
+- **Dados de localização/rota de usuários gratuitos:** política de privacidade e termos precisam cobrir; revisão jurídica pendente.
+- **Lojas (Apple/Google):** oferta gratuita + upgrade pago segue as regras de assinatura; verificar antes de desenhar.
+- **MCP/ChatGPT:** exigências de publicação e alcance orgânico não garantidos (o próprio documento admite). Só depois de validar; não construir antes.
+- **Calculadoras/"prontidão para distâncias":** conteúdo de saúde, exigem texto de ressalva e revisão.
+- **Sequência sugerida:** (a) biblioteca + esteira na tela inicial (custo baixo, público próprio); (b) registro gratuito (maior, exige desenho do acesso); (c) MCP por último. Definir uma meta de sucesso antes de investir em cada etapa.
