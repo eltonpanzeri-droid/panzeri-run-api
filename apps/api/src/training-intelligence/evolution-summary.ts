@@ -315,8 +315,10 @@ export function buildIndicatorResult(entry: IndicatorReading, definition: Pick<V
     const threshold = Math.abs(base) * CHANGE_FRACTION;
     return Math.abs(value - base) < threshold || threshold === 0 ? 'praticamente igual' : value > base ? 'acima' : 'abaixo';
   };
+  // 26/11/2026: concordancia ("praticamente igual À de longo prazo", "acima DA de longo prazo"); antes saia "praticamente igual da de".
+  const withArticle = (word: string) => (word === 'praticamente igual' ? `${word} à` : `${word} da`);
   const going = acuteOk && chronicOk
-    ? `Para onde você está indo: a média dos ${acuteSize} ${unitWord} mais recentes é ${fmt(ac.acute.value as number)}, contra ${fmt(ac.chronic.value as number)} na média dos ${chronicSize} mais recentes. A recente está ${compareWord(ac.acute.value as number, ac.chronic.value as number)} da de longo prazo.${trendText ? ` ${trendText}` : ''}`
+    ? `Para onde você está indo: a média dos ${acuteSize} ${unitWord} mais recentes é ${fmt(ac.acute.value as number)}, contra ${fmt(ac.chronic.value as number)} na média dos ${chronicSize} mais recentes. A recente está ${withArticle(compareWord(ac.acute.value as number, ac.chronic.value as number))} de longo prazo.${trendText ? ` ${trendText}` : ''}`
     : `Para onde você está indo: ainda não há registros suficientes para comparar o curto e o longo prazo.${trendText ? ` ${trendText}` : ''}`;
   const lastVsMean = compareWord(lastPoint.value, overall);
   const lastLine = `O seu último registro foi ${fmt(lastPoint.value)} (${dateBr(lastPoint.timestamp)}), ${lastVsMean === 'praticamente igual' ? 'em linha com a sua média' : `${lastVsMean} da sua média`}.`;
