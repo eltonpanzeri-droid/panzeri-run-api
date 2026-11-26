@@ -8,11 +8,14 @@ import { PRColors } from '../../theme/tokens';
 // So' aparece para quem esta conectada ao provedor.
 interface Screen { version: string; title: string; paragraphs: string[]; checkboxText: string; buttonLabel: string }
 interface Doc { provider: string; textHash: string; purposeHashes: Record<string, string>; optionalPurposes: Array<{ id: string; screen?: Screen }> }
-interface Permissions { connected: boolean; decided: boolean; atlas: { granted: boolean; needsNewAuthorization: boolean; grantedAt: string | null; declined: boolean } }
+interface Decision { granted: boolean; needsNewAuthorization: boolean; grantedAt: string | null; declined: boolean }
+interface Permissions { connected: boolean; decided: boolean; atlas: Decision; route?: Decision | null }
 
 const privacyUrl = 'https://agenteselton-panzeri-run-api.hbljgk.easypanel.host/politica-privacidade';
 
-export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken }: { provider: 'polar' | 'wahoo'; apiUrl: string; accessToken: string }) {
+// purpose (26/11/2026): 'ai_external' = Atlas (padrao); 'route_gps' = percurso GPS da Wahoo (autorizacao propria, independente do Atlas; retirar apaga o percurso guardado).
+export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken, purpose = 'ai_external' }: { provider: 'polar' | 'wahoo'; apiUrl: string; accessToken: string; purpose?: 'ai_external' | 'route_gps' }) {
+  const isRoute = purpose === 'route_gps';
   const [doc, setDoc] = useState<Doc | null>(null);
   const [perms, setPerms] = useState<Permissions | null>(null);
   const [ack, setAck] = useState(false);
@@ -34,20 +37,21 @@ export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken }: { prov
 
   useEffect(() => { mounted.current = true; void load(); return () => { mounted.current = false; }; }, [load]);
 
-  const screen = doc?.optionalPurposes.find((p) => p.id === 'ai_external')?.screen;
-  if (!doc || !perms || !screen || !perms.connected) return null;
+  const screen = doc?.optionalPurposes.find((p) => p.id === purpose)?.screen;
+  const state: Decision | null | undefined = isRoute ? perms?.route : perms?.atlas;
+  if (!doc || !perms || !screen || !state || !perms.connected) return null;
 
   async function decide(grant: boolean) {
     if (busy || (grant && !ack)) return;
     setBusy(true); setMessage(null);
     try {
-      const response = await fetch(`${apiUrl}/legacy-consent/${provider}/atlas`, {
+      const response = await fetch(`${apiUrl}/legacy-consent/${provider}/${isRoute ? 'route' : 'atlas'}`, {
         method: 'POST', headers,
-        body: JSON.stringify(grant ? { grant: true, acknowledged: true, consentVersion: screen!.version, consentTextHash: doc!.purposeHashes.ai_external } : { grant: false }),
+        body: JSON.stringify(grant ? { grant: true, acknowledged: true, consentVersion: screen!.version, consentTextHash: doc!.purposeHashes[purpose] } : { grant: false }),
       });
       if (!response.ok) { setMessage({ ok: false, text: 'Não foi possível salvar agora. Tente de novo.' }); return; }
       setAck(false);
-      setMessage({ ok: true, text: grant ? 'Análise com o Atlas autorizada.' : 'Registrado: o Atlas não usará suas atividades deste provedor.' });
+      setMessage({ ok: true, text: isRoute ? (grant ? 'Percurso GPS autorizado. Vale para os próximos treinos.' : 'Registrado: o percurso guardado foi apagado e os próximos treinos não guardarão o trajeto.') : (grant ? 'Análise com o Atlas autorizada.' : 'Registrado: o Atlas não usará suas atividades deste provedor.') });
       await load();
     } catch {
       setMessage({ ok: false, text: 'Não foi possível salvar agora. Verifique a conexão e tente de novo.' });
@@ -56,14 +60,14 @@ export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken }: { prov
     }
   }
 
-  const granted = perms.atlas.granted;
+  const granted = state.granted;
   return (
     <View style={styles.card}>
       <Text style={styles.title}>{screen.title}</Text>
       {screen.paragraphs.map((p, i) => <Text key={i} style={styles.hint}>{p}</Text>)}
       <Text style={styles.hint}>Versão {screen.version}. <Text style={styles.link} onPress={() => void Linking.openURL(privacyUrl)}>Política de Privacidade</Text></Text>
-      {!perms.decided ? <Text style={[styles.hint, { color: PRColors.warning }]}>Você ainda não respondeu. Enquanto não responder, tudo continua como está.</Text> : null}
-      {perms.atlas.needsNewAuthorization ? <Text style={[styles.hint, { color: PRColors.warning }]}>O texto desta autorização mudou. Leia a nova versão e autorize novamente.</Text> : null}
+      {!isRoute && !perms.decided ? <Text style={[styles.hint, { color: PRColors.warning }]}>Você ainda não respondeu. Enquanto não responder, tudo continua como está.</Text> : null}
+      {state.needsNewAuthorization ? <Text style={[styles.hint, { color: PRColors.warning }]}>O texto desta autorização mudou. Leia a nova versão e autorize novamente.</Text> : null}
       {granted ? (
         <>
           <Text style={[styles.hint, { color: PRColors.success }]}>Autorizada. Você pode retirar quando quiser.</Text>
@@ -71,7 +75,7 @@ export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken }: { prov
         </>
       ) : (
         <>
-          {perms.atlas.declined ? <Text style={styles.hint}>Você escolheu não autorizar. Pode mudar quando quiser.</Text> : null}
+          {!isRoute && state.declined ? <Text style={styles.hint}>Você escolheu não autorizar. Pode mudar quando quiser.</Text> : null}
           <Pressable style={styles.check} onPress={() => setAck((v) => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: ack }}>
             <View style={[styles.box, ack && styles.boxOn]}>{ack ? <Text style={styles.tick}>✓</Text> : null}</View>
             <Text style={[styles.checkLabel, { flex: 1 }]}>{screen.checkboxText}</Text>
@@ -79,7 +83,7 @@ export function LegacyAtlasConsentCard({ provider, apiUrl, accessToken }: { prov
           <Pressable style={[styles.primary, (!ack || busy) && styles.disabled]} disabled={!ack || busy} onPress={() => void decide(true)} accessibilityRole="button">
             {busy ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryText}>{screen.buttonLabel}</Text>}
           </Pressable>
-          {!perms.atlas.declined ? (
+          {!isRoute && !state.declined ? (
             <Pressable style={[styles.secondary, busy && styles.disabled]} disabled={busy} onPress={() => void decide(false)} accessibilityRole="button"><Text style={styles.secondaryText}>Não autorizo</Text></Pressable>
           ) : null}
         </>

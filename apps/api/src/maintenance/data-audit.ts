@@ -27,7 +27,7 @@ async function main() {
     const codeOf = new Map(users.map((user) => [user.id, user.studentCode as number]));
     const logs = await prisma.activityLog.findMany({
       where: { userId: { in: users.map((user) => user.id) } },
-      select: { id: true, userId: true, provider: true, sport: true, cadenceAvg: true, avgHeartRateBpm: true },
+      select: { id: true, userId: true, provider: true, sport: true, cadenceAvg: true, avgHeartRateBpm: true, hasRoute: true },
     });
     const runIds = logs.filter((log) => isRunModality(log.sport)).map((log) => log.id);
     const pointCount = new Map<string, number>();
@@ -38,6 +38,22 @@ async function main() {
       for (const row of all) pointCount.set(row.activityLogId, row._count._all);
       const withCadence = await prisma.activityTimeSeriesPoint.groupBy({ by: ['activityLogId'], where: { activityLogId: { in: ids }, normalizationVersion: NORMALIZATION_VERSION, cadenceSpm: { gt: 0 } }, _count: { _all: true } });
       for (const row of withCadence) cadencePointCount.set(row.activityLogId, row._count._all);
+    }
+
+    // Percurso por MARCA (26/11/2026): quantas atividades dizem ter percurso e quantas realmente tem pontos com latitude/longitude gravados.
+    const routeIds = logs.filter((log) => log.hasRoute === true).map((log) => log.id);
+    const routePointIds = new Set<string>();
+    for (let i = 0; i < routeIds.length; i += CHUNK) {
+      const rows = await prisma.activityTimeSeriesPoint.groupBy({ by: ['activityLogId'], where: { activityLogId: { in: routeIds.slice(i, i + CHUNK) }, latitude: { not: null }, longitude: { not: null } }, _count: { _all: true } });
+      for (const row of rows) routePointIds.add(row.activityLogId);
+    }
+    const byProvider = new Map<string, { activities: number; withRouteFlag: number; withRoutePoints: number; students: Set<string> }>();
+    for (const log of logs) {
+      const entry = byProvider.get(log.provider) ?? { activities: 0, withRouteFlag: 0, withRoutePoints: 0, students: new Set<string>() };
+      entry.activities += 1;
+      if (log.hasRoute === true) entry.withRouteFlag += 1;
+      if (routePointIds.has(log.id)) { entry.withRoutePoints += 1; entry.students.add(log.userId); }
+      byProvider.set(log.provider, entry);
     }
 
     type Row = { activities: number; runs: number; noSeries: number; cadenceEmptyButInSeries: number; seriesWithoutCadence: number; noAvgHr: number; rawSports: Map<string, number>; providers: Map<string, number> };
@@ -76,6 +92,10 @@ async function main() {
     }
     console.log(`RESUMO: ${total.students} aluno(s) com atividades | ${total.activities} atividades | ${total.runs} corridas | sem serie ${total.noSeries} | cadencia vazia COM cadencia na serie ${total.cadenceEmptyButInSeries} | serie SEM cadencia ${total.seriesWithoutCadence} | sem FC media ${total.noAvgHr}`);
     for (const line of lines) console.log(line);
+    console.log('PERCURSO POR MARCA (atividades | dizem ter percurso | com pontos gravados | alunos com percurso):');
+    for (const [provider, entry] of [...byProvider.entries()].sort((a, b) => b[1].activities - a[1].activities)) {
+      console.log(`  ${provider}: ${entry.activities} | ${entry.withRouteFlag} | ${entry.withRoutePoints} | ${entry.students.size}`);
+    }
     console.log('Nada foi alterado (auditoria so de leitura).');
   } finally {
     await prisma.$disconnect();

@@ -21,16 +21,19 @@ export function fitUrlOf(summary: unknown): string | null {
   return isSafeFitUrl(file?.url) ? file!.url as string : null;
 }
 
-// Le o FIT e remove o GPS: latitude/longitude nunca sao guardadas (GPS adiado por Elton; so' a Garmin tem).
-export async function readWahooFit(buffer: Buffer): Promise<FitActivity> {
+// Le o FIT. Percurso GPS (26/11/2026, ordem de Elton: sem travas, so' o Health Connect tem limite): as coordenadas ficam na leitura; quem decide se sao GRAVADAS e' o consentimento proprio da aluna
+// (wahoo-route-consent.ts), conferido na gravacao. keepRoute=false (padrao) remove o GPS da leitura.
+export async function readWahooFit(buffer: Buffer, keepRoute = false): Promise<FitActivity> {
   const fit = await readFitActivity(buffer);
+  if (keepRoute) return fit;
   return { ...fit, hasRoute: false, points: fit.points.map((point) => ({ ...point, latitude: null, longitude: null })) };
 }
 
-export function seriesRows(activity: FitActivity, activityLogId: string) {
+export function seriesRows(activity: FitActivity, activityLogId: string, keepRoute = false) {
   return activity.points.map((p) => ({
     activityLogId, provider: 'wahoo', offsetSec: p.offsetSec, normalizationVersion: 1,
     heartRateBpm: p.heartRateBpm !== null ? Math.round(p.heartRateBpm) : null, speedKmh: p.speedKmh, distanceMeters: p.distanceMeters,
     cadenceSpm: p.cadenceSpm !== null ? Math.round(p.cadenceSpm) : null, powerWatts: p.powerWatts !== null ? Math.round(p.powerWatts) : null, elevationMeters: p.elevationMeters,
+    ...(keepRoute ? { latitude: p.latitude, longitude: p.longitude } : {}),
   }));
 }

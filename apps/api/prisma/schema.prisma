@@ -2625,6 +2625,10 @@ model WahooConnection {
   id                    String    @id @default(uuid())
   userId                String    @unique
   wahooUserId           String    @unique
+  // 26/11/2026 (ordem de Elton: sem travas, so' o Health Connect tem limite): percurso GPS da Wahoo SO' com autorizacao propria da aluna (texto/versao/hash do que ela viu). Nulos = nao autorizou.
+  routeConsentVersion   String?
+  routeConsentTextHash  String?
+  routeConsentedAt      DateTime?
   accessTokenEncrypted  String?
   refreshTokenEncrypted String?
   accessTokenExpiresAt  DateTime?

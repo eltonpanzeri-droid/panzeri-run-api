@@ -14,7 +14,7 @@
 // 01/11/2026 (2a): preco unico de R$19,90/mes em todos os canais (Asaas e Google Play; o Play foi de R$24,90 para R$19,90 por Elton). A versao muda porque o texto mudou.
 // 06/11/2026: secao da Garmin (5D) e declaracao de IA da Garmin; secao 4 (Apple Watch) descreve o cartao com autorizacao e o envio ao abrir o aplicativo. A versao muda porque o texto mudou.
 // 09/11/2026 (ordem do Elton): secao 5 dos Termos passa a dizer que o aluno atesta a veracidade de tudo o que informa (cadastro, entrevista, registros manuais, feedbacks e marcas). A versao muda porque o texto mudou.
-export const LEGAL_VERSION = '2026-11-19.3';
+export const LEGAL_VERSION = '2026-11-26.1';
 export const LEGAL_UPDATED_LABEL = '9 de novembro de 2026';
 export const LEGAL_CONTROLLER_NAME = 'Elton Almeida Panzeri';
 export const LEGAL_CONTACT = 'eltonpanzeri@gmail.com';
@@ -45,7 +45,7 @@ const WEARABLE_FIELDS = [
   'Dependendo do serviço e das permissões que você conceder, podem ser recebidos dados como:',
   '- data e horário, duração, distância e modalidade;',
   '- ritmo, frequência cardíaca, cadência, potência, elevação e calorias;',
-  '- o Panzeri Run só guarda coordenadas e trajetos GPS se você autorizar o grupo de percurso na conexão com cada serviço: hoje isso vale para a Zepp/Amazfit (seção 5A), a COROS, a Garmin (seção 5D), a Polar, o app Saúde do iPhone, o Health Connect (Android) e o relógio Wear OS; da Wahoo e do Strava o trajeto não é guardado;',
+  '- o Panzeri Run só guarda coordenadas e trajetos GPS se você autorizar o grupo de percurso na conexão com cada serviço: hoje isso vale para a Zepp/Amazfit (seção 5A), a COROS, a Garmin (seção 5D), a Polar, a Wahoo (autorização própria do percurso, a partir de 26/11/2026), o app Saúde do iPhone, o Health Connect (Android) e o relógio Wear OS; do Strava o trajeto não é guardado;',
   '- amostras e séries ao longo da atividade;',
   '- outros campos efetivamente fornecidos pelo serviço autorizado.',
   'Nem todo serviço fornece todos esses dados, e dados vindos de dispositivos podem conter erros ou limitações.',
@@ -59,7 +59,7 @@ export const STRAVA_PARAGRAPH =
   'Dados vindos do Strava são tratados à parte: aparecem somente para você, dentro do aplicativo; não são exibidos ao treinador nem a outros usuários, não são enviados à inteligência artificial e ficam guardados por até 7 dias desde a última atualização. Ao desconectar o Strava, a coleta é interrompida na hora e esses dados são apagados.';
 
 export const WAHOO_PARAGRAPH =
-  'Wahoo: ao conectar, o Panzeri Run recebe o identificador da sua conta Wahoo e, a cada atividade gravada em um dispositivo ou aplicativo Wahoo, o resumo dela (como data, duração, distância, modalidade, calorias, frequência cardíaca média e elevação). A Wahoo não compartilha atividades de aplicativos de terceiros. As credenciais de acesso ficam guardadas de forma cifrada e são apagadas ao desconectar. Hoje o Panzeri Run apenas lê atividades da Wahoo; não envia treinos para ela.';
+  'Wahoo: ao conectar, o Panzeri Run recebe o identificador da sua conta Wahoo e, a cada atividade gravada em um dispositivo ou aplicativo Wahoo, o resumo dela (como data, duração, distância, modalidade, calorias, frequência cardíaca média e elevação). A Wahoo não compartilha atividades de aplicativos de terceiros. As credenciais de acesso ficam guardadas de forma cifrada e são apagadas ao desconectar. Hoje o Panzeri Run apenas lê atividades da Wahoo; não envia treinos para ela. O trajeto GPS (latitude, longitude e altitude) dos treinos da Wahoo só é guardado se você autorizar, em um cartão próprio e opcional, e vale para os treinos que chegarem depois da autorização; ao retirar a autorização, o trajeto já guardado é apagado.';
 
 // ─── Zepp/Amazfit e Atlas (20/10/2026) ─────────────────────────────────────────────────────────────────
 // Descreve o que o codigo FAZ. Nada de prazo, mecanismo de transferencia ou garantia contratual inventados. Em 21/10/2026 Elton considerou resolvidas as pendencias juridicas e

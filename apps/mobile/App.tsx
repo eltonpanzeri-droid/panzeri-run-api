@@ -9674,7 +9674,7 @@ function DevicesIntegrationsScreen({ accessToken, initialProviderId, onOpenProbl
     // 01/11/2026: Polar = UM cartao so' (saude + Atlas, um "Salvar"); o cartao separado do Atlas so' continua para a Wahoo.
     polar: () => (<><PolarConnect accessToken={accessToken} variant="profile" /><PolarHealthConsentCard apiUrl={API_URL} accessToken={accessToken} /></>),
     strava: () => <StravaSync accessToken={accessToken} />,
-    wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /></>),
+    wahoo: () => (<><WahooConnect accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" apiUrl={API_URL} accessToken={accessToken} /><LegacyAtlasConsentCard provider="wahoo" purpose="route_gps" apiUrl={API_URL} accessToken={accessToken} /></>),
     // Apple Saude: sincronizacao simples (so aparece no app nativo iOS; o proprio card se autolimita).
     // 06/11/2026: o envio de treinos ao relogio (autorizacao + "Sincronizar envio de treinos ao relogio") vive AQUI, e nao mais no card de cada treino.
     apple_watch: () => (<><AppleWatchWorkoutsCard accessToken={accessToken} apiUrl={API_URL} /><AppleHealthSyncCard accessToken={accessToken} apiUrl={API_URL} /></>),

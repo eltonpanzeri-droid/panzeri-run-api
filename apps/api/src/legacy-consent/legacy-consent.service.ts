@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { PrismaService } from '../prisma/prisma.service';
 import { ProviderDataDeletionService } from '../activity-execution/provider-data-deletion.service';
 import { consentTextHash, isPurposeCurrent, purposeTextHash } from '../provider-hub/provider-consent.service';
-import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LegacyConsentProvider } from './legacy-consent';
+import { isLegacyConsentProvider, LEGACY_CONSENT_DOCUMENTS, LegacyConsentProvider, WAHOO_ROUTE_PURPOSE_ID } from './legacy-consent';
+import { isWahooRouteConsentCurrent, wahooRoutePurpose } from '../wahoo/wahoo-route-consent';
 
 type Row = { disconnectedAt: Date | null; grantedPurposes: unknown; purposeConsents: unknown };
 type Records = Record<string, { version: string; textHash: string; grantedAt: string }>;
@@ -43,7 +44,7 @@ export class LegacyConsentService {
     const provider = this.provider(providerInput);
     const doc = LEGACY_CONSENT_DOCUMENTS[provider];
     const atlas = doc.optionalPurposes.find((p) => p.id === 'ai_external')!;
-    return { provider, ...doc, textHash: consentTextHash(doc), purposeHashes: { ai_external: purposeTextHash(atlas) }, locked: { ai_external: false } };
+    return { provider, ...doc, textHash: consentTextHash(doc), purposeHashes: { ai_external: purposeTextHash(atlas), ...(provider === 'wahoo' ? { [WAHOO_ROUTE_PURPOSE_ID]: purposeTextHash(wahooRoutePurpose()) } : {}) }, locked: { ai_external: false } };
   }
 
   async permissions(providerInput: string, userId: string) {
@@ -60,6 +61,8 @@ export class LegacyConsentService {
       connected: await this.isConnected(provider, userId),
       // decided: a aluna ja' respondeu (autorizou ou nao) — ate la vale o comportamento anterior.
       decided: Boolean(row && !row.disconnectedAt) || lastRevoked,
+      // Percurso GPS (so' Wahoo; 26/11/2026): estado proprio, independente do Atlas.
+      route: provider === 'wahoo' ? await this.routePermission(userId) : null,
       atlas: { granted: current, needsNewAuthorization: listed && !current, grantedAt: records?.ai_external?.grantedAt ?? null, declined: Boolean(row && !row.disconnectedAt && !listed) || lastRevoked },
     };
   }
@@ -95,6 +98,42 @@ export class LegacyConsentService {
         this.logger.error(`Invalidacao dos artefatos de IA (${provider}) falhou: ${error instanceof Error ? error.message.slice(0, 160) : 'erro'}`);
         await this.audit(userId, provider, 'ai_artifacts_invalidation_failed', { trigger: 'atlas_declined' });
       }
+    }
+    return this.permissions(provider, userId);
+  }
+
+  // ---- Percurso GPS da Wahoo (26/11/2026). Guardado na PROPRIA conexao Wahoo (colunas routeConsent*), sem tocar no registro do Atlas: decidir sobre o percurso nunca muda o que vale para a IA.
+  async routePermission(userId: string) {
+    const row = await this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true, routeConsentVersion: true, routeConsentTextHash: true, routeConsentedAt: true } });
+    const current = isWahooRouteConsentCurrent(row);
+    return {
+      granted: current,
+      needsNewAuthorization: Boolean(row && !row.disconnectedAt && row.routeConsentedAt) && !current,
+      grantedAt: row?.routeConsentedAt ? row.routeConsentedAt.toISOString() : null,
+      declined: !current,
+    };
+  }
+
+  // grant=true: autoriza (exige aceite sobre o texto VIGENTE); grant=false: retira e APAGA o percurso ja guardado da Wahoo (latitude/longitude e a marca de percurso). Os demais dados do treino ficam.
+  async setWahooRoute(providerInput: string, userId: string, input: { grant: unknown; acknowledged?: unknown; version?: unknown; textHash?: unknown }) {
+    const provider = this.provider(providerInput);
+    if (provider !== 'wahoo') throw new NotFoundException('Esta integracao nao tem autorizacao de percurso aqui.');
+    if (typeof input.grant !== 'boolean') throw new BadRequestException('Informe se autoriza ou nao.');
+    const connection = await this.prisma.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true } });
+    if (!connection || connection.disconnectedAt) throw new ConflictException('Conecte a Wahoo antes de autorizar o percurso.');
+    const purpose = wahooRoutePurpose();
+    if (input.grant) {
+      if (input.acknowledged !== true) throw new BadRequestException('E necessario confirmar expressamente a autorizacao.');
+      if (input.version !== purpose.screen!.version || input.textHash !== purposeTextHash(purpose)) throw new ConflictException('O texto de consentimento mudou. Leia a versao atual antes de autorizar.');
+      await this.prisma.wahooConnection.update({ where: { userId }, data: { routeConsentVersion: purpose.screen!.version, routeConsentTextHash: purposeTextHash(purpose), routeConsentedAt: new Date() } });
+      await this.audit(userId, provider, 'route_granted', { consentVersion: purpose.screen!.version });
+    } else {
+      await this.prisma.$transaction([
+        this.prisma.wahooConnection.update({ where: { userId }, data: { routeConsentVersion: null, routeConsentTextHash: null, routeConsentedAt: null } }),
+        this.prisma.activityTimeSeriesPoint.updateMany({ where: { provider: 'wahoo', activityLog: { userId } }, data: { latitude: null, longitude: null } }),
+        this.prisma.activityLog.updateMany({ where: { userId, provider: 'wahoo' }, data: { hasRoute: false } }),
+      ]);
+      await this.audit(userId, provider, 'route_revoked', { erased: true });
     }
     return this.permissions(provider, userId);
   }

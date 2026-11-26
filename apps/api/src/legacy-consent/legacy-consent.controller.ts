@@ -19,4 +19,11 @@ export class LegacyConsentController {
   setAtlas(@CurrentUser() user: CurrentUserPayload, @Param('provider') provider: string, @Body() body: { grant?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
     return this.consent.setAtlas(provider, user.sub, { grant: body?.grant, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
   }
+
+  // Percurso GPS da Wahoo (26/11/2026): autorizacao propria; retirar apaga o percurso ja guardado.
+  @HttpCode(200)
+  @Post(':provider/route')
+  setRoute(@CurrentUser() user: CurrentUserPayload, @Param('provider') provider: string, @Body() body: { grant?: unknown; acknowledged?: unknown; consentVersion?: unknown; consentTextHash?: unknown }) {
+    return this.consent.setWahooRoute(provider, user.sub, { grant: body?.grant, acknowledged: body?.acknowledged, version: body?.consentVersion, textHash: body?.consentTextHash });
+  }
 }

@@ -13,6 +13,30 @@ export const isLegacyConsentProvider = (value: string): value is LegacyConsentPr
 const NAME: Record<LegacyConsentProvider, string> = { polar: 'Polar Flow', wahoo: 'Wahoo' };
 export const legacyProviderName = (provider: LegacyConsentProvider) => NAME[provider];
 
+// 26/11/2026 (ordem de Elton: sem travas, so' o Health Connect tem limite): percurso GPS da WAHOO, com autorizacao PROPRIA e opcional da aluna (a Polar tem o grupo dela em polar-health-consent.ts).
+// Localizacao e' dado sensivel: so' e' guardada depois desta autorizacao, sobre o texto vigente; retirar APAGA o percurso ja' guardado. Texto a revisar por advogado.
+export const WAHOO_ROUTE_PURPOSE_ID = 'route_gps';
+const WAHOO_ROUTE_PURPOSE = {
+  id: WAHOO_ROUTE_PURPOSE_ID,
+  label: 'Percurso GPS dos meus treinos da Wahoo',
+  description: 'Permite guardar o trajeto (latitude, longitude e altitude) dos treinos da Wahoo para mostrar o mapa, o replay e os cartões de compartilhar. Autorização própria, separada da conexão.',
+  external: false,
+  changeableAfterConnect: true,
+  screen: {
+    version: '1.0',
+    dateLabel: '26/11/2026',
+    title: 'Mostre o percurso dos seus treinos da Wahoo',
+    paragraphs: [
+      'Com a sua autorização, o Panzeri Run guarda o trajeto (latitude, longitude e altitude) dos treinos que a Wahoo enviar, para mostrar o mapa e o replay do treino, calcular o ganho de elevação e montar os cartões para você compartilhar.',
+      'O trajeto é dado de localização. Os pontos do trajeto (latitude e longitude) não são enviados à inteligência artificial e não são vendidos. O ritmo e a distância calculados a partir dele podem ser usados nas análises, como os demais dados do treino.',
+      'Esta autorização é opcional e separada da conexão. Se você não autorizar, a Wahoo continua conectada e o Panzeri Run segue funcionando; apenas os treinos ficam sem mapa. Só entram os treinos que chegarem depois da autorização.',
+      'Você pode retirar a autorização quando quiser. Ao retirar, o percurso que já foi guardado é apagado e os próximos treinos deixam de guardar o trajeto.',
+    ],
+    checkboxText: 'Autorizo o Panzeri Run a guardar o percurso GPS dos meus treinos da Wahoo, conforme descrito, e entendo que posso retirar esta autorização quando quiser.',
+    buttonLabel: 'Autorizar percurso GPS',
+  },
+};
+
 function buildDocument(provider: LegacyConsentProvider): ConsentCapability {
   const name = NAME[provider];
   // 01/11/2026: o Atlas da POLAR cobre os treinos E os dados de saude da Polar que a aluna autorizou (grupos de polar-health-consent.ts), numa autorizacao so', pedida no mesmo cartao da saude. Wahoo nao
@@ -59,6 +83,7 @@ function buildDocument(provider: LegacyConsentProvider): ConsentCapability {
           buttonLabel: 'Autorizar análise com Atlas',
         },
       },
+      ...(provider === 'wahoo' ? [WAHOO_ROUTE_PURPOSE] : []),
     ],
     acknowledgementText: `Autorizo o Panzeri Run a utilizar os dados que importo do ${name} conforme descrito.`,
     confirmButtonLabel: 'Salvar',

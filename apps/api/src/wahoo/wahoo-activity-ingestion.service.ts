@@ -9,6 +9,7 @@ import { ActivityNotificationService } from '../activity-execution/activity-noti
 import { PhysicalActivityIdentityService } from '../activity-execution/physical-activity-identity.service';
 import { WahooService } from './wahoo.service';
 import { WAHOO_FIT_MAX_BYTES, fitUrlOf, readWahooFit, seriesRows } from './wahoo-fit';
+import { isWahooRouteConsentCurrent } from './wahoo-route-consent';
 import {
   asId, extractWahooProviderMetrics, isCompletedSummary, mapWahooActivity, parseWahooStartedAt,
   WahooSummaryPayload, WahooWorkoutPayload,
@@ -216,9 +217,13 @@ export class WahooActivityIngestionService {
       if (declared > WAHOO_FIT_MAX_BYTES) return;
       const buffer = Buffer.from(await response.arrayBuffer());
       if (buffer.length === 0 || buffer.length > WAHOO_FIT_MAX_BYTES) return;
-      const activity = await readWahooFit(buffer);
-      const rows = seriesRows(activity, activityLogId);
+      // Percurso GPS (26/11/2026): as coordenadas so' sao GRAVADAS com a autorizacao propria da aluna sobre o texto vigente, conferida DENTRO da gravacao (retirada concorrente nao deixa percurso para tras).
+      const activity = await readWahooFit(buffer, true);
+      let rows: ReturnType<typeof seriesRows> = [];
       await this.writeIfStillAuthorized(userId, async (tx) => {
+        const keepRoute = isWahooRouteConsentCurrent(await tx.wahooConnection.findUnique({ where: { userId }, select: { disconnectedAt: true, routeConsentVersion: true, routeConsentTextHash: true, routeConsentedAt: true } }));
+        rows = seriesRows(activity, activityLogId, keepRoute);
+        if (keepRoute && activity.hasRoute) await tx.activityLog.update({ where: { id: activityLogId }, data: { hasRoute: true } });
         await tx.activityTimeSeriesPoint.deleteMany({ where: { activityLogId, provider: 'wahoo' } });
         if (rows.length > 0) await tx.activityTimeSeriesPoint.createMany({ data: rows, skipDuplicates: true });
         if (activity.fitExtras) {
