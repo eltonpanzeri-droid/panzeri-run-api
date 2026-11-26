@@ -18,6 +18,12 @@ import { sleepSessionRoles, sourceKeyOf } from './wearable-source';
 import { shiftScoreOf, sleepClockDeviations } from './sleep-clock';
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { canonicalModality, isRunModality } from '../activity-execution/canonical-modality';
+
+// Modalidade para agrupar/exibir observacoes: sempre o vocabulario canonico (nunca o enum bruto do provedor).
+export function modalityForDisplay(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  return canonicalModality(raw) ?? 'outra';
+}
 import { findStaleAnalysisRowIds } from '../activity-execution/analysis-validity';
 import { scheduleStaleHeal } from '../activity-execution/analysis-recompute';
 import { Injectable, NotFoundException } from '@nestjs/common';
@@ -610,7 +616,8 @@ export class ObservationReaderService {
         timestamp: log.startedAt,
         source: 'activity_objective',
         instrumentVersion: 1,
-        context: { modality: log.sport ?? undefined, activityLogId: log.id, provider: log.provider },
+        // 26/11/2026: modalidade CANONICA (ActivityLog legado guarda o enum bruto do provedor, ex.: 'RUNNING'/'OTHER', e isso virava botoes duplicados e em ingles na Evolucao). Valor nao reconhecido vira 'outra'; sem modalidade informada segue sem modalidade.
+        context: { modality: modalityForDisplay(log.sport), activityLogId: log.id, provider: log.provider },
       });
     }
     return observations;

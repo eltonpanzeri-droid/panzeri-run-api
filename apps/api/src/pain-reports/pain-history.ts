@@ -1,4 +1,5 @@
 import { activityLocalDate } from '../common/local-date';
+import { canonicalModality } from '../activity-execution/canonical-modality';
 
 // Historico de dor POR TREINO para o grafico da aluna (02/11/2026). So' classifica o que ja' existe; nenhuma formula, media ou faixa.
 //
@@ -71,7 +72,7 @@ export function buildPainHistory(input: { sessions: PainHistorySessionRow[]; unl
     entries.push({
       id: `act:${activity.id}`,
       date: activityLocalDate(activity.startedAt, activity.utcOffsetMinutes),
-      modality: activity.sport ?? 'outra',
+      modality: canonicalModality(activity.sport) ?? 'outra',
       level: 'none',
       answered: false,
       timing: null,
