@@ -306,3 +306,4 @@ Dados: Polar 10,833 km em 54:28,9 (ritmo médio ~5:02/km); Panzeri Run 11,037 km
 - Imagens do mockup vêm de banco externo (images.openai.com): NÃO usar; só imagens do Elton ou com licença.
 - Títulos com tom de recomendação de saúde ("o que a ciência recomenda", quanto carboidrato consumir) pedem revisão de redação/jurídico.
 - Pergunta aberta ao Elton: onde ficam os conteúdos (Instagram, YouTube, blog)? Quem publica e atualiza?
+- Mockup visual do carrossel (26/11, imagem do Elton): cada cartão traz ícones de plataforma (Instagram, YouTube, site) e um ícone de SALVAR (marcador). Implica: um conteúdo pode ter até 3 links (um por plataforma) e a aluna pode salvar. Decidir com o Elton se "salvar" entra na v1. Fotos do mockup são geradas por IA: não usar; imagens reais do Elton. Cuidado: ícones pequenos precisam de área de toque mínima (~44 px); a linha "Sua semana" não mostra a letra do dia nos dias feitos.
