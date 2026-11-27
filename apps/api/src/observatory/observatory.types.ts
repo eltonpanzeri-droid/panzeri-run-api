@@ -7,6 +7,8 @@ export type PainOrigin = 'explicit_no_pain' | 'no_pain_report' | 'reported_pain'
 // Nivel categorico da dor marcada no feedback do treino (leve/moderado/forte). NUNCA vira nota 1-10: a nota numerica so' existe no "Relatar dor", que e' analisado a parte (ordem de Elton, 26/11/2026).
 export type PainLevel = 'leve' | 'moderado' | 'forte';
 export type TrainingGroup = 'corrida' | 'forca' | 'outras';
+// Tipo de treino para as taxas (ordem de Elton, 26/11/2026): corrida prescrita, fortalecimento para corredores, musculacao, corrida EXTRA, extra de outras modalidades (inclui forca extra) e outras prescritas.
+export type TrainingSegment = 'corrida' | 'fortalecimento' | 'musculacao' | 'extra_corrida' | 'extra_geral' | 'outras';
 
 export interface ObsParticipant {
   key: string;
@@ -41,10 +43,19 @@ export interface ObsTraining {
   eventKey: string;
   day: string;
   group: TrainingGroup;
+  segment?: TrainingSegment;
   km: number | null;
   seconds: number | null;
   feedbackAnswered: boolean;
   pain: { origin: PainOrigin; level: PainLevel | null; timing: string | null };
+}
+
+// Treino PROGRAMADO (para a adesao): registrado = tem feedback feito/ajustado ou atividade vinculada. Extras nao entram (nao eram programados).
+export interface ObsScheduled {
+  participant: string;
+  day: string;
+  segment: Exclude<TrainingSegment, 'extra_corrida' | 'extra_geral'>;
+  registered: boolean;
 }
 
 // Relato avulso do "Relatar dor" (1-10 + regioes). Analisado SEPARADO dos treinos: nao e' ligado a treino nenhum.
@@ -52,7 +63,8 @@ export interface ObsPainReport {
   participant: string;
   day: string;
   intensity: number;
-  regions: string[];
+  regions: string[]; // GRUPOS de local (joelho, tornozelo, pe, canela...): sem lado
+  regionSides?: string[]; // 'joelho:direito' / 'joelho:esquerdo' (so' quando a aluna informou o lado)
 }
 
 export interface ObsStrengthEvent {
@@ -79,6 +91,7 @@ export interface ObsFacts {
   strengthEvents: ObsStrengthEvent[];
   trainings?: ObsTraining[];
   painReports?: ObsPainReport[];
+  scheduled?: ObsScheduled[];
   quality: ObsQuality;
 }
 

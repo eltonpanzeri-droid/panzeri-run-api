@@ -159,8 +159,19 @@ export function protect<T>(rows: Array<{ key: string; label: string; participant
 // Distancia da corrida (km): o limite superior pertence a faixa de baixo.
 export const DISTANCE_BANDS: Band[] = [
   { id: 'd1', label: 'Até 5 km', lo: 0, hi: 5 }, { id: 'd2', label: '5 a 10 km', lo: 5, hi: 10 }, { id: 'd3', label: '10 a 15 km', lo: 10, hi: 15 },
-  { id: 'd4', label: '15 a 21,1 km', lo: 15, hi: 21.1 }, { id: 'd5', label: 'Acima de 21,1 km', lo: 21.1, hi: Infinity },
+  { id: 'd4', label: '15 a 20 km', lo: 15, hi: 20 }, { id: 'd5', label: '20 a 25 km', lo: 20, hi: 25 }, { id: 'd6', label: '25 a 30 km', lo: 25, hi: 30 },
+  { id: 'd7', label: '30 a 35 km', lo: 30, hi: 35 }, { id: 'd8', label: '35 a 42,195 km', lo: 35, hi: 42.195 }, { id: 'd9', label: 'Acima de 42,195 km', lo: 42.195, hi: Infinity },
 ];
+// Volume semanal dos ULTIMOS 10 semanas (sem a atual): a aluna entra na MAIOR faixa em que correu pelo menos o piso em 7 das 10 semanas; quem e' elegivel a uma faixa maior nunca entra na menor.
+export const ELIGIBILITY_WEEKS = 10;
+export const ELIGIBILITY_MIN_WEEKS = 7;
+export const WEEKLY_ELIGIBILITY_BANDS: Array<{ id: string; label: string; floor: number }> = [
+  { id: 'w0', label: 'Até 20 km semanais', floor: 0 }, { id: 'w20', label: '20 a 30 km semanais', floor: 20 }, { id: 'w30', label: '30 a 40 km semanais', floor: 30 },
+  { id: 'w40', label: '40 a 50 km semanais', floor: 40 }, { id: 'w50', label: '50 a 70 km semanais', floor: 50 }, { id: 'w70', label: '70 a 100 km semanais', floor: 70 },
+  { id: 'w100', label: '100 a 150 km semanais', floor: 100 }, { id: 'w150', label: 'Acima de 150 km semanais', floor: 150 },
+];
+// Escala 0-3 do feedback do treino (a MESMA da Evolucao: sem dor, leve, moderada, forte). Nao e' nota 1-10: a nota so' existe no "Relatar dor".
+export const PAIN_LEVEL_SCORE: Record<PainLevel, number> = { leve: 1, moderado: 2, forte: 3 };
 export const PAIN_LEVEL_LABEL: Record<PainLevel, string> = { leve: 'Dor leve', moderado: 'Dor moderada', forte: 'Dor forte' };
 
 export interface PainLevelMetrics {
@@ -172,6 +183,12 @@ export interface PainLevelMetrics {
   levelPer100Trainings: { leve: number | null; moderado: number | null; forte: number | null };
   // Entre quem RESPONDEU o feedback (sem o zero assumido): a taxa "de verdade" dos treinos com resposta.
   painPer100Answered: number | null;
+  painPer10Trainings: number | null;
+  meanLevelAmongPain: number | null; // media da escala 0-3 so' entre os treinos COM dor (1 a 3)
+  meanLevelAll: number | null; // media da escala 0-3 em todos os treinos (zeros incluidos)
+  levelPoints: number; // soma da escala 0-3
+  levelPointsPer100Trainings: number | null;
+  levelPointsPer1000Km: number | null; // so' treinos com distancia valida
   km: number; // km dos treinos com distancia valida
   painPer1000Km: number | null; // numerador e denominador do mesmo conjunto: treinos com distancia valida
   timing: Array<{ key: string; count: number }>;
@@ -181,7 +198,7 @@ export interface PainLevelMetrics {
 export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswered: boolean; pain: { origin: PainOrigin; level?: PainLevel | null; timing?: string | null } }>): PainLevelMetrics {
   const levels = { leve: 0, moderado: 0, forte: 0, semNivel: 0 };
   const timing = new Map<string, number>();
-  let painTrainings = 0; let withFeedback = 0; let painAnswered = 0; let km = 0; let painWithKm = 0;
+  let painTrainings = 0; let withFeedback = 0; let painAnswered = 0; let km = 0; let painWithKm = 0; let points = 0; let pointsWithKm = 0;
   for (const item of items) {
     const validKm = item.km != null && item.km > 0;
     if (validKm) km += item.km as number;
@@ -190,7 +207,7 @@ export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswe
     painTrainings += 1;
     if (item.feedbackAnswered) painAnswered += 1;
     if (validKm) painWithKm += 1;
-    if (item.pain.level) levels[item.pain.level] += 1; else levels.semNivel += 1;
+    if (item.pain.level) { levels[item.pain.level] += 1; points += PAIN_LEVEL_SCORE[item.pain.level]; if (validKm) pointsWithKm += PAIN_LEVEL_SCORE[item.pain.level]; } else levels.semNivel += 1;
     if (item.pain.timing) timing.set(item.pain.timing, (timing.get(item.pain.timing) ?? 0) + 1);
   }
   const per100 = (count: number, base: number) => (base > 0 ? round2((count / base) * 100) : null);
@@ -199,6 +216,12 @@ export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswe
     painPer100Trainings: per100(painTrainings, items.length),
     levelPer100Trainings: { leve: per100(levels.leve, items.length), moderado: per100(levels.moderado, items.length), forte: per100(levels.forte, items.length) },
     painPer100Answered: per100(painAnswered, withFeedback),
+    painPer10Trainings: items.length > 0 ? round2((painTrainings / items.length) * 10) : null,
+    meanLevelAmongPain: painTrainings - levels.semNivel > 0 ? round2(points / (painTrainings - levels.semNivel)) : null,
+    meanLevelAll: items.length > 0 ? round2(points / items.length) : null,
+    levelPoints: points,
+    levelPointsPer100Trainings: per100(points, items.length),
+    levelPointsPer1000Km: km > 0 ? round2((pointsWithKm / km) * 1000) : null,
     km: round2(km),
     painPer1000Km: km > 0 ? round2((painWithKm / km) * 1000) : null,
     timing: [...timing.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
@@ -209,6 +232,7 @@ export interface ReportMetrics {
   reports: number;
   participants: number;
   meanIntensity: number | null;
+  notePoints: number; // soma das notas 1-10
   bins: Array<{ key: string; label: string; count: number; pct: number | null }>;
 }
 // "Relatar dor": so' os relatos avulsos (nota 1-10). Sem ligacao com treino.
@@ -224,6 +248,7 @@ export function reportMetrics(reports: Array<{ participant: string; intensity: n
     reports: reports.length,
     participants: new Set(reports.map((r) => r.participant)).size,
     meanIntensity: reports.length > 0 ? round2(sum / reports.length) : null,
+    notePoints: sum,
     bins: bins.map(({ band, count }) => ({ key: band.id, label: band.label, count, pct: reports.length > 0 ? round2((count / reports.length) * 100) : null })),
   };
 }

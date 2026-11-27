@@ -16,7 +16,7 @@ const spToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Americ
 const HIDDEN_PROVIDERS = ['strava'];
 const ACTIVITY_SELECT = {
   id: true, userId: true, provider: true, startedAt: true, utcOffsetMinutes: true, durationSec: true, distanceMeters: true, sport: true, providerMetrics: true,
-  physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true,
+  physicalIdentityStatus: true, physicalEventId: true, physicalCanonicalActivityLogId: true, executionClassification: true,
 } as const;
 const shiftDate = (date: Date, days: number) => new Date(date.getTime() + days * 86_400_000);
 
@@ -43,34 +43,40 @@ export class ObservatoryService {
 
   // Leitura em LOTE (sem consulta por aluna). Janela: do periodo menos 35 dias (exposicao anterior) ate o fim do periodo.
   private async loadRealFacts(from: string, to: string): Promise<ObsFacts> {
-    const since = addDays(from, -35);
+    const since = [addDays(from, -35), addDays(spToday(), -91)].sort()[0]; // 35 dias de exposicao anterior OU as 10 semanas de volume (a que for mais antiga)
     const start = new Date(`${since}T00:00:00Z`);
     const end = new Date(`${addDays(to, 1)}T23:59:59Z`);
-    const [users, allActivities, allCompletions, allPains, allCycleLogs, allProfiles] = await Promise.all([
+    const [users, allActivities, allCompletions, allPains, allCycleLogs, allProfiles, allSessions] = await Promise.all([
       this.prisma.user.findMany({ where: { role: 'student', isTestAccount: false, accountStatus: 'active', subscriptionStatus: { not: 'pending' } }, select: { id: true, birthDate: true, sex: true } }),
       this.prisma.activityLog.findMany({ where: { provider: { notIn: HIDDEN_PROVIDERS }, startedAt: { gte: shiftDate(start, -1), lte: end } }, select: ACTIVITY_SELECT }),
       this.prisma.workoutCompletion.findMany({
         where: { status: { in: ['done', 'adjusted'] }, OR: [{ completedAt: { gte: start, lte: end } }, { session: { scheduledDate: { gte: start, lte: end } } }] },
         select: { id: true, userId: true, sessionId: true, status: true, completedAt: true, distanceKm: true, durationMin: true, painFlag: true, painTiming: true, perceivedEffort: true, session: { select: { modality: true, origin: true, structure: true } } },
       }),
-      this.prisma.painReport.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { id: true, userId: true, createdAt: true, intensity: true, regions: true } }),
+      this.prisma.painReport.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { id: true, userId: true, createdAt: true, intensity: true, regions: true, otherLocation: true } }),
       // Ciclo (so' de quem registrou): historico inteiro ate o fim do periodo, porque a fase de um dia depende dos ciclos anteriores.
       this.prisma.menstrualCycleLog.findMany({ where: { cycleStartDate: { lte: end } }, select: { userId: true, cycleStartDate: true, cycleEndDate: true } }),
       this.prisma.menstrualProfile.findMany({ select: { userId: true, cycleLengthDays: true, periodLengthDays: true, usesHormonalContraceptive: true } }),
+      // Treinos PROGRAMADOS (adesao por fase e por modalidade); so' leitura.
+      this.prisma.trainingSession.findMany({
+        where: { scheduledDate: { gte: start, lte: end } },
+        select: { userId: true, scheduledDate: true, modality: true, origin: true, completion: { select: { status: true } }, executionLinks: { where: { status: 'active' }, select: { id: true } } },
+      }),
     ]);
     // Cadastros de teste e contas fora da populacao nunca entram: so' atividades, treinos e relatos de quem esta em users.
     const allowed = new Set(users.map((u) => u.id));
     const activities = allActivities.filter((row) => allowed.has(row.userId));
     const completions = allCompletions.filter((row) => allowed.has(row.userId));
-    const pains = allPains.filter((row) => allowed.has(row.userId));
+    const pains = allPains.filter((row) => allowed.has(row.userId)).map((row) => ({ id: row.id, userId: row.userId, createdAt: row.createdAt, intensity: row.intensity, regions: row.regions, hasOtherLocation: Boolean(row.otherLocation && row.otherLocation.trim()) }));
     const cycleLogs = allCycleLogs.filter((row) => allowed.has(row.userId));
     const menstrualProfiles = allProfiles.filter((row) => allowed.has(row.userId));
+    const sessions = allSessions.filter((row) => allowed.has(row.userId)).map((row) => ({ userId: row.userId, scheduledDate: row.scheduledDate, modality: row.modality, origin: row.origin, completionStatus: row.completion?.status ?? null, linked: row.executionLinks.length > 0 }));
     const sessionIds = [...new Set(completions.map((c) => c.sessionId).filter((id): id is string => Boolean(id)))];
     const links = sessionIds.length > 0
       ? await this.prisma.sessionExecutionLink.findMany({ where: { status: 'active', trainingSessionId: { in: sessionIds } }, orderBy: { createdAt: 'asc' }, select: { trainingSessionId: true, activityLogId: true } })
       : [];
     return buildFactsFromRows(
-      { users, activities: activities as RawActivity[], completions: completions as RawCompletion[], links, pains, cycleLogs, menstrualProfiles },
+      { users, activities: activities as RawActivity[], completions: completions as RawCompletion[], links, pains, cycleLogs, menstrualProfiles, sessions },
       (ids) => this.prisma.activityLog.findMany({ where: { id: { in: ids } }, select: ACTIVITY_SELECT }) as Promise<RawActivity[]>,
       { since, to },
     );

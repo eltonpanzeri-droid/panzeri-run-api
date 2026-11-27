@@ -134,7 +134,7 @@ describe('Bloco B — dor (zero operacional, por 1.000 km, faixas exclusivas)', 
     expect(facts.runEvents[0].pain).toEqual({ origin: 'reported_pain', intensity: null }); // a nota 6 do "Relatar dor" nao entra no treino
     expect(facts.runEvents[0].painLevel).toBe('moderado');
     expect(facts.runEvents[0].painTiming).toBe('durante_continuou');
-    expect(facts.painReports).toEqual([{ participant: 'u1', day: '2026-10-06', intensity: 6, regions: ['joelho'] }]);
+    expect(facts.painReports).toEqual([{ participant: 'u1', day: '2026-10-06', intensity: 6, regions: ['joelho'], regionSides: [] }]);
     const cat = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], completions: [comp('c', 'u1', { sessionId: 's', painFlag: 'leve' })], links: [{ trainingSessionId: 's', activityLogId: 'a' }] }));
     expect(cat.runEvents[0].pain).toEqual({ origin: 'reported_pain', intensity: null });
     const none = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)] }));

@@ -2,7 +2,8 @@ import { pickCanonicalPerEvent } from '../activity-execution/canonical-observati
 import { localCalendarDate } from '../activity-execution/session-execution-link.service';
 import { modalityGroup } from '../coach/training-load';
 import { buildPhasedCycles } from '../menstrual-cycle/cycle-phases';
-import type { ObsFacts, ObsParticipant, ObsPainReport, ObsQuality, ObsRunEvent, ObsStrengthEvent, ObsTraining, PainLevel, TrainingGroup } from './observatory.types';
+import { canonicalModality } from '../activity-execution/canonical-modality';
+import type { ObsFacts, ObsParticipant, ObsPainReport, ObsQuality, ObsRunEvent, ObsScheduled, ObsStrengthEvent, ObsTraining, PainLevel, TrainingGroup, TrainingSegment } from './observatory.types';
 
 // Observatorio Panzeri Run (24/10/2026) — BASE CANONICA de treinos realizados. Funcao de transformacao (linhas lidas em lote -> fatos); nenhuma consulta por aluno aqui.
 // Regras: so' atividade fisica valida e elegivel; um evento fisico = uma observacao (canonica); a data da semana e' o DIA LOCAL DA EXECUCAO (nao o programado); extra nunca soma duas
@@ -10,18 +11,19 @@ import type { ObsFacts, ObsParticipant, ObsPainReport, ObsQuality, ObsRunEvent, 
 
 export interface RawActivity {
   id: string; userId: string; provider: string; startedAt: Date; utcOffsetMinutes: number | null; durationSec: number | null; distanceMeters: number | null; sport: string | null;
-  providerMetrics: unknown; physicalIdentityStatus: string | null; physicalEventId: string | null; physicalCanonicalActivityLogId: string | null;
+  providerMetrics: unknown; physicalIdentityStatus: string | null; physicalEventId: string | null; physicalCanonicalActivityLogId: string | null; executionClassification?: string | null;
 }
 export interface RawCompletion {
   id: string; userId: string; sessionId: string | null; status: string; completedAt: Date; distanceKm: number | null; durationMin: number | null; painFlag: string | null; painTiming?: string | null; perceivedEffort: number | null;
   session: { modality: string | null; origin: string | null; structure: unknown } | null;
 }
 export interface RawLink { trainingSessionId: string; activityLogId: string }
-export interface RawPain { id: string; userId: string; createdAt: Date; intensity: number; regions?: string[] }
+export interface RawPain { id: string; userId: string; createdAt: Date; intensity: number; regions?: string[]; hasOtherLocation?: boolean }
+export interface RawSession { userId: string; scheduledDate: Date; modality: string | null; origin: string | null; completionStatus: string | null; linked: boolean }
 export interface RawUser { id: string; birthDate: Date | null; sex: string | null }
 export interface RawCycleLog { userId: string; cycleStartDate: Date; cycleEndDate: Date | null }
 export interface RawMenstrualProfile { userId: string; cycleLengthDays: number | null; periodLengthDays: number | null; usesHormonalContraceptive: boolean | null }
-export interface RawRows { users: RawUser[]; activities: RawActivity[]; completions: RawCompletion[]; links: RawLink[]; pains: RawPain[]; cycleLogs?: RawCycleLog[]; menstrualProfiles?: RawMenstrualProfile[] }
+export interface RawRows { users: RawUser[]; activities: RawActivity[]; completions: RawCompletion[]; links: RawLink[]; pains: RawPain[]; cycleLogs?: RawCycleLog[]; menstrualProfiles?: RawMenstrualProfile[]; sessions?: RawSession[] }
 
 const spDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -33,6 +35,40 @@ export function isStravaProvenance(provider: string, providerMetrics: unknown): 
   const id = String(source?.packageName ?? source?.bundleId ?? '').toLowerCase();
   const name = String(source?.name ?? '').toLowerCase();
   return id === 'com.strava' || id.startsWith('com.strava.') || name === 'strava';
+}
+
+// Tipo de treino para as taxas (ordem de Elton, 26/11/2026). Extra = sessao criada pela aluna ou pelo relogio (nao programada) ou atividade classificada como 'alternative'.
+export function isExtraSession(origin: string | null | undefined, structure: unknown): boolean {
+  if (origin === 'device_extra' || origin === 'student_extra') return true;
+  const type = structure && typeof structure === 'object' && !Array.isArray(structure) ? (structure as Record<string, unknown>).type : null;
+  return type === 'extra';
+}
+export function segmentOf(modality: string | null | undefined, isExtra: boolean): TrainingSegment {
+  const raw = (modality ?? '').trim().toLowerCase();
+  const key = canonicalModality(raw) ?? raw;
+  const run = key === 'corrida' || key === 'esteira';
+  if (isExtra) return run ? 'extra_corrida' : 'extra_geral';
+  if (run) return 'corrida';
+  if (key === 'fortalecimento_corredores') return 'fortalecimento';
+  if (key === 'forca') return 'musculacao';
+  return 'outras';
+}
+
+// Local da dor do "Relatar dor": junta os lados ('Joelho direito' e 'Joelho esquerdo' = joelho) e guarda o lado a parte. Valor desconhecido vira 'outros'; "Nao sei responder" vira 'nao_informado'.
+const deaccent = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+export const REGION_GROUP_LABEL: Record<string, string> = {
+  joelho: 'Joelho', tornozelo: 'Tornozelo', pe: 'Pé', canela: 'Canela', panturrilha: 'Panturrilha', coxa: 'Coxa', quadril: 'Quadril', gluteo: 'Glúteo',
+  lombar_coluna: 'Lombar / coluna', ombro: 'Ombro', outros: 'Outros', nao_informado: 'Não soube informar',
+};
+export function regionOf(label: string): { group: string; side: 'direito' | 'esquerdo' | null } | null {
+  const text = deaccent(label);
+  if (!text) return null;
+  const side = /\b(direit[oa])\b/.test(text) ? 'direito' : /\b(esquerd[oa])\b/.test(text) ? 'esquerdo' : null;
+  const base = text.replace(/\b(direit[oa]|esquerd[oa])\b/g, '').replace(/\s+/g, ' ').trim();
+  if (base.startsWith('nao sei')) return { group: 'nao_informado', side: null };
+  const known: Array<[string, string]> = [['joelho', 'joelho'], ['tornozelo', 'tornozelo'], ['pe', 'pe'], ['canela', 'canela'], ['panturrilha', 'panturrilha'], ['coxa', 'coxa'], ['quadril', 'quadril'], ['gluteo', 'gluteo'], ['lombar', 'lombar_coluna'], ['coluna', 'lombar_coluna'], ['ombro', 'ombro']];
+  const hit = known.find(([prefix]) => base === prefix || base.startsWith(prefix + ' ') || base.startsWith(prefix + '/'));
+  return { group: hit ? hit[1] : 'outros', side };
 }
 
 const validKm = (m: number | null) => (m != null && Number.isFinite(m) && m > 0 ? m / 1000 : null);
@@ -58,7 +94,7 @@ export async function buildFactsFromRows(
   for (const a of rows.activities) if (isStravaProvenance(a.provider, a.providerMetrics)) blocked.add(a.id);
   const picks = await pickCanonicalPerEvent(usable, loadActivitiesByIds);
   const eventOfActivity = new Map<string, string>(); // id de QUALQUER observacao -> chave do evento
-  const activityEvents: Array<{ key: string; row: RawActivity; userId: string; day: string; group: ReturnType<typeof modalityGroup> }> = [];
+  const activityEvents: Array<{ key: string; row: RawActivity; userId: string; day: string; group: ReturnType<typeof modalityGroup>; classifiedExtra: boolean }> = [];
   for (const pick of picks) {
     // o representante nao pode ser de procedencia Strava (a canonica buscada fora da leitura pode ser): usa outro membro permitido, ou exclui o evento
     let row = pick.row;
@@ -75,7 +111,7 @@ export async function buildFactsFromRows(
     eventOfActivity.set(row.id, key);
     const day = localCalendarDate(row.startedAt, row.utcOffsetMinutes);
     if (!inWindow(day)) continue;
-    activityEvents.push({ key, row, userId: row.userId, day, group: modalityGroup(row.sport) });
+    activityEvents.push({ key, row, userId: row.userId, day, group: modalityGroup(row.sport), classifiedExtra: pick.members.some((m) => m.executionClassification === 'alternative') || row.executionClassification === 'alternative' });
   }
 
   // ── 2) completions por sessao e por evento (dor e feedback ficam no treino) ──
@@ -121,15 +157,19 @@ export async function buildFactsFromRows(
     if (ev.group !== 'corrida') {
       const group: TrainingGroup = ev.group === 'forca' ? 'forca' : 'outras';
       if (group === 'forca') strengthEvents.push({ participant: ev.userId, eventKey: ev.key, day: ev.day }); // sessao de forca vinculada ou nao: conta UMA vez, pelo evento da atividade
-      const painInfo = painFrom(completionsByEvent.get(ev.key) ?? []);
-      addTraining({ participant: ev.userId, eventKey: ev.key, day: ev.day, group, km: validKm(ev.row.distanceMeters), seconds: validSec(ev.row.durationSec), feedbackAnswered: painInfo.answered, pain: painOf(painInfo.flag, painInfo.timing) });
+      const linked = completionsByEvent.get(ev.key) ?? [];
+      const painInfo = painFrom(linked);
+      const extra = ev.classifiedExtra || linked.some((c) => isExtraSession(c.session?.origin, c.session?.structure));
+      addTraining({ participant: ev.userId, eventKey: ev.key, day: ev.day, group, segment: segmentOf(ev.row.sport, extra), km: validKm(ev.row.distanceMeters), seconds: validSec(ev.row.durationSec), feedbackAnswered: painInfo.answered, pain: painOf(painInfo.flag, painInfo.timing) });
       continue;
     }
     const km = validKm(ev.row.distanceMeters);
     if (km == null) quality.invalidDistanceEvents += 1;
-    const { answered, flag, timing } = painFrom(completionsByEvent.get(ev.key) ?? []);
+    const linkedRun = completionsByEvent.get(ev.key) ?? [];
+    const { answered, flag, timing } = painFrom(linkedRun);
+    const runExtra = ev.classifiedExtra || linkedRun.some((c) => isExtraSession(c.session?.origin, c.session?.structure));
     push({
-      participant: ev.userId, eventKey: ev.key, day: ev.day, km, seconds: km == null ? null : validSec(ev.row.durationSec), source: 'activity', isExtra: false,
+      participant: ev.userId, eventKey: ev.key, day: ev.day, km, seconds: km == null ? null : validSec(ev.row.durationSec), source: 'activity', isExtra: runExtra,
       feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null, pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
@@ -151,10 +191,9 @@ export async function buildFactsFromRows(
       continue;
     }
     if (km == null) quality.invalidDistanceEvents += 1;
-    const structure = obj(c.session?.structure);
     push({
       participant: c.userId, eventKey: `m:${c.id}`, day, km, seconds: km != null && c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, source: 'manual',
-      isExtra: structure?.type === 'extra', feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null,
+      isExtra: isExtraSession(c.session?.origin, c.session?.structure), feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null,
       pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
@@ -171,7 +210,7 @@ export async function buildFactsFromRows(
       return;
     }
     const km = c.distanceKm != null && c.distanceKm > 0 ? c.distanceKm : null;
-    addTraining({ participant: c.userId, eventKey: `m:${c.id}`, day, group, km, seconds: c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, feedbackAnswered: answered, pain: painOf(flag, timing) });
+    addTraining({ participant: c.userId, eventKey: `m:${c.id}`, day, group, segment: segmentOf(c.session?.modality, isExtraSession(c.session?.origin, c.session?.structure)), km, seconds: c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, feedbackAnswered: answered, pain: painOf(flag, timing) });
   };
   for (const c of strengthCompletions) {
     const day = spDay(c.completedAt);
@@ -179,14 +218,16 @@ export async function buildFactsFromRows(
     addManualTraining(c, 'forca');
   }
   for (const c of otherCompletions) addManualTraining(c, 'outras');
-  for (const e of runEvents) trainings.push({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida', km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.painLevel ?? null, timing: e.painTiming ?? null } });
+  for (const e of runEvents) trainings.push({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida', segment: e.isExtra ? 'extra_corrida' : 'corrida', km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.painLevel ?? null, timing: e.painTiming ?? null } });
 
   // ── 5) "Relatar dor" (1–10 + regioes): analisado SEPARADO, nunca colado a treino (ordem de Elton, 26/11/2026). Fica so' como lista de relatos avulsos. ──
   const painReports: ObsPainReport[] = [];
   for (const p of rows.pains) {
     const day = spDay(p.createdAt);
     if (!inWindow(day)) continue;
-    painReports.push({ participant: p.userId, day, intensity: Math.min(10, Math.max(1, Math.round(p.intensity))), regions: [...new Set((p.regions ?? []).map((r) => r.trim()).filter(Boolean))] });
+    const parsed = (p.regions ?? []).map(regionOf).filter((r): r is NonNullable<ReturnType<typeof regionOf>> => r != null);
+    const groups = [...new Set([...parsed.map((r) => r.group), ...(p.hasOtherLocation ? ['outros'] : [])])];
+    painReports.push({ participant: p.userId, day, intensity: Math.min(10, Math.max(1, Math.round(p.intensity))), regions: groups, regionSides: [...new Set(parsed.filter((r) => r.side).map((r) => `${r.group}:${r.side}`))] });
   }
 
   // ── 6) ciclo: so' de quem registrou ciclos (a fase de cada dia e' calculada no motor, com as mesmas regras do relatorio da aluna) ──
@@ -194,7 +235,17 @@ export async function buildFactsFromRows(
   for (const l of rows.cycleLogs ?? []) logsByUser.set(l.userId, [...(logsByUser.get(l.userId) ?? []), l]);
   const profileByUser = new Map((rows.menstrualProfiles ?? []).map((m) => [m.userId, m]));
 
-  const hasEvents = new Set([...runEvents.map((e) => e.participant), ...strengthEvents.map((e) => e.participant), ...trainings.map((t) => t.participant), ...painReports.map((r) => r.participant)]);
+  // ── 7) treinos PROGRAMADOS (adesao): extras nao entram; registrado = feedback feito/ajustado ou atividade vinculada ──
+  const scheduled: ObsScheduled[] = [];
+  for (const s of rows.sessions ?? []) {
+    if (isExtraSession(s.origin, null)) continue;
+    const day = s.scheduledDate.toISOString().slice(0, 10);
+    if (!inWindow(day)) continue;
+    const segment = segmentOf(s.modality, false) as ObsScheduled['segment'];
+    scheduled.push({ participant: s.userId, day, segment, registered: s.completionStatus === 'done' || s.completionStatus === 'adjusted' || (s.completionStatus == null && s.linked) });
+  }
+
+  const hasEvents = new Set([...runEvents.map((e) => e.participant), ...strengthEvents.map((e) => e.participant), ...trainings.map((t) => t.participant), ...painReports.map((r) => r.participant), ...scheduled.map((s) => s.participant)]);
   const participants: ObsParticipant[] = rows.users
     .filter((u) => hasEvents.has(u.id))
     .map((u): ObsParticipant => {
@@ -203,5 +254,5 @@ export async function buildFactsFromRows(
       const cycles = logs.length > 0 ? buildPhasedCycles(logs.map((l) => ({ start: l.cycleStartDate, end: l.cycleEndDate })), profile) : [];
       return { key: u.id, birthDate: u.birthDate ? u.birthDate.toISOString().slice(0, 10) : null, sex: u.sex, ...(cycles.length > 0 ? { cycle: { cycles, hormonal: profile?.usesHormonalContraceptive ?? null } } : {}) };
     });
-  return { dataset: 'real', dataAsOf: new Date().toISOString(), participants, runEvents, strengthEvents, trainings, painReports, quality };
+  return { dataset: 'real', dataAsOf: new Date().toISOString(), participants, runEvents, strengthEvents, trainings, painReports, scheduled, quality };
 }
