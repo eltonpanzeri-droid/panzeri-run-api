@@ -14,7 +14,7 @@ export interface RawActivity {
   providerMetrics: unknown; physicalIdentityStatus: string | null; physicalEventId: string | null; physicalCanonicalActivityLogId: string | null; executionClassification?: string | null;
 }
 export interface RawCompletion {
-  id: string; userId: string; sessionId: string | null; status: string; completedAt: Date; distanceKm: number | null; durationMin: number | null; painFlag: string | null; painTiming?: string | null; perceivedEffort: number | null;
+  id: string; userId: string; sessionId: string | null; status: string; completedAt: Date; distanceKm: number | null; durationMin: number | null; painFlag: string | null; painIntensity?: number | null; painTiming?: string | null; perceivedEffort: number | null;
   session: { modality: string | null; origin: string | null; structure: unknown } | null;
 }
 export interface RawLink { trainingSessionId: string; activityLogId: string }
@@ -146,11 +146,13 @@ export async function buildFactsFromRows(
     if (painful && flags.includes('none')) quality.painConflicts += 1;
     const answered = cs.some((x) => x.painFlag != null || x.perceivedEffort != null);
     const timing = painful ? cs.find((x) => x.painFlag === painful)?.painTiming ?? null : null;
-    return { answered, flag: painful ?? (flags.length > 0 ? 'none' : null), timing };
+    // nota 1-10 da escala nova (maior entre os feedbacks do evento); sem nota = dado antigo (convertido na leitura)
+    const notes = cs.filter((x) => x.painFlag !== 'none' && x.painIntensity != null).map((x) => x.painIntensity as number);
+    return { answered, flag: painful ?? (flags.length > 0 ? 'none' : null), timing, intensity: notes.length > 0 ? Math.max(...notes) : null };
   };
   const levelOf = (flag: string | null): PainLevel | null => (flag === 'leve' || flag === 'moderado' || flag === 'forte' ? flag : null);
   const trainings: ObsTraining[] = [];
-  const painOf = (flag: string | null, timing: string | null) => ({ origin: (flag === 'none' ? 'explicit_no_pain' : flag ? 'reported_pain' : 'no_pain_report') as ObsTraining['pain']['origin'], level: levelOf(flag), timing: flag && flag !== 'none' ? timing : null });
+  const painOf = (flag: string | null, timing: string | null, intensity: number | null = null) => ({ origin: (flag === 'none' ? 'explicit_no_pain' : flag ? 'reported_pain' : 'no_pain_report') as ObsTraining['pain']['origin'], level: levelOf(flag), timing: flag && flag !== 'none' ? timing : null, intensity: flag && flag !== 'none' ? intensity : null });
   const trainingsByDay = new Map<string, ObsTraining[]>(); // `${userId}|${day}|${group}` -> treinos (para nao contar duas vezes o registro manual de um treino ja' importado)
   const addTraining = (t: ObsTraining) => { trainings.push(t); const k = `${t.participant}|${t.day}|${t.group}`; trainingsByDay.set(k, [...(trainingsByDay.get(k) ?? []), t]); };
   for (const ev of activityEvents) {
@@ -160,17 +162,17 @@ export async function buildFactsFromRows(
       const linked = completionsByEvent.get(ev.key) ?? [];
       const painInfo = painFrom(linked);
       const extra = ev.classifiedExtra || linked.some((c) => isExtraSession(c.session?.origin, c.session?.structure));
-      addTraining({ participant: ev.userId, eventKey: ev.key, day: ev.day, group, segment: segmentOf(ev.row.sport, extra), km: validKm(ev.row.distanceMeters), seconds: validSec(ev.row.durationSec), feedbackAnswered: painInfo.answered, pain: painOf(painInfo.flag, painInfo.timing) });
+      addTraining({ participant: ev.userId, eventKey: ev.key, day: ev.day, group, segment: segmentOf(ev.row.sport, extra), km: validKm(ev.row.distanceMeters), seconds: validSec(ev.row.durationSec), feedbackAnswered: painInfo.answered, pain: painOf(painInfo.flag, painInfo.timing, painInfo.intensity) });
       continue;
     }
     const km = validKm(ev.row.distanceMeters);
     if (km == null) quality.invalidDistanceEvents += 1;
     const linkedRun = completionsByEvent.get(ev.key) ?? [];
-    const { answered, flag, timing } = painFrom(linkedRun);
+    const { answered, flag, timing, intensity } = painFrom(linkedRun);
     const runExtra = ev.classifiedExtra || linkedRun.some((c) => isExtraSession(c.session?.origin, c.session?.structure));
     push({
       participant: ev.userId, eventKey: ev.key, day: ev.day, km, seconds: km == null ? null : validSec(ev.row.durationSec), source: 'activity', isExtra: runExtra,
-      feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null, pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
+      feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null, pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
 
@@ -182,35 +184,35 @@ export async function buildFactsFromRows(
     const sameDay = eventsByDay.get(`${c.userId}|${day}`) ?? [];
     // mesma corrida ja' contada (importada OU outro registro manual igual) — ou registro manual sem distancia no mesmo dia de outro treino: nao e' um treino a mais
     const same = sameDay.find((e) => (km == null ? true : e.km != null && Math.abs(e.km - km) <= Math.max(0.5, km * 0.1)));
-    const { answered, flag, timing } = painFrom([c]);
+    const { answered, flag, timing, intensity } = painFrom([c]);
     if (same) {
       // mesma corrida ja' importada: nao conta de novo; o feedback da aluna passa para o evento importado
       quality.duplicateManualEvents += 1;
       if (answered) same.feedbackAnswered = true;
-      if (same.pain.origin === 'no_pain_report') { same.pain = flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : same.pain; same.painLevel = levelOf(flag); same.painTiming = flag && flag !== 'none' ? timing : null; }
+      if (same.pain.origin === 'no_pain_report') { same.pain = flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity } : same.pain; same.painLevel = levelOf(flag); same.painTiming = flag && flag !== 'none' ? timing : null; }
       continue;
     }
     if (km == null) quality.invalidDistanceEvents += 1;
     push({
       participant: c.userId, eventKey: `m:${c.id}`, day, km, seconds: km != null && c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, source: 'manual',
       isExtra: isExtraSession(c.session?.origin, c.session?.structure), feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null,
-      pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
+      pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
   // Forca e outras modalidades registradas SO' pelo feedback (sem atividade importada): entram como treino; se ja' ha' um treino importado do mesmo grupo no dia, o registro e' a mesma sessao (o feedback passa para ela).
   const addManualTraining = (c: RawCompletion, group: TrainingGroup) => {
     const day = spDay(c.completedAt);
     if (!inWindow(day)) return;
-    const { answered, flag, timing } = painFrom([c]);
+    const { answered, flag, timing, intensity } = painFrom([c]);
     const same = (trainingsByDay.get(`${c.userId}|${day}|${group}`) ?? [])[0];
     if (same) {
       quality.duplicateManualEvents += 1;
       if (answered) same.feedbackAnswered = true;
-      if (same.pain.origin === 'no_pain_report' && flag) same.pain = painOf(flag, timing);
+      if (same.pain.origin === 'no_pain_report' && flag) same.pain = painOf(flag, timing, intensity);
       return;
     }
     const km = c.distanceKm != null && c.distanceKm > 0 ? c.distanceKm : null;
-    addTraining({ participant: c.userId, eventKey: `m:${c.id}`, day, group, segment: segmentOf(c.session?.modality, isExtraSession(c.session?.origin, c.session?.structure)), km, seconds: c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, feedbackAnswered: answered, pain: painOf(flag, timing) });
+    addTraining({ participant: c.userId, eventKey: `m:${c.id}`, day, group, segment: segmentOf(c.session?.modality, isExtraSession(c.session?.origin, c.session?.structure)), km, seconds: c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, feedbackAnswered: answered, pain: painOf(flag, timing, intensity) });
   };
   for (const c of strengthCompletions) {
     const day = spDay(c.completedAt);
@@ -218,7 +220,7 @@ export async function buildFactsFromRows(
     addManualTraining(c, 'forca');
   }
   for (const c of otherCompletions) addManualTraining(c, 'outras');
-  for (const e of runEvents) trainings.push({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida', segment: e.isExtra ? 'extra_corrida' : 'corrida', km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.painLevel ?? null, timing: e.painTiming ?? null } });
+  for (const e of runEvents) trainings.push({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida', segment: e.isExtra ? 'extra_corrida' : 'corrida', km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.painLevel ?? null, timing: e.painTiming ?? null, intensity: e.pain.origin === 'reported_pain' ? e.pain.intensity : null } });
 
   // ── 5) "Relatar dor" (1–10 + regioes): analisado SEPARADO, nunca colado a treino (ordem de Elton, 26/11/2026). Fica so' como lista de relatos avulsos. ──
   const painReports: ObsPainReport[] = [];

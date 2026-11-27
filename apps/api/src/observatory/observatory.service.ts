@@ -51,7 +51,7 @@ export class ObservatoryService {
       this.prisma.activityLog.findMany({ where: { provider: { notIn: HIDDEN_PROVIDERS }, startedAt: { gte: shiftDate(start, -1), lte: end } }, select: ACTIVITY_SELECT }),
       this.prisma.workoutCompletion.findMany({
         where: { status: { in: ['done', 'adjusted'] }, OR: [{ completedAt: { gte: start, lte: end } }, { session: { scheduledDate: { gte: start, lte: end } } }] },
-        select: { id: true, userId: true, sessionId: true, status: true, completedAt: true, distanceKm: true, durationMin: true, painFlag: true, painTiming: true, perceivedEffort: true, session: { select: { modality: true, origin: true, structure: true } } },
+        select: { id: true, userId: true, sessionId: true, status: true, completedAt: true, distanceKm: true, durationMin: true, painFlag: true, painIntensity: true, painTiming: true, perceivedEffort: true, session: { select: { modality: true, origin: true, structure: true } } },
       }),
       this.prisma.painReport.findMany({ where: { createdAt: { gte: start, lte: end } }, select: { id: true, userId: true, createdAt: true, intensity: true, regions: true, otherLocation: true } }),
       // Ciclo (so' de quem registrou): historico inteiro ate o fim do periodo, porque a fase de um dia depende dos ciclos anteriores.

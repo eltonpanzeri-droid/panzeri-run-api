@@ -9,7 +9,7 @@ import type { ObsFacts, ObsFilters, ObsParticipant, ObsPainReport, ObsRow, ObsSc
 
 // Observatorio Panzeri Run — ANALISE AMPLIADA (26/11/2026, ordem de Elton). Funcoes puras sobre os fatos ja' deduplicados; so' agregados protegidos, nunca nome, e-mail ou id.
 // REGRAS DE LEITURA (valem para tudo aqui):
-//  - Dor do TREINO = feedback do treino (sem dor, leve, moderada, forte). A "intensidade" do feedback usa a escala 0-3 da Evolucao (leve 1, moderada 2, forte 3); NUNCA e' nota 1-10.
+//  - Dor do TREINO = feedback do treino (sem dor, leve, moderada, forte). A "intensidade" do feedback e' a escala unica 0-10 (28/11/2026): nota 1-10 do aluno; o dado antigo leve/moderada/forte e' convertido em 3/5/8.
 //  - "Relatar dor" (nota 1-10 + local) e' analisado A PARTE e NUNCA e' ligado a um treino. Quando aparece "por 100 treinos de X" ou "por 1.000 km", e' TAXA DE EXPOSICAO (relatos do periodo
 //    divididos pelo volume de X no mesmo periodo): nao diz que o relato veio de X.
 //  - Estatistica descritiva: associacao nao e' causa; fase do ciclo e' estimativa a partir do que a aluna registrou.
@@ -307,7 +307,7 @@ export function computeInsights(input: { facts: ObsFacts; scope: Set<string>; ru
 
   return {
     weekly: { segments: weeklySegments, relatar: weeklyRelatar },
-    scopeNote: 'Participantes com corrida nas semanas incluídas pelos filtros; força e outras modalidades dentro do período. A dor do treino vem do feedback do treino (sem dor, leve, moderada ou forte; escala 0 a 3 como na Evolução). Treino registrado sem relato vale zero; a cobertura do feedback aparece à parte.',
+    scopeNote: 'Participantes com corrida nas semanas incluídas pelos filtros; força e outras modalidades dentro do período. A dor do treino vem do feedback do treino (sem dor ou nota de 1 a 10; respostas anteriores a 30/11/2026 foram convertidas: leve 3, moderada 5, forte 8). Treino registrado sem relato vale zero; a cobertura do feedback aparece à parte.',
     segments: { rows: segmentRows.rows, runsCombined: segmentRows.totalAllowed && runs.length > 0 ? segmentData(runs, true) : null, total: segmentRows.totalAllowed ? segmentData(trainings, false) : null },
     runsByDistance: { rows: distanceRows.rows, runsWithoutDistance: runs.length - runsWithKm.length },
     weeklyVolume: {

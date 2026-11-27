@@ -154,12 +154,12 @@ export function PainDashboard({ ins }: { ins: DashInsights }) {
     <section className="obwDash" aria-label="Painel de dor por tipo de atividade">
       <div className="obwHead">
         <h3>Dor por tipo de atividade</h3>
-        <p>Dor marcada no feedback do treino (sem dor, leve, moderada, forte), a cada 100 treinos. Escala de intensidade 0–3. O “Relatar dor” fica à parte (aba própria).</p>
+        <p>Dor marcada no feedback do treino (sem dor ou nota de 1 a 10), a cada 100 treinos. Respostas anteriores a 30/11/2026 (leve, moderada, forte) foram convertidas em 3, 5 e 8. O “Relatar dor” fica à parte (aba própria).</p>
       </div>
 
       <div className="obwKpiRow">
         <article className="obwKpi"><span className="obwKpiIcon red"><Target size={18} /></span><div><small>Taxa de dor geral</small><strong>{nf(tot?.painPer100Trainings, 1)}<em> /100 treinos</em></strong><p>{nf(tot?.painTrainings)} treinos com dor em {nf(tot?.trainings)}</p></div></article>
-        <article className="obwKpi"><span className="obwKpiIcon amber"><Zap size={18} /></span><div><small>Pontos de intensidade</small><strong>{nf(tot?.levelPointsPer100Trainings, 1)}<em> pts/100 treinos</em></strong><p>soma da escala 0–3 do feedback</p></div></article>
+        <article className="obwKpi"><span className="obwKpiIcon amber"><Zap size={18} /></span><div><small>Pontos de intensidade</small><strong>{nf(tot?.levelPointsPer100Trainings, 1)}<em> pts/100 treinos</em></strong><p>soma das notas de dor do feedback</p></div></article>
         <article className="obwKpi"><span className="obwKpiIcon green"><TrendingDown size={18} /></span><div><small>Variação (4 sem. x 4 sem. anteriores)</small><strong><Delta v={vTot.deltaPct} suffix="%" /></strong><p>{vTot.now != null ? `${nf(vTot.now, 1)} agora vs ${nf(vTot.before, 1)} antes (por 100)` : 'precisa de 8 semanas no período'}</p></div></article>
         <article className="obwKpi"><span className="obwKpiIcon blue"><Layers size={18} /></span><div><small>Treinos analisados</small><strong>{nf(tot?.trainings)}</strong><p>todas as modalidades do período</p></div></article>
       </div>
@@ -178,7 +178,7 @@ export function PainDashboard({ ins }: { ins: DashInsights }) {
               <div><small>Taxa /100</small><strong>{nf(d.painPer100Trainings, 1)}</strong><Delta v={v.deltaPP} suffix=" p.p." /></div>
               <div><small>Pontos /100</small><strong>{nf(d.levelPointsPer100Trainings, 1)}</strong></div>
               {sel === 'corridas' ? <div><small>Por 1.000 km</small><strong>{nf(d.painPer1000Km, 1)}</strong></div> : null}
-              <div><small>Intens. média (0–3)</small><strong>{nf(d.meanLevelAmongPain, 2)}</strong></div>
+              <div><small>Intens. média (1–10)</small><strong>{nf(d.meanLevelAmongPain, 2)}</strong></div>
             </div>
           ) : <Empty title="Sem dados" text="Poucas alunas nesta modalidade no período." />}
         </section>

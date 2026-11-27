@@ -170,8 +170,10 @@ export const WEEKLY_ELIGIBILITY_BANDS: Array<{ id: string; label: string; floor:
   { id: 'w40', label: '40 a 50 km semanais', floor: 40 }, { id: 'w50', label: '50 a 70 km semanais', floor: 50 }, { id: 'w70', label: '70 a 100 km semanais', floor: 70 },
   { id: 'w100', label: '100 a 150 km semanais', floor: 100 }, { id: 'w150', label: 'Acima de 150 km semanais', floor: 150 },
 ];
-// Escala 0-3 do feedback do treino (a MESMA da Evolucao: sem dor, leve, moderada, forte). Nao e' nota 1-10: a nota so' existe no "Relatar dor".
-export const PAIN_LEVEL_SCORE: Record<PainLevel, number> = { leve: 1, moderado: 2, forte: 3 };
+// Escala UNICA de dor 0-10 (28/11/2026). Feedback novo: nota 1-10 do aluno. Feedback ANTIGO (leve/moderado/forte) e' convertido na leitura: leve 3, moderado 5, forte 8 (decisao de Elton). Sem dor = 0.
+export const PAIN_LEVEL_SCORE: Record<PainLevel, number> = { leve: 3, moderado: 5, forte: 8 };
+// Faixas em palavras da nota: 1-3 leve, 4-6 moderada, 7-10 forte.
+export const painLevelOfScore = (score: number): PainLevel => (score <= 3 ? 'leve' : score <= 6 ? 'moderado' : 'forte');
 export const PAIN_LEVEL_LABEL: Record<PainLevel, string> = { leve: 'Dor leve', moderado: 'Dor moderada', forte: 'Dor forte' };
 
 export interface PainLevelMetrics {
@@ -184,9 +186,9 @@ export interface PainLevelMetrics {
   // Entre quem RESPONDEU o feedback (sem o zero assumido): a taxa "de verdade" dos treinos com resposta.
   painPer100Answered: number | null;
   painPer10Trainings: number | null;
-  meanLevelAmongPain: number | null; // media da escala 0-3 so' entre os treinos COM dor (1 a 3)
-  meanLevelAll: number | null; // media da escala 0-3 em todos os treinos (zeros incluidos)
-  levelPoints: number; // soma da escala 0-3
+  meanLevelAmongPain: number | null; // media da nota (escala 1-10) so' entre os treinos COM dor
+  meanLevelAll: number | null; // media da nota em todos os treinos (zeros incluidos)
+  levelPoints: number; // soma das notas (escala 1-10)
   levelPointsPer100Trainings: number | null;
   levelPointsPer1000Km: number | null; // so' treinos com distancia valida
   km: number; // km dos treinos com distancia valida
@@ -195,7 +197,7 @@ export interface PainLevelMetrics {
 }
 
 // Dor por treino a partir do feedback do treino (categorica). Treino registrado sem relato vale zero (regra de Elton, 02/11/2026); a cobertura aparece a parte. Nada vira nota numerica.
-export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswered: boolean; pain: { origin: PainOrigin; level?: PainLevel | null; timing?: string | null } }>): PainLevelMetrics {
+export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswered: boolean; pain: { origin: PainOrigin; level?: PainLevel | null; timing?: string | null; intensity?: number | null } }>): PainLevelMetrics {
   const levels = { leve: 0, moderado: 0, forte: 0, semNivel: 0 };
   const timing = new Map<string, number>();
   let painTrainings = 0; let withFeedback = 0; let painAnswered = 0; let km = 0; let painWithKm = 0; let points = 0; let pointsWithKm = 0;
@@ -207,7 +209,8 @@ export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswe
     painTrainings += 1;
     if (item.feedbackAnswered) painAnswered += 1;
     if (validKm) painWithKm += 1;
-    if (item.pain.level) { levels[item.pain.level] += 1; points += PAIN_LEVEL_SCORE[item.pain.level]; if (validKm) pointsWithKm += PAIN_LEVEL_SCORE[item.pain.level]; } else levels.semNivel += 1;
+    const score = item.pain.intensity != null && item.pain.intensity > 0 ? item.pain.intensity : item.pain.level ? PAIN_LEVEL_SCORE[item.pain.level] : null;
+    if (score != null) { levels[painLevelOfScore(score)] += 1; points += score; if (validKm) pointsWithKm += score; } else levels.semNivel += 1;
     if (item.pain.timing) timing.set(item.pain.timing, (timing.get(item.pain.timing) ?? 0) + 1);
   }
   const per100 = (count: number, base: number) => (base > 0 ? round2((count / base) * 100) : null);

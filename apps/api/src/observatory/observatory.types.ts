@@ -47,7 +47,8 @@ export interface ObsTraining {
   km: number | null;
   seconds: number | null;
   feedbackAnswered: boolean;
-  pain: { origin: PainOrigin; level: PainLevel | null; timing: string | null };
+  // intensity: nota 1-10 do feedback quando o aluno respondeu na escala nova (a partir de 28/11/2026); null no dado antigo (o nivel leve/moderado/forte e' convertido em 3/5/8 na leitura).
+  pain: { origin: PainOrigin; level: PainLevel | null; timing: string | null; intensity?: number | null };
 }
 
 // Treino PROGRAMADO (para a adesao): registrado = tem feedback feito/ajustado ou atividade vinculada. Extras nao entram (nao eram programados).

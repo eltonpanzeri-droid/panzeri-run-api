@@ -83,14 +83,20 @@ describe('adesao: treinos programados', () => {
   });
 });
 
-describe('dor do treino: escala 0-3 do feedback e taxas', () => {
+describe('dor do treino: escala unica 0-10 (antigo convertido 3/5/8) e taxas', () => {
   const t = (km: number | null, origin: 'explicit_no_pain' | 'no_pain_report' | 'reported_pain', level: 'leve' | 'moderado' | 'forte' | null, answered = true) => ({ km, feedbackAnswered: answered, pain: { origin, level, timing: null } });
-  it('por 10 e por 100 treinos, por nivel, pontos 0-3, media entre os com dor e media geral, por 1.000 km so com distancia', () => {
+  it('por 10 e por 100 treinos, por nivel, pontos (escala 1-10; antigo leve 3, moderado 5, forte 8), media entre os com dor e media geral, por 1.000 km so com distancia', () => {
     const m = painLevelMetrics([t(10, 'reported_pain', 'leve'), t(10, 'reported_pain', 'forte'), t(10, 'explicit_no_pain', null), t(10, 'no_pain_report', null, false), t(null, 'reported_pain', 'moderado')]);
-    expect(m).toMatchObject({ trainings: 5, painTrainings: 3, painPer100Trainings: 60, painPer10Trainings: 6, levelPoints: 6, levelPointsPer100Trainings: 120, meanLevelAmongPain: 2, meanLevelAll: 1.2, km: 40, painPer1000Km: 50, levelPointsPer1000Km: 100, painPer100Answered: 75 });
+    expect(m).toMatchObject({ trainings: 5, painTrainings: 3, painPer100Trainings: 60, painPer10Trainings: 6, levelPoints: 16, levelPointsPer100Trainings: 320, meanLevelAmongPain: 5.33, meanLevelAll: 3.2, km: 40, painPer1000Km: 50, levelPointsPer1000Km: 275, painPer100Answered: 75 });
     expect(m.levels).toEqual({ leve: 1, moderado: 1, forte: 1, semNivel: 0 });
     const vazio = painLevelMetrics([]);
     expect([vazio.painPer100Trainings, vazio.meanLevelAmongPain, vazio.meanLevelAll, vazio.painPer1000Km]).toEqual([null, null, null, null]);
+  });
+  it('nota nativa 1-10 (feedback novo) vale como esta e define a faixa; sem nota, o nivel antigo e convertido', () => {
+    const n = (km: number | null, intensity: number | null, level: 'leve' | 'moderado' | 'forte' | null) => ({ km, feedbackAnswered: true, pain: { origin: 'reported_pain' as const, level, timing: null, intensity } });
+    const m = painLevelMetrics([n(10, 7, 'forte'), n(10, 2, 'leve'), n(10, 4, 'moderado'), n(10, null, 'leve')]);
+    expect(m).toMatchObject({ painTrainings: 4, levelPoints: 7 + 2 + 4 + 3, meanLevelAmongPain: 4 });
+    expect(m.levels).toEqual({ leve: 2, moderado: 1, forte: 1, semNivel: 0 }); // 2 e 3 leves, 4 moderada, 7 forte
   });
   it('"Relatar dor": soma das notas e media, nunca misturada com o feedback do treino', () => {
     const m = reportMetrics([{ participant: 'a', intensity: 4 }, { participant: 'b', intensity: 8 }]);
@@ -137,20 +143,20 @@ describe('tipos de treino, "Relatar dor" a parte e volume das ultimas 10 semanas
   const r = computeObservatory(facts, filters());
   const ins = r.insights!;
 
-  it('tipos de treino: contagem por segmento, dor por 100 e escala 0-3', () => {
+  it('tipos de treino: contagem por segmento, dor por 100 e escala 1-10', () => {
     const seg = (id: string) => ins.segments.rows.find((x) => x.key === id)!.data!;
     expect(seg('corrida').trainings).toBe(24);
     expect(seg('extra_corrida').trainings).toBe(2);
-    expect(seg('musculacao')).toMatchObject({ trainings: 2, painTrainings: 1, painPer100Trainings: 50, levelPoints: 2 });
-    expect(seg('fortalecimento')).toMatchObject({ trainings: 1, painTrainings: 1, levelPoints: 1 });
-    expect(seg('extra_geral')).toMatchObject({ trainings: 1, levelPoints: 3 });
+    expect(seg('musculacao')).toMatchObject({ trainings: 2, painTrainings: 1, painPer100Trainings: 50, levelPoints: 5 });
+    expect(seg('fortalecimento')).toMatchObject({ trainings: 1, painTrainings: 1, levelPoints: 3 });
+    expect(seg('extra_geral')).toMatchObject({ trainings: 1, levelPoints: 8 });
     expect(ins.segments.total!.trainings).toBe(30);
     expect(ins.segments.runsCombined!.trainings).toBe(26);
   });
   it('evolucao semanal: 12 semanas do periodo, dor por 100 treinos e Relatar dor por semana; semana de poucos participantes fica suprimida', () => {
     const total = ins.weekly.segments.find((x) => x.key === 'total')!.points;
     expect(total).toHaveLength(12);
-    expect(total[1]).toMatchObject({ week: '2026-08-10', trainings: 4, painTrainings: 2, painPer100: 33.33, levelPointsPer100: 50 }); // contagens da semana 1 (2 corridas + musculacao moderada + fortalecimento leve); taxa ACUMULADA: 2 com dor em 6 treinos (2 corridas da semana 0 + 4)
+    expect(total[1]).toMatchObject({ week: '2026-08-10', trainings: 4, painTrainings: 2, painPer100: 33.33, levelPointsPer100: 133.33 }); // contagens da semana 1 (2 corridas + musculacao moderada + fortalecimento leve); taxa ACUMULADA: 2 com dor em 6 treinos (2 corridas da semana 0 + 4)
     const musc = ins.weekly.segments.find((x) => x.key === 'musculacao')!.points;
     expect(musc[1]).toMatchObject({ trainings: 1, painPer100: 100 });
     expect(musc[5]).toMatchObject({ trainings: 0, painPer100: 50 }); // semana sem musculacao: a taxa acumulada se mantem (1 com dor em 2), nao zera
@@ -232,7 +238,7 @@ describe('fases do ciclo: dor, adesao, km e local', () => {
     const m = phase(c.natural, 'menstruacao');
     expect(m).toMatchObject({ runs: 2, runKm: 16, avgKmPerRun: 8 }); // 03/08 e 31/08 (dia 0 de cada ciclo)
     expect(m.trainings).toBe(3); // 2 corridas + a musculacao do dia 05/08
-    expect(m.pain).toMatchObject({ painTrainings: 1, painPer100Trainings: 33.33, levelPoints: 2 });
+    expect(m.pain).toMatchObject({ painTrainings: 1, painPer100Trainings: 33.33, levelPoints: 5 });
     expect(m.kmPerParticipantWeek).toBeGreaterThan(0);
     expect(m.relatar.reportsPer100Km).toBe(6.25); // 1 relato / 16 km x 100
     expect(m.relatar.reportsPer100Trainings).toBe(33.33);

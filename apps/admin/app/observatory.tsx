@@ -109,6 +109,8 @@ const addDays = (date: string, days: number) => new Date(new Date(`${date}T12:00
 const dayDiff = (a: string, b: string) => Math.round((new Date(`${b}T12:00:00Z`).getTime() - new Date(`${a}T12:00:00Z`).getTime()) / 86_400_000);
 const dmy = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 const dm = (date: string) => `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+// 28/11/2026: a pergunta de dor do feedback passou a ser Nao/Sim + nota 1-10. O dado anterior (leve/moderado/forte) e' convertido (3/5/8); 30/11/2026 e' uma segunda-feira.
+const PAIN_SCALE_START = '2026-11-30';
 const emptyFilters = (): Filters => ({ from: '2026-08-01', to: localToday(), volumeBands: [], ageBands: [], strengthBands: [], sexes: [], mode: 'cross', groupBy: 'volume', includeZeroWeeks: true });
 const paceText = (seconds: number | null | undefined) => (seconds == null ? '—' : `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}/km`);
 const signed = (value: number | null | undefined) => (value == null ? '—' : `${value > 0 ? '+' : value < 0 ? '−' : ''}${Math.abs(value)} s/km`);
@@ -443,10 +445,10 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                     <>
                       <Kpi icon={<HeartPulse size={16} />} label="A · Treinos com dor no feedback (todos os tipos)" value={ins.segments.total?.painTrainings ?? null} hint={`de ${nf(ins.segments.total?.trainings)} treinos · ${nf(ins.segments.total?.painPer100Trainings, 2)} a cada 100 (${nf(ins.segments.total?.painPer100Trainings, 1)}%)`} />
                       <Kpi icon={<Gauge size={16} />} label="B · Corridas com dor por 1.000 km" value={ins.segments.runsCombined?.painPer1000Km ?? null} digits={2} hint={`só corrida (prescrita + extra), ${nf(ins.segments.runsCombined?.km, 0)} km com distância válida`} />
-                      <Kpi icon={<Activity size={16} />} label="C · Intensidade média dos relatos após o treino" value={ins.segments.total?.meanLevelAmongPain ?? null} digits={2} hint="escala 0–3 do feedback, só treinos com dor (leve 1, moderada 2, forte 3)" />
+                      <Kpi icon={<Activity size={16} />} label="C · Intensidade média dos relatos após o treino" value={ins.segments.total?.meanLevelAmongPain ?? null} digits={2} hint="nota de 1 a 10 do feedback, só treinos com dor (dado antigo: leve 3, moderada 5, forte 8)" />
                       <Kpi icon={<Activity size={16} />} label="C2 · Intensidade média dos relatos no Relatar dor" value={ins.standalone.overall?.meanIntensity ?? null} digits={1} hint={`nota de 1 a 10 · ${nf(ins.standalone.overall?.reports)} relatos`} />
-                      <Kpi icon={<Activity size={16} />} label="D · Intensidade média geral por treino" value={ins.segments.total?.meanLevelAll ?? null} digits={2} hint="escala 0–3, treinos sem dor incluídos (zero)" />
-                      <Kpi icon={<Gauge size={16} />} label="E · Pontos de intensidade por 1.000 km (corrida)" value={ins.segments.runsCombined?.levelPointsPer1000Km ?? null} digits={1} hint="soma da escala 0–3 do feedback ÷ km de corrida × 1.000" />
+                      <Kpi icon={<Activity size={16} />} label="D · Intensidade média geral por treino" value={ins.segments.total?.meanLevelAll ?? null} digits={2} hint="nota de 0 a 10, treinos sem dor incluídos (zero)" />
+                      <Kpi icon={<Gauge size={16} />} label="E · Pontos de intensidade por 1.000 km (corrida)" value={ins.segments.runsCombined?.levelPointsPer1000Km ?? null} digits={1} hint="soma das notas de dor do feedback ÷ km de corrida × 1.000" />
                       <Kpi icon={<Gauge size={16} />} label="E2 · Soma das notas do Relatar dor por 1.000 km" value={ins.standalone.notePointsPer1000RunKm} digits={1} hint="soma das notas 1–10 ÷ km de corrida × 1.000 (exposição)" />
                       <Kpi icon={<HeartPulse size={16} />} label="Total de relatos no Relatar dor" value={ins.standalone.overall?.reports ?? null} hint={`${nf(ins.standalone.overall?.participants)} alunas · analisado à parte`} />
                     </>
@@ -506,7 +508,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
               <label>De<input type="date" value={draft.from} max={draft.to} onChange={(e) => patch({ from: e.target.value })} /></label>
               <label>Até<input type="date" value={draft.to} max={localToday()} onChange={(e) => patch({ to: e.target.value })} /></label>
             </div>
-            <div className="eqChips">{([[8, '8 semanas'], [13, '13 semanas'], [26, '26 semanas'], [52, '52 semanas']] as Array<[number, string]>).map(([weeks, text]) => <button key={text} type="button" className="eqChip" onClick={() => shortcut(weeks)}>{text}</button>)}</div>
+            <div className="eqChips">{([[8, '8 semanas'], [13, '13 semanas'], [26, '26 semanas'], [52, '52 semanas']] as Array<[number, string]>).map(([weeks, text]) => <button key={text} type="button" className="eqChip" onClick={() => shortcut(weeks)}>{text}</button>)}<button type="button" className="eqChip" title="Dor medida só na escala nova (nota de 1 a 10), que vale a partir de 30/11/2026" onClick={() => patch({ from: PAIN_SCALE_START, to: localToday() })}>Só escala nova de dor (desde 30/11)</button></div>
           </fieldset>
           <ChipGroup label="Faixa de rodagem semanal" options={VOLUME_OPTIONS} selected={draft.volumeBands} onChange={(n) => patch({ volumeBands: n })} showCount={false} />
           <ChipGroup label="Faixa etária" options={AGE_OPTIONS} selected={draft.ageBands} onChange={(n) => patch({ ageBands: n })} showCount={false} />
@@ -546,10 +548,10 @@ function WeeklyPainCharts({ w }: { w: WeeklySeries }) {
   return (
     <div className="obwGrid2">
       <WeeklyCard title="Evolução semanal · treinos com dor a cada 100 treinos" subtitle={sub} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.painPer100)} unit="/100 treinos" />
-      <WeeklyCard title="Evolução semanal · pontos de intensidade a cada 100 treinos" subtitle={`Soma da escala 0–3 do feedback ÷ treinos × 100. ${sub}`} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.levelPointsPer100)} unit="pts/100 treinos" />
+      <WeeklyCard title="Evolução semanal · pontos de intensidade a cada 100 treinos" subtitle={`Soma das notas de dor (1–10) do feedback ÷ treinos × 100. ${sub}`} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.levelPointsPer100)} unit="pts/100 treinos" />
       <WeeklyCard title="Evolução semanal · corridas com dor por 1.000 km" subtitle={`Só corrida (prescrita + extra). ${sub}`} weeks={weeks}
         lines={[...weeklyLines(w, ['corridas'], (p) => p.painPer1000Km), { key: 'relatar', label: 'Relatar dor: relatos por 1.000 km (exposição)', color: '#eb6834', values: w.relatar.map((p) => p.reportsPer1000Km) }]} unit="/1.000 km" digits={2} />
-      <WeeklyCard title="Evolução semanal · intensidade média dos treinos com dor (0–3)" subtitle={sub} weeks={weeks} lines={weeklyLines(w, keys, (p) => p.meanLevelAmongPain)} unit="escala 0–3" digits={2} />
+      <WeeklyCard title="Evolução semanal · intensidade média dos treinos com dor (1–10)" subtitle={sub} weeks={weeks} lines={weeklyLines(w, keys, (p) => p.meanLevelAmongPain)} unit="nota 1–10" digits={1} />
     </div>
   );
 }
@@ -576,18 +578,18 @@ function TiposTab({ ins, min }: { ins: Insights; min: number }) {
   return (
     <>
       <p className="eqFine">{ins.scopeNote}</p>
-      <Table caption="Dor por tipo de treino (marcada no feedback do treino)" head={['Tipo de treino', 'Alunas', 'Treinos', 'Com feedback', 'Treinos com dor', 'Com dor a cada 100 treinos', 'Leve / moderada / forte', 'Intensidade média, só com dor (0–3)', 'Intensidade média geral (0–3)', 'Pontos a cada 100 treinos', 'Km', 'Com dor / 1.000 km', 'Pontos / 1.000 km']}>
+      <Table caption="Dor por tipo de treino (marcada no feedback do treino)" head={['Tipo de treino', 'Alunas', 'Treinos', 'Com feedback', 'Treinos com dor', 'Com dor a cada 100 treinos', 'Leve / moderada / forte', 'Intensidade média, só com dor (1–10)', 'Intensidade média geral (0–10)', 'Pontos a cada 100 treinos', 'Km', 'Com dor / 1.000 km', 'Pontos / 1.000 km']}>
         {seg.rows.map((row) => <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{row.label}</b></td><td>{pcount(row, min)}</td>{row.suppressed || !row.data ? hidden(row, 11) : painCells(row.data)}</tr>)}
         {seg.runsCombined ? <tr><td><b>Corridas (prescrita + extra)</b></td><td>—</td>{painCells(seg.runsCombined)}</tr> : null}
         {seg.total ? <tr><td><b>Todos os tipos</b></td><td>—</td>{painCells(seg.total)}</tr> : null}
       </Table>
-      <p className="eqFine">Intensidade do treino = escala 0 a 3 do feedback (sem dor 0, leve 1, moderada 2, forte 3), a mesma da Evolução. “Pontos” = soma dessa escala. Km e “por 1.000 km” só têm sentido para corrida (treinos sem distância válida ficam fora do km).</p>
+      <p className="eqFine">Intensidade do treino = nota de dor do feedback (sem dor 0; sim: 1 muito leve a 10 extremamente forte). Respostas ANTERIORES a 30/11/2026 usavam leve/moderada/forte e foram convertidas em 3, 5 e 8; isso mistura as duas escalas até a nota nova dominar (use “Só escala nova” no período para ver apenas a partir de 30/11). “Pontos” = soma das notas. Km e “por 1.000 km” só têm sentido para corrida (treinos sem distância válida ficam fora do km).</p>
       <Table caption="“Relatar dor” como taxa de exposição por tipo de treino (não atribui o relato ao treino)" head={['Tipo de treino', 'Treinos', 'Relatos a cada 100 treinos', 'Soma das notas a cada 100 treinos', 'Relatos / 1.000 km (corrida)', 'Soma das notas / 1.000 km (corrida)']}>
         {seg.rows.map((row) => <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{row.label}</b></td>{row.suppressed || !row.data ? hidden(row, 5) : exposureCells(row.data)}</tr>)}
         {seg.runsCombined ? <tr><td><b>Corridas (prescrita + extra)</b></td>{exposureCells(seg.runsCombined)}</tr> : null}
         {seg.total ? <tr><td><b>Todos os tipos</b></td>{exposureCells(seg.total)}</tr> : null}
       </Table>
-      <Table caption="Corridas por faixa de distância (prescritas e extras)" head={['Distância da corrida', 'Alunas', 'Corridas', 'Das quais extras', 'Km', 'Pace (tempo total ÷ distância total)', 'Corridas com dor', 'Com dor a cada 10 corridas', 'Intensidade média, só com dor (0–3)', 'Intensidade média geral (0–3)', 'Leve / moderada / forte']}>
+      <Table caption="Corridas por faixa de distância (prescritas e extras)" head={['Distância da corrida', 'Alunas', 'Corridas', 'Das quais extras', 'Km', 'Pace (tempo total ÷ distância total)', 'Corridas com dor', 'Com dor a cada 10 corridas', 'Intensidade média, só com dor (1–10)', 'Intensidade média geral (0–10)', 'Leve / moderada / forte']}>
         {ins.runsByDistance.rows.map((row) => (
           <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}>
             <td><b>{row.label}</b></td><td>{pcount(row, min)}</td>
@@ -656,7 +658,7 @@ function CicloTab({ ins, min }: { ins: Insights; min: number }) {
   const block = (title: string, group: CycleGroup) => (
     <>
       <h3 className="eqH4">{title}</h3>
-      <Table caption={`${title} — treinos e dor do treino (feedback)`} head={['Fase', 'Alunas', 'Dias-aluna', 'Treinos', 'Treinos com dor a cada 100 treinos', 'Intensidade média, só com dor (0–3)', 'Leve / moderada / forte']}>
+      <Table caption={`${title} — treinos e dor do treino (feedback)`} head={['Fase', 'Alunas', 'Dias-aluna', 'Treinos', 'Treinos com dor a cada 100 treinos', 'Intensidade média, só com dor (1–10)', 'Leve / moderada / forte']}>
         {group.phases.map(({ phase, label, row }) => <tr key={phase} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{label}</b></td><td>{pcount(row, min)}</td>{row.suppressed || !row.data ? hidden(row, 5) : <><td>{nf(row.data.participantDays)}</td><td>{nf(row.data.trainings)}</td><td>{nf(row.data.pain.painPer100Trainings, 2)}</td><td>{nf(row.data.pain.meanLevelAmongPain, 2)}</td><td>{lmf(row.data.pain)}</td></>}</tr>)}
       </Table>
       <Table caption={`${title} — Relatar dor por fase`} head={['Fase', 'Relatos', 'Relatos a cada 100 treinos', 'Relatos a cada 100 km', 'Nota média (1–10)', 'Soma das notas a cada 100 treinos', 'Soma das notas a cada 100 km']}>
