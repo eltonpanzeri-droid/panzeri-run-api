@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, BarChart3, CalendarDays, Gauge, HeartPulse, Info, ShieldCheck, SlidersHorizontal, TriangleAlert, Users } from 'lucide-react';
 import { Card, ChipGroup, Columns, Empty, HBars, Kpi, SheetFrame, nf } from './viz';
 import type { HItem, Option } from './viz';
-import { Legend, WeeklyChart } from './observatory-weekly';
+import { Legend, PainDashboard, SEG_COLOR, SEG_SHORT, WeeklyChart } from './observatory-weekly';
 import type { WeeklyLine } from './observatory-weekly';
 
 // Observatório Panzeri Run (24/10/2026). SOMENTE LEITURA e SÓ AGREGADOS: GET /observatory/status e /observatory/analysis. Nenhum nome, e-mail ou id de aluna chega aqui.
@@ -456,7 +456,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                 <details className="obsDetails"><summary>O que é “elegível” nos números por 1.000 km?</summary>
                   <p className="eqFine">Entra: treino de corrida (prescrito ou extra) das semanas completas dentro do período, de alunas ativas e fora de conta de teste, deduplicado (o mesmo treino recebido do relógio e do Health Connect conta uma vez), com distância válida. Não entra: origem Strava (direta ou via Health Connect/Apple Saúde); identidade física ambígua; treino sem distância válida (conta como treino, mas não entra no km); registro manual que repete uma atividade importada; semana incompleta ou sem dados. Esses números aparecem na aba Qualidade dos dados.</p>
                 </details>
-                {ins ? <WeeklyPainCharts w={ins.weekly} /> : null}
+                {ins ? <><PainDashboard ins={ins} /><WeeklyPainCharts w={ins.weekly} /></> : null}
                 </>
               ) : null}
               {r.pain.overall ? <p className="eqFine">Origem dos zeros (auditoria, entram na métrica): {nf(r.pain.overall.zeroOrigins.explicitNoPain)} treinos com resposta explícita “sem dor” e {nf(r.pain.overall.zeroOrigins.noPainReport)} treinos sem relato de dor.</p> : null}
@@ -528,15 +528,13 @@ const cellText = (c: AdherenceCell | undefined) => (c && c.scheduled > 0 ? `${nf
 
 // Dor por tipo de treino (feedback do treino), corridas por distância e alunas por volume (26/11/2026). Só agregados protegidos; descritivo, não causa.
 // Evolução semanal: uma linha por tipo de treino (cores fixas), semanas de segunda a domingo do período escolhido no botão de datas.
-const SEG_COLOR: Record<string, string> = { total: '#4a5568', corridas: '#e34948', corrida: '#e34948', extra_corrida: '#6250d6', fortalecimento: '#1baf7a', musculacao: '#2a78d6', extra_geral: '#8d96a3', outras: '#eda100' };
-const SEG_SHORT: Record<string, string> = { total: 'Todos os treinos', corridas: 'Corrida (prescrita + extra)', corrida: 'Corrida', extra_corrida: 'Extra corrida', fortalecimento: 'Fortalecimento p/ corredores', musculacao: 'Musculação', extra_geral: 'Extra geral', outras: 'Outras prescritas' };
 function weeklyLines(w: WeeklySeries, keys: string[], pick: (p: WeeklyPoint) => number | null): WeeklyLine[] {
   return keys.map((k) => ({ key: k, label: SEG_SHORT[k] ?? k, color: SEG_COLOR[k] ?? '#2a78d6', values: (w.segments.find((s) => s.key === k)?.points ?? []).map(pick) }));
 }
 function WeeklyCard({ title, subtitle, weeks, lines, unit, digits = 1 }: { title: string; subtitle: string; weeks: string[]; lines: WeeklyLine[]; unit?: string; digits?: number }) {
   return (
-    <Card wide title={title} subtitle={subtitle}>
-      <WeeklyChart weeks={weeks} lines={lines} unit={unit} format={(v) => nf(v, digits)} />
+    <Card title={title} subtitle={subtitle}>
+      <WeeklyChart weeks={weeks} lines={lines} unit={unit} format={(v) => nf(v, digits)} height={210} />
       <Legend lines={lines} />
     </Card>
   );
@@ -544,27 +542,27 @@ function WeeklyCard({ title, subtitle, weeks, lines, unit, digits = 1 }: { title
 function WeeklyPainCharts({ w }: { w: WeeklySeries }) {
   const weeks = w.segments[0]?.points.map((p) => p.week) ?? [];
   const keys = ['corridas', 'musculacao', 'fortalecimento', 'extra_corrida', 'extra_geral'];
-  const sub = 'Semanas de segunda a domingo dentro do período escolhido no botão de datas (no topo). Semana com poucas alunas fica como lacuna.';
+  const sub = 'Semanas de segunda a domingo; o período é o do botão de datas.';
   return (
-    <>
+    <div className="obwGrid2">
       <WeeklyCard title="Evolução semanal · treinos com dor a cada 100 treinos" subtitle={sub} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.painPer100)} unit="/100 treinos" />
       <WeeklyCard title="Evolução semanal · pontos de intensidade a cada 100 treinos" subtitle={`Soma da escala 0–3 do feedback ÷ treinos × 100. ${sub}`} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.levelPointsPer100)} unit="pts/100 treinos" />
       <WeeklyCard title="Evolução semanal · corridas com dor por 1.000 km" subtitle={`Só corrida (prescrita + extra). ${sub}`} weeks={weeks}
         lines={[...weeklyLines(w, ['corridas'], (p) => p.painPer1000Km), { key: 'relatar', label: 'Relatar dor: relatos por 1.000 km (exposição)', color: '#eb6834', values: w.relatar.map((p) => p.reportsPer1000Km) }]} unit="/1.000 km" digits={2} />
       <WeeklyCard title="Evolução semanal · intensidade média dos treinos com dor (0–3)" subtitle={sub} weeks={weeks} lines={weeklyLines(w, keys, (p) => p.meanLevelAmongPain)} unit="escala 0–3" digits={2} />
-    </>
+    </div>
   );
 }
 function WeeklyRelatarCharts({ w }: { w: WeeklySeries }) {
   const weeks = w.relatar.map((p) => p.week);
-  const sub = 'Relatar dor analisado à parte, por semana de segunda a domingo; semana com poucas alunas fica como lacuna.';
+  const sub = 'Relatar dor, à parte; semanas de segunda a domingo.';
   return (
-    <>
+    <div className="obwGrid2">
       <WeeklyCard title="Evolução semanal · relatos no Relatar dor" subtitle={sub} weeks={weeks} lines={[{ key: 'r', label: 'Relatos na semana', color: '#eb6834', values: w.relatar.map((p) => p.reports) }]} unit="relatos" digits={0} />
       <WeeklyCard title="Evolução semanal · nota média do Relatar dor (1–10)" subtitle={sub} weeks={weeks} lines={[{ key: 'n', label: 'Nota média', color: '#e34948', values: w.relatar.map((p) => p.meanNote) }]} unit="nota" digits={1} />
       <WeeklyCard title="Evolução semanal · relatos por 1.000 km e a cada 100 treinos (exposição)" subtitle={`Relatos da semana ÷ volume da mesma semana; não atribui o relato a um treino. ${sub}`} weeks={weeks}
         lines={[{ key: 'km', label: 'Relatos por 1.000 km de corrida', color: '#6250d6', values: w.relatar.map((p) => p.reportsPer1000Km) }, { key: 't', label: 'Relatos a cada 100 treinos (todos os tipos)', color: '#1baf7a', values: w.relatar.map((p) => p.reportsPer100Trainings) }]} digits={2} />
-    </>
+    </div>
   );
 }
 
@@ -578,7 +576,6 @@ function TiposTab({ ins, min }: { ins: Insights; min: number }) {
   return (
     <>
       <p className="eqFine">{ins.scopeNote}</p>
-      <WeeklyPainCharts w={ins.weekly} />
       <Table caption="Dor por tipo de treino (marcada no feedback do treino)" head={['Tipo de treino', 'Alunas', 'Treinos', 'Com feedback', 'Treinos com dor', 'Com dor a cada 100 treinos', 'Leve / moderada / forte', 'Intensidade média, só com dor (0–3)', 'Intensidade média geral (0–3)', 'Pontos a cada 100 treinos', 'Km', 'Com dor / 1.000 km', 'Pontos / 1.000 km']}>
         {seg.rows.map((row) => <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{row.label}</b></td><td>{pcount(row, min)}</td>{row.suppressed || !row.data ? hidden(row, 11) : painCells(row.data)}</tr>)}
         {seg.runsCombined ? <tr><td><b>Corridas (prescrita + extra)</b></td><td>—</td>{painCells(seg.runsCombined)}</tr> : null}
