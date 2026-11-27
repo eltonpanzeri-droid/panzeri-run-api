@@ -46,8 +46,24 @@ export interface CycleGroup {
   locations: Array<{ key: string; label: string; suppressed: boolean; cells: Record<PhaseId, CycleLocationCell | null> }>;
 }
 
+// Evolucao semanal (semanas de segunda a domingo dentro do periodo escolhido). Ponto com menos de `minParticipants` pessoas fica suprimido (lacuna, nunca zero).
+export interface WeeklyPoint {
+  week: string; weekNumber: number; suppressed: boolean;
+  trainings: number | null; painTrainings: number | null; painPer100: number | null; levelPointsPer100: number | null; meanLevelAmongPain: number | null;
+  km: number | null; painPer1000Km: number | null; levelPointsPer1000Km: number | null;
+}
+export interface WeeklyRelatarPoint {
+  week: string; weekNumber: number; suppressed: boolean;
+  reports: number | null; meanNote: number | null; notePoints: number | null; reportsPer100Trainings: number | null; reportsPer1000Km: number | null; notePointsPer1000Km: number | null;
+}
+export interface WeeklySeries {
+  segments: Array<{ key: string; label: string; points: WeeklyPoint[] }>; // 'total', 'corridas' (prescrita + extra) e cada tipo de treino
+  relatar: WeeklyRelatarPoint[];
+}
+
 export interface Insights {
   scopeNote: string;
+  weekly: WeeklySeries;
   segments: { rows: Array<ObsRow<SegmentRow>>; runsCombined: SegmentRow | null; total: SegmentRow | null };
   runsByDistance: { rows: Array<ObsRow<DistanceRow>>; runsWithoutDistance: number };
   weeklyVolume: { weeks: { from: string; to: string }; minWeeks: number; studentsWithRuns: number | null; rows: Array<ObsRow<{ students: number }>>; note: string };
@@ -251,7 +267,40 @@ export function computeInsights(input: { facts: ObsFacts; scope: Set<string>; ru
     return { phases: PHASE_IDS.map((phase, i) => ({ phase, label: PHASE_LABEL[phase], row: protectedRows[i] })), locations };
   };
 
+  // ───────── 6) evolucao semanal ─────────
+  const weekList: string[] = [];
+  for (let w = weekStartOf(f.from); w <= f.to; w = addDays(w, 7)) weekList.push(w);
+  const weekIndex = new Map(weekList.map((w, i) => [w, i]));
+  const bucket = <T extends { day: string }>(items: T[]): T[][] => { const out: T[][] = weekList.map(() => []); for (const i of items) { const k = weekIndex.get(weekStartOf(i.day)); if (k != null) out[k].push(i); } return out; };
+  const tBuckets = bucket(trainings);
+  const rBuckets = bucket(reports);
+  const seriesDefs: Array<{ key: string; label: string; pick: (t: ObsTraining) => boolean }> = [
+    { key: 'total', label: 'Todos os treinos', pick: () => true },
+    { key: 'corridas', label: 'Corrida (prescrita + extra)', pick: (t) => RUN_SEGMENTS.has(segmentOf(t)) },
+    ...SEGMENT_IDS.map((id) => ({ key: id, label: SEGMENT_LABEL[id], pick: (t: ObsTraining) => segmentOf(t) === id })),
+  ];
+  const weeklySegments = seriesDefs.map((def) => ({
+    key: def.key, label: def.label,
+    points: weekList.map((week, i): WeeklyPoint => {
+      const items = tBuckets[i].filter(def.pick);
+      const base = { week, weekNumber: i + 1 };
+      if (items.length === 0 || people(items) < min) return { ...base, suppressed: items.length > 0, trainings: null, painTrainings: null, painPer100: null, levelPointsPer100: null, meanLevelAmongPain: null, km: null, painPer1000Km: null, levelPointsPer1000Km: null };
+      const m = painLevelMetrics(items);
+      return { ...base, suppressed: false, trainings: m.trainings, painTrainings: m.painTrainings, painPer100: m.painPer100Trainings, levelPointsPer100: m.levelPointsPer100Trainings, meanLevelAmongPain: m.meanLevelAmongPain, km: round2(m.km), painPer1000Km: m.painPer1000Km, levelPointsPer1000Km: m.levelPointsPer1000Km };
+    }),
+  }));
+  const weeklyRelatar = weekList.map((week, i): WeeklyRelatarPoint => {
+    const rs = rBuckets[i];
+    const base = { week, weekNumber: i + 1 };
+    if (rs.length === 0) return { ...base, suppressed: false, reports: 0, meanNote: null, notePoints: 0, reportsPer100Trainings: per(0, tBuckets[i].length, 100), reportsPer1000Km: null, notePointsPer1000Km: null };
+    if (people(rs) < min) return { ...base, suppressed: true, reports: null, meanNote: null, notePoints: null, reportsPer100Trainings: null, reportsPer1000Km: null, notePointsPer1000Km: null };
+    const rm = reportMetrics(rs);
+    const km = painLevelMetrics(tBuckets[i].filter((t) => RUN_SEGMENTS.has(segmentOf(t)))).km;
+    return { ...base, suppressed: false, reports: rs.length, meanNote: rm.meanIntensity, notePoints: rm.notePoints, reportsPer100Trainings: per(rs.length, tBuckets[i].length, 100), reportsPer1000Km: per(rs.length, km, 1000), notePointsPer1000Km: per(rm.notePoints, km, 1000) };
+  });
+
   return {
+    weekly: { segments: weeklySegments, relatar: weeklyRelatar },
     scopeNote: 'Participantes com corrida nas semanas incluídas pelos filtros; força e outras modalidades dentro do período. A dor do treino vem do feedback do treino (sem dor, leve, moderada ou forte; escala 0 a 3 como na Evolução). Treino registrado sem relato vale zero; a cobertura do feedback aparece à parte.',
     segments: { rows: segmentRows.rows, runsCombined: segmentRows.totalAllowed && runs.length > 0 ? segmentData(runs, true) : null, total: segmentRows.totalAllowed ? segmentData(trainings, false) : null },
     runsByDistance: { rows: distanceRows.rows, runsWithoutDistance: runs.length - runsWithKm.length },

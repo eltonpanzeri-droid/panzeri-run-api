@@ -147,6 +147,19 @@ describe('tipos de treino, "Relatar dor" a parte e volume das ultimas 10 semanas
     expect(ins.segments.total!.trainings).toBe(30);
     expect(ins.segments.runsCombined!.trainings).toBe(26);
   });
+  it('evolucao semanal: 12 semanas do periodo, dor por 100 treinos e Relatar dor por semana; semana de poucos participantes fica suprimida', () => {
+    const total = ins.weekly.segments.find((x) => x.key === 'total')!.points;
+    expect(total).toHaveLength(12);
+    expect(total[1]).toMatchObject({ week: '2026-08-10', trainings: 4, painTrainings: 2, painPer100: 50, levelPointsPer100: 75 }); // 2 corridas + musculacao moderada + fortalecimento leve
+    const musc = ins.weekly.segments.find((x) => x.key === 'musculacao')!.points;
+    expect(musc[1]).toMatchObject({ trainings: 1, painPer100: 100 });
+    expect(musc[5]).toMatchObject({ trainings: null, suppressed: false }); // semana sem musculacao: lacuna, nao zero
+    expect(ins.weekly.relatar[1]).toMatchObject({ reports: 1, meanNote: 6, reportsPer100Trainings: 25 });
+    expect(ins.weekly.relatar[0]).toMatchObject({ reports: 0, suppressed: false });
+    const hidden = computeObservatory(facts, filters({ minParticipants: 2 })).insights!;
+    expect(hidden.weekly.segments.find((x) => x.key === 'musculacao')!.points[1]).toMatchObject({ suppressed: true, painPer100: null });
+    expect(hidden.weekly.relatar[1]).toMatchObject({ suppressed: true, reports: null });
+  });
   it('"Relatar dor" nao entra no treino: a dor da corrida nao muda com ou sem os relatos', () => {
     const sem = computeObservatory({ ...facts, painReports: [] }, filters());
     expect(r.pain.overall).toEqual(sem.pain.overall);
