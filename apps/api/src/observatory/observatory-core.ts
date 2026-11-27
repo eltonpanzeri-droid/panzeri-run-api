@@ -1,5 +1,5 @@
 import { formatPace, round2 } from '../equipment/equipment-core';
-import type { ObsRow, ObsRunEvent, PainMetrics } from './observatory.types';
+import type { ObsRow, ObsRunEvent, PainLevel, PainMetrics, PainOrigin } from './observatory.types';
 
 // Observatorio Panzeri Run (24/10/2026) — NUCLEO PURO: classificacao por faixas, semanas, dor por 1.000 km, pace por tempo total / distancia total, grupo fixo e protecao de celulas
 // pequenas. Sem banco, sem Nest. Estatistica DESCRITIVA: associacao nao e' causa. Nada devolvido carrega nome, e-mail ou id de aluno.
@@ -83,7 +83,9 @@ export function pooledPaceOf(events: Array<{ km: number | null; seconds: number 
 export function painMetrics(events: ObsRunEvent[]): PainMetrics {
   let km = 0; let reports = 0; let withInt = 0; let sumReported = 0; let sumAll = 0; let numericTrainings = 0; let withFeedback = 0; let explicit = 0; let none = 0;
   const bins = INTENSITY_BINS.map((band) => ({ band, count: 0 }));
+  const levelCount: Record<PainLevel, number> = { leve: 0, moderado: 0, forte: 0 };
   for (const e of events) {
+    if (e.pain.origin === 'reported_pain' && e.painLevel) levelCount[e.painLevel] += 1;
     if (e.km != null && e.km > 0) km += e.km;
     if (e.feedbackAnswered) withFeedback += 1;
     if (e.pain.origin === 'reported_pain') {
@@ -114,6 +116,7 @@ export function painMetrics(events: ObsRunEvent[]): PainMetrics {
       trainings: events.length, withFeedback, withoutFeedback: events.length - withFeedback, numericIntensityTrainings: numericTrainings,
       intensityCoveragePct: events.length > 0 ? round2((numericTrainings / events.length) * 100) : null,
     },
+    levelBins: (['leve', 'moderado', 'forte'] as PainLevel[]).map((key) => ({ key, label: PAIN_LEVEL_LABEL[key], count: levelCount[key], per1000Km: per1000(levelCount[key]) })),
     zeroOrigins: { explicitNoPain: explicit, noPainReport: none },
   };
 }
@@ -150,4 +153,77 @@ export function protect<T>(rows: Array<{ key: string; label: string; participant
     if (victim) { victim.suppressed = true; victim.complementary = true; victim.participants = null; victim.data = null; }
   }
   return { rows: out, totalAllowed: out.every((row) => !row.suppressed) };
+}
+
+// ───────────────────────── analise ampliada (26/11/2026) ─────────────────────────
+// Distancia da corrida (km): o limite superior pertence a faixa de baixo.
+export const DISTANCE_BANDS: Band[] = [
+  { id: 'd1', label: 'Até 5 km', lo: 0, hi: 5 }, { id: 'd2', label: '5 a 10 km', lo: 5, hi: 10 }, { id: 'd3', label: '10 a 15 km', lo: 10, hi: 15 },
+  { id: 'd4', label: '15 a 21,1 km', lo: 15, hi: 21.1 }, { id: 'd5', label: 'Acima de 21,1 km', lo: 21.1, hi: Infinity },
+];
+export const PAIN_LEVEL_LABEL: Record<PainLevel, string> = { leve: 'Dor leve', moderado: 'Dor moderada', forte: 'Dor forte' };
+
+export interface PainLevelMetrics {
+  trainings: number;
+  withFeedback: number;
+  painTrainings: number; // treinos com dor marcada (leve, moderada ou forte)
+  levels: { leve: number; moderado: number; forte: number; semNivel: number };
+  painPer100Trainings: number | null;
+  levelPer100Trainings: { leve: number | null; moderado: number | null; forte: number | null };
+  // Entre quem RESPONDEU o feedback (sem o zero assumido): a taxa "de verdade" dos treinos com resposta.
+  painPer100Answered: number | null;
+  km: number; // km dos treinos com distancia valida
+  painPer1000Km: number | null; // numerador e denominador do mesmo conjunto: treinos com distancia valida
+  timing: Array<{ key: string; count: number }>;
+}
+
+// Dor por treino a partir do feedback do treino (categorica). Treino registrado sem relato vale zero (regra de Elton, 02/11/2026); a cobertura aparece a parte. Nada vira nota numerica.
+export function painLevelMetrics(items: Array<{ km: number | null; feedbackAnswered: boolean; pain: { origin: PainOrigin; level?: PainLevel | null; timing?: string | null } }>): PainLevelMetrics {
+  const levels = { leve: 0, moderado: 0, forte: 0, semNivel: 0 };
+  const timing = new Map<string, number>();
+  let painTrainings = 0; let withFeedback = 0; let painAnswered = 0; let km = 0; let painWithKm = 0;
+  for (const item of items) {
+    const validKm = item.km != null && item.km > 0;
+    if (validKm) km += item.km as number;
+    if (item.feedbackAnswered) withFeedback += 1;
+    if (item.pain.origin !== 'reported_pain') continue;
+    painTrainings += 1;
+    if (item.feedbackAnswered) painAnswered += 1;
+    if (validKm) painWithKm += 1;
+    if (item.pain.level) levels[item.pain.level] += 1; else levels.semNivel += 1;
+    if (item.pain.timing) timing.set(item.pain.timing, (timing.get(item.pain.timing) ?? 0) + 1);
+  }
+  const per100 = (count: number, base: number) => (base > 0 ? round2((count / base) * 100) : null);
+  return {
+    trainings: items.length, withFeedback, painTrainings, levels,
+    painPer100Trainings: per100(painTrainings, items.length),
+    levelPer100Trainings: { leve: per100(levels.leve, items.length), moderado: per100(levels.moderado, items.length), forte: per100(levels.forte, items.length) },
+    painPer100Answered: per100(painAnswered, withFeedback),
+    km: round2(km),
+    painPer1000Km: km > 0 ? round2((painWithKm / km) * 1000) : null,
+    timing: [...timing.entries()].map(([key, count]) => ({ key, count })).sort((a, b) => b.count - a.count),
+  };
+}
+
+export interface ReportMetrics {
+  reports: number;
+  participants: number;
+  meanIntensity: number | null;
+  bins: Array<{ key: string; label: string; count: number; pct: number | null }>;
+}
+// "Relatar dor": so' os relatos avulsos (nota 1-10). Sem ligacao com treino.
+export function reportMetrics(reports: Array<{ participant: string; intensity: number }>): ReportMetrics {
+  const bins = INTENSITY_BINS.map((band) => ({ band, count: 0 }));
+  let sum = 0;
+  for (const r of reports) {
+    sum += r.intensity;
+    const bin = bins.find((b) => classify(r.intensity, [b.band]) !== null);
+    if (bin) bin.count += 1;
+  }
+  return {
+    reports: reports.length,
+    participants: new Set(reports.map((r) => r.participant)).size,
+    meanIntensity: reports.length > 0 ? round2(sum / reports.length) : null,
+    bins: bins.map(({ band, count }) => ({ key: band.id, label: band.label, count, pct: reports.length > 0 ? round2((count / reports.length) * 100) : null })),
+  };
 }

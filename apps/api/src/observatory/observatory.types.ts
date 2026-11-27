@@ -1,10 +1,17 @@
+import type { PhasedCycle } from '../menstrual-cycle/cycle-phases';
 // Observatorio Panzeri Run (24/10/2026) — tipos do contrato. FATOS (entrada) e RESULTADOS (saida). Nada aqui carrega nome, e-mail ou id de aluno: `participant` e' uma chave
 // interna e opaca que NUNCA sai da camada de calculo.
 
 export type PainOrigin = 'explicit_no_pain' | 'no_pain_report' | 'reported_pain';
 
+// Nivel categorico da dor marcada no feedback do treino (leve/moderado/forte). NUNCA vira nota 1-10: a nota numerica so' existe no "Relatar dor", que e' analisado a parte (ordem de Elton, 26/11/2026).
+export type PainLevel = 'leve' | 'moderado' | 'forte';
+export type TrainingGroup = 'corrida' | 'forca' | 'outras';
+
 export interface ObsParticipant {
   key: string;
+  // Ciclos registrados (so' quem registrou); fica na camada de calculo e NUNCA sai na resposta.
+  cycle?: { cycles: PhasedCycle[]; hormonal: boolean | null };
   birthDate: string | null; // YYYY-MM-DD
   sex: string | null;
 }
@@ -19,11 +26,33 @@ export interface ObsRunEvent {
   source: 'activity' | 'manual';
   isExtra: boolean;
   feedbackAnswered: boolean;
+  painLevel?: PainLevel | null;
+  painTiming?: string | null;
   pain: {
     origin: PainOrigin;
     // 1..10 quando conhecida. 0 so' nos zeros operacionais. null = relato SEM nota numerica (intensidade desconhecida).
     intensity: number | null;
   };
+}
+
+// Um treino de QUALQUER modalidade (corrida, forca, outras) para a dor por treino e por 100 treinos. A dor aqui e' SO' a do feedback do treino.
+export interface ObsTraining {
+  participant: string;
+  eventKey: string;
+  day: string;
+  group: TrainingGroup;
+  km: number | null;
+  seconds: number | null;
+  feedbackAnswered: boolean;
+  pain: { origin: PainOrigin; level: PainLevel | null; timing: string | null };
+}
+
+// Relato avulso do "Relatar dor" (1-10 + regioes). Analisado SEPARADO dos treinos: nao e' ligado a treino nenhum.
+export interface ObsPainReport {
+  participant: string;
+  day: string;
+  intensity: number;
+  regions: string[];
 }
 
 export interface ObsStrengthEvent {
@@ -38,7 +67,7 @@ export interface ObsQuality {
   unevaluatedIdentityEvents: number; // identidade nao avaliada (legado): incluidos, mas sinalizados
   invalidDistanceEvents: number; // evento existe mas sem distancia valida
   duplicateManualEvents: number; // treino manual que repete uma atividade importada do mesmo dia
-  painReportsWithoutTraining: number; // relatos de dor sem treino elegivel no dia (nao entram nas taxas)
+  painReportsWithoutTraining?: number; // DESCONTINUADO (26/11/2026): o "Relatar dor" deixou de ser colado a treino; fica a parte
   painConflicts: number; // relato de dor no mesmo treino em que a aluna marcou "sem dor"
 }
 
@@ -48,6 +77,8 @@ export interface ObsFacts {
   participants: ObsParticipant[];
   runEvents: ObsRunEvent[];
   strengthEvents: ObsStrengthEvent[];
+  trainings?: ObsTraining[];
+  painReports?: ObsPainReport[];
   quality: ObsQuality;
 }
 
@@ -79,6 +110,8 @@ export interface PainMetrics {
   meanIntensityAll: number | null; // todos os treinos com nota numerica (zeros dentro)
   painPointsPer1000Km: number | null; // soma das notas dos relatos / km * 1000
   intensityBins: Array<{ key: string; label: string; count: number; pctOfKnown: number | null; per1000Km: number | null }>;
+  // Dor do FEEDBACK do treino por nivel categorico (leve/moderada/forte). E' o que a corrida tem de gravidade; a nota 1-10 so' existe no "Relatar dor" (a parte).
+  levelBins: Array<{ key: PainLevel; label: string; count: number; per1000Km: number | null }>;
   coverage: {
     trainings: number;
     withFeedback: number;

@@ -5,7 +5,7 @@ import { Reflector } from '@nestjs/core';
 import { RolesGuard } from '../src/common/roles.guard';
 import { ObservatoryController } from '../src/observatory/observatory.controller';
 import { ObservatoryService } from '../src/observatory/observatory.service';
-import { AGE_BANDS, INTENSITY_BINS, STRENGTH_BANDS, VOLUME_BANDS, classify, painMetrics, pooledPaceOf, protect, weekStartOf } from '../src/observatory/observatory-core';
+import { AGE_BANDS, INTENSITY_BINS, STRENGTH_BANDS, VOLUME_BANDS, classify, painMetrics, pooledPaceOf, protect, reportMetrics, weekStartOf } from '../src/observatory/observatory-core';
 import { computeObservatory } from '../src/observatory/observatory-engine';
 import { buildFactsFromRows, isStravaProvenance, type RawActivity, type RawCompletion, type RawRows } from '../src/observatory/observatory-facts';
 import { parseObservatoryFilters } from '../src/observatory/observatory-filters';
@@ -122,28 +122,33 @@ describe('Bloco B — dor (zero operacional, por 1.000 km, faixas exclusivas)', 
     expect(none.meanIntensityReports).toBeNull();
     expect(painMetrics([]).meanIntensityAll).toBeNull();
   });
-  it('mesma dor em dois instrumentos (marcacao categorica + relato numerico no mesmo dia) = UMA ocorrencia, com a nota numerica', async () => {
+  it('"Relatar dor" NAO e colado ao treino (ordem de Elton, 26/11/2026): fica a parte; o treino so tem a marcacao categorica do feedback', async () => {
     const r = rows({
       activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)],
-      completions: [comp('c', 'u1', { sessionId: 's', painFlag: 'moderado', perceivedEffort: 6 })],
+      completions: [comp('c', 'u1', { sessionId: 's', painFlag: 'moderado', painTiming: 'durante_continuou', perceivedEffort: 6 })],
       links: [{ trainingSessionId: 's', activityLogId: 'a' }],
-      pains: [{ id: 'pr', userId: 'u1', createdAt: new Date('2026-10-06T22:00:00Z'), intensity: 6 }],
+      pains: [{ id: 'pr', userId: 'u1', createdAt: new Date('2026-10-06T22:00:00Z'), intensity: 6, regions: ['joelho', 'joelho', ' '] }],
     });
     const facts = await build(r);
     expect(facts.runEvents).toHaveLength(1);
-    expect(facts.runEvents[0].pain).toEqual({ origin: 'reported_pain', intensity: 6 });
-    expect(painMetrics(facts.runEvents).reports).toBe(1);
-    // so a marcacao categorica: relato SEM nota; "sem dor" explicito: zero; sem nada: zero operacional
+    expect(facts.runEvents[0].pain).toEqual({ origin: 'reported_pain', intensity: null }); // a nota 6 do "Relatar dor" nao entra no treino
+    expect(facts.runEvents[0].painLevel).toBe('moderado');
+    expect(facts.runEvents[0].painTiming).toBe('durante_continuou');
+    expect(facts.painReports).toEqual([{ participant: 'u1', day: '2026-10-06', intensity: 6, regions: ['joelho'] }]);
     const cat = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], completions: [comp('c', 'u1', { sessionId: 's', painFlag: 'leve' })], links: [{ trainingSessionId: 's', activityLogId: 'a' }] }));
     expect(cat.runEvents[0].pain).toEqual({ origin: 'reported_pain', intensity: null });
     const none = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)] }));
     expect(none.runEvents[0].pain).toEqual({ origin: 'no_pain_report', intensity: 0 });
   });
-  it('relato de dor sem treino elegivel no dia nao gera observacao nem km; conflito com "sem dor" fica contado', async () => {
+  it('relato avulso sem treino no dia continua existindo (a parte); conflito entre duas marcacoes do mesmo treino fica contado', async () => {
     const orphan = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], pains: [{ id: 'p', userId: 'u1', createdAt: new Date('2026-10-20T12:00:00Z'), intensity: 7 }] }));
-    expect(orphan.quality.painReportsWithoutTraining).toBe(1);
+    expect(orphan.painReports).toHaveLength(1);
     expect(painMetrics(orphan.runEvents).reports).toBe(0);
-    const conflict = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], completions: [comp('c', 'u1', { sessionId: 's', painFlag: 'none' })], links: [{ trainingSessionId: 's', activityLogId: 'a' }], pains: [{ id: 'p', userId: 'u1', createdAt: new Date('2026-10-06T20:00:00Z'), intensity: 3 }] }));
+    const conflict = await build(rows({
+      activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)],
+      completions: [comp('c1', 'u1', { sessionId: 's1', painFlag: 'none' }), comp('c2', 'u1', { sessionId: 's2', painFlag: 'leve' })],
+      links: [{ trainingSessionId: 's1', activityLogId: 'a' }, { trainingSessionId: 's2', activityLogId: 'a' }],
+    }));
     expect(conflict.quality.painConflicts).toBe(1);
     expect(conflict.runEvents[0].pain.origin).toBe('reported_pain');
   });
@@ -153,7 +158,7 @@ const today = '2026-10-24';
 const baseFilters = (over: Partial<ObsFilters> = {}): ObsFilters => ({ from: '2026-04-27', to: today, today, volumeBands: [], ageBands: [], strengthBands: [], sexes: [], mode: 'cross', groupBy: 'volume', includeZeroWeeks: false, minParticipants: 5, ...over });
 const factsOf = (events: ObsRunEvent[], participants = new Set(events.map((e) => e.participant))): ObsFacts => ({
   dataset: 'synthetic', dataAsOf: new Date().toISOString(), participants: [...participants].map((key) => ({ key, birthDate: '1985-01-01', sex: 'F' })), runEvents: events, strengthEvents: [],
-  quality: { stravaExcludedEvents: 0, ambiguousIdentityEvents: 0, unevaluatedIdentityEvents: 0, invalidDistanceEvents: 0, duplicateManualEvents: 0, painReportsWithoutTraining: 0, painConflicts: 0 },
+  quality: { stravaExcludedEvents: 0, ambiguousIdentityEvents: 0, unevaluatedIdentityEvents: 0, invalidDistanceEvents: 0, duplicateManualEvents: 0, painConflicts: 0 },
 });
 
 describe('Bloco C — pace e grupos', () => {
@@ -311,11 +316,11 @@ describe('Correções da revisão independente', () => {
     expect(facts.runEvents[0].pain.origin).toBe('reported_pain');
     expect(facts.quality.painConflicts).toBe(1);
   });
-  it('nota fora de 1–10 é limitada (as faixas sempre somam os relatos com nota)', async () => {
-    const facts = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], pains: [{ id: 'p', userId: 'u1', createdAt: new Date('2026-10-06T20:00:00Z'), intensity: 14 }] }));
-    expect(facts.runEvents[0].pain.intensity).toBe(10);
-    const m = painMetrics(facts.runEvents);
-    expect(m.intensityBins.reduce((s, b) => s + b.count, 0)).toBe(m.reportsWithIntensity);
+  it('nota fora de 1–10 é limitada nos relatos avulsos (as faixas sempre somam os relatos)', async () => {
+    const facts = await build(rows({ activities: [act('a', 'u1', '2026-10-06T10:00:00Z', 10)], pains: [{ id: 'p', userId: 'u1', createdAt: new Date('2026-10-06T20:00:00Z'), intensity: 14 }, { id: 'q', userId: 'u1', createdAt: new Date('2026-10-07T20:00:00Z'), intensity: 0 }] }));
+    expect(facts.painReports!.map((r) => r.intensity)).toEqual([10, 1]);
+    const m = reportMetrics(facts.painReports!);
+    expect(m.bins.reduce((s, b) => s + b.count, 0)).toBe(m.reports);
   });
   it('linhas suprimidas NÃO devolvem o tamanho exato do grupo pequeno (participants = null)', () => {
     const out = protect([{ key: 'a', label: 'A', participants: 40, data: 1 }, { key: 'b', label: 'B', participants: 3, data: 2 }, { key: 'c', label: 'C', participants: 9, data: 3 }], 5);

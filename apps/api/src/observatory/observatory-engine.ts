@@ -3,6 +3,7 @@ import {
   AGE_BANDS, BASELINE_WEEKS, MAX_COHORT_WEEKS, PRIOR_DAYS, SEX_LABEL, STRENGTH_BANDS, UNKNOWN, VOLUME_BANDS,
   addDays, ageAt, classify, collapseSmall, daysBetween, normalizeSex, painMetrics, pooledPaceOf, protect, quantile, weekStartOf, type Band, type Cell,
 } from './observatory-core';
+import { computeInsights, type Insights } from './observatory-insights';
 import type { ObsFacts, ObsFilters, ObsGroupBy, ObsRow, ObsRunEvent, PainMetrics } from './observatory.types';
 
 // Observatorio Panzeri Run (24/10/2026) — MOTOR DESCRITIVO sobre fatos ja deduplicados. Tudo em memoria, sobre lotes; nenhuma consulta por aluno. Devolve so' agregados protegidos.
@@ -55,6 +56,7 @@ export interface ObservatoryResult {
     prior: { volume: Array<ObsRow<PainMetrics>>; strength: Array<ObsRow<PainMetrics>> };
     pendingDimensions: typeof PENDING_DIMENSIONS;
   };
+  insights: Insights | null; // analise ampliada (dor por modalidade, distancia, "Relatar dor" a parte, fases do ciclo); null quando o resultado inteiro tem menos que o piso de participantes
   quality: ObsFacts['quality'] & {
     eligibleTrainings: number; trainingsWithoutDistance: number; manualTrainings: number; activityTrainings: number;
     participantWeeksIncomplete: number; participantWeeksNoData: number; participantsExcludedByFilters: number | null;
@@ -189,6 +191,7 @@ export function computeObservatory(facts: ObsFacts, f: ObsFilters): ObservatoryR
       prior: { volume: painTable('priorVolume'), strength: painTable('priorStrength') },
       pendingDimensions: PENDING_DIMENSIONS,
     },
+    insights: belowMinimum ? null : computeInsights({ facts, scope: includedParticipants, runKeys: new Set(allEvents.map((e) => e.eventKey)), runKm: totalKm, filters: f, participants }),
     quality: {
       ...facts.quality,
       eligibleTrainings: facts.runEvents.length,

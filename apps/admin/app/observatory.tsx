@@ -15,8 +15,23 @@ type PainMetrics = {
   trainings: number; km: number; reports: number; reportsWithIntensity: number; reportsWithoutIntensity: number;
   reportsPer1000Km: number | null; meanIntensityReports: number | null; meanIntensityAll: number | null; painPointsPer1000Km: number | null;
   intensityBins: Array<{ key: string; label: string; count: number; pctOfKnown: number | null; per1000Km: number | null }>;
+  levelBins: Array<{ key: string; label: string; count: number; per1000Km: number | null }>;
   coverage: { trainings: number; withFeedback: number; withoutFeedback: number; numericIntensityTrainings: number; intensityCoveragePct: number | null };
   zeroOrigins: { explicitNoPain: number; noPainReport: number };
+};
+type PainLevelMetrics = {
+  trainings: number; withFeedback: number; painTrainings: number; levels: { leve: number; moderado: number; forte: number; semNivel: number };
+  painPer100Trainings: number | null; levelPer100Trainings: { leve: number | null; moderado: number | null; forte: number | null }; painPer100Answered: number | null;
+  km: number; painPer1000Km: number | null; timing: Array<{ key: string; count: number }>;
+};
+type Pace = { label: string; secondsPerKm: number; runs: number } | null;
+type CycleRow = { participants: number; participantDays: number; trainings: number; pain: PainLevelMetrics; runPace: Pace; participantsWithPace: number | null; reports: number; meanReportIntensity: number | null; reportsPer100ParticipantDays: number | null };
+type Insights = {
+  scopeNote: string;
+  byModality: { rows: Array<Row<PainLevelMetrics>>; total: PainLevelMetrics | null };
+  runsByDistance: { rows: Array<Row<{ runs: number; km: number; participants: number; pace: Pace; participantsWithPace: number | null; pain: PainLevelMetrics }>>; runsWithoutDistance: number };
+  standaloneReports: { note: string; overall: { reports: number; participants: number; meanIntensity: number | null; bins: Array<{ key: string; label: string; count: number; pct: number | null }> } | null; runKm: number; reportsPer1000RunKm: number | null; regions: Array<Row<{ reports: number; meanIntensity: number | null }>> };
+  cycle: { notes: string[]; participantsWithCycle: number; participantsWithEstimatedPhases: number; trainingsOutsideCycle: number; natural: Array<{ phase: string; label: string; row: Row<CycleRow> }>; hormonal: Array<{ phase: string; label: string; row: Row<CycleRow> }> };
 };
 type CohortSeriesPoint = { week: string; weekNumber: number; participants: number | null; avgKm: number | null; paceSecondsPerKm: number | null; paceLabel: string | null; suppressed: boolean };
 type Result = {
@@ -38,16 +53,17 @@ type Result = {
     prior: { volume: Array<Row<PainMetrics>>; strength: Array<Row<PainMetrics>> };
     pendingDimensions: Array<{ id: string; label: string; reason: string }>;
   };
+  insights: Insights | null;
   quality: Record<string, number | string> & {
     stravaExcludedEvents: number; ambiguousIdentityEvents: number; unevaluatedIdentityEvents: number; invalidDistanceEvents: number; duplicateManualEvents: number;
-    painReportsWithoutTraining: number; painConflicts: number; eligibleTrainings: number; trainingsWithoutDistance: number; manualTrainings: number; activityTrainings: number;
+    painConflicts: number; eligibleTrainings: number; trainingsWithoutDistance: number; manualTrainings: number; activityTrainings: number;
     participantWeeksIncomplete: number; participantWeeksNoData: number; participantsExcludedByFilters: number; note: string;
   };
 };
 type Status = { enabled: boolean; dataset: 'synthetic' | 'real'; reason?: string };
 type Mode = 'cross' | 'cohort';
 type GroupBy = 'volume' | 'age' | 'strength' | 'sex' | 'priorVolume' | 'priorStrength';
-type Tab = 'panorama' | 'treino' | 'dor' | 'qualidade';
+type Tab = 'panorama' | 'treino' | 'dor' | 'ampliada' | 'qualidade';
 
 interface Filters {
   from: string; to: string; volumeBands: string[]; ageBands: string[]; strengthBands: string[]; sexes: string[]; mode: Mode; groupBy: GroupBy; includeZeroWeeks: boolean;
@@ -256,10 +272,10 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   const hiddenVolume = volumeRows.filter((row) => row.suppressed).length;
   const painGroups = (r?.pain.rows ?? []).filter((row) => !row.suppressed && row.data && row.data.trainings > 0);
   const painGroupDefs = painGroups.map((row, index) => ({ key: row.key, label: row.label, color: PALETTE[(r!.pain.groupBy === 'volume' ? COLOR_INDEX[row.key] ?? index : index) % PALETTE.length] }));
-  const binKeys = r?.pain.overall?.intensityBins.map((b) => ({ key: b.key, label: b.label })) ?? painGroups[0]?.data?.intensityBins.map((b) => ({ key: b.key, label: b.label })) ?? [];
+  const binKeys = r?.pain.overall?.levelBins.map((b) => ({ key: b.key, label: b.label })) ?? painGroups[0]?.data?.levelBins.map((b) => ({ key: b.key, label: b.label })) ?? [];
   const painClusters = binKeys.map((b) => ({
     key: b.key, label: b.label,
-    values: painGroups.map((row, i) => { const bin = row.data!.intensityBins.find((x) => x.key === b.key); return { group: row.key, color: painGroupDefs[i].color, value: bin?.per1000Km ?? null, detail: `${nf(bin?.count)} relatos em ${nf(row.data!.km, 0)} km (${nf(row.participants)} participantes)` }; }),
+    values: painGroups.map((row, i) => { const bin = row.data!.levelBins.find((x) => x.key === b.key); return { group: row.key, color: painGroupDefs[i].color, value: bin?.per1000Km ?? null, detail: `${nf(bin?.count)} treinos com ${b.label.toLowerCase()} em ${nf(row.data!.km, 0)} km (${nf(row.participants)} participantes)` }; }),
   }));
   const hiddenPain = (r?.pain.rows ?? []).filter((row) => row.suppressed).length;
   const cohortGroups = (r?.pace.cohort.groups ?? []).filter((g) => !g.suppressed && g.data && g.data.series.some((p) => !p.suppressed));
@@ -269,17 +285,17 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   }));
   const cohortSuppressedPoints = (r?.pace.cohort.groups ?? []).reduce((s, g) => s + (g.data?.series.filter((p) => p.suppressed).length ?? 0), 0);
 
-  const tabs: Array<[Tab, string, React.ReactNode]> = [['panorama', 'Panorama', <BarChart3 key="a" size={15} />], ['treino', 'Treinamento', <Activity key="b" size={15} />], ['dor', 'Dor e recuperação', <HeartPulse key="c" size={15} />], ['qualidade', 'Qualidade dos dados', <ShieldCheck key="d" size={15} />]];
+  const tabs: Array<[Tab, string, React.ReactNode]> = [['panorama', 'Panorama', <BarChart3 key="a" size={15} />], ['treino', 'Treinamento', <Activity key="b" size={15} />], ['dor', 'Dor e recuperação', <HeartPulse key="c" size={15} />], ['ampliada', 'Análise ampliada', <Gauge key="e" size={15} />], ['qualidade', 'Qualidade dos dados', <ShieldCheck key="d" size={15} />]];
 
   const painTable = (caption: string, rows: Array<Row<PainMetrics>>, withBins: boolean) => (
-    <Table caption={caption} head={['Grupo', 'Participantes', 'Treinos', 'Km', 'Relatos', 'Relatos / 1.000 km', 'Intensidade média dos relatos', 'Intensidade média geral (por treino)', 'Pontos / 1.000 km', ...(withBins ? ['1–2 /1.000 km', '3–4 /1.000 km', '5–6 /1.000 km', '7–8 /1.000 km', '9–10 /1.000 km', 'Cobertura de feedback', 'Cobertura de nota'] : [])]}>
+    <Table caption={caption} head={['Grupo', 'Participantes', 'Treinos', 'Km', 'Treinos com dor', 'Treinos com dor / 1.000 km', ...(withBins ? ['Leve /1.000 km', 'Moderada /1.000 km', 'Forte /1.000 km', 'Cobertura de feedback'] : [])]}>
       {rows.map((row) => (
         <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}>
           <td><b>{row.label}</b></td><td>{pcount(row, min)}</td>
-          {row.suppressed || !row.data ? <td colSpan={withBins ? 15 : 7}><Hidden row={row} min={min} /></td> : (
+          {row.suppressed || !row.data ? <td colSpan={withBins ? 9 : 5}><Hidden row={row} min={min} /></td> : (
             <>
-              <td>{nf(row.data.trainings)}</td><td>{nf(row.data.km, 0)}</td><td>{nf(row.data.reports)}</td><td>{nf(row.data.reportsPer1000Km, 2)}</td><td>{nf(row.data.meanIntensityReports, 1)}</td><td>{nf(row.data.meanIntensityAll, 2)}</td><td>{nf(row.data.painPointsPer1000Km, 1)}</td>
-              {withBins ? <>{row.data.intensityBins.map((b) => <td key={b.key}>{nf(b.per1000Km, 2)}</td>)}<td>{nf(row.data.coverage.withFeedback)} de {nf(row.data.coverage.trainings)} ({nf(row.data.coverage.trainings > 0 ? (row.data.coverage.withFeedback / row.data.coverage.trainings) * 100 : null, 0)}%)</td><td>{nf(row.data.coverage.intensityCoveragePct, 1)}%</td></> : null}
+              <td>{nf(row.data.trainings)}</td><td>{nf(row.data.km, 0)}</td><td>{nf(row.data.reports)}</td><td>{nf(row.data.reportsPer1000Km, 2)}</td>
+              {withBins ? <>{row.data.levelBins.map((b) => <td key={b.key}>{nf(b.per1000Km, 2)}</td>)}<td>{nf(row.data.coverage.withFeedback)} de {nf(row.data.coverage.trainings)} ({nf(row.data.coverage.trainings > 0 ? (row.data.coverage.withFeedback / row.data.coverage.trainings) * 100 : null, 0)}%)</td></> : null}
             </>
           )}
         </tr>
@@ -287,7 +303,7 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
     </Table>
   );
   const priorBars = (rows: Array<Row<PainMetrics>>): HItem[] => rows.filter((row) => row.suppressed || (row.participants ?? 0) > 0).map((row) => ({
-    key: row.key, label: row.label, sub: row.suppressed || !row.data ? 'menos participantes que o mínimo' : `${nf(row.participants)} participantes · ${nf(row.data.reports)} relatos em ${nf(row.data.km, 0)} km`,
+    key: row.key, label: row.label, sub: row.suppressed || !row.data ? 'menos participantes que o mínimo' : `${nf(row.participants)} participantes · ${nf(row.data.reports)} treinos com dor em ${nf(row.data.km, 0)} km`,
     value: row.data?.reportsPer1000Km ?? 0, display: row.suppressed || !row.data ? (row.complementary ? 'oculto por segurança' : `oculto (< ${min})`) : `${nf(row.data.reportsPer1000Km, 2)} /1.000 km`, muted: row.suppressed,
   }));
 
@@ -393,21 +409,17 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
                 <label className="obsSelect">Agrupar por
                   <select value={applied.groupBy} onChange={(e) => commit({ ...applied, groupBy: e.target.value as GroupBy })}>{GROUP_OPTIONS.map(([id, text]) => <option key={id} value={id}>{text}</option>)}</select>
                 </label>
-                <p className="obsModeText">Mede a <b>dor relatada</b> pela comunidade em relação à quilometragem corrida — não a dor real, nem lesão. Treino sem relato conta como intensidade 0 (zero operacional); os km desses treinos entram no denominador.</p>
+                <p className="obsModeText">Mede a <b>dor marcada no feedback dos treinos de corrida</b> (sem dor, leve, moderada ou forte) em relação à quilometragem corrida — não a dor real, nem lesão. Treino sem relato conta como sem dor (zero operacional); os km desses treinos entram no denominador. O “Relatar dor” (nota 1 a 10) é analisado à parte, na aba Análise ampliada.</p>
               </div>
               {r.pain.overall ? (
                 <div className="eqKpis obsKpis7">
-                  <Kpi icon={<HeartPulse size={16} />} label="A · Relatos de dor" value={r.pain.overall.reports} hint={`relatos em ${nf(r.pain.overall.trainings)} treinos e ${nf(r.pain.overall.km, 0)} km`} />
-                  <Kpi icon={<Gauge size={16} />} label="B · Relatos por 1.000 km" value={r.pain.overall.reportsPer1000Km} digits={2} hint="relatos ÷ km elegíveis × 1.000" />
-                  <Kpi icon={<Activity size={16} />} label="C · Intensidade média dos relatos" value={r.pain.overall.meanIntensityReports} digits={1} hint={`só relatos com nota (${nf(r.pain.overall.reportsWithIntensity)}); sem zeros`} />
-                  <Kpi icon={<Activity size={16} />} label="D · Intensidade média geral" value={r.pain.overall.meanIntensityAll} digits={2} hint={`por treino, com zeros (${nf(r.pain.overall.coverage.numericIntensityTrainings)} treinos com nota)`} />
-                  <Kpi icon={<Gauge size={16} />} label="E · Pontos de intensidade por 1.000 km" value={r.pain.overall.painPointsPer1000Km} digits={1} hint="soma das notas dos relatos ÷ km × 1.000 (índice descritivo)" />
-                  <Kpi icon={<ShieldCheck size={16} />} label="G · Cobertura de feedback" value={r.pain.overall.coverage.withFeedback} hint={`de ${nf(r.pain.overall.coverage.trainings)} treinos (${nf(r.pain.overall.coverage.trainings > 0 ? (r.pain.overall.coverage.withFeedback / r.pain.overall.coverage.trainings) * 100 : null, 0)}%); ${nf(r.pain.overall.coverage.withoutFeedback)} sem feedback`} />
-                  <Kpi icon={<Info size={16} />} label="Relatos sem nota numérica" value={r.pain.overall.reportsWithoutIntensity} hint={`de ${nf(r.pain.overall.reports)} relatos; treinos com nota numérica: ${nf(r.pain.overall.coverage.intensityCoveragePct, 1)}%`} />
+                  <Kpi icon={<HeartPulse size={16} />} label="A · Treinos com dor" value={r.pain.overall.reports} hint={`treinos com dor em ${nf(r.pain.overall.trainings)} treinos e ${nf(r.pain.overall.km, 0)} km`} />
+                  <Kpi icon={<Gauge size={16} />} label="B · Treinos com dor por 1.000 km" value={r.pain.overall.reportsPer1000Km} digits={2} hint="treinos com dor ÷ km elegíveis × 1.000" />
+                  <Kpi icon={<ShieldCheck size={16} />} label="C · Cobertura de feedback" value={r.pain.overall.coverage.withFeedback} hint={`de ${nf(r.pain.overall.coverage.trainings)} treinos (${nf(r.pain.overall.coverage.trainings > 0 ? (r.pain.overall.coverage.withFeedback / r.pain.overall.coverage.trainings) * 100 : null, 0)}%); ${nf(r.pain.overall.coverage.withoutFeedback)} sem feedback`} />
                 </div>
               ) : null}
               {r.pain.overall ? <p className="eqFine">Origem dos zeros (auditoria, entram na métrica): {nf(r.pain.overall.zeroOrigins.explicitNoPain)} treinos com resposta explícita “sem dor” e {nf(r.pain.overall.zeroOrigins.noPainReport)} treinos sem relato de dor.</p> : null}
-              <Card wide title="Relatos de dor por faixa de intensidade, a cada 1.000 km" subtitle={`Grupos: ${r.pain.groupLabel}. Cada coluna é a taxa de relatos naquela faixa por 1.000 km corridos pelo grupo.`}>
+              <Card wide title="Treinos com dor por nível, a cada 1.000 km" subtitle={`Grupos: ${r.pain.groupLabel}. Dor marcada no feedback do treino de corrida (leve, moderada ou forte). Cada coluna é a taxa por 1.000 km corridos pelo grupo.`}>
                 <GroupedColumns clusters={painClusters} groups={painGroupDefs} />
                 {hiddenPain > 0 ? <p className="eqFine">{hiddenPain} grupo(s) com menos de {min} participantes ficam ocultos no gráfico e na tabela.</p> : null}
               </Card>
@@ -424,6 +436,8 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
               </Card>
             </>
           ) : null}
+
+          {!r.overview.belowMinimum && tab === 'ampliada' && r.insights ? <AmpliadaTab ins={r.insights} min={min} /> : null}
 
           {tab === 'qualidade' ? <QualityTab r={r} /> : null}
 
@@ -463,6 +477,70 @@ export default function Observatory({ accessToken, apiUrl }: { accessToken: stri
   );
 }
 
+const REGION_LABEL: Record<string, string> = { sem_regiao: 'Sem região informada' };
+const prettyRegion = (key: string) => REGION_LABEL[key] ?? key.replace(/_/g, ' ');
+const paceLabel = (pace: Pace) => (pace ? pace.label : '—');
+
+// Análise ampliada (26/11/2026): dor por modalidade, corridas por distância, "Relatar dor" à parte e fases do ciclo. Só agregados protegidos; descritivo, não causa.
+function AmpliadaTab({ ins, min }: { ins: Insights; min: number }) {
+  const hidden = (row: { suppressed: boolean; complementary: boolean }, cols: number) => <td colSpan={cols}><Hidden row={row} min={min} /></td>;
+  const painCells = (m: PainLevelMetrics) => <><td>{nf(m.trainings)}</td><td>{nf(m.withFeedback)}</td><td>{nf(m.painTrainings)}</td><td>{nf(m.painPer100Trainings, 2)}</td><td>{nf(m.levels.leve)} / {nf(m.levels.moderado)} / {nf(m.levels.forte)}</td></>;
+  const cycleTable = (caption: string, list: Insights['cycle']['natural']) => (
+    <Table caption={caption} head={['Fase', 'Alunas', 'Dias-aluna', 'Treinos', 'Treinos com dor /100', 'Pace da corrida', 'Relatos (Relatar dor)', 'Nota média dos relatos', 'Relatos /100 dias-aluna']}>
+      {list.map(({ phase, label, row }) => (
+        <tr key={phase} className={row.suppressed ? 'obsRowHidden' : undefined}>
+          <td><b>{label}</b></td><td>{pcount(row, min)}</td>
+          {row.suppressed || !row.data ? hidden(row, 7) : <><td>{nf(row.data.participantDays)}</td><td>{nf(row.data.trainings)}</td><td>{nf(row.data.pain.painPer100Trainings, 2)}</td><td>{paceLabel(row.data.runPace)}</td><td>{nf(row.data.reports)}</td><td>{nf(row.data.meanReportIntensity, 1)}</td><td>{nf(row.data.reportsPer100ParticipantDays, 2)}</td></>}
+        </tr>
+      ))}
+    </Table>
+  );
+  const sr = ins.standaloneReports;
+  return (
+    <>
+      <p className="eqFine">{ins.scopeNote}</p>
+      <Table caption="Dor por treino e por modalidade (feedback do treino)" head={['Modalidade', 'Alunas', 'Treinos', 'Com feedback', 'Treinos com dor', 'Com dor a cada 100 treinos', 'Leve / moderada / forte']}>
+        {ins.byModality.rows.map((row) => (
+          <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{row.label}</b></td><td>{pcount(row, min)}</td>{row.suppressed || !row.data ? hidden(row, 5) : painCells(row.data)}</tr>
+        ))}
+        {ins.byModality.total ? <tr><td><b>Todas juntas</b></td><td>—</td>{painCells(ins.byModality.total)}</tr> : null}
+      </Table>
+      <Table caption="Corridas por faixa de distância" head={['Distância da corrida', 'Alunas', 'Corridas', 'Km', 'Pace (tempo total ÷ distância total)', 'Treinos com dor', 'Com dor a cada 100 corridas', 'Com dor / 1.000 km', 'Leve / moderada / forte']}>
+        {ins.runsByDistance.rows.map((row) => (
+          <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}>
+            <td><b>{row.label}</b></td><td>{pcount(row, min)}</td>
+            {row.suppressed || !row.data ? hidden(row, 7) : <><td>{nf(row.data.runs)}</td><td>{nf(row.data.km, 0)}</td><td>{paceLabel(row.data.pace)}</td><td>{nf(row.data.pain.painTrainings)}</td><td>{nf(row.data.pain.painPer100Trainings, 2)}</td><td>{nf(row.data.pain.painPer1000Km, 2)}</td><td>{nf(row.data.pain.levels.leve)} / {nf(row.data.pain.levels.moderado)} / {nf(row.data.pain.levels.forte)}</td></>}
+          </tr>
+        ))}
+      </Table>
+      {ins.runsByDistance.runsWithoutDistance > 0 ? <p className="eqFine">{nf(ins.runsByDistance.runsWithoutDistance)} corrida(s) sem distância válida ficam fora desta tabela.</p> : null}
+      <Card wide title="“Relatar dor” — analisado à parte" subtitle={sr.note}>
+        {sr.overall ? (
+          <div className="eqKpis">
+            <Kpi icon={<HeartPulse size={16} />} label="Relatos" value={sr.overall.reports} hint={`${nf(sr.overall.participants)} alunas`} />
+            <Kpi icon={<Gauge size={16} />} label="Nota média (1 a 10)" value={sr.overall.meanIntensity} digits={1} hint="só relatos avulsos" />
+            <Kpi icon={<Activity size={16} />} label="Relatos por 1.000 km corridos" value={sr.reportsPer1000RunKm} digits={2} hint={`taxa geral sobre ${nf(sr.runKm, 0)} km do mesmo grupo`} />
+          </div>
+        ) : <Empty title="Sem relatos no período" />}
+      </Card>
+      {sr.overall ? (
+        <Table caption="Relatos por faixa de nota" head={['Faixa', 'Relatos', '% dos relatos']}>
+          {sr.overall.bins.map((b) => <tr key={b.key}><td><b>{b.label}</b></td><td>{nf(b.count)}</td><td>{nf(b.pct, 1)}%</td></tr>)}
+        </Table>
+      ) : null}
+      <Table caption="Relatos por região do corpo" head={['Região', 'Alunas', 'Relatos', 'Nota média']}>
+        {sr.regions.map((row) => <tr key={row.key} className={row.suppressed ? 'obsRowHidden' : undefined}><td><b>{prettyRegion(row.label)}</b></td><td>{pcount(row, min)}</td>{row.suppressed || !row.data ? hidden(row, 2) : <><td>{nf(row.data.reports)}</td><td>{nf(row.data.meanIntensity, 1)}</td></>}</tr>)}
+      </Table>
+      <Card wide title="Fases do ciclo menstrual" subtitle="Só alunas que registraram o ciclo. Fase estimada; descritivo, não causa.">
+        <ul className="obsPending">{ins.cycle.notes.map((n) => <li key={n}><span>{n}</span></li>)}</ul>
+        <p className="eqFine">{nf(ins.cycle.participantsWithCycle)} aluna(s) com ciclo registrado; {nf(ins.cycle.participantsWithEstimatedPhases)} com fase estimada em parte do histórico; {nf(ins.cycle.trainingsOutsideCycle)} treino(s) fora de qualquer ciclo registrado.</p>
+      </Card>
+      {cycleTable('Ciclo natural (sem anticoncepcional hormonal)', ins.cycle.natural)}
+      {cycleTable('Com anticoncepcional hormonal (fase só estimada)', ins.cycle.hormonal)}
+    </>
+  );
+}
+
 function QualityTab({ r }: { r: Result }) {
   const q = r.quality;
   const rows: Array<[string, number | string, string]> = [
@@ -474,7 +552,6 @@ function QualityTab({ r }: { r: Result }) {
     ['Excluídos: identidade física ambígua', q.ambiguousIdentityEvents, 'ficam fora dos totais principais até a identidade ser resolvida'],
     ['Incluídos, mas com identidade não avaliada', q.unevaluatedIdentityEvents, 'dados legados sem avaliação de identidade; entram sinalizados'],
     ['Treinos manuais que repetiam atividade importada', q.duplicateManualEvents, 'descartados para não contar o mesmo treino duas vezes'],
-    ['Relatos de dor sem treino elegível no dia', q.painReportsWithoutTraining, 'não entram nas taxas por 1.000 km (sem exposição para dividir)'],
     ['Conflitos: relato de dor no treino marcado “sem dor”', q.painConflicts, 'prevalece o relato de dor'],
     ['Participantes fora por causa dos filtros', q.participantsExcludedByFilters, 'efeito dos filtros escolhidos'],
   ];
@@ -483,7 +560,7 @@ function QualityTab({ r }: { r: Result }) {
       <div className="eqKpis">
         <Kpi icon={<ShieldCheck size={16} />} label="Treinos elegíveis" value={q.eligibleTrainings} hint={`${nf(q.activityTrainings)} de atividade importada e ${nf(q.manualTrainings)} manuais`} />
         <Kpi icon={<TriangleAlert size={16} />} label="Excluídos (Strava + ambíguos)" value={q.stravaExcludedEvents + q.ambiguousIdentityEvents} hint="fora dos totais principais" />
-        <Kpi icon={<Info size={16} />} label="Relatos sem treino no dia" value={q.painReportsWithoutTraining} hint="fora das taxas por 1.000 km" />
+        <Kpi icon={<Info size={16} />} label="Conflitos de dor no mesmo treino" value={q.painConflicts} hint="prevalece a dor marcada" />
       </div>
       <Table caption="Qualidade e cobertura dos dados" head={['Item', 'Quantidade', 'O que significa']}>
         {rows.map(([label, value, hint]) => <tr key={label}><td><b>{label}</b></td><td>{typeof value === 'number' ? nf(value) : value}</td><td>{hint}</td></tr>)}

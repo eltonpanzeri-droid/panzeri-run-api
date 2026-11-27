@@ -1,8 +1,8 @@
 import { pickCanonicalPerEvent } from '../activity-execution/canonical-observation';
 import { localCalendarDate } from '../activity-execution/session-execution-link.service';
 import { modalityGroup } from '../coach/training-load';
-import { addDays } from './observatory-core';
-import type { ObsFacts, ObsParticipant, ObsQuality, ObsRunEvent, ObsStrengthEvent } from './observatory.types';
+import { buildPhasedCycles } from '../menstrual-cycle/cycle-phases';
+import type { ObsFacts, ObsParticipant, ObsPainReport, ObsQuality, ObsRunEvent, ObsStrengthEvent, ObsTraining, PainLevel, TrainingGroup } from './observatory.types';
 
 // Observatorio Panzeri Run (24/10/2026) — BASE CANONICA de treinos realizados. Funcao de transformacao (linhas lidas em lote -> fatos); nenhuma consulta por aluno aqui.
 // Regras: so' atividade fisica valida e elegivel; um evento fisico = uma observacao (canonica); a data da semana e' o DIA LOCAL DA EXECUCAO (nao o programado); extra nunca soma duas
@@ -13,13 +13,15 @@ export interface RawActivity {
   providerMetrics: unknown; physicalIdentityStatus: string | null; physicalEventId: string | null; physicalCanonicalActivityLogId: string | null;
 }
 export interface RawCompletion {
-  id: string; userId: string; sessionId: string | null; status: string; completedAt: Date; distanceKm: number | null; durationMin: number | null; painFlag: string | null; perceivedEffort: number | null;
+  id: string; userId: string; sessionId: string | null; status: string; completedAt: Date; distanceKm: number | null; durationMin: number | null; painFlag: string | null; painTiming?: string | null; perceivedEffort: number | null;
   session: { modality: string | null; origin: string | null; structure: unknown } | null;
 }
 export interface RawLink { trainingSessionId: string; activityLogId: string }
-export interface RawPain { id: string; userId: string; createdAt: Date; intensity: number }
+export interface RawPain { id: string; userId: string; createdAt: Date; intensity: number; regions?: string[] }
 export interface RawUser { id: string; birthDate: Date | null; sex: string | null }
-export interface RawRows { users: RawUser[]; activities: RawActivity[]; completions: RawCompletion[]; links: RawLink[]; pains: RawPain[] }
+export interface RawCycleLog { userId: string; cycleStartDate: Date; cycleEndDate: Date | null }
+export interface RawMenstrualProfile { userId: string; cycleLengthDays: number | null; periodLengthDays: number | null; usesHormonalContraceptive: boolean | null }
+export interface RawRows { users: RawUser[]; activities: RawActivity[]; completions: RawCompletion[]; links: RawLink[]; pains: RawPain[]; cycleLogs?: RawCycleLog[]; menstrualProfiles?: RawMenstrualProfile[] }
 
 const spDay = (d: Date) => d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
@@ -41,7 +43,7 @@ export async function buildFactsFromRows(
   loadActivitiesByIds: (ids: string[]) => Promise<RawActivity[]>,
   window: { since: string; to: string },
 ): Promise<ObsFacts> {
-  const quality: ObsQuality = { stravaExcludedEvents: 0, ambiguousIdentityEvents: 0, unevaluatedIdentityEvents: 0, invalidDistanceEvents: 0, duplicateManualEvents: 0, painReportsWithoutTraining: 0, painConflicts: 0 };
+  const quality: ObsQuality = { stravaExcludedEvents: 0, ambiguousIdentityEvents: 0, unevaluatedIdentityEvents: 0, invalidDistanceEvents: 0, duplicateManualEvents: 0, painConflicts: 0 };
   const runEvents: ObsRunEvent[] = [];
   const strengthEvents: ObsStrengthEvent[] = [];
   const inWindow = (day: string) => day >= window.since && day <= window.to;
@@ -82,6 +84,7 @@ export async function buildFactsFromRows(
   const completionsByEvent = new Map<string, RawCompletion[]>();
   const manualCandidates: RawCompletion[] = [];
   const strengthCompletions: RawCompletion[] = [];
+  const otherCompletions: RawCompletion[] = [];
   for (const c of rows.completions) {
     if (c.status !== 'done' && c.status !== 'adjusted') continue;
     const group = modalityGroup(c.session?.modality);
@@ -95,6 +98,7 @@ export async function buildFactsFromRows(
     if (c.session?.origin === 'device_extra') continue; // copia da atividade: nunca um segundo treino
     if (group === 'corrida') manualCandidates.push(c);
     else if (group === 'forca') strengthCompletions.push(c);
+    else otherCompletions.push(c);
   }
 
   // ── 3) eventos de corrida por atividade ──
@@ -105,20 +109,28 @@ export async function buildFactsFromRows(
     const painful = flags.find((x) => x !== 'none');
     if (painful && flags.includes('none')) quality.painConflicts += 1;
     const answered = cs.some((x) => x.painFlag != null || x.perceivedEffort != null);
-    return { answered, flag: painful ?? (flags.length > 0 ? 'none' : null) };
+    const timing = painful ? cs.find((x) => x.painFlag === painful)?.painTiming ?? null : null;
+    return { answered, flag: painful ?? (flags.length > 0 ? 'none' : null), timing };
   };
+  const levelOf = (flag: string | null): PainLevel | null => (flag === 'leve' || flag === 'moderado' || flag === 'forte' ? flag : null);
+  const trainings: ObsTraining[] = [];
+  const painOf = (flag: string | null, timing: string | null) => ({ origin: (flag === 'none' ? 'explicit_no_pain' : flag ? 'reported_pain' : 'no_pain_report') as ObsTraining['pain']['origin'], level: levelOf(flag), timing: flag && flag !== 'none' ? timing : null });
+  const trainingsByDay = new Map<string, ObsTraining[]>(); // `${userId}|${day}|${group}` -> treinos (para nao contar duas vezes o registro manual de um treino ja' importado)
+  const addTraining = (t: ObsTraining) => { trainings.push(t); const k = `${t.participant}|${t.day}|${t.group}`; trainingsByDay.set(k, [...(trainingsByDay.get(k) ?? []), t]); };
   for (const ev of activityEvents) {
-    if (ev.group === 'forca') {
-      strengthEvents.push({ participant: ev.userId, eventKey: ev.key, day: ev.day }); // sessao de forca vinculada ou nao: conta UMA vez, pelo evento da atividade
+    if (ev.group !== 'corrida') {
+      const group: TrainingGroup = ev.group === 'forca' ? 'forca' : 'outras';
+      if (group === 'forca') strengthEvents.push({ participant: ev.userId, eventKey: ev.key, day: ev.day }); // sessao de forca vinculada ou nao: conta UMA vez, pelo evento da atividade
+      const painInfo = painFrom(completionsByEvent.get(ev.key) ?? []);
+      addTraining({ participant: ev.userId, eventKey: ev.key, day: ev.day, group, km: validKm(ev.row.distanceMeters), seconds: validSec(ev.row.durationSec), feedbackAnswered: painInfo.answered, pain: painOf(painInfo.flag, painInfo.timing) });
       continue;
     }
-    if (ev.group !== 'corrida') continue;
     const km = validKm(ev.row.distanceMeters);
     if (km == null) quality.invalidDistanceEvents += 1;
-    const { answered, flag } = painFrom(completionsByEvent.get(ev.key) ?? []);
+    const { answered, flag, timing } = painFrom(completionsByEvent.get(ev.key) ?? []);
     push({
       participant: ev.userId, eventKey: ev.key, day: ev.day, km, seconds: km == null ? null : validSec(ev.row.durationSec), source: 'activity', isExtra: false,
-      feedbackAnswered: answered, pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
+      feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null, pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
 
@@ -130,48 +142,66 @@ export async function buildFactsFromRows(
     const sameDay = eventsByDay.get(`${c.userId}|${day}`) ?? [];
     // mesma corrida ja' contada (importada OU outro registro manual igual) — ou registro manual sem distancia no mesmo dia de outro treino: nao e' um treino a mais
     const same = sameDay.find((e) => (km == null ? true : e.km != null && Math.abs(e.km - km) <= Math.max(0.5, km * 0.1)));
-    const { answered, flag } = painFrom([c]);
+    const { answered, flag, timing } = painFrom([c]);
     if (same) {
       // mesma corrida ja' importada: nao conta de novo; o feedback da aluna passa para o evento importado
       quality.duplicateManualEvents += 1;
       if (answered) same.feedbackAnswered = true;
-      if (same.pain.origin === 'no_pain_report') same.pain = flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : same.pain;
+      if (same.pain.origin === 'no_pain_report') { same.pain = flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : same.pain; same.painLevel = levelOf(flag); same.painTiming = flag && flag !== 'none' ? timing : null; }
       continue;
     }
     if (km == null) quality.invalidDistanceEvents += 1;
     const structure = obj(c.session?.structure);
     push({
       participant: c.userId, eventKey: `m:${c.id}`, day, km, seconds: km != null && c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, source: 'manual',
-      isExtra: structure?.type === 'extra', feedbackAnswered: answered,
+      isExtra: structure?.type === 'extra', feedbackAnswered: answered, painLevel: levelOf(flag), painTiming: flag && flag !== 'none' ? timing : null,
       pain: flag === 'none' ? { origin: 'explicit_no_pain', intensity: 0 } : flag ? { origin: 'reported_pain', intensity: null } : { origin: 'no_pain_report', intensity: 0 },
     });
   }
+  // Forca e outras modalidades registradas SO' pelo feedback (sem atividade importada): entram como treino; se ja' ha' um treino importado do mesmo grupo no dia, o registro e' a mesma sessao (o feedback passa para ela).
+  const addManualTraining = (c: RawCompletion, group: TrainingGroup) => {
+    const day = spDay(c.completedAt);
+    if (!inWindow(day)) return;
+    const { answered, flag, timing } = painFrom([c]);
+    const same = (trainingsByDay.get(`${c.userId}|${day}|${group}`) ?? [])[0];
+    if (same) {
+      quality.duplicateManualEvents += 1;
+      if (answered) same.feedbackAnswered = true;
+      if (same.pain.origin === 'no_pain_report' && flag) same.pain = painOf(flag, timing);
+      return;
+    }
+    const km = c.distanceKm != null && c.distanceKm > 0 ? c.distanceKm : null;
+    addTraining({ participant: c.userId, eventKey: `m:${c.id}`, day, group, km, seconds: c.durationMin != null && c.durationMin > 0 ? c.durationMin * 60 : null, feedbackAnswered: answered, pain: painOf(flag, timing) });
+  };
   for (const c of strengthCompletions) {
     const day = spDay(c.completedAt);
     if (inWindow(day)) strengthEvents.push({ participant: c.userId, eventKey: `m:${c.id}`, day });
+    addManualTraining(c, 'forca');
   }
+  for (const c of otherCompletions) addManualTraining(c, 'outras');
+  for (const e of runEvents) trainings.push({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida', km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.painLevel ?? null, timing: e.painTiming ?? null } });
 
-  // ── 5) relatos de dor (PainReport 1–10): atribuidos ao treino do mesmo dia (ou do dia anterior); um relato nunca vira duas ocorrencias ──
-  const attached = new Map<ObsRunEvent, number>();
+  // ── 5) "Relatar dor" (1–10 + regioes): analisado SEPARADO, nunca colado a treino (ordem de Elton, 26/11/2026). Fica so' como lista de relatos avulsos. ──
+  const painReports: ObsPainReport[] = [];
   for (const p of rows.pains) {
     const day = spDay(p.createdAt);
     if (!inWindow(day)) continue;
-    const sameDay = eventsByDay.get(`${p.userId}|${day}`);
-    const prevDay = eventsByDay.get(`${p.userId}|${addDays(day, -1)}`);
-    const target = (sameDay && sameDay[sameDay.length - 1]) || (prevDay && prevDay[prevDay.length - 1]);
-    if (!target) { quality.painReportsWithoutTraining += 1; continue; }
-    const note = Math.min(10, Math.max(1, Math.round(p.intensity)));
-    attached.set(target, Math.max(attached.get(target) ?? 0, note));
-  }
-  for (const [event, intensity] of attached) {
-    if (event.pain.origin === 'explicit_no_pain') quality.painConflicts += 1;
-    event.pain = { origin: 'reported_pain', intensity }; // uma ocorrencia por treino: a nota numerica prevalece sobre a marcacao categorica
-    event.feedbackAnswered = true;
+    painReports.push({ participant: p.userId, day, intensity: Math.min(10, Math.max(1, Math.round(p.intensity))), regions: [...new Set((p.regions ?? []).map((r) => r.trim()).filter(Boolean))] });
   }
 
-  const hasEvents = new Set([...runEvents.map((e) => e.participant), ...strengthEvents.map((e) => e.participant)]);
+  // ── 6) ciclo: so' de quem registrou ciclos (a fase de cada dia e' calculada no motor, com as mesmas regras do relatorio da aluna) ──
+  const logsByUser = new Map<string, RawCycleLog[]>();
+  for (const l of rows.cycleLogs ?? []) logsByUser.set(l.userId, [...(logsByUser.get(l.userId) ?? []), l]);
+  const profileByUser = new Map((rows.menstrualProfiles ?? []).map((m) => [m.userId, m]));
+
+  const hasEvents = new Set([...runEvents.map((e) => e.participant), ...strengthEvents.map((e) => e.participant), ...trainings.map((t) => t.participant), ...painReports.map((r) => r.participant)]);
   const participants: ObsParticipant[] = rows.users
     .filter((u) => hasEvents.has(u.id))
-    .map((u) => ({ key: u.id, birthDate: u.birthDate ? u.birthDate.toISOString().slice(0, 10) : null, sex: u.sex }));
-  return { dataset: 'real', dataAsOf: new Date().toISOString(), participants, runEvents, strengthEvents, quality };
+    .map((u): ObsParticipant => {
+      const logs = logsByUser.get(u.id) ?? [];
+      const profile = profileByUser.get(u.id) ?? null;
+      const cycles = logs.length > 0 ? buildPhasedCycles(logs.map((l) => ({ start: l.cycleStartDate, end: l.cycleEndDate })), profile) : [];
+      return { key: u.id, birthDate: u.birthDate ? u.birthDate.toISOString().slice(0, 10) : null, sex: u.sex, ...(cycles.length > 0 ? { cycle: { cycles, hormonal: profile?.usesHormonalContraceptive ?? null } } : {}) };
+    });
+  return { dataset: 'real', dataAsOf: new Date().toISOString(), participants, runEvents, strengthEvents, trainings, painReports, quality };
 }

@@ -59,6 +59,12 @@ export function buildSyntheticFacts(today: string, options: { participants?: num
     participants,
     runEvents,
     strengthEvents,
-    quality: { stravaExcludedEvents: 37, ambiguousIdentityEvents: 11, unevaluatedIdentityEvents: 0, invalidDistanceEvents: runEvents.filter((e) => e.km == null).length, duplicateManualEvents: 14, painReportsWithoutTraining: 9, painConflicts: 3 },
+    // Analise ampliada (sintetica): treinos de corrida e de forca; dor so' como categoria, sem nota. Sem "Relatar dor" e sem ciclo no sintetico.
+    trainings: [
+      ...runEvents.map((e) => ({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'corrida' as const, km: e.km, seconds: e.seconds, feedbackAnswered: e.feedbackAnswered, pain: { origin: e.pain.origin, level: e.pain.origin === 'reported_pain' ? ((e.pain.intensity ?? 3) >= 7 ? 'forte' as const : (e.pain.intensity ?? 3) >= 4 ? 'moderado' as const : 'leve' as const) : null, timing: null } })),
+      ...strengthEvents.map((e) => ({ participant: e.participant, eventKey: e.eventKey, day: e.day, group: 'forca' as const, km: null, seconds: null, feedbackAnswered: false, pain: { origin: 'no_pain_report' as const, level: null, timing: null } })),
+    ],
+    painReports: [],
+    quality: { stravaExcludedEvents: 37, ambiguousIdentityEvents: 11, unevaluatedIdentityEvents: 0, invalidDistanceEvents: runEvents.filter((e) => e.km == null).length, duplicateManualEvents: 14, painConflicts: 3 },
   };
 }
