@@ -288,6 +288,7 @@ interface WorkoutCompletionPayload {
   satisfactionCapacidade?: string | null;
   satisfactionCarga?: string | null;
   painFlag?: string | null;
+  painIntensity?: number | null;
   painTiming?: string | null;
   notes?: string | null;
   details?: { loadsText?: string; pacingMode?: string; missedReasons?: string[]; missedComment?: string; exerciseFeedback?: Array<{ name: string; loadKg: string; satisfaction: string }>; postWorkoutMood?: number } | null;
@@ -561,7 +562,9 @@ interface CompletionDraft {
   postWorkoutFeeling: string;   // Corpo: como fisicamente ao terminar (1-5)
   postWorkoutMood: string;      // Humor: como emocionalmente ao terminar (1-5, em details, sem migration)
   // Feedback v1 — bloco 3: dor
+  // Dor (28/11/2026): pergunta "sentiu dor?" Nao/Sim. painFlag guarda o estado da tela: '' | 'none' | 'yes'. Se 'yes', painIntensity (1-10) e' obrigatoria.
   painFlag: string;
+  painIntensity: string; // '' ou '1'..'10' (1 = dor muito leve, 10 = dor extremamente forte)
   painTiming: string; // so preenchido quando painFlag != 'none' e != ''
   // Campos historicos (pre-v1) — lidos do banco ao abrir feedback anterior; nao mais coletados
   satisfaction: string;
@@ -4285,7 +4288,9 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     let cancelled = false;
     void restoreCompletionDrafts<CompletionDraft>(pending).then((restored) => {
       if (cancelled || Object.keys(restored).length === 0) return;
-      setCompletionDrafts((current) => ({ ...restored, ...current }));
+      // Rascunho salvo antes de 28/11/2026 pode ter a dor na escala antiga (leve/moderado/forte): vira "Sim" com a nota convertida (3/5/8), que o aluno ainda confirma.
+      const migrated = Object.fromEntries(Object.entries(restored).map(([id, d]) => [id, d.painFlag === 'leve' || d.painFlag === 'moderado' || d.painFlag === 'forte' ? { ...d, painFlag: 'yes', painIntensity: d.painFlag === 'leve' ? '3' : d.painFlag === 'moderado' ? '5' : '8' } : { ...d, painIntensity: d.painIntensity ?? '' }])) as Record<string, CompletionDraft>;
+      setCompletionDrafts((current) => ({ ...migrated, ...current }));
     });
     return () => { cancelled = true; };
   }, [plan]);
@@ -4391,7 +4396,7 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     prePhysicalFatigue: '', preMentalFatigue: '', preStressLevel: '', preMotivation: '',
     satisfactionElaboracao: '', executionVsPrescribed: '', postPhysicalFatigue: '', postMentalFatigue: '',
     emotionalExperienceDuring: '', mentalStateChangePrePost: '',
-    painFlag: '', painTiming: '',
+    painFlag: '', painIntensity: '', painTiming: '',
     // Meus Tenis (04/10/2026) — mesma regra do CompletionForm: so' relevante pra corrida/esteira.
     shoeId: '',
   };
@@ -4558,7 +4563,8 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
       if (extraForm.postMentalFatigue) body.postMentalFatigue = parseInt(extraForm.postMentalFatigue, 10);
       if (extraForm.emotionalExperienceDuring) body.emotionalExperienceDuring = parseInt(extraForm.emotionalExperienceDuring, 10);
       if (extraForm.mentalStateChangePrePost) body.mentalStateChangePrePost = parseInt(extraForm.mentalStateChangePrePost, 10);
-      if (extraForm.painFlag) body.painFlag = extraForm.painFlag;
+      if (extraForm.painFlag === 'none') body.painFlag = 'none';
+      else if (extraForm.painFlag === 'yes' && extraForm.painIntensity) body.painIntensity = parseInt(extraForm.painIntensity, 10);
       if (extraForm.painTiming) body.painTiming = extraForm.painTiming;
       if (extraForm.shoeId) body.shoeId = extraForm.shoeId;
 
@@ -5128,7 +5134,8 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
       emotionalExperienceDuring: Number(draft.emotionalExperienceDuring) || undefined,
       mentalStateChangePrePost: Number(draft.mentalStateChangePrePost) || undefined,
       // Dor (mantida integralmente)
-      painFlag: draft.painFlag || undefined,
+      painFlag: draft.painFlag === 'none' ? 'none' : undefined,
+      painIntensity: draft.painFlag === 'yes' && draft.painIntensity ? parseInt(draft.painIntensity, 10) : undefined,
       painTiming: draft.painTiming || undefined,
       // Campos historicos (pre-v1) — enviados quando presentes no draft (edicao de feedbacks antigos)
       satisfaction: draft.satisfaction || undefined,
@@ -6173,15 +6180,11 @@ ${message}`)) void runCancelCompletion(session);
               <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observações</Text>
               <Text style={styles.formHint}>Você sentiu dor ou algum desconforto importante neste treino?</Text>
               <OptionChips
-                options={[
-                  { label: 'Não', value: 'none' },
-                  { label: 'Sim, mas leve', value: 'leve' },
-                  { label: 'Sim, moderado', value: 'moderado' },
-                  { label: 'Sim, forte', value: 'forte' },
-                ]}
+                options={[{ label: 'Não', value: 'none' }, { label: 'Sim', value: 'yes' }]}
                 selected={extraForm.painFlag}
-                onSelect={(v) => setExtraForm((f) => ({ ...f, painFlag: v, painTiming: v === 'none' ? '' : f.painTiming }))}
+                onSelect={(v) => setExtraForm((f) => ({ ...f, painFlag: v, painIntensity: v === 'none' ? '' : f.painIntensity, painTiming: v === 'none' ? '' : f.painTiming }))}
               />
+              {extraForm.painFlag === 'yes' && <PainIntensityField value={extraForm.painIntensity} onChangeValue={(v) => setExtraForm((f) => ({ ...f, painIntensity: v }))} />}
               {extraForm.painFlag && extraForm.painFlag !== 'none' && (
                 <View>
                   <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
@@ -12392,6 +12395,34 @@ function ExerciseMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.exerciseMetric}><Text style={styles.exerciseMetricLabel}>{label}</Text><Text style={styles.exerciseMetricValue}>{value}</Text></View>;
 }
 
+// Nota da dor (28/11/2026): roda de 1 a 10 em Modal (mesmo padrao do tempo/distancia). 1 = dor muito leve, 10 = dor extremamente forte. Sem valor inicial: o aluno precisa escolher e confirmar.
+function PainIntensityField({ value, onChangeValue }: { value: string; onChangeValue: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [temp, setTemp] = useState(value ? Number(value) - 1 : 4);
+  const picked = value ? Number(value) : null;
+  return (
+    <View style={{ marginTop: 6, marginBottom: 4 }}>
+      <Text style={styles.formHint}>Qual a intensidade da dor? 1 = dor muito leve, 10 = dor extremamente forte.</Text>
+      <Pressable onPress={() => { setTemp(value ? Number(value) - 1 : 4); setOpen(true); }} style={{ alignItems: 'center', gap: 3, paddingVertical: 8 }}>
+        <Text style={{ fontSize: 28, fontWeight: '800', color: picked ? '#111827' : '#9CA3AF' }}>{picked ?? '–'}<Text style={{ fontSize: 14, fontWeight: '600', color: '#6B7280' }}> / 10</Text></Text>
+        <Text style={{ fontSize: 11, color: PRColors.ocean, fontWeight: '600' }}>{picked ? 'Toque para alterar' : 'Toque para escolher a nota'}</Text>
+      </Pressable>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+        <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }} onPress={() => setOpen(false)}>
+          <View style={{ backgroundColor: '#FAF8F5', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 }} onStartShouldSetResponder={() => true}>
+            <Text style={{ textAlign: 'center', fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 4 }}>Intensidade da dor</Text>
+            <Text style={{ textAlign: 'center', fontSize: 12, color: '#6B7280', marginBottom: 12 }}>1 = dor muito leve · 10 = dor extremamente forte</Text>
+            <WheelPicker columns={[{ values: Array.from({ length: 10 }, (_, i) => String(i + 1)), selectedIndex: temp, onChangeIndex: (i) => setTemp(i) }]} />
+            <Pressable style={{ backgroundColor: PRColors.ocean, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 16 }} onPress={() => { onChangeValue(String(temp + 1)); setOpen(false); }}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Confirmar</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 // 12/09 (v3): WheelPicker em Modal — resolve o conflito de scroll (roda piscava dentro do
 // ScrollView do formulario) e o teclado (TextInput) sem sacrificar a experiencia de arrastar.
 // O Modal fica fora da hierarquia do ScrollView pai, entao as rodas funcionam perfeitamente.
@@ -12915,6 +12946,7 @@ function CompletionForm({
     if (!draft.emotionalExperienceDuring) missingFieldLabels.push('experiencia emocional durante o treino (pergunta 16)');
     if (!draft.mentalStateChangePrePost) missingFieldLabels.push('mudanca no estado mental (pergunta 17)');
     if (!draft.painFlag) missingFieldLabels.push('se sentiu dor ou desconforto');
+    else if (draft.painFlag === 'yes' && !draft.painIntensity) missingFieldLabels.push('a nota da dor (de 1 a 10)');
     else if (draft.painFlag !== 'none' && !draft.painTiming) missingFieldLabels.push('quando a dor apareceu');
   }
   const allSectionsComplete = isSavedOnServer || missingFieldLabels.length === 0;
@@ -13305,15 +13337,11 @@ function CompletionForm({
               {!locked && <Text style={[styles.completionTitle, { fontSize: 14, marginBottom: 4 }]}>Dor e observações</Text>}
               <Text style={styles.formHint}>Você sentiu dor ou algum desconforto importante neste treino?</Text>
               <OptionChips
-                options={[
-                  { label: 'Não', value: 'none' },
-                  { label: 'Sim, mas leve', value: 'leve' },
-                  { label: 'Sim, moderado', value: 'moderado' },
-                  { label: 'Sim, forte', value: 'forte' },
-                ]}
+                options={[{ label: 'Não', value: 'none' }, { label: 'Sim', value: 'yes' }]}
                 selected={draft.painFlag}
-                onSelect={(v) => onChange({ painFlag: v, painTiming: v === 'none' ? '' : draft.painTiming })}
+                onSelect={(v) => onChange({ painFlag: v, painIntensity: v === 'none' ? '' : draft.painIntensity, painTiming: v === 'none' ? '' : draft.painTiming })}
               />
+              {draft.painFlag === 'yes' && <PainIntensityField value={draft.painIntensity} onChangeValue={(v) => onChange({ painIntensity: v })} />}
               {draft.painFlag && draft.painFlag !== 'none' && (
                 <View>
                   <Text style={styles.formHint}>Quando essa dor ou desconforto apareceu?</Text>
@@ -13973,6 +14001,7 @@ function defaultCompletionDraft(session: WeekPlanSession): CompletionDraft {
     postWorkoutFeeling: '',
     postWorkoutMood: '',
     painFlag: '',
+    painIntensity: '',
     painTiming: '',
     satisfaction: '',
     satisfactionCarga: '',
@@ -14030,7 +14059,8 @@ function completionDraftFromSession(session: WeekPlanSession): CompletionDraft {
     satisfactionCapacidade: completion.satisfactionCapacidade ?? '',
     postWorkoutFeeling: completionAsRecord.postWorkoutFeeling != null ? String(completionAsRecord.postWorkoutFeeling) : '',
     postWorkoutMood: completionAsRecord.details != null && (completion.details as Record<string, unknown> | undefined)?.postWorkoutMood != null ? String((completion.details as Record<string, unknown>).postWorkoutMood) : '',
-    painFlag: completion.painFlag ?? '',
+    painFlag: completion.painIntensity != null || (completion.painFlag && completion.painFlag !== 'none') ? 'yes' : completion.painFlag ?? '',
+    painIntensity: completion.painIntensity != null ? String(completion.painIntensity) : completion.painFlag === 'leve' ? '3' : completion.painFlag === 'moderado' ? '5' : completion.painFlag === 'forte' ? '8' : '',
     painTiming: completionAsRecord.painTiming != null ? String(completionAsRecord.painTiming) : '',
     satisfaction: completion.satisfaction ?? '',
     satisfactionCarga: completion.satisfactionCarga ?? '',
