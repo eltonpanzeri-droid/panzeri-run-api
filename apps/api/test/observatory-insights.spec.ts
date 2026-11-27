@@ -150,11 +150,12 @@ describe('tipos de treino, "Relatar dor" a parte e volume das ultimas 10 semanas
   it('evolucao semanal: 12 semanas do periodo, dor por 100 treinos e Relatar dor por semana; semana de poucos participantes fica suprimida', () => {
     const total = ins.weekly.segments.find((x) => x.key === 'total')!.points;
     expect(total).toHaveLength(12);
-    expect(total[1]).toMatchObject({ week: '2026-08-10', trainings: 4, painTrainings: 2, painPer100: 50, levelPointsPer100: 75 }); // 2 corridas + musculacao moderada + fortalecimento leve
+    expect(total[1]).toMatchObject({ week: '2026-08-10', trainings: 4, painTrainings: 2, painPer100: 33.33, levelPointsPer100: 50 }); // contagens da semana 1 (2 corridas + musculacao moderada + fortalecimento leve); taxa ACUMULADA: 2 com dor em 6 treinos (2 corridas da semana 0 + 4)
     const musc = ins.weekly.segments.find((x) => x.key === 'musculacao')!.points;
     expect(musc[1]).toMatchObject({ trainings: 1, painPer100: 100 });
-    expect(musc[5]).toMatchObject({ trainings: null, suppressed: false }); // semana sem musculacao: lacuna, nao zero
-    expect(ins.weekly.relatar[1]).toMatchObject({ reports: 1, meanNote: 6, reportsPer100Trainings: 25 });
+    expect(musc[5]).toMatchObject({ trainings: 0, painPer100: 50 }); // semana sem musculacao: a taxa acumulada se mantem (1 com dor em 2), nao zera
+    expect(musc[9].painPer100).toBe(musc[8].painPer100); // sem treino novo, a taxa do historico nao muda
+    expect(ins.weekly.relatar[1]).toMatchObject({ reports: 1, meanNote: 6, reportsPer100Trainings: 16.67 }); // 1 relato / 6 treinos acumulados;
     expect(ins.weekly.relatar[0]).toMatchObject({ reports: 0, suppressed: false });
     const hidden = computeObservatory(facts, filters({ minParticipants: 2 })).insights!;
     expect(hidden.weekly.segments.find((x) => x.key === 'musculacao')!.points[1]).toMatchObject({ suppressed: true, painPer100: null });

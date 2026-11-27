@@ -183,7 +183,7 @@ export function PainDashboard({ ins }: { ins: DashInsights }) {
           ) : <Empty title="Sem dados" text="Poucas alunas nesta modalidade no período." />}
         </section>
         <section className="obwPanel">
-          <h4>Evolução semanal · {options.find((o) => o.key === sel)?.label}</h4>
+          <h4>Evolução (acumulada) · {options.find((o) => o.key === sel)?.label} <small>histórico desde o início do período</small></h4>
           <WeeklyChart weeks={weeks} area unit="" lines={[
             { key: 'taxa', label: 'Taxa de dor (por 100 treinos)', color, values: pointsOf(sel).map((p) => p.painPer100) },
             { key: 'pts', label: 'Pontos de intensidade (por 100)', color: '#e8a317', dashed: true, values: pointsOf(sel).map((p) => p.levelPointsPer100) },

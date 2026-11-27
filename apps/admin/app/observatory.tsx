@@ -542,7 +542,7 @@ function WeeklyCard({ title, subtitle, weeks, lines, unit, digits = 1 }: { title
 function WeeklyPainCharts({ w }: { w: WeeklySeries }) {
   const weeks = w.segments[0]?.points.map((p) => p.week) ?? [];
   const keys = ['corridas', 'musculacao', 'fortalecimento', 'extra_corrida', 'extra_geral'];
-  const sub = 'Semanas de segunda a domingo; o período é o do botão de datas.';
+  const sub = 'Taxa acumulada: histórico desde o início do período até cada semana (não zera de uma semana para outra).';
   return (
     <div className="obwGrid2">
       <WeeklyCard title="Evolução semanal · treinos com dor a cada 100 treinos" subtitle={sub} weeks={weeks} lines={weeklyLines(w, [...keys, 'total'], (p) => p.painPer100)} unit="/100 treinos" />
@@ -555,7 +555,7 @@ function WeeklyPainCharts({ w }: { w: WeeklySeries }) {
 }
 function WeeklyRelatarCharts({ w }: { w: WeeklySeries }) {
   const weeks = w.relatar.map((p) => p.week);
-  const sub = 'Relatar dor, à parte; semanas de segunda a domingo.';
+  const sub = 'Relatar dor, à parte. Contagem = da semana; taxas e nota média = acumuladas desde o início do período.';
   return (
     <div className="obwGrid2">
       <WeeklyCard title="Evolução semanal · relatos no Relatar dor" subtitle={sub} weeks={weeks} lines={[{ key: 'r', label: 'Relatos na semana', color: '#eb6834', values: w.relatar.map((p) => p.reports) }]} unit="relatos" digits={0} />

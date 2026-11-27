@@ -46,7 +46,7 @@ export interface CycleGroup {
   locations: Array<{ key: string; label: string; suppressed: boolean; cells: Record<PhaseId, CycleLocationCell | null> }>;
 }
 
-// Evolucao semanal (semanas de segunda a domingo dentro do periodo escolhido). Ponto com menos de `minParticipants` pessoas fica suprimido (lacuna, nunca zero).
+// Evolucao semanal (semanas de segunda a domingo dentro do periodo escolhido). Taxas e medias sao ACUMULADAS desde o inicio do periodo; contagens sao da semana. Ponto com menos de `minParticipants` pessoas fica suprimido (lacuna, nunca zero).
 export interface WeeklyPoint {
   week: string; weekNumber: number; suppressed: boolean;
   trainings: number | null; painTrainings: number | null; painPer100: number | null; levelPointsPer100: number | null; meanLevelAmongPain: number | null;
@@ -279,24 +279,30 @@ export function computeInsights(input: { facts: ObsFacts; scope: Set<string>; ru
     { key: 'corridas', label: 'Corrida (prescrita + extra)', pick: (t) => RUN_SEGMENTS.has(segmentOf(t)) },
     ...SEGMENT_IDS.map((id) => ({ key: id, label: SEGMENT_LABEL[id], pick: (t: ObsTraining) => segmentOf(t) === id })),
   ];
+  // As taxas e medias sao ACUMULADAS (historico desde o inicio do periodo ate' a semana): a taxa vai se ajustando, nao salta de uma semana para outra. Contagens (trainings, painTrainings, reports) sao da propria semana.
+  const cumulative = <T,>(buckets: T[][], i: number): T[] => buckets.slice(0, i + 1).flat();
   const weeklySegments = seriesDefs.map((def) => ({
     key: def.key, label: def.label,
     points: weekList.map((week, i): WeeklyPoint => {
-      const items = tBuckets[i].filter(def.pick);
+      const own = tBuckets[i].filter(def.pick);
+      const items = cumulative(tBuckets, i).filter(def.pick);
       const base = { week, weekNumber: i + 1 };
       if (items.length === 0 || people(items) < min) return { ...base, suppressed: items.length > 0, trainings: null, painTrainings: null, painPer100: null, levelPointsPer100: null, meanLevelAmongPain: null, km: null, painPer1000Km: null, levelPointsPer1000Km: null };
       const m = painLevelMetrics(items);
-      return { ...base, suppressed: false, trainings: m.trainings, painTrainings: m.painTrainings, painPer100: m.painPer100Trainings, levelPointsPer100: m.levelPointsPer100Trainings, meanLevelAmongPain: m.meanLevelAmongPain, km: round2(m.km), painPer1000Km: m.painPer1000Km, levelPointsPer1000Km: m.levelPointsPer1000Km };
+      const w = painLevelMetrics(own);
+      return { ...base, suppressed: false, trainings: w.trainings, painTrainings: w.painTrainings, painPer100: m.painPer100Trainings, levelPointsPer100: m.levelPointsPer100Trainings, meanLevelAmongPain: m.meanLevelAmongPain, km: round2(m.km), painPer1000Km: m.painPer1000Km, levelPointsPer1000Km: m.levelPointsPer1000Km };
     }),
   }));
   const weeklyRelatar = weekList.map((week, i): WeeklyRelatarPoint => {
-    const rs = rBuckets[i];
+    const own = rBuckets[i];
+    const rs = cumulative(rBuckets, i);
+    const ts = cumulative(tBuckets, i);
     const base = { week, weekNumber: i + 1 };
-    if (rs.length === 0) return { ...base, suppressed: false, reports: 0, meanNote: null, notePoints: 0, reportsPer100Trainings: per(0, tBuckets[i].length, 100), reportsPer1000Km: null, notePointsPer1000Km: null };
+    if (rs.length === 0) return { ...base, suppressed: false, reports: 0, meanNote: null, notePoints: 0, reportsPer100Trainings: per(0, ts.length, 100), reportsPer1000Km: null, notePointsPer1000Km: null };
     if (people(rs) < min) return { ...base, suppressed: true, reports: null, meanNote: null, notePoints: null, reportsPer100Trainings: null, reportsPer1000Km: null, notePointsPer1000Km: null };
     const rm = reportMetrics(rs);
-    const km = painLevelMetrics(tBuckets[i].filter((t) => RUN_SEGMENTS.has(segmentOf(t)))).km;
-    return { ...base, suppressed: false, reports: rs.length, meanNote: rm.meanIntensity, notePoints: rm.notePoints, reportsPer100Trainings: per(rs.length, tBuckets[i].length, 100), reportsPer1000Km: per(rs.length, km, 1000), notePointsPer1000Km: per(rm.notePoints, km, 1000) };
+    const km = painLevelMetrics(ts.filter((t) => RUN_SEGMENTS.has(segmentOf(t)))).km;
+    return { ...base, suppressed: false, reports: own.length, meanNote: rm.meanIntensity, notePoints: rm.notePoints, reportsPer100Trainings: per(rs.length, ts.length, 100), reportsPer1000Km: per(rs.length, km, 1000), notePointsPer1000Km: per(rm.notePoints, km, 1000) };
   });
 
   return {
