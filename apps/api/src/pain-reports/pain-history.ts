@@ -1,5 +1,6 @@
 import { activityLocalDate } from '../common/local-date';
 import { canonicalModality } from '../activity-execution/canonical-modality';
+import { effectivePainIntensity } from '../workout-completions/pain-scale';
 
 // Historico de dor POR TREINO para o grafico da aluna (02/11/2026). So' classifica o que ja' existe; nenhuma formula, media ou faixa.
 //
@@ -17,7 +18,7 @@ export interface PainHistorySessionRow {
   scheduledDate: Date;
   origin: string | null;
   hasActiveLink: boolean;
-  completion: { status: string | null; painFlag: string | null; painTiming: string | null } | null;
+  completion: { status: string | null; painFlag: string | null; painIntensity?: number | null; painTiming: string | null } | null;
 }
 
 export interface PainHistoryActivityRow {
@@ -33,6 +34,10 @@ export interface PainHistoryEntry {
   date: string;
   modality: string;
   level: PainLevel;
+  /** Nota de dor de 0 a 10 (escala unica de 28/11/2026): nota nativa 1-10, ou o nivel antigo convertido (leve 3, moderado 5, forte 8); sem dor = 0. */
+  intensity: number;
+  /** true = nota informada pela aluna na escala nova; false = dado antigo convertido (ou zero assumido). */
+  nativeScale: boolean;
   /** true = a aluna respondeu a dor deste treino; false = zero assumido (treino registrado, sem resposta). */
   answered: boolean;
   timing: string | null;
@@ -62,6 +67,8 @@ export function buildPainHistory(input: { sessions: PainHistorySessionRow[]; unl
       date: session.scheduledDate.toISOString().slice(0, 10),
       modality: session.modality ?? 'outra',
       level: (flag as PainLevel | null) ?? 'none',
+      intensity: effectivePainIntensity({ painFlag: flag, painIntensity: session.completion?.painIntensity }).value ?? 0,
+      nativeScale: session.completion?.painIntensity != null,
       answered: flag != null,
       timing: flag != null && flag !== 'none' ? session.completion?.painTiming ?? null : null,
       origin: originOf(session.origin),
@@ -74,6 +81,8 @@ export function buildPainHistory(input: { sessions: PainHistorySessionRow[]; unl
       date: activityLocalDate(activity.startedAt, activity.utcOffsetMinutes),
       modality: canonicalModality(activity.sport) ?? 'outra',
       level: 'none',
+      intensity: 0,
+      nativeScale: false,
       answered: false,
       timing: null,
       origin: 'relogio',

@@ -93,3 +93,12 @@ describe('PainReportsService.history', () => {
     expect(prisma.painReport.findMany.mock.calls[0][0].where.userId).toBe('aluno-1');
   });
 });
+
+describe('escala unica de dor 0-10 no historico (28/11/2026)', () => {
+  const row = (id: string, painFlag: string | null, painIntensity: number | null) => ({ id, modality: 'corrida', scheduledDate: new Date('2026-12-01T00:00:00Z'), origin: null, hasActiveLink: false, completion: { status: 'done', painFlag, painIntensity, painTiming: null } });
+  it('nota nova vale como esta; dado antigo e convertido (3/5/8); sem dor e zero; nativa so quando ha nota', () => {
+    const entries = buildPainHistory({ sessions: [row('a', 'forte', 7), row('b', 'leve', null), row('c', 'moderado', null), row('d', 'forte', null), row('e', 'none', null)], unlinkedActivities: [] });
+    const byId = Object.fromEntries(entries.map((e) => [e.id, [e.intensity, e.nativeScale]]));
+    expect(byId).toEqual({ a: [7, true], b: [3, false], c: [5, false], d: [8, false], e: [0, false] });
+  });
+});

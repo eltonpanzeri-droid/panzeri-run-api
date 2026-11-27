@@ -10,6 +10,7 @@ import { buildPhasedCycles, cycleLimitations, PHASE_IDS, PHASE_LABEL, type Phase
 import { buildOverviewSentences, bucketValuesByPhase, daysPerPhase, FORMAT_PACE, meanOf, statsByPhase, type ComparableMetric, type PhaseStat, type TimedValue } from './cycle-phase-report';
 import { WomanAgentService } from './woman-agent.service';
 import { MenstrualCycleService } from './menstrual-cycle.service';
+import { effectivePainIntensity } from '../workout-completions/pain-scale';
 import { AiDataEligibility } from '../ai-governance/ai-data-eligibility.service';
 import { currentAiScope, runWithAiScope } from '../ai-governance/ai-scope';
 
@@ -18,7 +19,8 @@ import { currentAiScope, runWithAiScope } from '../ai-governance/ai-scope';
 const SAO_PAULO_OFFSET_MS = -3 * 3_600_000;
 export const reportMonthKey = (now: Date) => new Date(now.getTime() + SAO_PAULO_OFFSET_MS).toISOString().slice(0, 7);
 const WINDOW_DAYS = 180;
-const PAIN_LEVEL: Record<string, number> = { none: 0, leve: 1, moderado: 2, forte: 3 };
+// Dor do treino na escala unica 0-10 (28/11/2026): nota nova, ou o nivel antigo convertido (leve 3, moderado 5, forte 8).
+const painScore = (c: { painFlag: string | null; painIntensity?: number | null }): number => effectivePainIntensity(c).value ?? 0;
 
 // Indicadores em destaque (os que Elton listou); o restante da Evolucao entra em "outros indicadores".
 const HIGHLIGHT_IDS = ['workout.perceivedEffort', 'activity.avgPaceSecondsKm', 'wearable.sleepScore', 'workout.preSleepQuality', 'wearable.sleepDurationMin', 'workout.sleepDurationHoursEstimate', 'wearable.bedtimeDeviationMin', 'workout.sleepScheduleIrregularity', 'wearable.sleepAwakeMin', 'workout.sleepInterruption'];
@@ -102,7 +104,7 @@ export class MenstrualReportService {
     const from = new Date(Math.max(since.getTime(), firstCycleStart.getTime()));
 
     const [completions, painReports] = await Promise.all([
-      this.prisma.workoutCompletion.findMany({ where: { userId, session: { scheduledDate: { gte: since, lte: now } } }, select: { status: true, distanceKm: true, painFlag: true, session: { select: { scheduledDate: true, modality: true } } } }),
+      this.prisma.workoutCompletion.findMany({ where: { userId, session: { scheduledDate: { gte: since, lte: now } } }, select: { status: true, distanceKm: true, painFlag: true, painIntensity: true, session: { select: { scheduledDate: true, modality: true } } } }),
       this.prisma.painReport.findMany({ where: { userId, createdAt: { gte: since, lte: now } }, select: { createdAt: true, intensity: true } }),
     ]);
 
@@ -129,7 +131,7 @@ export class MenstrualReportService {
     const doneBy = bucketValuesByPhase(completions.filter((c) => c.session && (c.status === 'done' || c.status === 'adjusted')).map((c) => ({ timestamp: c.session!.scheduledDate, value: 1 })), cycles, since);
     const missedBy = bucketValuesByPhase(completions.filter((c) => c.session && c.status === 'missed').map((c) => ({ timestamp: c.session!.scheduledDate, value: 1 })), cycles, since);
     const kmBy = bucketValuesByPhase(completions.filter((c) => c.session && (c.status === 'done' || c.status === 'adjusted') && isRunModality(c.session.modality) && (c.distanceKm ?? 0) > 0).map((c) => ({ timestamp: c.session!.scheduledDate, value: c.distanceKm as number })), cycles, since);
-    const painBy = bucketValuesByPhase(completions.filter((c) => c.session && c.painFlag && (PAIN_LEVEL[c.painFlag] ?? 0) > 0).map((c) => ({ timestamp: c.session!.scheduledDate, value: PAIN_LEVEL[c.painFlag as string] })), cycles, since);
+    const painBy = bucketValuesByPhase(completions.filter((c) => c.session && c.painFlag && painScore(c) > 0).map((c) => ({ timestamp: c.session!.scheduledDate, value: painScore(c) })), cycles, since);
     const standaloneBy = bucketValuesByPhase(painReports.map((r) => ({ timestamp: r.createdAt, value: r.intensity })), cycles, since);
     const days = daysPerPhase(cycles, from, now);
     const round1 = (value: number | null) => (value == null ? null : Math.round(value * 10) / 10);

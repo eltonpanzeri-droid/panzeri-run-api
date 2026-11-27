@@ -70,7 +70,7 @@ describe('pedido do relatorio mensal', () => {
     const payload = await service.buildPayload('u1', now);
     const follicular = payload.phases.find((phase) => phase.id === 'folicular')!;
     expect(follicular.workouts).toEqual({ done: 1, missed: 1, adherencePct: 50, km: 8 });
-    expect(follicular.pain).toMatchObject({ workoutsWithPain: 1, meanLevel: 1 });
+    expect(follicular.pain).toMatchObject({ workoutsWithPain: 1, meanLevel: 3 }); // 'leve' do feedback antigo vale 3 na escala unica 0-10 (28/11/2026)
     expect(payload.phases.find((phase) => phase.id === 'menstruacao')!.pain).toMatchObject({ standaloneReports: 1, standaloneMeanIntensity: 6 });
     expect(payload.limitations.join(' ')).toContain('padrão de 28 dias');
   });

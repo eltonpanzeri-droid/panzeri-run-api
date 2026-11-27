@@ -304,7 +304,7 @@ export const READING_CATALOG: IndicatorReading[] = [
   // ------------------------------------------------------------------ Dor (leitura por endpoint próprio; 0 = sem dor, treino sem feedback também vale 0)
   {
     variableId: 'pain.perWorkout', area: 'load', virtual: true, name: 'dor por treino', levelGoodWhen: 'low', trendGoodWhen: 'down',
-    scaleText: 'Nesse quesito (dor por treino, de 0 a 3), 0 significa sem dor, 1 dor leve, 2 dor moderada e 3 dor forte.',
+    scaleText: 'Nesse quesito (dor por treino, de 0 a 10), 0 significa sem dor, 1 dor muito leve e 10 dor extremamente forte. Até 30/11/2026 a dor era marcada como leve, moderada ou forte; essas respostas foram convertidas em 3, 5 e 8.',
     why: 'Dor é um dos sinais mais importantes que acompanhamos: dor que se repete ou aumenta pesa nas nossas decisões.',
     meaning: {
       good: 'Por esse parâmetro, você tem treinado sem dor ou com dor mínima, o que indica boa tolerância à carga.',

@@ -33,7 +33,7 @@ export function compactReportForAgent(payload: PhaseReportPayload) {
   const metric = (m: PhaseReportPayload['highlights'][number]) => ({ indicador: m.label, unidade: m.unit.trim() || null, porFase: Object.fromEntries(Object.entries(m.perPhase).filter(([, stat]) => stat.n > 0).map(([phase, stat]) => [phase, { media: stat.mean, registros: stat.n }])) });
   return {
     periodo: payload.window, ciclosRegistrados: payload.cyclesCount, limitacoes: payload.limitations,
-    fases: payload.phases.map((phase) => ({ fase: phase.label, diasObservados: phase.daysObserved, treinosFeitos: phase.workouts.done, treinosNaoFeitos: phase.workouts.missed, aderenciaPct: phase.workouts.adherencePct, km: phase.workouts.km, treinosComDor: phase.pain.workoutsWithPain, nivelMedioDorNosTreinos: phase.pain.meanLevel, relatosAvulsosDeDor: phase.pain.standaloneReports, intensidadeMediaRelatosAvulsos: phase.pain.standaloneMeanIntensity })),
+    fases: payload.phases.map((phase) => ({ fase: phase.label, diasObservados: phase.daysObserved, treinosFeitos: phase.workouts.done, treinosNaoFeitos: phase.workouts.missed, aderenciaPct: phase.workouts.adherencePct, km: phase.workouts.km, treinosComDor: phase.pain.workoutsWithPain, notaMediaDorNosTreinosDe1a10: phase.pain.meanLevel, relatosAvulsosDeDor: phase.pain.standaloneReports, intensidadeMediaRelatosAvulsos: phase.pain.standaloneMeanIntensity })),
     indicadoresEmDestaque: payload.highlights.map(metric),
     outrosIndicadores: payload.otherIndicators.slice(0, 25).map(metric),
     quadroGeralPorRegra: payload.quadroGeral,

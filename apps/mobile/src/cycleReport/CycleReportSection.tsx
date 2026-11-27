@@ -86,7 +86,7 @@ export function CycleReportSection({ accessToken, apiUrl }: { accessToken: strin
               <Text style={styles.hint}>{phase.daysObserved} dia(s) observados</Text>
               <Text style={styles.body}>Treinos feitos: {phase.workouts.done} · Não feitos: {phase.workouts.missed} · Aderência: {phase.workouts.adherencePct == null ? '—' : `${phase.workouts.adherencePct}%`}</Text>
               <Text style={styles.body}>Km rodados: {String(phase.workouts.km).replace('.', ',')}</Text>
-              <Text style={styles.body}>Treinos com dor: {phase.pain.workoutsWithPain}{phase.pain.meanLevel != null ? ` (nível médio ${String(phase.pain.meanLevel).replace('.', ',')} de 3)` : ''}</Text>
+              <Text style={styles.body}>Treinos com dor: {phase.pain.workoutsWithPain}{phase.pain.meanLevel != null ? ` (nota média ${String(phase.pain.meanLevel).replace('.', ',')} de 10)` : ''}</Text>
               <Text style={styles.body}>Relatos avulsos de dor: {phase.pain.standaloneReports}{phase.pain.standaloneMeanIntensity != null ? ` (intensidade média ${String(phase.pain.standaloneMeanIntensity).replace('.', ',')})` : ''}</Text>
               {report.highlights.map((metric) => (
                 <Text key={metric.id} style={styles.body}>{metric.label}: {metric.id === 'activity.avgPaceSecondsKm' ? paceText(metric.perPhase[phase.id]) : fmt(metric.perPhase[phase.id], metric.unit)}</Text>

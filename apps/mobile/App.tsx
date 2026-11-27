@@ -4286,11 +4286,10 @@ function Week({ accessToken, initialWeekOffset, onOpenInterview, onOpenTest, onO
     const pending = (plan?.sessions ?? []).filter((item) => !item.completion).map((item) => item.id);
     if (pending.length === 0) return;
     let cancelled = false;
-    void restoreCompletionDrafts<CompletionDraft>(pending).then((restored) => {
-      if (cancelled || Object.keys(restored).length === 0) return;
-      // Rascunho salvo antes de 28/11/2026 pode ter a dor na escala antiga (leve/moderado/forte): vira "Sim" com a nota convertida (3/5/8), que o aluno ainda confirma.
-      const migrated = Object.fromEntries(Object.entries(restored).map(([id, d]) => [id, d.painFlag === 'leve' || d.painFlag === 'moderado' || d.painFlag === 'forte' ? { ...d, painFlag: 'yes', painIntensity: d.painFlag === 'leve' ? '3' : d.painFlag === 'moderado' ? '5' : '8' } : { ...d, painIntensity: d.painIntensity ?? '' }])) as Record<string, CompletionDraft>;
-      setCompletionDrafts((current) => ({ ...migrated, ...current }));
+    void restoreCompletionDrafts<CompletionDraft>(pending).then((rawRestored) => {
+      if (cancelled || Object.keys(rawRestored).length === 0) return;
+      const restored = migratePainInDrafts(rawRestored);
+      setCompletionDrafts((current) => ({ ...restored, ...current }));
     });
     return () => { cancelled = true; };
   }, [plan]);
@@ -12393,6 +12392,11 @@ function StrengthExerciseList({
 
 function ExerciseMetric({ label, value }: { label: string; value: string }) {
   return <View style={styles.exerciseMetric}><Text style={styles.exerciseMetricLabel}>{label}</Text><Text style={styles.exerciseMetricValue}>{value}</Text></View>;
+}
+
+// Rascunho salvo antes de 28/11/2026 pode ter a dor na escala antiga (leve/moderado/forte): vira "Sim" com a nota convertida (3/5/8), que o aluno ainda confirma.
+function migratePainInDrafts(drafts: Record<string, CompletionDraft>): Record<string, CompletionDraft> {
+  return Object.fromEntries(Object.entries(drafts).map(([id, d]) => [id, d.painFlag === 'leve' || d.painFlag === 'moderado' || d.painFlag === 'forte' ? { ...d, painFlag: 'yes', painIntensity: d.painFlag === 'leve' ? '3' : d.painFlag === 'moderado' ? '5' : '8' } : { ...d, painIntensity: d.painIntensity ?? '' }]));
 }
 
 // Nota da dor (28/11/2026): roda de 1 a 10 em Modal (mesmo padrao do tempo/distancia). 1 = dor muito leve, 10 = dor extremamente forte. Sem valor inicial: o aluno precisa escolher e confirmar.

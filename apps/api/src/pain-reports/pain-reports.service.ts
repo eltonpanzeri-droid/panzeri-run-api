@@ -44,7 +44,7 @@ export class PainReportsService {
           modality: true,
           scheduledDate: true,
           origin: true,
-          completion: { select: { status: true, painFlag: true, painTiming: true } },
+          completion: { select: { status: true, painFlag: true, painIntensity: true, painTiming: true } },
           executionLinks: { where: { status: 'active' }, select: { id: true } },
         },
         orderBy: { scheduledDate: 'asc' },

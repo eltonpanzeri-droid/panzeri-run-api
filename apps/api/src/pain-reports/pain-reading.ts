@@ -4,7 +4,7 @@ import { buildIndicatorResult, type IndicatorResult } from '../training-intellig
 import type { PainHistoryEntry, PainLevel } from './pain-history';
 
 // Leitura por regra da DOR para os cinco botões sob os gráficos da área Dor (15/11/2026). Regra de Elton: todo treino registrado vale 0 de dor quando não houve relato — marcado como "sem dor"
-// ou sem feedback (ver pain-history.ts). Escala 0 a 3 (sem dor, leve, moderada, forte). Quem nunca relatou dor NÃO fica "sem dados": a leitura diz que não há dor.
+// ou sem feedback (ver pain-history.ts). Escala 0 a 10 (28/11/2026): sem dor = 0, nota de 1 (muito leve) a 10 (extremamente forte); o dado antigo leve/moderada/forte vale 3/5/8. Quem nunca relatou dor NÃO fica "sem dados": a leitura diz que não há dor.
 export const PAIN_LEVEL_VALUE: Record<PainLevel, number> = { none: 0, leve: 1, moderado: 2, forte: 3 };
 const SINCE = EVOLUTION_SINCE.getTime();
 
@@ -19,9 +19,9 @@ export function buildPainReading(variableId: string, history: PainHistoryInput, 
 
   if (variableId === 'pain.perWorkout') {
     const series: SeriesPoint[] = history.entries
-      .map((e) => ({ value: PAIN_LEVEL_VALUE[e.level], timestamp: new Date(`${e.date}T12:00:00Z`) }))
+      .map((e) => ({ value: e.intensity, timestamp: new Date(`${e.date}T12:00:00Z`) }))
       .filter((p) => p.timestamp.getTime() >= SINCE);
-    const result = buildIndicatorResult(entry, { variableId, scale: { min: 0, max: 3 }, expectedFrequency: 'per_workout' }, series, math, now);
+    const result = buildIndicatorResult(entry, { variableId, scale: { min: 0, max: 10 }, expectedFrequency: 'per_workout' }, series, math, now);
     const total = series.length;
     if (total > 0 && series.every((p) => p.value === 0)) {
       const noPain = `Você não relatou dor em nenhum dos ${total} ${plural(total, 'treino registrado', 'treinos registrados')} desde 01/08/2026. Treino marcado como sem dor, ou registrado sem feedback, vale zero: ${plural(total, 'ele aparece', 'eles aparecem')} no gráfico como sem dor.`;

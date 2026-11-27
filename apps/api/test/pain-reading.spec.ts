@@ -6,7 +6,7 @@ import type { PainHistoryEntry } from '../src/pain-reports/pain-history';
 // 15/11/2026 — dor: todo treino registrado sem relato de dor vale ZERO (marcado "sem dor" ou sem feedback). Quem nunca relatou dor não pode aparecer como "sem dados".
 const math = new MathLayerService();
 const now = new Date('2026-11-15T12:00:00Z');
-const entry = (day: number, level: PainHistoryEntry['level'], answered = true): PainHistoryEntry => ({ id: `s${day}`, date: new Date(Date.UTC(2026, 9, day)).toISOString().slice(0, 10), modality: 'corrida', level, answered, timing: null, origin: 'prescrita' });
+const entry = (day: number, level: PainHistoryEntry['level'], answered = true): PainHistoryEntry => ({ id: `s${day}`, date: new Date(Date.UTC(2026, 9, day)).toISOString().slice(0, 10), modality: 'corrida', level, intensity: ({ none: 0, leve: 3, moderado: 5, forte: 8 } as const)[level], nativeScale: false, answered, timing: null, origin: 'prescrita' });
 
 describe('leitura da dor por treino', () => {
   it('escala 0 a 3: sem dor = 0, leve = 1, moderada = 2, forte = 3', () => {

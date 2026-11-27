@@ -312,12 +312,12 @@ Object.assign(GUIDE_TEXT_OVERRIDES, {
 
 Object.assign(GUIDE_TEXT_OVERRIDES, {
   'pain.perWorkout': {
-    whatIs: ['Mostra a dor que você relatou em cada treino, numa escala de 0 a 3: 0 é sem dor, 1 é dor leve, 2 é moderada e 3 é forte. Todo treino registrado conta: se você marcou que não sentiu dor, vale 0; e treino registrado sem feedback também vale 0, porque não houve relato de dor.'],
+    whatIs: ['Mostra a dor que você relatou em cada treino, numa escala de 0 a 10: 0 é sem dor, 1 é dor muito leve e 10 é dor extremamente forte. Até 30/11/2026 a pergunta tinha só as opções leve, moderada e forte; para manter o seu histórico, essas respostas foram convertidas em 3, 5 e 8. A partir de 30/11 você informa a nota. Todo treino registrado conta: se você marcou que não sentiu dor, vale 0; e treino registrado sem feedback também vale 0, porque não houve relato de dor.'],
     howToRead: [
       'Dor é um dos sinais mais importantes que acompanhamos. Treinos sem dor em sequência indicam que o corpo está tolerando a carga. Dor que aparece, se repete, aumenta ou surge mais cedo no treino costuma estar ligada a uma carga acima do que o corpo suporta naquele momento, a pior desempenho e a maior risco de lesão.',
       'Olhamos o seu padrão de longo prazo, o de curto prazo e se a dor está aumentando.',
     ],
-    limitations: ['O treino registrado sem feedback entra como zero porque não houve relato, mas pode haver dor que não foi informada.', 'A dor é a sua percepção, e a escala tem poucos níveis (sem dor, leve, moderada e forte).', CONTEXT_LIMIT, NOT_ONLY],
+    limitations: ['O treino registrado sem feedback entra como zero porque não houve relato, mas pode haver dor que não foi informada.', 'A dor é a sua percepção, e as respostas anteriores a 30/11/2026 foram convertidas de leve, moderada e forte para 3, 5 e 8, então o histórico antigo é menos preciso que a nota nova.', CONTEXT_LIMIT, NOT_ONLY],
     howYouAre: 'standard',
     interpretation: {
       above: 'A dor vem aparecendo mais nos seus treinos. Se continua, aumenta o risco de lesão e pede que olhemos a carga e o que está doendo.',

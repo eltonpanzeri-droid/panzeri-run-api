@@ -116,7 +116,7 @@ export const INDICATOR_MEANINGS: Record<string, string> = {
 
   // ---------------------------------------------------------------- Dor
   'pain.perWorkout':
-    'Mostra a dor que você relatou em cada treino registrado. Dor é um dos sinais mais importantes para ajustarmos o programa: dor que se repete, aumenta ou aparece mais cedo no treino pesa nas nossas decisões. Treino registrado em que você não relatou dor aparece como sem dor, e por isso responder sobre dor em todo treino é fundamental.',
+    'Mostra a dor que você relatou em cada treino registrado, de 0 (sem dor) a 10 (extremamente forte). Até 30/11/2026 as opções eram leve, moderada e forte; essas respostas foram convertidas em 3, 5 e 8 para manter o histórico. Dor é um dos sinais mais importantes para ajustarmos o programa: dor que se repete, aumenta ou aparece mais cedo no treino pesa nas nossas decisões. Treino registrado em que você não relatou dor aparece como sem dor, e por isso responder sobre dor em todo treino é fundamental.',
   'pain.reports':
     'São os relatos que você fez em "Relatar dor", com região do corpo, intensidade de 1 a 10 e se a dor está piorando, estável ou melhorando. Dor que persiste, piora ou atrapalha o dia a dia é um sinal importante, e este acompanhamento não substitui a avaliação de um profissional de saúde. Se a dor for forte ou não melhorar, procure um profissional.',
 };

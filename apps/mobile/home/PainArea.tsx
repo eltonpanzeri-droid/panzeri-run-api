@@ -18,6 +18,8 @@ interface PainEntry {
   date: string;
   modality: string;
   level: Level;
+  intensity: number; // nota de dor 0-10 (28/11/2026); dado antigo vem convertido: leve 3, moderado 5, forte 8
+  nativeScale?: boolean; // true = nota informada na escala nova
   answered: boolean;
   timing: string | null;
   origin: 'prescrita' | 'extra' | 'relogio';
@@ -88,7 +90,7 @@ function PainChart({ entries, colorOf }: { entries: PainEntry[]; colorOf: (modal
   const plotW = Math.max(width - M.left - M.right, 10);
   const plotH = HEIGHT - M.top - M.bottom;
   const sx = (day: number) => M.left + ((day - layout.xMin) / (layout.xMax - layout.xMin)) * plotW;
-  const sy = (level: Level) => M.top + (1 - LEVEL_Y[level] / 3) * plotH;
+  const sy = (intensity: number) => M.top + (1 - intensity / 10) * plotH;
   const px = (e: PainEntry) => sx(dayFromIso(e.date)) + (layout.offsets.get(e.id) ?? 0);
 
   const selected = entries.find((e) => e.id === selectedId) ?? null;
@@ -106,7 +108,8 @@ function PainChart({ entries, colorOf }: { entries: PainEntry[]; colorOf: (modal
 
   return (
     <View style={{ gap: 6 }}>
-      <Text style={styles.hint}>Toque no gráfico para ver cada treino</Text>
+      <Text style={styles.hint}>Toque no gráfico para ver cada treino. A dor vai de 0 (sem dor) a 10 (extremamente forte).</Text>
+      <Text style={styles.hint}>Até 30/11/2026 a pergunta tinha só as opções leve, moderada e forte; para não perder o seu histórico, essas respostas foram convertidas em 3, 5 e 8. A partir de 30/11 você informa uma nota de 1 a 10. Por isso os treinos antigos aparecem em apenas três alturas.</Text>
       <View
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
         onStartShouldSetResponder={() => true}
@@ -115,10 +118,10 @@ function PainChart({ entries, colorOf }: { entries: PainEntry[]; colorOf: (modal
         onResponderMove={(e) => onTouch(e.nativeEvent.locationX)}
       >
         <Svg width={width} height={HEIGHT}>
-          {LEVEL_ORDER.map((level) => (
-            <React.Fragment key={level}>
-              <Line x1={M.left} x2={M.left + plotW} y1={sy(level)} y2={sy(level)} stroke={level === 'none' ? '#94A3B8' : HomeColors.divider} strokeWidth={level === 'none' ? 1.5 : 1} />
-              <SvgText x={M.left - 6} y={sy(level) + 3} fontSize={10} fill={HomeColors.textTertiary} textAnchor="end">{LEVEL_LABEL[level]}</SvgText>
+          {[0, 2, 4, 6, 8, 10].map((tick) => (
+            <React.Fragment key={tick}>
+              <Line x1={M.left} x2={M.left + plotW} y1={sy(tick)} y2={sy(tick)} stroke={tick === 0 ? '#94A3B8' : HomeColors.divider} strokeWidth={tick === 0 ? 1.5 : 1} />
+              <SvgText x={M.left - 6} y={sy(tick) + 3} fontSize={10} fill={HomeColors.textTertiary} textAnchor="end">{tick === 0 ? '0 sem dor' : String(tick)}</SvgText>
             </React.Fragment>
           ))}
           {xTicks.map((t) => (
@@ -127,15 +130,15 @@ function PainChart({ entries, colorOf }: { entries: PainEntry[]; colorOf: (modal
           {entries.map((e) => {
             const color = colorOf(e.modality);
             return e.answered
-              ? <Circle key={e.id} cx={px(e)} cy={sy(e.level)} r={4.5} fill={color} />
-              : <Circle key={e.id} cx={px(e)} cy={sy(e.level)} r={4.5} fill="#fff" stroke={color} strokeWidth={1.6} />;
+              ? <Circle key={e.id} cx={px(e)} cy={sy(e.intensity)} r={4.5} fill={color} />
+              : <Circle key={e.id} cx={px(e)} cy={sy(e.intensity)} r={4.5} fill="#fff" stroke={color} strokeWidth={1.6} />;
           })}
-          {selected ? <Circle cx={px(selected)} cy={sy(selected.level)} r={8} fill="none" stroke="#0F172A" strokeWidth={1.2} opacity={0.6} /> : null}
+          {selected ? <Circle cx={px(selected)} cy={sy(selected.intensity)} r={8} fill="none" stroke="#0F172A" strokeWidth={1.2} opacity={0.6} /> : null}
         </Svg>
       </View>
       {selected ? (
         <Text style={styles.selected}>
-          {formatDayLong(dayFromIso(selected.date))} · {modalityName(selected.modality)} · dor {LEVEL_LABEL[selected.level].toLowerCase()}
+          {formatDayLong(dayFromIso(selected.date))} · {modalityName(selected.modality)} · {selected.intensity === 0 ? 'sem dor' : `dor ${selected.intensity}/10`}{selected.intensity > 0 && !selected.nativeScale ? ' (resposta antiga: convertida)' : ''}
           {selected.timing && TIMING_LABEL[selected.timing] ? ` (${TIMING_LABEL[selected.timing]})` : ''}
           {selected.answered ? '' : ' · sem resposta sobre dor: considerado zero'}
         </Text>
