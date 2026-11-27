@@ -11,6 +11,7 @@ import { canonicalModality } from '../activity-execution/canonical-modality';
 import type { AnalysisCorrectionRecord } from '../activity-execution/analysis-validity';
 import { readPending } from '../activity-execution/pending-reevaluation';
 import { sleepDurationHoursEstimate } from '../workout-completions/workout-completions.service';
+import { normalizePain } from '../workout-completions/pain-scale';
 import { runnerStrengthExercises } from './runner-strength-library';
 import { gymExerciseLibrary } from './gym-exercise-library';
 import {
@@ -2832,6 +2833,7 @@ O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo p
       postWorkoutFeeling?: number | null;
       postWorkoutMood?: number | null;
       painFlag?: string | null;
+      painIntensity?: number | null;
       painTiming?: string | null;
       // Feedback v2 (24/09/2026)
       sleepDurationCategory?: string | null;
@@ -2899,6 +2901,9 @@ O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo p
     // completedAt em UTC ao meio-dia para evitar deslocamento de fuso: meia-noite UTC = 21h BRT
     // do dia anterior, o que faria isoDateToInputValue() exibir a data errada no app.
     const completedAtNoon = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    // Escala unica de dor (28/11/2026): nota 1-10 deriva o painFlag; cliente antigo manda so o painFlag.
+    const manualPain = normalizePain(input);
+    if (manualPain.error) throw new BadRequestException(manualPain.error);
     const extraCompletion = await this.prisma.workoutCompletion.create({
       data: {
         sessionId: session.id,
@@ -2916,7 +2921,8 @@ O treino NAO foi atualizado — verifique a chave da IA e tente novamente pelo p
         satisfactionElaboracao: input.satisfactionElaboracao ?? null,
         satisfactionCapacidade: input.satisfactionCapacidade ?? null,
         postWorkoutFeeling: input.postWorkoutFeeling ?? null,
-        painFlag: input.painFlag ?? null,
+        painFlag: manualPain.painFlag,
+        painIntensity: manualPain.painIntensity,
         painTiming: input.painTiming ?? null,
         sleepDurationCategory: input.sleepDurationCategory ?? null,
         sleepDurationHoursEstimate: sleepDurationHoursEstimate(input.sleepDurationCategory ?? undefined) ?? null,

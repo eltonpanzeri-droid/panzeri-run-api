@@ -17,6 +17,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { isRunModality } from '../activity-execution/canonical-modality';
 import { formatPaceText, isImpossiblePace, paceFromEntry } from '../training-intelligence/pace-plausibility';
 import { doneDateLabel, painLine, prescribedDateLabel, trainingNumberLabel } from './feedback-telegram-lines';
+import { normalizePain } from './pain-scale';
 
 @Injectable()
 export class WorkoutCompletionsService {
@@ -172,6 +173,11 @@ export class WorkoutCompletionsService {
         ((!isAlternativeSession && !dto.satisfactionElaboracao) || (!isV2Client && !dto.satisfactionCapacidade) || (isV1Client && !isV2Client && !dto.postWorkoutFeeling))) {
       throw new BadRequestException('Preencha todas as perguntas do bloco "Como foi o treino".');
     }
+    // Escala unica de dor (28/11/2026): a nota 1-10 vale como resposta e DERIVA o painFlag (cliente antigo manda so o painFlag).
+    const normalizedPain = normalizePain(dto);
+    if (normalizedPain.error) throw new BadRequestException(normalizedPain.error);
+    dto.painFlag = normalizedPain.painFlag ?? undefined;
+    const painIntensityToSave = normalizedPain.painFlag == null ? undefined : normalizedPain.painIntensity;
     if ((dto.status === 'done' || dto.status === 'adjusted') && !dto.painFlag) {
       throw new BadRequestException('Informe se sentiu dor ou desconforto no treino.');
     }
@@ -213,6 +219,7 @@ export class WorkoutCompletionsService {
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
+        painIntensity: painIntensityToSave,
         preSleepQuality: dto.preSleepQuality,
         prePhysicalFatigue: dto.prePhysicalFatigue,
         preStressLevel: dto.preStressLevel,
@@ -254,6 +261,7 @@ export class WorkoutCompletionsService {
         satisfactionCapacidade: dto.satisfactionCapacidade,
         satisfactionCarga: dto.satisfactionCarga,
         painFlag: dto.painFlag,
+        painIntensity: painIntensityToSave,
         preSleepQuality: dto.preSleepQuality,
         prePhysicalFatigue: dto.prePhysicalFatigue,
         preStressLevel: dto.preStressLevel,
@@ -393,7 +401,7 @@ export class WorkoutCompletionsService {
           if (report) todayReport = { intensity: report.intensity, regions: report.regions };
         } catch { /* sem o relato detalhado, segue so com a marcacao do feedback */ }
       }
-      posLines.push(painLine({ painFlag: dto.painFlag, timingLabel: dto.painTiming ? painTimingLabel(dto.painTiming) : null, todayReport }));
+      posLines.push(painLine({ painFlag: dto.painFlag, painIntensity: normalizedPain.painIntensity, timingLabel: dto.painTiming ? painTimingLabel(dto.painTiming) : null, todayReport }));
 
       // Numero do treino no programa (posicao por data) e codigo do programa. Best-effort.
       let trainingNumber = trainingNumberLabel(null, 0, null);
@@ -488,7 +496,7 @@ export class WorkoutCompletionsService {
       dto.emotionalExperienceDuring ? `Experiencia emocional durante o treino: ${dto.emotionalExperienceDuring}/5 (5=muito bem).` : '',
       dto.mentalStateChangePrePost ? `Mudanca no estado mental (comparando antes e depois do treino): ${dto.mentalStateChangePrePost}/5 (5=muito melhor que antes).` : '',
       // Dor
-      dto.painFlag && dto.painFlag !== 'none' ? `Dor/desconforto: ${painFlagLabel(dto.painFlag)}.` : '',
+      dto.painFlag && dto.painFlag !== 'none' ? `Dor/desconforto: ${painIntensityText(dto.painFlag, normalizedPain.painIntensity)}.` : '',
       dto.painTiming ? `Timing da dor: ${painTimingLabel(dto.painTiming)}.` : '',
       // Historico (pre-v1)
       dto.satisfaction ? `Satisfacao em fazer o treino: ${satisfactionLabel(dto.satisfaction)}.` : '',
@@ -526,7 +534,7 @@ export class WorkoutCompletionsService {
           dto.executionVsPrescribed ? `Execucao vs. prescrito: ${executionVsPrescribedLabel(dto.executionVsPrescribed)}.` :
           dto.satisfactionCapacidade ? `Execucao: ${satisfactionLabel(dto.satisfactionCapacidade)}.` : '',
         dto.postPhysicalFatigue ? `Cansaco fisico provocado: ${dto.postPhysicalFatigue}/5.` : dto.postWorkoutFeeling ? `Sensacao final: ${dto.postWorkoutFeeling}/5.` : '',
-        dto.painFlag && dto.painFlag !== 'none' ? `Dor: ${painFlagLabel(dto.painFlag)}${dto.painTiming ? ` (${painTimingLabel(dto.painTiming)})` : ''}.` : '',
+        dto.painFlag && dto.painFlag !== 'none' ? `Dor: ${painIntensityText(dto.painFlag, normalizedPain.painIntensity)}${dto.painTiming ? ` (${painTimingLabel(dto.painTiming)})` : ''}.` : '',
         missedReasons.length ? `Motivo(s) da falta: ${missedReasons.map(missedReasonLabel).join(', ')}.` : '',
         missedComment.trim() ? `Comentario do aluno: ${missedComment.trim()}` : '',
         dto.notes?.trim() ? `Feedback: ${dto.notes.trim()}` : 'Sem comentario.',
@@ -803,6 +811,11 @@ export const CARGA_SCORE: Record<string, number> = {
   pesada: 1,
   muito_pesada: 2,
 };
+
+// Texto da dor para a IA/Telegram: nota 1-10 (escala nova) ou o rotulo antigo.
+export function painIntensityText(flag: string, intensity: number | null | undefined): string {
+  return intensity != null ? `nota ${intensity} de 10 (1 = muito leve, 10 = extremamente forte)` : painFlagLabel(flag);
+}
 
 export function painFlagLabel(value: string) {
   const labels: Record<string, string> = {

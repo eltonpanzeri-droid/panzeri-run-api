@@ -15,10 +15,10 @@ export function trainingNumberLabel(position: number | null, total: number, plan
 const PAIN_LABEL: Record<string, string> = { none: 'Nenhuma', leve: 'Leve', moderado: 'Moderado', forte: 'Forte' };
 
 // Dor do treino. Marcou "sem dor" (none) => "sem dor", nunca omitido; nao respondeu => diz que nao respondeu (nunca presume). Com dor, junta o relato detalhado de HOJE (0 a 10), se houver.
-export function painLine(input: { painFlag?: string | null; timingLabel?: string | null; todayReport?: { intensity: number; regions: string[] } | null }): string {
+export function painLine(input: { painFlag?: string | null; painIntensity?: number | null; timingLabel?: string | null; todayReport?: { intensity: number; regions: string[] } | null }): string {
   if (!input.painFlag) return '🩹 Dor durante o treino: não respondida';
   if (input.painFlag === 'none') return '🩹 Dor durante o treino: sem dor';
-  const base = `🩹 Dor durante o treino: ${PAIN_LABEL[input.painFlag] ?? input.painFlag}${input.timingLabel ? ` — ${input.timingLabel}` : ''}`;
+  const base = `🩹 Dor durante o treino: ${input.painIntensity != null ? `nota ${input.painIntensity}/10` : PAIN_LABEL[input.painFlag] ?? input.painFlag}${input.timingLabel ? ` — ${input.timingLabel}` : ''}`;
   const report = input.todayReport;
   return report ? `${base} | relato de dor de hoje: ${report.intensity}/10${report.regions.length ? ` (${report.regions.join(', ')})` : ''}` : base;
 }

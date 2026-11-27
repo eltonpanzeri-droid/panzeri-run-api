@@ -100,6 +100,7 @@ export class TrainingPlansController {
       postWorkoutFeeling?: number | null;
       postWorkoutMood?: number | null;
       painFlag?: string | null;
+      painIntensity?: number | null;
       painTiming?: string | null;
       // Feedback v2 (24/09/2026) — mesmo questionario reestruturado usado no feedback de sessao
       // normal (ver upsert-workout-completion.dto.ts pra semantica completa de cada campo).

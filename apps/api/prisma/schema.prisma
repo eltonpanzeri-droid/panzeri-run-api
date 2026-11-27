@@ -792,7 +792,8 @@ model WorkoutCompletion {
   satisfactionCapacidade String? // dimensao 3: satisfacao com COMO CONSEGUIU fazer (v1: obrigatoria a partir de 11/09)
   satisfactionCarga      String? // dimensao 4 historica: carga adequada? — coletada ate 10/09/2026; nao mais coletada na v1
 
-  painFlag String? // none | leve | moderado | forte ('moderado' adicionado na v1)
+  painFlag String? // none | leve | moderado | forte ('moderado' adicionado na v1). A partir de 28/11/2026 e' DERIVADO de painIntensity quando ela existe.
+  painIntensity Int? // 28/11/2026: nota de dor 1 (muito leve) a 10 (extremamente forte); vazio no dado antigo (ler com effectivePainIntensity: leve 3, moderado 5, forte 8)
 
   // Feedback v1 (11/09/2026) — bloco 1: estado pre-treino
   // 1=extremo negativo, 5=extremo positivo (ver labels em App.tsx/prescription-agent para cada variavel)

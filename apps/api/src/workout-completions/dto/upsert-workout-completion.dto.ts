@@ -110,6 +110,13 @@ export class UpsertWorkoutCompletionDto {
   @IsIn(['none', 'leve', 'moderado', 'forte'])
   painFlag?: string;
 
+  // 28/11/2026: escala unica de dor. 1 = dor muito leve, 10 = dor extremamente forte. Quem nao sentiu dor manda painFlag='none'.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  painIntensity?: number;
+
   // Feedback v1 (11/09/2026) — bloco 1: estado pre-treino. Escala 1-5.
   @IsOptional()
   @IsInt()
