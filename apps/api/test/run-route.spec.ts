@@ -1,4 +1,4 @@
-import { boundsOf, cardStats, formatDurationSec, projectToBox, replayPosition, routeFromRecording, type RouteData, type RoutePoint } from '../../mobile/src/run/route';
+import { boundsOf, cardStats, cumulativeDistances, formatDurationSec, projectToBox, replayPosition, replayStats, routeFromRecording, type RouteData, type RoutePoint } from '../../mobile/src/run/route';
 import { applyPoints, finishRun, startRun } from '../../mobile/src/run/engine';
 import type { TrackPoint } from '../../mobile/src/run/activity';
 
@@ -80,5 +80,39 @@ describe('desenho do percurso sem mapa', () => {
     const one = projectToBox([{ lat: -19.9, lon: -43.9 }], 100, 100);
     expect(one).toHaveLength(1);
     expect(Number.isFinite(one[0].x)).toBe(true);
+  });
+});
+
+describe('relogio do replay (28/11/2026): tempo, distancia, ritmo e frequencia cardiaca acompanham o trajeto', () => {
+  // 10 pontos, 1 a cada 30 s, 100 m por ponto (= 3:00/km a 5 min/km? 100 m em 30 s = 5:00/km); FC sobe de 120 a 165
+  const pts: RoutePoint[] = Array.from({ length: 10 }, (_, i) => ({ t: i * 30, lat: -19.9 + i * 0.0009, lon: -43.9, alt: null, hr: 120 + i * 5, d: i * 100 }));
+  const route = base({ distanceKm: 0.9, durationSec: 270, points: pts });
+  it('comeca zerado e termina exatamente na distancia e no tempo do cartao', () => {
+    expect(replayStats(route, 0)).toMatchObject({ elapsedSec: 0, distanceKm: 0, paceSecondsKm: null });
+    expect(replayStats(route, 1)).toMatchObject({ elapsedSec: 270, distanceKm: 0.9 });
+  });
+  it('no meio: distancia e tempo proporcionais, ritmo do momento 5:00/km e a FC do ponto mais proximo', () => {
+    const mid = replayStats(route, 0.5);
+    expect(mid.elapsedSec).toBe(135);
+    expect(mid.distanceKm).toBeCloseTo(0.45, 2);
+    expect(mid.paceSecondsKm).toBe(300);
+    expect(mid.heartRate).toBe(140); // t = 135 s, ponto mais perto: t = 120 (hr 140)... ou 150 (hr 145): 15 s de cada lado, vence o primeiro
+  });
+  it('sem FC no relogio fica null ("--"), nunca zero; FC de ponto distante (>15 s) nao vale', () => {
+    const noHr = base({ distanceKm: 0.9, durationSec: 270, points: pts.map((p) => ({ ...p, hr: null })) });
+    expect(replayStats(noHr, 0.5).heartRate).toBeNull();
+    const sparse = base({ distanceKm: 0.9, durationSec: 270, points: pts.map((p, i) => ({ ...p, hr: i === 0 ? 120 : null })) });
+    expect(replayStats(sparse, 0.9).heartRate).toBeNull();
+  });
+  it('sem distancia do relogio usa as coordenadas e ajusta o total para a distancia do cartao; ponto parado nao inventa ritmo', () => {
+    const noD = base({ distanceKm: 1.0, durationSec: 270, points: pts.map((p) => ({ ...p, d: null })) });
+    const cum = cumulativeDistances(noD);
+    expect(cum[0]).toBe(0);
+    expect(cum[cum.length - 1]).toBeCloseTo(1000, 3);
+    const still = base({ distanceKm: 0.9, durationSec: 270, points: pts.map((p) => ({ ...p, lat: -19.9, d: 0 })) });
+    expect(replayStats(still, 0.5).paceSecondsKm).toBeNull();
+  });
+  it('percurso com menos de 2 pontos nao quebra', () => {
+    expect(replayStats(base({ points: [] }), 0.5)).toEqual({ elapsedSec: 0, distanceKm: null, paceSecondsKm: null, heartRate: null });
   });
 });

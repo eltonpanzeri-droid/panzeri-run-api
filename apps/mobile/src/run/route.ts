@@ -2,7 +2,8 @@
 // recem-gravado no celular. O percurso mostra EXATAMENTE de onde a aluna saiu ate onde chegou (decisao de Elton): nenhum trecho e' escondido ou aparado.
 import { RecordedPoint, RunState, timerMs } from './engine';
 
-export type RoutePoint = { t: number; lat: number; lon: number; alt: number | null };
+// hr (bpm) e d (distancia acumulada, m) so' existem quando o relogio mandou; ausentes = "--" no replay.
+export type RoutePoint = { t: number; lat: number; lon: number; alt: number | null; hr?: number | null; d?: number | null };
 export type RouteData = {
   activityLogId: string | null;
   provider: string;
@@ -77,6 +78,58 @@ export function replayPosition(points: RoutePoint[], fraction: number): { lat: n
   }
   const last = points[points.length - 1];
   return { lat: last.lat, lon: last.lon, index: points.length - 1 };
+}
+
+// Relogio do replay (28/11/2026, Elton): em cada instante do replay, o tempo decorrido, a distancia percorrida, o ritmo do momento (ultimos 30 s) e a frequencia cardiaca. Tudo vem dos pontos do treino; o que
+// o relogio nao mandou fica null ("--"), nunca inventado. A distancia acaba exatamente na distancia do cartao.
+export type ReplayStats = { elapsedSec: number; distanceKm: number | null; paceSecondsKm: number | null; heartRate: number | null };
+const EARTH_M = 6_371_000;
+const haversine = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number => {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad; const dLon = (b.lon - a.lon) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_M * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+// Distancia acumulada (m) de cada ponto: a do relogio (d) quando todos os pontos a tem; senao soma das coordenadas. Ajustada para terminar na distancia do cartao.
+export function cumulativeDistances(route: Pick<RouteData, 'points' | 'distanceKm'>): number[] {
+  const pts = route.points;
+  const fromDevice = pts.length > 1 && pts.every((p) => typeof p.d === 'number');
+  const cum: number[] = [];
+  for (let i = 0; i < pts.length; i += 1) {
+    const raw = fromDevice ? (pts[i].d as number) : (i === 0 ? 0 : cum[i - 1] + haversine(pts[i - 1], pts[i]));
+    cum.push(i === 0 ? (fromDevice ? Math.max(0, raw) : 0) : Math.max(cum[i - 1], raw));
+  }
+  const total = cum[cum.length - 1] ?? 0;
+  if (route.distanceKm != null && route.distanceKm > 0 && total > 0) { const factor = (route.distanceKm * 1000) / total; return cum.map((m) => m * factor); }
+  return cum;
+}
+function distanceAt(points: RoutePoint[], cum: number[], target: number): number {
+  if (target <= points[0].t) return cum[0];
+  for (let i = 1; i < points.length; i += 1) {
+    if (target > points[i].t) continue;
+    const span = points[i].t - points[i - 1].t;
+    return span <= 0 ? cum[i] : cum[i - 1] + ((target - points[i - 1].t) / span) * (cum[i] - cum[i - 1]);
+  }
+  return cum[cum.length - 1];
+}
+export function replayStats(route: RouteData, fraction: number): ReplayStats {
+  const pts = route.points;
+  const empty: ReplayStats = { elapsedSec: 0, distanceKm: null, paceSecondsKm: null, heartRate: null };
+  if (pts.length < 2) return empty;
+  const f = Math.min(1, Math.max(0, fraction));
+  const start = pts[0].t;
+  const total = pts[pts.length - 1].t - start;
+  if (total <= 0) return empty;
+  const target = start + f * total;
+  const cum = cumulativeDistances(route);
+  const meters = distanceAt(pts, cum, target);
+  const windowStart = Math.max(start, target - 30);
+  const windowMeters = meters - distanceAt(pts, cum, windowStart);
+  const windowSec = target - windowStart;
+  const pace = windowSec >= 10 && windowMeters >= 20 ? Math.round(windowSec / (windowMeters / 1000)) : null;
+  let heartRate: number | null = null; let best = Infinity;
+  for (const p of pts) { if (typeof p.hr !== 'number') continue; const gap = Math.abs(p.t - target); if (gap <= 15 && gap < best) { best = gap; heartRate = p.hr; } }
+  return { elapsedSec: f * (route.durationSec ?? total), distanceKm: meters / 1000, paceSecondsKm: pace, heartRate };
 }
 
 // Percurso do treino recem-gravado no Panzeri Run (ainda no celular), no mesmo formato do que o servidor devolve.

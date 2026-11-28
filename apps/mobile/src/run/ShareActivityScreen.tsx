@@ -4,7 +4,8 @@ import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { Text } from '../PtText';
 import { RouteMap, ROUTE_COLOR } from './RouteMap';
-import { RouteData, cardStats, replayPosition } from './route';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { RouteData, cardStats, formatDurationSec, replayPosition, replayStats } from './route';
 
 // Cartao de compartilhamento e replay do trajeto (21/11/2026, Elton): qualquer treino com percurso (gravado no Panzeri Run ou vindo de um relogio) vira um cartao com a marca do Panzeri Run para a aluna
 // postar onde quiser. O mapa mostra o percurso do inicio ao fim, exatamente como foi (nenhum trecho e' escondido). Credito do fabricante so' onde ele exige (Garmin: "Garmin [modelo]"; Polar), em toda imagem.
@@ -30,7 +31,14 @@ export function ShareActivityScreen({ apiUrl, accessToken, source, onClose }: { 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const cardRef = useRef<View>(null);
+  const insets = useSafeAreaInsets();
 
+  // Garantia (28/11/2026): se o mapa nativo nao avisar que terminou de carregar (o aviso falhou no iPhone), o botao Compartilhar libera sozinho depois de alguns segundos em vez de ficar "Carregando" para sempre.
+  useEffect(() => {
+    if (!route || route.points.length < 2) return undefined;
+    const timer = setTimeout(() => setMapReady(true), 5000);
+    return () => clearTimeout(timer);
+  }, [route]);
   useEffect(() => { void Sharing.isAvailableAsync().then(setCanShare).catch(() => setCanShare(false)); }, []);
   useEffect(() => {
     if (source.route || !source.activityLogId) return undefined;
@@ -67,11 +75,11 @@ export function ShareActivityScreen({ apiUrl, accessToken, source, onClose }: { 
       </View>
     );
   }
-  if (mode === 'replay') return <Replay route={route} onClose={() => setMode('card')} />;
+  if (mode === 'replay') return <Replay route={route} onClose={() => setMode('card')} top={insets.top} />;
 
   const ready = variant === 'clear' || mapReady;
   return (
-    <ScrollView style={styles.page} contentContainerStyle={styles.pageContent}>
+    <ScrollView style={styles.page} contentContainerStyle={[styles.pageContent, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}>
       <View style={styles.row}>
         <Pressable style={[styles.chip, variant === 'map' && styles.chipOn]} onPress={() => setVariant('map')}><Text style={[styles.chipText, variant === 'map' && styles.chipTextOn]}>COM FUNDO</Text></Pressable>
         <Pressable style={[styles.chip, variant === 'clear' && styles.chipOn]} onPress={() => setVariant('clear')}><Text style={[styles.chipText, variant === 'clear' && styles.chipTextOn]}>SEM FUNDO</Text></Pressable>
@@ -120,7 +128,7 @@ const ShareCard = React.forwardRef<View, { route: RouteData; variant: Variant; o
 });
 
 // Replay: o trajeto se desenha do inicio ao fim em 15 ou 30 segundos, com a posicao andando. A aluna grava a tela para postar como video. O credito do fabricante fica sempre visivel.
-function Replay({ route, onClose }: { route: RouteData; onClose: () => void }) {
+function Replay({ route, onClose, top }: { route: RouteData; onClose: () => void; top: number }) {
   const [seconds, setSeconds] = useState<15 | 30>(15);
   const [fraction, setFraction] = useState(0);
   const [running, setRunning] = useState(false);
@@ -139,8 +147,14 @@ function Replay({ route, onClose }: { route: RouteData; onClose: () => void }) {
   }, [running, seconds]);
 
   const position = replayPosition(route.points, fraction);
+  // Relogio ao vivo: enquanto o replay anda, tempo, distancia, ritmo do momento e frequencia cardiaca acompanham a posicao no trajeto. Parado no inicio ou no fim, mostra o resumo do treino.
+  const live = replayStats(route, fraction);
+  const showLive = fraction > 0 && fraction < 1;
+  const paceText = (sec: number | null) => (sec == null ? '--' : `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}/km`);
+  const hrValues = route.points.filter((p) => typeof p.hr === 'number').map((p) => p.hr as number);
+  const avgHr = hrValues.length > 0 ? Math.round(hrValues.reduce((x, y) => x + y, 0) / hrValues.length) : null;
   return (
-    <View style={styles.replay}>
+    <View style={[styles.replay, { paddingTop: top + 12 }]}>
       <View style={styles.cardHead}>
         <View style={styles.brand}>
           <Image source={require('../../assets/brand/icon-ios.png')} style={styles.logo} />
@@ -148,12 +162,12 @@ function Replay({ route, onClose }: { route: RouteData; onClose: () => void }) {
         </View>
         <Text style={styles.cardDate}>{stats.date}</Text>
       </View>
-      <Text style={styles.bigNumber}>{stats.distance}<Text style={styles.bigUnit}> km</Text></Text>
+      <Text style={[styles.bigNumber, styles.tabular]}>{showLive ? (live.distanceKm ?? 0).toFixed(2).replace('.', ',') : stats.distance}<Text style={styles.bigUnit}> km</Text></Text>
       <RouteMap points={route.points} height={420} upTo={fraction} marker={position && fraction > 0 && fraction < 1 ? { lat: position.lat, lon: position.lon } : null} />
       <View style={styles.stats}>
-        <View><Text style={styles.statValue}>{stats.time}</Text><Text style={styles.statLabel}>TEMPO</Text></View>
-        <View><Text style={styles.statValue}>{stats.pace}</Text><Text style={styles.statLabel}>RITMO</Text></View>
-        <View><Text style={styles.statValue}>{stats.elevation}</Text><Text style={styles.statLabel}>ELEVAÇÃO</Text></View>
+        <View><Text style={[styles.statValue, styles.tabular]}>{showLive ? formatDurationSec(live.elapsedSec) : stats.time}</Text><Text style={styles.statLabel}>TEMPO</Text></View>
+        <View><Text style={[styles.statValue, styles.tabular]}>{showLive ? paceText(live.paceSecondsKm) : stats.pace}</Text><Text style={styles.statLabel}>RITMO</Text></View>
+        <View><Text style={[styles.statValue, styles.tabular]}>{showLive ? (live.heartRate != null ? `${live.heartRate} bpm` : '--') : avgHr != null ? `${avgHr} bpm` : '--'}</Text><Text style={styles.statLabel}>FC</Text></View>
       </View>
       {sourceLine(route) ? <Text style={styles.attribution}>{sourceLine(route)}</Text> : null}
       {!running ? (
@@ -204,6 +218,7 @@ const styles = StyleSheet.create({
   mapWrap: { borderRadius: 16, overflow: 'hidden' },
   stats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   statValue: { color: '#FFFFFF', fontSize: 18, fontWeight: '800' },
+  tabular: { fontVariant: ['tabular-nums'] },
   statLabel: { color: '#94A3B8', fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
   attribution: { color: '#CBD5E1', fontSize: 11, fontWeight: '700', letterSpacing: 1, marginTop: 2 },
   replay: { flex: 1, backgroundColor: NAVY, padding: 22, gap: 12 },

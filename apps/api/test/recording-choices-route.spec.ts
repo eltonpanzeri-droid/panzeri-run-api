@@ -68,7 +68,15 @@ describe('percurso para mapa e cartao', () => {
       { offsetSec: 0, latitude: null, longitude: null, elevationMeters: null }, { offsetSec: 1, latitude: 0, longitude: 0, elevationMeters: null }, { offsetSec: 2, latitude: 95, longitude: 10, elevationMeters: null },
       { offsetSec: 3, latitude: -19.9, longitude: -43.9, elevationMeters: Number.NaN }, { offsetSec: 4, latitude: -19.91, longitude: -43.9, elevationMeters: 812.34 },
     ]);
-    expect(out).toEqual([{ t: 3, lat: -19.9, lon: -43.9, alt: null }, { t: 4, lat: -19.91, lon: -43.9, alt: 812.3 }]);
+    expect(out).toEqual([{ t: 3, lat: -19.9, lon: -43.9, alt: null, hr: null, d: null }, { t: 4, lat: -19.91, lon: -43.9, alt: 812.3, hr: null, d: null }]);
+  });
+  it('leva a frequencia cardiaca e a distancia acumulada do ponto quando existem; FC fora do possivel vira nula', () => {
+    const out = simplifyRoute([
+      { offsetSec: 0, latitude: -19.9, longitude: -43.9, elevationMeters: null, heartRateBpm: 142.4, distanceMeters: 0 },
+      { offsetSec: 5, latitude: -19.91, longitude: -43.9, elevationMeters: null, heartRateBpm: 0, distanceMeters: 20.6 },
+      { offsetSec: 9, latitude: -19.92, longitude: -43.9, elevationMeters: null, heartRateBpm: 999, distanceMeters: -5 },
+    ]);
+    expect(out.map((p) => [p.hr, p.d])).toEqual([[142, 0], [null, 21], [null, null]]);
   });
 
   function service(log: Record<string, unknown> | null, points: unknown[] = []) {

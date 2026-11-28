@@ -18,7 +18,7 @@ export function NativeMap({ points, drawn, marker, height, lineColor, onReady }:
     <View style={{ height, borderRadius: 16, overflow: 'hidden' }} pointerEvents="none" collapsable={false}>
       <MapView
         ref={ref} style={StyleSheet.absoluteFill} mapType="standard" userInterfaceStyle="dark" scrollEnabled={false} zoomEnabled={false} rotateEnabled={false} pitchEnabled={false} toolbarEnabled={false}
-        showsUserLocation={false} onMapReady={fit} onMapLoaded={() => { fit(); setTimeout(() => onReady?.(), 500); }}
+        showsUserLocation={false} onMapReady={() => { fit(); setTimeout(() => onReady?.(), 1500); }} onMapLoaded={() => { fit(); setTimeout(() => onReady?.(), 500); }}
         initialRegion={{ latitude: coordinates[0].latitude, longitude: coordinates[0].longitude, latitudeDelta: 0.02, longitudeDelta: 0.02 }}
       >
         <Polyline coordinates={drawnCoordinates} strokeColor={lineColor} strokeWidth={5} lineCap="round" lineJoin="round" />

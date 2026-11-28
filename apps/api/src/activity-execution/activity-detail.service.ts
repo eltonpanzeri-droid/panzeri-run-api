@@ -74,7 +74,7 @@ export class ActivityDetailService {
       ? await this.prisma.activityTimeSeriesPoint.findMany({
           where: { activityLogId, normalizationVersion: NORMALIZATION_VERSION, latitude: { not: null }, longitude: { not: null } },
           orderBy: { offsetSec: 'asc' },
-          select: { offsetSec: true, latitude: true, longitude: true, elevationMeters: true },
+          select: { offsetSec: true, latitude: true, longitude: true, elevationMeters: true, heartRateBpm: true, distanceMeters: true },
         })
       : [];
     const distanceKm = log.distanceMeters != null ? log.distanceMeters / 1000 : null;
